@@ -489,7 +489,7 @@ class WorkshopEstimateAndQualityIntegrationTest {
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT));
 
-    assertThat(workshop.listAppointments(fixture.owner(), 0, 25, null).items())
+    assertThat(workshop.listAppointments(fixture.owner(), 0, 25, null, null).items())
         .extracting(ServiceOperationsService.AppointmentView::publicId)
         .containsExactly(first.publicId());
   }
