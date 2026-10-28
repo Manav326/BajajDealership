@@ -81,7 +81,7 @@ public class SalesTransactionController {
   }
 
   @PostMapping("/invoices/{invoicePublicId}/payments")
-  @PreAuthorize("hasAuthority('finance.payment.reverse')")
+  @PreAuthorize("hasAuthority('finance.payment')")
   public SalesTransactionService.SalePaymentView recordPayment(
       @AuthenticationPrincipal StaffPrincipal principal,
       @PathVariable UUID invoicePublicId,
@@ -92,7 +92,7 @@ public class SalesTransactionController {
   }
 
   @PostMapping("/payments/{paymentPublicId}/reverse")
-  @PreAuthorize("hasAuthority('finance.payment')")
+  @PreAuthorize("hasAuthority('finance.payment.reverse')")
   public SalesTransactionService.SalePaymentView reversePayment(
       @AuthenticationPrincipal StaffPrincipal principal,
       @PathVariable UUID paymentPublicId,

@@ -97,6 +97,24 @@ class SalesTransactionControllerSecurityTest {
   }
 
   @Test
+  void reversalPermissionDoesNotGrantPaymentRecording() throws Exception {
+    mvc.perform(post("/api/v1/admin/sales/invoices/{publicId}/payments", UUID.randomUUID())
+            .with(user("reversal-only")
+                .authorities(new SimpleGrantedAuthority("finance.payment.reverse")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "idempotencyKey":"security-test-payment-reversal-only",
+                  "paymentMethod":"CASH",
+                  "amount":1.00,
+                  "paymentReference":null,
+                  "note":"Authorization boundary test"
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void financePaymentPermissionDoesNotGrantSalesPaymentReversal() throws Exception {
     mvc.perform(post("/api/v1/admin/sales/payments/{publicId}/reverse", UUID.randomUUID())
             .with(user("cashier")
