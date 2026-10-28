@@ -11,6 +11,7 @@ import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 import StaffDirectoryWorkspace from './staff/StaffDirectoryWorkspace';
 import BillingWorkspace from './finance/BillingWorkspace';
+import FinanceReportsWorkspace from './finance/FinanceReportsWorkspace';
 
 type ApiHealth = {
   status: string;
@@ -285,6 +286,8 @@ function App() {
             <SparePartsWorkspace token={token} staff={staff} />
           ) : activePage === 'Workshop' ? (
             <WorkshopWorkspace token={token} staff={staff} />
+          ) : activePage === 'Reports' ? (
+            <FinanceReportsWorkspace token={token} permissions={staff.permissions} />
           ) : activePage === 'Billing & expenses' ? (
             <BillingWorkspace token={token} permissions={staff.permissions} />
           ) : activePage === 'Team & access' ? (

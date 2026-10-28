@@ -28,6 +28,38 @@ class FinanceControllerSecurityTest {
   }
 
   @Test
+  void financeReadDoesNotGrantDailyClosing() throws Exception {
+    mvc.perform(post("/api/v1/admin/finance/daily-close")
+            .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "businessDate":"2026-10-28",
+                  "openingBalances":{"cash":0,"upi":0,"bankTransfer":0,"card":0,"other":0},
+                  "countedClosing":{"cash":0,"upi":0,"bankTransfer":0,"card":0,"other":0},
+                  "notes":null
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void financeReadDoesNotGrantReportsPermission() throws Exception {
+    mvc.perform(get("/api/v1/admin/finance/reports/daily")
+            .param("fromDate","2026-10-01").param("toDate","2026-10-28")
+            .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read"))))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void closeAndReportReadsRequireAuthentication() throws Exception {
+    mvc.perform(get("/api/v1/admin/finance/daily-close/preview").param("businessDate","2026-10-28"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/admin/finance/reports/daily").param("fromDate","2026-10-01").param("toDate","2026-10-28"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   void financeReadDoesNotGrantExpenseCreation() throws Exception {
     mvc.perform(post("/api/v1/admin/finance/expenses")
             .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))
