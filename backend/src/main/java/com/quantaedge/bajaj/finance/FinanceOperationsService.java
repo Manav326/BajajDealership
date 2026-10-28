@@ -864,14 +864,6 @@ public class FinanceOperationsService {
     }
   }
 
-  private static Instant instant(Object raw) {
-    if (raw == null) return null;
-    if (raw instanceof Timestamp value) return value.toInstant();
-    if (raw instanceof java.time.OffsetDateTime value) return value.toInstant();
-    if (raw instanceof Instant value) return value;
-    throw new IllegalStateException("Unexpected timestamp type returned from PostgreSQL.");
-  }
-
   private static final RowMapper<TaxCodeView> TAX_CODE_ROW_MAPPER = (rs, rowNum) -> new TaxCodeView(
       rs.getObject("public_id", UUID.class), rs.getString("code"), rs.getString("description"),
       rs.getString("hsn_sac_code"), rs.getString("supply_type"), rs.getBigDecimal("gst_rate"),
