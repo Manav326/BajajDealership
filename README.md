@@ -231,31 +231,72 @@ Every CI run on `main` (and pull requests targeting `main`) validates the backen
 
 Artifacts are retained for 14 days. The web artifacts are static files, not hosted URLs; deploy their contents to HTTPS hosting to make them public. The Android artifact is a debug APK, not a Play Store-signed release. Android defaults to the mPAY-style physical-device LAN address `http://192.168.31.47:8080/`; that address must serve the BajajDealership API, not mPAY's own service. Override it with the Actions repository variable `BAJAJ_API_BASE_URL` (or `EXPO_PUBLIC_API_BASE_URL` for local builds). For an Android emulator, use `http://10.0.2.2:8080/`; production must use the deployed Bajaj API's HTTPS URL.
 
-## Local development
+## Local development — one command
 
-Requirements: Java 21, Maven, Node.js 24+, npm, Docker with Compose.
+The supported local workflow is Docker Compose. You do not need to install Java, Maven, PostgreSQL, or Node.js on the host to run the backend and websites; Docker builds the services and starts them together.
 
-1. Start the local PostgreSQL instance:
+### Windows (PowerShell)
 
-   ```sh
-   docker compose up -d postgres
-   ```
+From the repository root:
 
-2. Run the backend:
+```powershell
+git pull origin main
+.\scripts\start.ps1
+```
 
-   ```sh
-   mvn -f backend/pom.xml spring-boot:run
-   ```
+If Windows blocks local script execution, run:
 
-3. Run the web client in another terminal:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
 
-   ```sh
-   cd apps/web
-   npm install
-   npm run dev
-   ```
+### macOS / Linux
 
-The web dev server runs on port 3000 and proxies `/api` to the Spring Boot API on port 8080.
+```sh
+git pull origin main
+sh ./scripts/start.sh
+```
+
+The script validates the Compose configuration, builds the Spring Boot API and both React websites, starts PostgreSQL, waits for the API and websites to respond, and prints the service status. The first run generates a private ignored `.env` with local settings and a random one-time owner bootstrap token. Keep that token private and remove `APP_BOOTSTRAP_TOKEN` from `.env` after initial owner setup.
+
+### Local URLs
+
+| Service | Address |
+|---|---|
+| Customer website | http://localhost:3000 |
+| Staff / owner portal | http://localhost:3001 |
+| Spring Boot API | http://localhost:8080 |
+| API health | http://localhost:8080/actuator/health |
+| PostgreSQL | localhost:5432 |
+
+Both websites forward `/api/` requests to the shared Spring Boot API inside Docker. This keeps browser requests same-origin and avoids needing a separate CORS configuration for local development. Port defaults can be changed in the ignored root `.env`.
+
+To stop the containers without deleting database or private-media data, run `.\scripts\stop.ps1` on Windows or `docker compose -f compose.yaml down` on macOS/Linux. Do **not** append `-v` unless intentionally deleting local data. Useful commands:
+
+```sh
+docker compose -f compose.yaml ps
+docker compose -f compose.yaml logs -f api
+docker compose -f compose.yaml logs -f customer-web staff-web
+```
+
+To rebuild Docker images without the build cache on Windows, run `.\scripts\start.ps1 -Rebuild`.
+
+### Android API address (mPAY-style)
+
+The Android app uses `EXPO_PUBLIC_API_BASE_URL`, matching mPAY's Gradle/environment configuration convention. On startup, the helper creates `apps/android/.env` for the physical-device API URL using the computer's detected LAN IP, for example `http://192.168.31.47:8080/`. That URL must serve **this BajajDealership API**, not the mPAY service.
+
+- **Physical phone:** connect the phone and development computer to the same Wi-Fi and use `http://<computer-LAN-IP>:8080/`. Allow inbound port 8080 through the computer's firewall if required.
+- **Android Studio emulator:** set `BAJAJ_ANDROID_API_BASE_URL=http://10.0.2.2:8080/` before running the startup script, or update `apps/android/.env`.
+- **Override:** set `BAJAJ_ANDROID_API_BASE_URL` before starting the stack; the helper writes the selected value to the ignored Android `.env` so Expo includes it in the next build.
+
+The Android app itself is not a Docker service. It runs in an emulator/device; CI builds an installable Android debug APK artifact. A local API URL or APK build does not mean the API is publicly hosted.
+
+### Local setup notes
+
+- The root `.env.example` documents override variables; the startup script creates the ignored `.env` as needed.
+- `scripts/stop.ps1` and `docker compose down` preserve named database and media volumes. Do not use `docker compose down -v` for normal stopping.
+- These credentials and defaults are for a development machine only. Do not expose this Compose stack to the public internet or reuse its database credentials in production.
+- The separate manual Vite workflow remains available if you intentionally want hot-reload development, but Docker Compose is the default workflow for bringing up the complete stack.
 
 ### Initial owner bootstrap
 
