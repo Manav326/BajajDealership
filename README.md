@@ -51,9 +51,13 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 
 ## Public preview deployment
 
-A Render Blueprint is prepared at `render.yaml` for the staff portal, customer website, Spring Boot API and PostgreSQL. The frontend clients now accept `VITE_API_BASE_URL`, and the API has an explicit CORS allowlist for the two deployed frontend origins.
+The Render preview is deployed. Current public URLs (provided by the dealership owner):
 
-**The preview is configured in code but is not live yet.** Connect `Manav326/BajajDealership` to Render using **New → Blueprint** and deploy the root `render.yaml`. The actual public URLs are assigned by Render after resource creation; they cannot be claimed before that deployment exists. Follow `docs/DEPLOY_PREVIEW.md` for the one-time owner bootstrap and safe configuration.
+- **Staff web portal:** https://lucky-bajaj-staff-web.onrender.com/
+- **Customer website:** https://lucky-bajaj-customer-web.onrender.com/
+- **Spring Boot API:** https://lucky-bajaj-api.onrender.com
+
+Both React sites use `VITE_API_BASE_URL`; the Render Blueprint binds them to the API service and configures the API CORS allowlist for the two site origins. The Android app and CI APK now default to the deployed API URL above. Local device/emulator development can override `EXPO_PUBLIC_API_BASE_URL` or the Actions variable `BAJAJ_API_BASE_URL`. See `docs/DEPLOY_PREVIEW.md` for bootstrap, recovery and safety guidance.
 
 The Blueprint uses free preview resources only. Do not enter production customer or financial data: the free PostgreSQL database expires after 30 days, free API instances can sleep, and notification media on the container filesystem is not durable. Production hosting needs an appropriately sized paid database with backups and durable private media storage.
 
@@ -76,7 +80,7 @@ The Blueprint uses free preview resources only. Do not enter production customer
 - Workshop is partially complete: intake, inspection, estimate/decision evidence, assignment, work/quality gates, operational invoice/receipt records and paid/acknowledged handover exist. Spare-parts catalogue/receipts/ledger, job-card reservation/issue/return/release, per-SKU reorder policies and low-stock alerts are implemented. Estimate revisions can link same-job reservations and freeze reserved/issued/returned/released quantities plus a unit-cost snapshot, separately from customer price; part issue requires a matching approved estimate, return/release makes an old snapshot stale until a revision is approved, and invoice creation rejects stale part quantities. The previous approved revision remains auditable and is superseded only when a replacement is approved. PostgreSQL integration tests cover same-SKU concurrent reservations, receipt idempotency/weighted cost, released quantities, low-stock calculations and stale estimate quantities. Remaining work includes deeper concurrency testing across receipt/issue/return, customer-facing estimate approval, richer mechanic work entries, refunds/credit notes, financial reconciliation, tax-compliant GST/e-invoicing, and external payment-provider verification.
 - Spare-parts catalogue, supplier receipts, weighted-average cost, stock ledger, job-card reservation/issue/return/release, reorder policy and low-stock alerts are implemented. Broader cross-workflow concurrency, failure-recovery and financial reconciliation tests remain.
 - Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
-- Production deployment of the staff portal/customer website and a signed Android release. CI artifacts are test builds, not public hosting or Play Store releases.
+- Production hardening and acceptance for the deployed preview, plus a signed Android release. The three URLs above are the current public preview deployment; CI web/APK artifacts remain separate build outputs and do not constitute a Play Store release.
 - Android Firebase Cloud Messaging delivery configuration and end-to-end proof of real push delivery.
 - SMS, WhatsApp Business and email provider integrations, templates, consent/process verification and provider billing.
 - Approved Bajaj/OEM APIs or official dealer integrations. No code may imply warranty/coupon/claim/inventory records were submitted to Bajaj unless an authorised integration confirms it.
@@ -237,7 +241,7 @@ Every CI run on `main` (and pull requests targeting `main`) validates the backen
 - `customer-portal-web-<commit>` — compiled customer website in `dist/`.
 - `lucky-bajaj-android-debug-apk-<commit>` — installable Android debug APK.
 
-Artifacts are retained for 14 days. The web artifacts are static files, not hosted URLs; deploy their contents to HTTPS hosting to make them public. The Android artifact is a debug APK, not a Play Store-signed release. Android defaults to the mPAY-style physical-device LAN address `http://192.168.31.47:8080/`; that address must serve the BajajDealership API, not mPAY's own service. Override it with the Actions repository variable `BAJAJ_API_BASE_URL` (or `EXPO_PUBLIC_API_BASE_URL` for local builds). For an Android emulator, use `http://10.0.2.2:8080/`; production must use the deployed Bajaj API's HTTPS URL.
+Artifacts are retained for 14 days. The web artifacts are static build files, separate from the live preview links above. The Android artifact is a debug APK, not a Play Store-signed release, and defaults to `https://lucky-bajaj-api.onrender.com/`. Override `BAJAJ_API_BASE_URL` in Actions or `EXPO_PUBLIC_API_BASE_URL` for local development; use `http://192.168.31.47:8080/` for a physical phone on the mPAY-style LAN setup and `http://10.0.2.2:8080/` for an Android Studio emulator. A local URL must serve the BajajDealership API, not mPAY's backend.
 
 ## Local development — one command
 
