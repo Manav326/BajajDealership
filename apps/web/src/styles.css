@@ -1847,7 +1847,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 
 
 /* Mobile Liquid Glass navigation drawer */
-.mobile-nav-toggle,.mobile-nav-backdrop { display: none; }
+.mobile-nav-toggle,.mobile-nav-backdrop,.mobile-drawer-close { display: none; }
 @media (max-width: 560px) {
   .app-shell { min-width: 320px; }
   .sidebar {
@@ -1876,6 +1876,23 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   }
   .sidebar.mobile-open { transform: translateX(0); }
   .brand-lockup { justify-content: flex-start; padding: 0 8px 23px; }
+  .mobile-drawer-close {
+    display: grid;
+    place-items: center;
+    flex: 0 0 33px;
+    width: 33px;
+    height: 33px;
+    margin-left: auto;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,.22);
+    border-radius: 11px;
+    color: #f4f7fc;
+    background: rgba(255,255,255,.09);
+    box-shadow: inset 0 1px rgba(255,255,255,.13);
+    font-size: 21px;
+    line-height: 1;
+  }
+  .mobile-drawer-close:hover { background: rgba(255,255,255,.16); }
   .brand-copy,.agency-copy,.switcher-dots,.nav-label,.support-copy { display: block; }
   .brand-copy { min-width: 0; }
   .agency-switcher { justify-content: flex-start; padding: 10px 11px; gap: 10px; }
