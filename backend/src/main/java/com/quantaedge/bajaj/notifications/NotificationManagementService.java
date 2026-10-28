@@ -629,7 +629,19 @@ public class NotificationManagementService {
           actor.dealershipId()));
     }
     Set<String> selected = selectedRecipientKeys(filter);
-    if (!selected.isEmpty()) {
+    String selectionMode = filter.path("selectionMode").asText("ALL");
+    if (!"ALL".equals(selectionMode) && !"SELECTED".equals(selectionMode)) {
+      throw badRequest("Recipient selection mode must be ALL or SELECTED.");
+    }
+    if ("SELECTED".equals(selectionMode)) {
+      if (selected.isEmpty()) {
+        throw badRequest("Choose at least one recipient for a selected-recipient campaign.");
+      }
+      Set<String> eligibleKeys = new LinkedHashSet<>();
+      result.forEach(candidate -> eligibleKeys.add(candidate.key()));
+      if (!eligibleKeys.containsAll(selected)) {
+        throw badRequest("One or more selected recipients are no longer eligible for this campaign.");
+      }
       result.removeIf(candidate -> !selected.contains(candidate.key()));
     }
     if (result.size() > MAX_RECIPIENTS) {
@@ -663,6 +675,11 @@ public class NotificationManagementService {
       throw badRequest("Marketing campaigns can only target customers with recorded consent.");
     }
     filter.put("marketingOnly", marketingOnly);
+    String selectionMode = raw == null ? "ALL" : raw.path("selectionMode").asText("ALL").trim().toUpperCase(Locale.ROOT);
+    if (!"ALL".equals(selectionMode) && !"SELECTED".equals(selectionMode)) {
+      throw badRequest("Recipient selection mode must be ALL or SELECTED.");
+    }
+    filter.put("selectionMode", selectionMode);
 
     ArrayNode exclusions = mapper.createArrayNode();
     JsonNode rawExclusions = raw == null ? null : raw.path("excludedRecipients");
