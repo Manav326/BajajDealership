@@ -23,8 +23,16 @@ type Appointment = {
   source: string; status: string; statusReason: string | null; checkedInAt: string | null;
   createdAt: string; updatedAt: string;
 };
+type CustomerNotification = {
+  recipientPublicId: string; campaignPublicId: string; title: string; summary: string;
+  contentDocumentJson: string; senderName: string; status: string; createdAt: string; readAt: string | null;
+};
+type NotificationPage = {
+  items: CustomerNotification[]; page: number; pageSize: number; total: number; unreadCount: number;
+};
+
 type AuthMode = 'login' | 'activate';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments';
+type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications';
 
 const SESSION_KEY = 'qe_customer_portal_token';
 
@@ -86,6 +94,9 @@ export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [history, setHistory] = useState<ServiceHistory[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [notificationPage, setNotificationPage] = useState<NotificationPage>({
+    items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0,
+  });
   const [loginForm, setLoginForm] = useState({ dealershipCode: '', customerCode: '', password: '' });
   const [activationForm, setActivationForm] = useState({ activationToken: '', password: '', confirmPassword: '' });
   const [appointmentForm, setAppointmentForm] = useState({
@@ -101,6 +112,7 @@ export default function App() {
     setVehicles([]);
     setHistory([]);
     setAppointments([]);
+    setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
   }, []);
 
@@ -108,16 +120,18 @@ export default function App() {
     setLoadingData(true);
     setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
         api<Appointment[]>('/api/v1/customer/appointments', sessionToken),
+        api<NotificationPage>('/api/v1/customer/notifications?page=0&pageSize=50', sessionToken),
       ]);
       setCustomer(profile);
       setVehicles(ownedVehicles);
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
+      setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
         vehiclePublicId: current.vehiclePublicId && ownedVehicles.some((vehicle) => vehicle.publicId === current.vehiclePublicId)
@@ -199,6 +213,63 @@ export default function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
     } finally { setSaving(false); }
+  }
+
+  async function updateNotification(item: CustomerNotification, action: 'read' | 'unread' | 'dismiss') {
+    setError(''); setSuccess('');
+    try {
+      await api<unknown>(
+        `/api/v1/customer/notifications/${item.recipientPublicId}/${action}`, token, { method: 'POST' });
+      const refreshed = await api<NotificationPage>(
+        '/api/v1/customer/notifications?page=0&pageSize=50', token);
+      setNotificationPage(refreshed);
+      setSuccess(action === 'dismiss'
+        ? 'Notification dismissed from your inbox.'
+        : action === 'read' ? 'Notification marked as read.' : 'Notification marked as unread.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Notification could not be updated.');
+    }
+  }
+
+  function renderNotificationContent(raw: string) {
+    let blocks: Array<Record<string, unknown>> = [];
+    try {
+      const parsed = JSON.parse(raw) as { blocks?: unknown };
+      if (Array.isArray(parsed.blocks)) {
+        blocks = parsed.blocks.filter((block): block is Record<string, unknown> =>
+          typeof block === 'object' && block !== null && 'type' in block);
+      }
+    } catch {
+      return <p className="notification-content-text">This update contains a message from the dealership.</p>;
+    }
+    return <div className="notification-content-blocks">
+      {blocks.map((block, index) => {
+        const type = String(block.type ?? '');
+        const textField = (key: string) => typeof block[key] === 'string' ? String(block[key]) : '';
+        if (type === 'hero') return <div className="notification-content-hero" key={index}>
+          {textField('eyebrow') && <span>{textField('eyebrow')}</span>}
+          {textField('title') && <strong>{textField('title')}</strong>}
+          {textField('subtitle') && <p>{textField('subtitle')}</p>}
+        </div>;
+        if (type === 'richText') return textField('text') ? <p className="notification-content-text" key={index}>{textField('text')}</p> : null;
+        if (type === 'serviceCard' || type === 'vehicleCard') return <div className="notification-content-card" key={index}>
+          {textField('title') && <strong>{textField('title')}</strong>}
+          {textField('description') && <p>{textField('description')}</p>}
+        </div>;
+        if (type === 'highlight') return <div className="notification-content-highlight" key={index}>
+          <span>{textField('label')}</span><strong>{textField('value')}</strong>{textField('description') && <p>{textField('description')}</p>}
+        </div>;
+        if (type === 'badge') return <span className="notification-content-badge" key={index}>{textField('text') || 'Dealership update'}</span>;
+        if (type === 'icon') return <div className="notification-content-card" key={index}>
+          <strong>{[textField('icon'), textField('title')].filter(Boolean).join(' ')}</strong>
+          {textField('text') && <p>{textField('text')}</p>}
+        </div>;
+        if (type === 'image') return <div className="notification-content-image-note" key={index}>{textField('caption') || textField('alt') || 'Image included in dealership update'}</div>;
+        if (type === 'footer') return textField('text') ? <p className="notification-content-footer" key={index}>{textField('text')}</p> : null;
+        if (type === 'divider') return <div className="notification-content-divider" key={index} />;
+        return null;
+      })}
+    </div>;
   }
 
   async function logout() {
