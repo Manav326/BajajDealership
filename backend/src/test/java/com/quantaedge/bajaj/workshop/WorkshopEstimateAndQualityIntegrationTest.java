@@ -169,8 +169,7 @@ class WorkshopEstimateAndQualityIntegrationTest {
     assertThat(partial.invoice().paidAmount()).isEqualByComparingTo("200.00");
     assertThat(partial.invoice().balanceDue()).isEqualByComparingTo("800.00");
     var replay = workshop.recordPayment(fixture.owner(), invoice.publicId(),
-        new ServiceOperationsService.PaymentRequest(partial.payment().receiptNumber().startsWith("never")
-            ? "unreachable" : paymentKeyForReceipt(fixture, invoice, partial), "UPI",
+        new ServiceOperationsService.PaymentRequest(paymentKeyForReceipt(fixture, partial), "UPI",
             new BigDecimal("200.00"), "UPI-REF-200", "Part payment"));
     assertThat(replay.idempotentReplay()).isTrue();
     assertThat(replay.payment().publicId()).isEqualTo(partial.payment().publicId());
@@ -264,8 +263,7 @@ class WorkshopEstimateAndQualityIntegrationTest {
         .containsExactly(first.payment().publicId());
   }
 
-  private String paymentKeyForReceipt(
-      Fixture fixture, ServiceOperationsService.InvoiceView invoice, ServiceOperationsService.PaymentResult result) {
+  private String paymentKeyForReceipt(Fixture fixture, ServiceOperationsService.PaymentResult result) {
     return jdbc.queryForObject("""
         select idempotency_key from service_payment
         where dealership_id = ? and public_id = ?
