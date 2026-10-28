@@ -1936,3 +1936,41 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .mobile-nav-backdrop { animation: none !important; }
 }
 @keyframes glass-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+
+/* Mobile drawer: retain accessible contrast without transparency or color assumptions. */
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-nav-backdrop {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(14,27,47,.52);
+  }
+  .mobile-nav-toggle {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: #fff;
+  }
+}
+@media (forced-colors: active) {
+  .mobile-nav-backdrop {
+    background: Canvas;
+    opacity: .72;
+    border: 1px solid CanvasText;
+  }
+  .sidebar {
+    background: Canvas;
+    color: CanvasText;
+    border-right: 1px solid CanvasText;
+    forced-color-adjust: auto;
+  }
+  .sidebar .brand-name,.sidebar .nav-item,.sidebar .nav-label,
+  .sidebar .agency-copy strong,.sidebar .support-copy strong {
+    color: CanvasText;
+  }
+  .sidebar .nav-item.active {
+    background: SelectedItem;
+    color: SelectedItemText;
+    border: 1px solid Highlight;
+    box-shadow: none;
+  }
+}
