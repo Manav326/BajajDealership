@@ -415,6 +415,28 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
       setAssignments(currentAssignments);
       setEstimates(currentEstimates);
       await loadPartReservations(publicId);
+      if (card.status === 'APPROVED' || card.status === 'IN_PROGRESS') {
+        const activeEstimate = currentEstimates.find((estimate) => estimate.status === 'APPROVED');
+        if (activeEstimate) {
+          setEstimateLines(activeEstimate.lines.map((line) => ({
+            lineType: line.lineType,
+            description: line.description,
+            quantity: String(line.quantity),
+            unitPrice: String(line.unitPrice),
+            reservationPublicId: line.sourceReservationPublicId ?? '',
+          })));
+          setEstimateDiscount(String(activeEstimate.discountAmount));
+          setEstimateMessage(activeEstimate.customerMessage ?? '');
+        } else {
+          setEstimateLines([{ lineType: 'PART', description: '', quantity: '1', unitPrice: '', reservationPublicId: '' }]);
+          setEstimateDiscount('0');
+          setEstimateMessage('');
+        }
+      } else if (card.status === 'ESTIMATE_PENDING') {
+        setEstimateLines([{ lineType: 'PART', description: '', quantity: '1', unitPrice: '', reservationPublicId: '' }]);
+        setEstimateDiscount('0');
+        setEstimateMessage('');
+      }
       setQualityDraft({
         brakesOk: false, lightsOk: false, hornOk: false, noVisibleLeaks: false,
         roadTestOk: false, toolsRemoved: false, customerConcernResolved: false, notes: '',
