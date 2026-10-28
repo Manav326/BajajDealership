@@ -61,12 +61,24 @@ jobs:
         working-directory: apps/web
         run: npm run build
       - name: Upload staff portal website
+        id: upload-staff-web
         uses: actions/upload-artifact@v4
         with:
           name: staff-portal-web-${{ github.sha }}
           path: apps/web/dist/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Add staff portal download to build summary
+        if: success()
+        env:
+          ARTIFACT_URL: ${{ steps.upload-staff-web.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Staff web portal"
+            echo "- [Download the built staff portal files]($ARTIFACT_URL)"
+            echo "- Contents: Vite production files from `apps/web/dist/` (static files; not a live hosted URL)."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install customer portal dependencies
         working-directory: apps/customer-web
@@ -75,6 +87,7 @@ jobs:
         working-directory: apps/customer-web
         run: npm run build
       - name: Upload customer portal website
+        id: upload-customer-web
         uses: actions/upload-artifact@v4
         with:
           name: customer-portal-web-${{ github.sha }}
@@ -82,11 +95,24 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Add customer website download to build summary
+        if: success()
+        env:
+          ARTIFACT_URL: ${{ steps.upload-customer-web.outputs.artifact-url }}
+        run: |
+          {
+            echo "### Customer website"
+            echo "- [Download the built customer website files]($ARTIFACT_URL)"
+            echo "- Contents: Vite production files from `apps/customer-web/dist/` (static files; not a live hosted URL)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   android:
     name: Build Lucky Bajaj Android APK
     runs-on: ubuntu-latest
+    # Match mPAY's local phone-over-Wi-Fi API configuration by default.
+    # Override the GitHub Actions repository variable BAJAJ_API_BASE_URL for another target.
     env:
-      EXPO_PUBLIC_API_BASE_URL: http://10.0.2.2:8080
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'http://192.168.31.47:8080/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
@@ -130,9 +156,23 @@ jobs:
         working-directory: apps/android/android
         run: ./gradlew assembleDebug --no-daemon
       - name: Upload installable debug APK
+        id: upload-android-apk
         uses: actions/upload-artifact@v4
         with:
           name: lucky-bajaj-android-debug-apk-${{ github.sha }}
           path: apps/android/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Add Android APK download to build summary
+        if: success()
+        env:
+          ARTIFACT_URL: ${{ steps.upload-android-apk.outputs.artifact-url }}
+          API_BASE_URL: ${{ env.EXPO_PUBLIC_API_BASE_URL }}
+        run: |
+          {
+            echo "### Lucky Bajaj Android app"
+            echo "- [Download the installable debug APK ZIP]($ARTIFACT_URL)"
+            echo "- API base compiled into this APK: `$API_BASE_URL`"
+            echo "- This is a debug build, not a signed Play Store release."
+          } >> "$GITHUB_STEP_SUMMARY"
