@@ -328,6 +328,15 @@ class WorkshopEstimateAndQualityIntegrationTest {
     var reservation = parts.reservePart(fixture.owner(), job.publicId(),
         new SparePartsService.ReservationRequest(
             part.publicId(), new BigDecimal("3.000"), "reserve-" + UUID.randomUUID(), "Planned for repair"));
+    var plannedRevision = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "PART", part.skuCode() + " — " + part.partName(),
+                new BigDecimal("3.000"), new BigDecimal("100.00"), reservation.publicId())
+        ), BigDecimal.ZERO, "Approve the planned part quantity before issue."));
+    workshop.recordEstimateDecision(fixture.owner(), job.publicId(), plannedRevision.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "PLANNED-" + UUID.randomUUID(), "Planned parts approved."));
     parts.issuePart(fixture.owner(), reservation.publicId(),
         new SparePartsService.QuantityOperationRequest(
             new BigDecimal("2.000"), "issue-" + UUID.randomUUID(), "Issued two filters to technician"));
@@ -360,7 +369,7 @@ class WorkshopEstimateAndQualityIntegrationTest {
                 "LABOUR", "Additional replacement labour", BigDecimal.ONE, new BigDecimal("150.00"))
         ), BigDecimal.ZERO, "Revision includes the reserved part line and additional labour."));
 
-    assertThat(revision.revision()).isEqualTo(2);
+    assertThat(revision.revision()).isEqualTo(3);
     assertThat(revision.status()).isEqualTo("AWAITING_CUSTOMER");
     assertThat(workshop.getJobCard(fixture.owner(), job.publicId()).status()).isEqualTo("AWAITING_APPROVAL");
     var partLine = revision.lines().stream()
@@ -386,10 +395,10 @@ class WorkshopEstimateAndQualityIntegrationTest {
     assertThat(approvedRevision.status()).isEqualTo("APPROVED");
     assertThat(workshop.getJobCard(fixture.owner(), job.publicId()).status()).isEqualTo("IN_PROGRESS");
     assertThat(workshop.listEstimates(fixture.owner(), job.publicId()))
-        .filteredOn(estimate -> estimate.publicId().equals(initial.publicId()))
-        .singleElement()
+        .filteredOn(estimate -> estimate.publicId().equals(initial.publicId())
+            || estimate.publicId().equals(plannedRevision.publicId()))
         .extracting(ServiceOperationsService.EstimateView::status)
-        .isEqualTo("SUPERSEDED");
+        .containsOnly("SUPERSEDED");
   }
 
   private ServiceOperationsService.JobCardView createInspectedJobCard(Fixture fixture) {
