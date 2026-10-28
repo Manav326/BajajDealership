@@ -240,8 +240,11 @@ public class ServiceOperationsController {
   public ServiceOperationsService.JobCardView deliverVehicle(
       @AuthenticationPrincipal StaffPrincipal principal,
       @PathVariable UUID publicId,
-      @Valid @RequestBody(required = false) NoteRequest request) {
-    return workshop.deliverVehicle(principal, publicId, request == null ? null : request.note());
+      @Valid @RequestBody DeliveryRequest request) {
+    return workshop.deliverVehicle(principal, publicId,
+        new ServiceOperationsService.DeliveryRequest(
+            request.deliveredToName(), request.customerAcknowledged(), request.acknowledgementMethod(),
+            request.acknowledgementReference(), request.note()));
   }
 
   @GetMapping("/job-cards/{publicId}/inspection")
@@ -329,7 +332,13 @@ public class ServiceOperationsController {
       @NotNull @DecimalMin(value = "0.01") @Digits(integer = 12, fraction = 2) BigDecimal amount,
       @Size(max = 160) String paymentReference,
       @Size(max = 1000) String note) {}
-  public record PaymentReversalRequest(
+  public record DeliveryRequest(
+      @NotBlank @Size(max = 160) String deliveredToName,
+      @NotNull Boolean customerAcknowledged,
+      @NotBlank @Pattern(regexp = "IN_PERSON|SIGNED_FORM|OTP_REFERENCE|WRITTEN_MESSAGE") String acknowledgementMethod,
+      @Size(max = 160) String acknowledgementReference,
+      @Size(max = 1000) String note) {}
+    public record PaymentReversalRequest(
       @NotBlank @Size(max = 500) String reason,
       @Size(max = 160) String externalReference) {}
     public record NoteRequest(@Size(max = 500) String note) {}
