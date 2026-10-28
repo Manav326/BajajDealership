@@ -178,6 +178,7 @@ class SparePartsServiceIntegrationTest {
     var partialReservation = parts.reservePart(fixture.owner(), fixture.jobCardPublicId(),
         new SparePartsService.ReservationRequest(
             part.publicId(), new BigDecimal("3.000"), "partial-reserve-" + UUID.randomUUID(), null));
+    approveReservationEstimate(fixture, partialReservation, "Approve the partial reservation before issuing it.");
     parts.issuePart(fixture.owner(), partialReservation.publicId(),
         new SparePartsService.QuantityOperationRequest(
             new BigDecimal("1.000"), "partial-issue-" + UUID.randomUUID(), null));
