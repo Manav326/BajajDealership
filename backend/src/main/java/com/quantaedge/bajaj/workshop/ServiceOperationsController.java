@@ -144,7 +144,7 @@ public class ServiceOperationsController {
       @Valid @RequestBody EstimateRequest request) {
     List<ServiceOperationsService.EstimateLineInput> lines = request.lines().stream()
         .map(line -> new ServiceOperationsService.EstimateLineInput(
-            line.lineType(), line.description(), line.quantity(), line.unitPrice()))
+            line.lineType(), line.description(), line.quantity(), line.unitPrice(), line.reservationPublicId()))
         .toList();
     return workshop.createEstimate(principal, publicId,
         new ServiceOperationsService.EstimateRequest(lines, request.discountAmount(), request.customerMessage()));
@@ -256,7 +256,8 @@ public class ServiceOperationsController {
       @NotBlank @Pattern(regexp = "PART|LABOUR|OTHER") String lineType,
       @NotBlank @Size(max = 300) String description,
       @NotNull @DecimalMin(value = "0.001") @Digits(integer = 9, fraction = 3) BigDecimal quantity,
-      @NotNull @DecimalMin(value = "0.00") @Digits(integer = 12, fraction = 2) BigDecimal unitPrice) {}
+      @NotNull @DecimalMin(value = "0.00") @Digits(integer = 12, fraction = 2) BigDecimal unitPrice,
+      UUID reservationPublicId) {}
   public record EstimateRequest(
       @NotNull @Size(min = 1, max = 100) List<@Valid EstimateLineRequest> lines,
       @DecimalMin(value = "0.00") @Digits(integer = 12, fraction = 2) BigDecimal discountAmount,
