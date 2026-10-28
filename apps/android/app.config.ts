@@ -20,8 +20,8 @@ const baseConfig: ExpoConfig = {
   },
 };
 
-// HTTP is allowed only for a build explicitly configured with a development URL.
-// Production builds should set EXPO_PUBLIC_API_BASE_URL to an HTTPS endpoint.
+// Permit cleartext only for a configured local-development URL; production must use HTTPS.
+// The LAN default mirrors mPAY's physical-device setup and must serve the Bajaj API.
 const withConfiguredCleartext = withAndroidManifest(baseConfig, (config) => {
   const application = config.modResults.manifest.application?.[0];
   if (application) {
