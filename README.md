@@ -38,6 +38,16 @@ This repository contains the implementation roadmap and application code for a d
 - Hosting: conventional HTTPS web/API hosting, private media storage, monitoring and tested backups
 - CI: GitHub Actions for backend/PostgreSQL migration tests and web typecheck/production build
 
+## UI visual direction — Liquid Glass
+
+The web application uses a restrained Liquid Glass treatment rather than flat white cards: translucent layered surfaces, subtle edge highlights, controlled backdrop blur, soft ambient gradients and shallow depth. The QuantaEdge/Bajaj orange accent remains for primary actions and important states; body text and form controls retain high contrast.
+
+- Shared shell: glassy top bar, dark translucent sidebar, layered page background and responsive navigation.
+- Workspace surfaces: overview metrics, workshop, spare-parts, sales and notification panels share the same surface/border/shadow language.
+- Interaction surfaces: sign-in card, Notification Studio, inbox, tabs, inputs and primary/secondary buttons follow the same visual system.
+- Accessibility and resilience: explicit focus-visible rings, readable opaque-enough input surfaces, reduced-motion handling and a non-backdrop-filter fallback.
+- New screens should reuse existing component classes and visual tokens instead of introducing unrelated card, border, shadow or button styles. Keep data tables, errors, consent notices and financial status labels readable; glass effects must not reduce legibility or imply a business status.
+
 ## Implementation status
 
 ### Implemented in the current foundation
