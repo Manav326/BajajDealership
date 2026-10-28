@@ -64,7 +64,7 @@ public class StaffAccessManagementService {
     List<String> roles = validateRoles(roleCodes);
 
     String token = createRandomToken();
-    String placeholderPassword = passwordEncoder.encode("pending-" + UUID.randomUUID() + "-" + createRandomToken());
+    String placeholderPassword = passwordEncoder.encode(createRandomToken());
     StaffIdentity staff;
     try {
       staff = jdbc.queryForObject("""
