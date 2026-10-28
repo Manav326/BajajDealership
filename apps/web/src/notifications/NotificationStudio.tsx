@@ -665,17 +665,22 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <p>{preview.message}</p>
                 <div className="preview-expiry">Preview expires {humanDate(preview.expiresAt)}. If the audience or content changes, create a fresh preview.</div>
                 <details className="preview-recipient-details"><summary>Review recipient sample ({Math.min(preview.recipients.length, 50)} shown)</summary>{preview.recipients.slice(0, 50).map((recipient) => <div className="preview-recipient" key={recipientKey(recipient)}><span>{recipient.recipientName}</span><small>{recipient.recipientKind}</small></div>)}</details>
+                <div className={approvedCampaignPublicId === preview.campaignPublicId ? 'campaign-approval-banner approved' : 'campaign-approval-banner'}>
+                  <div><strong>{approvedCampaignPublicId === preview.campaignPublicId ? '✓ Campaign approved' : 'Approval required'}</strong><span>{approvedCampaignPublicId === preview.campaignPublicId ? 'This preview is approved for sending or scheduling.' : 'An authorized approver must approve this exact preview before any delivery can be queued.'}</span></div>
+                  {approvedCampaignPublicId !== preview.campaignPublicId && canApprove && <button type="button" className="primary-button" onClick={() => void approveCampaign()} disabled={saving || sending || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{saving ? 'Approving…' : 'Approve campaign'}</button>}
+                  {approvedCampaignPublicId !== preview.campaignPublicId && !canApprove && <span className="approval-permission-note">Your role does not include approval.</span>}
+                </div>
               </div>}
               <form className="send-panel" onSubmit={sendCampaign}>
                 <h3>Send or schedule</h3>
-                <p>Only an unexpired server-issued preview can be accepted.</p>
+                <p>The server must record approval of the same unexpired preview before sending or scheduling.</p>
                 <label>Schedule for later <span className="optional-label">Optional</span><input type="datetime-local" value={scheduleValue} onChange={(event) => setScheduleValue(event.target.value)} /></label>
                 <label>Expiry time <span className="optional-label">Optional</span><input type="datetime-local" value={expiryValue} onChange={(event) => setExpiryValue(event.target.value)} /></label>
-                <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
+                <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
                 <div className="send-channel-note">{!canSend && <><strong>Send permission required:</strong> Your role can prepare previews but cannot send or schedule notifications yet. </>}<strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
               </form>
             </section>
-            <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign creation uses one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
+            <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign approval is audited, recipient changes invalidate approval, and sends use one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
           </aside>
         </div>
       )}
