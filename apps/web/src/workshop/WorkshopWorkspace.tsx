@@ -342,6 +342,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
 
   async function openJobCard(publicId: string) {
     setSelectedJobCardId(publicId);
+    setInvoice(null);
     setError('');
     try {
       const [card, items, currentAssignments, currentEstimates] = await Promise.all([
@@ -359,6 +360,22 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
         brakesOk: false, lightsOk: false, hornOk: false, noVisibleLeaks: false,
         roadTestOk: false, toolsRemoved: false, customerConcernResolved: false, notes: '',
       });
+      if (card.customerName && !deliveredToName.trim()) setDeliveredToName(card.customerName);
+      if (canReadInvoice && ['INVOICED', 'DELIVERED'].includes(card.status)) {
+        setLoadingInvoice(true);
+        try {
+          const currentInvoice = await request<Invoice>(
+            `/api/v1/admin/workshop/job-cards/${publicId}/invoice`, token);
+          setInvoice(currentInvoice);
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Invoice details could not be loaded.');
+        } finally {
+          setLoadingInvoice(false);
+        }
+      } else {
+        setInvoice(null);
+        setLoadingInvoice(false);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Job card details could not be loaded.');
     }
@@ -485,6 +502,118 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
       await Promise.all([loadJobCards(), openJobCard(updated.publicId)]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Quality check could not be recorded.');
+    } finally { setBusyId(''); }
+  }
+
+  async function issueInvoice() {
+    if (!selectedJobCard) return;
+    setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
+    try {
+      const issued = await request<Invoice>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/invoice`, token, {
+          method: 'POST',
+        });
+      setInvoice(issued);
+      const updatedCard = await request<JobCard>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}`, token);
+      setSelectedJobCard(updatedCard);
+      setMessage(`Operational invoice ${issued.invoiceNumber} issued. It is not a GST tax invoice.`);
+      await loadJobCards();
+      if (!deliveredToName.trim()) setDeliveredToName(issued.customerName);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Invoice could not be issued.');
+    } finally { setBusyId(''); }
+  }
+
+  async function recordInvoicePayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!invoice) return;
+    const amount = Number(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter a positive payment amount.');
+      return;
+    }
+    setBusyId(invoice.publicId); setError(''); setMessage('');
+    try {
+      const result = await request<PaymentResult>(
+        `/api/v1/admin/workshop/invoices/${invoice.publicId}/payments`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            idempotencyKey: paymentIdempotencyKey,
+            paymentMethod, amount,
+            paymentReference: paymentReference.trim() || null,
+            note: paymentNote.trim() || null,
+          }),
+        });
+      setInvoice(result.invoice);
+      setPaymentAmount('');
+      setPaymentReference('');
+      setPaymentNote('');
+      setPaymentIdempotencyKey(globalThis.crypto?.randomUUID?.()
+        ?? `qe-pay-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      setMessage(`${result.idempotentReplay ? 'Recovered existing' : 'Recorded'} receipt ${result.payment.receiptNumber}. Balance due: ₹${Number(result.invoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Payment could not be recorded.');
+      // Keep the same idempotency key after a network/unknown-outcome failure so retry cannot duplicate the receipt.
+    } finally { setBusyId(''); }
+  }
+
+  async function reverseInvoicePayment(payment: Payment) {
+    if (!invoice) return;
+    const reason = reversalReason.trim();
+    if (!reason) {
+      setError('Enter a reason before reversing a payment.');
+      return;
+    }
+    setBusyId(payment.publicId); setError(''); setMessage('');
+    try {
+      const result = await request<PaymentResult>(
+        `/api/v1/admin/workshop/payments/${payment.publicId}/reverse`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason,
+            externalReference: reversalReference.trim() || null,
+          }),
+        });
+      setInvoice(result.invoice);
+      setReversalReason('');
+      setReversalReference('');
+      setMessage(`Receipt ${result.payment.receiptNumber} is now ${result.payment.status.toLowerCase()}. Reversal reason retained in the audit trail.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Payment reversal could not be recorded.');
+    } finally { setBusyId(''); }
+  }
+
+  async function handoverVehicle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedJobCard || !invoice) return;
+    if (Number(invoice.balanceDue) !== 0) {
+      setError('The invoice must be fully settled before handover.');
+      return;
+    }
+    if (!deliveryAcknowledged) {
+      setError('Record customer acknowledgement before completing handover.');
+      return;
+    }
+    setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
+    try {
+      const delivered = await request<JobCard>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/deliver`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            deliveredToName: deliveredToName.trim(),
+            customerAcknowledged: deliveryAcknowledged,
+            acknowledgementMethod: deliveryMethod,
+            acknowledgementReference: deliveryReference.trim() || null,
+            note: deliveryNote.trim() || null,
+          }),
+        });
+      setSelectedJobCard(delivered);
+      setInvoice((current) => current ? { ...current, jobCardStatus: 'DELIVERED' } : current);
+      setMessage(`Vehicle handed over and acknowledgement recorded for ${delivered.jobCardCode}.`);
+      await loadJobCards();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Vehicle handover could not be completed.');
     } finally { setBusyId(''); }
   }
 
