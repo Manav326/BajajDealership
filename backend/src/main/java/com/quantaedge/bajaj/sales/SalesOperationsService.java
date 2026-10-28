@@ -246,7 +246,8 @@ public class SalesOperationsService {
     jdbc.update("""
         update sales_enquiry set next_follow_up_at = ?, updated_at = now()
         where dealership_id = ? and id = ?
-        """, request.followUpAt(), actor.dealershipId(), enquiryId);
+        """, request.followUpAt() == null ? null : Timestamp.from(request.followUpAt()),
+        actor.dealershipId(), enquiryId);
     addActivity(actor, enquiryId, "FOLLOW_UP_SET", status, status,
         note == null ? (request.followUpAt() == null ? "Follow-up cleared." : "Follow-up scheduled.")
             : note, request.followUpAt(), "SALES_ENQUIRY", publicId.toString());
