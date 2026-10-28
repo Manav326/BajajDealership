@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -320,7 +319,7 @@ export default function App() {
     }
   }
 
-  function onAppointmentDateChange(event: DateTimePickerEvent, date?: Date) {
+  function onAppointmentDateChange(_event: DateTimePickerEvent, date?: Date) {
     setShowDatePicker(Platform.OS === 'ios');
     if (date) setAppointmentDate((current) => {
       const next = new Date(current);
@@ -328,7 +327,7 @@ export default function App() {
       return next;
     });
   }
-  function onAppointmentTimeChange(event: DateTimePickerEvent, date?: Date) {
+  function onAppointmentTimeChange(_event: DateTimePickerEvent, date?: Date) {
     setShowTimePicker(Platform.OS === 'ios');
     if (date) setAppointmentDate((current) => {
       const next = new Date(current);
@@ -606,7 +605,7 @@ const styles = StyleSheet.create({
   factValue: { color: '#52627B', fontSize: 9, fontWeight: '700', lineHeight: 14 },
   timelineRow: { flexDirection: 'row', gap: 6 },
   invoiceBox: { marginTop: 12, padding: 12, backgroundColor: 'rgba(247,250,254,0.85)', borderWidth: 1, borderColor: '#E5EAF1', borderRadius: 12 },
-  invoiceTotal: { color: '#31415A', fontSize: 22, fontWeight: '800', marginBottom: 6 },
+
   muted: { color: '#8A96A7', fontSize: 10, lineHeight: 17, marginTop: 8 },
   screenHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16, marginTop: 5 },
   screenTitle: { color: '#293951', fontSize: 24, lineHeight: 29, letterSpacing: -0.7, fontWeight: '800' },
@@ -647,7 +646,7 @@ const styles = StyleSheet.create({
   inlineSuccess: { padding: 10, backgroundColor: '#EDF9F1', borderColor: '#CDEBD8', borderWidth: 1, borderRadius: 10, marginBottom: 10 },
   errorText: { color: '#B4433B', fontSize: 9, lineHeight: 16, marginTop: 5 },
   successText: { color: '#19784C', fontSize: 9, lineHeight: 16, marginTop: 5 },
-  securityNote: { color: '#8B96A8', fontSize: 8, lineHeight: 14, marginTop: 10 },
+
   invoiceTotal: { color: '#31415A', fontSize: 22, fontWeight: '800', marginBottom: 6 },
   bottomNote: { alignItems: 'center', paddingVertical: 18, gap: 5 },
   bottomNoteText: { color: '#96A1B0', fontSize: 7, letterSpacing: 1.1, fontWeight: '800', textAlign: 'center' },
