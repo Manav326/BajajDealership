@@ -195,7 +195,7 @@ class SalesTransactionServiceIntegrationTest {
     Long staffId = jdbc.queryForObject("""
         insert into staff_user(dealership_id, full_name, email, password_hash, status)
         values (?, 'Sale Test Owner', ?, 'test-hash-not-used', 'ACTIVE') returning id
-        """, Long.class, "sale-owner-" + unique.toLowerCase() + "@example.test");
+        """, Long.class, dealershipId, "sale-owner-" + unique.toLowerCase() + "@example.test");
     Long ownerRoleId = jdbc.queryForObject("select id from role where code='OWNER'", Long.class);
     jdbc.update("insert into staff_user_role(dealership_id, staff_user_id, role_id) values (?, ?, ?)",
         dealershipId, staffId, ownerRoleId);
