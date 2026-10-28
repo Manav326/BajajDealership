@@ -1,7 +1,7 @@
 import type { ExpoConfig } from 'expo/config';
 import { withAndroidManifest } from 'expo/config-plugins';
 
-const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.31.47:8080/').trim();
+const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/').trim();
 
 const baseConfig: ExpoConfig = {
   name: 'Lucky Bajaj',
@@ -21,7 +21,7 @@ const baseConfig: ExpoConfig = {
 };
 
 // Permit cleartext only for a configured local-development URL; production must use HTTPS.
-// The LAN default mirrors mPAY's physical-device setup and must serve the Bajaj API.
+// Default builds use the deployed Bajaj API. Override with the mPAY-style LAN URL only for local-device testing.
 const withConfiguredCleartext = withAndroidManifest(baseConfig, (config) => {
   const application = config.modResults.manifest.application?.[0];
   if (application) {
