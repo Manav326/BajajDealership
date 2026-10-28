@@ -622,7 +622,7 @@ public class NotificationManagementService {
           select u.id, u.public_id, u.full_name, u.dealership_id, d.name as dealership_name, d.code as dealership_code
           from staff_user u join dealership d on d.id = u.dealership_id
           where u.dealership_id = ? and u.status = 'ACTIVE'
-          order by lower(u.full_name), u.id limit """ + (MAX_RECIPIENTS + 1),
+          order by lower(u.full_name), u.id limit """ + " " + (MAX_RECIPIENTS + 1),
           (rs, rowNum) -> new RecipientCandidate("STAFF", rs.getLong("id"),
               rs.getObject("public_id", UUID.class), rs.getString("full_name"),
               rs.getLong("dealership_id"), rs.getString("dealership_name"), rs.getString("dealership_code")),
