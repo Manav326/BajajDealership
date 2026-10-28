@@ -494,3 +494,11 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .portal-logout { font-size: 10px; }
   .section-mark { font-size: 9px; }
 }
+
+
+/* Keep security labels and notification counts readable without resizing the brand lockup. */
+.secure-label,
+.notification-tab-badge {
+  font-size: 10px;
+  line-height: 1.35;
+}
