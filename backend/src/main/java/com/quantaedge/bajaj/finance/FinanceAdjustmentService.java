@@ -85,7 +85,7 @@ public class FinanceAdjustmentService {
           group by dealership_id,sales_invoice_id
         ) credits on credits.dealership_id=i.dealership_id and credits.sales_invoice_id=i.id
         where i.dealership_id=? and i.status='ISSUED'
-          and (? is null or lower(i.invoice_number) like ? or lower(c.full_name) like ?
+          and (?::text is null or lower(i.invoice_number) like ? or lower(c.full_name) like ?
             or lower(coalesce(c.phone,'')) like ? or lower(i.public_id::text) like ?)
         order by i.issued_at desc nulls last, i.id desc limit 25
         """, INVOICE_MAPPER, actor.dealershipId(), pattern, pattern, pattern, pattern, pattern));
@@ -111,7 +111,7 @@ public class FinanceAdjustmentService {
           group by dealership_id,service_invoice_id
         ) credits on credits.dealership_id=i.dealership_id and credits.service_invoice_id=i.id
         where i.dealership_id=? and i.status='ISSUED'
-          and (? is null or lower(i.invoice_number) like ? or lower(c.full_name) like ?
+          and (?::text is null or lower(i.invoice_number) like ? or lower(c.full_name) like ?
             or lower(coalesce(c.phone,'')) like ? or lower(i.public_id::text) like ?)
         order by i.issued_at desc nulls last, i.id desc limit 25
         """, INVOICE_MAPPER, actor.dealershipId(), pattern, pattern, pattern, pattern, pattern));
