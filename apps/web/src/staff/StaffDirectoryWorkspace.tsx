@@ -295,7 +295,7 @@ export default function StaffDirectoryWorkspace({ token, staff }: { token: strin
       </form>}
 
       <div className="module-footnote">
-        Read-only directory in this release slice. Invitations, account disablement and role changes will be enabled only with audited owner-authorized controls.
+        Sensitive account controls are restricted to dealership owners. Invitations expire in 24 hours; role and status changes require a reason and are recorded in audit history.
       </div>
 
       {error && <div className="notice notice-error" role="alert">{error}</div>}
