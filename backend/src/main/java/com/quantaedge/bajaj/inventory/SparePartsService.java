@@ -552,6 +552,7 @@ public class SparePartsService {
     UUID replayAfterLock = claimOperation(actor, key, fingerprint, "ISSUE");
     if (replayAfterLock != null) return getReservation(actor, replayAfterLock);
     requireWorkInProgress(job);
+    requireApprovedEstimateSnapshot(actor, locked);
     if (!Set.of("OPEN", "PARTIALLY_ISSUED").contains(locked.status())) {
       throw conflict("Only an open reservation with unissued quantity can be issued.");
     }
@@ -858,6 +859,31 @@ public class SparePartsService {
         where dealership_id = ? and idempotency_key = ? and reservation_public_id is null
         """, reservationPublicId, actor.dealershipId(), key);
     if (updated != 1) throw conflict("Spare-part operation could not be committed.");
+  }
+
+  private void requireApprovedEstimateSnapshot(StaffPrincipal actor, ReservationLock reservation) {
+    BigDecimal plannedQuantity = reservation.quantityReserved()
+        .subtract(reservation.quantityReturned()).subtract(reservation.quantityReleased())
+        .setScale(3, RoundingMode.HALF_UP);
+    Integer approvedLineCount = jdbc.queryForObject("""
+        select count(*)
+        from service_estimate estimate
+        join service_estimate_line line on line.dealership_id = estimate.dealership_id
+          and line.estimate_id = estimate.id
+        where estimate.dealership_id = ? and estimate.job_card_id = ?
+          and estimate.status = 'APPROVED'
+          and line.source_reservation_id = ?
+          and line.source_quantity_reserved = ?
+          and line.source_quantity_returned = ?
+          and line.source_quantity_released = ?
+          and line.source_unit_cost_snapshot = ?
+          and line.quantity = ?
+        """, Integer.class, actor.dealershipId(), reservation.jobCardId(), reservation.id(),
+        reservation.quantityReserved(), reservation.quantityReturned(), reservation.quantityReleased(),
+        reservation.unitCostSnapshot(), plannedQuantity);
+    if (approvedLineCount == null || approvedLineCount == 0) {
+      throw conflict("This part reservation must be present in a current customer-approved estimate revision before it can be issued. If quantities changed after approval, submit and approve a new revision first.");
+    }
   }
 
   private void requireWorkInProgress(JobLock job) {
