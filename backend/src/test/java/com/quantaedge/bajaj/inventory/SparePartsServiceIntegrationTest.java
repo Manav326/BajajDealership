@@ -268,6 +268,69 @@ class SparePartsServiceIntegrationTest {
 
   @Test
   @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void concurrentIssuesCannotExceedReservationQuantity() throws Exception {
+    Fixture fixture = createFixture("CONCURRENT-ISSUE", "IN_PROGRESS");
+    var part = createPart(fixture, "ISSUE-RACE", "Concurrent issue part");
+    var supplier = createSupplier(fixture);
+    receive(fixture, part.publicId(), supplier.publicId(), "issue-race-opening-" + UUID.randomUUID(),
+        "10.000", "9.00");
+
+    var reservation = parts.reservePart(fixture.owner(), fixture.jobCardPublicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("6.000"), "issue-race-reserve-" + UUID.randomUUID(), null));
+    approveReservationEstimate(fixture, reservation, "Approved for concurrent issue test.");
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      Future<Object> first = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        try {
+          return parts.issuePart(fixture.owner(), reservation.publicId(),
+              new SparePartsService.QuantityOperationRequest(
+                  new BigDecimal("4.000"), "issue-race-a-" + UUID.randomUUID(), "Concurrent issue A"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      Future<Object> second = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        try {
+          return parts.issuePart(fixture.owner(), reservation.publicId(),
+              new SparePartsService.QuantityOperationRequest(
+                  new BigDecimal("4.000"), "issue-race-b-" + UUID.randomUUID(), "Concurrent issue B"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      Object firstResult = first.get(15, TimeUnit.SECONDS);
+      Object secondResult = second.get(15, TimeUnit.SECONDS);
+      assertThat(List.of(firstResult, secondResult).stream()
+          .filter(SparePartsService.ReservationView.class::isInstance).count()).isEqualTo(1);
+      assertThat(List.of(firstResult, secondResult).stream()
+          .filter(HttpStatus.CONFLICT::equals).count()).isEqualTo(1);
+    } finally {
+      start.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+
+    var stored = parts.getReservation(fixture.owner(), reservation.publicId());
+    assertThat(stored.quantityIssued()).isEqualByComparingTo("4.000");
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("6.000");
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("2.000");
+    assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+        .filteredOn(movement -> movement.movementType().equals("ISSUED_TO_JOB"))
+        .hasSize(1);
+  }
+
+  @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
   void concurrentRetryOfSameSupplierReceiptAddsStockOnlyOnce() throws Exception {
     Fixture fixture = createFixture("CONCURRENT-RECEIPT", "IN_PROGRESS");
     var part = createPart(fixture, "RACE-RECEIPT", "Concurrent receipt part");
