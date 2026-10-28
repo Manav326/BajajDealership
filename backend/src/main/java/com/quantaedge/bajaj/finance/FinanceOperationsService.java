@@ -622,6 +622,279 @@ public class FinanceOperationsService {
     BigDecimal salesCollections,long salesReceiptCount,BigDecimal workshopCollections,long workshopReceiptCount,
     BigDecimal salesPaymentReversals,BigDecimal workshopPaymentReversals,BigDecimal approvedExpenses,BigDecimal expenseReversals){}
 
+
+  public TaxProfileView getTaxProfile(StaffPrincipal actor) {
+    List<TaxProfileView> profiles = jdbc.query("""
+        select registration_type, gstin, legal_name, trade_name, registered_address, state_code,
+          e_invoice_applicability, assessed_financial_year, applicability_assessment_note,
+          assessor.full_name as assessed_by_name, profile.updated_at
+        from dealership_tax_profile profile
+        left join staff_user assessor
+          on assessor.dealership_id = profile.dealership_id
+          and assessor.id = profile.applicability_assessed_by_staff_user_id
+        where profile.dealership_id = ?
+        """, (rs, rowNum) -> new TaxProfileView(
+            rs.getString("registration_type"), rs.getString("gstin"), rs.getString("legal_name"),
+            rs.getString("trade_name"), rs.getString("registered_address"), rs.getString("state_code"),
+            rs.getString("e_invoice_applicability"), rs.getString("assessed_financial_year"),
+            rs.getString("applicability_assessment_note"), rs.getString("assessed_by_name"),
+            instant(rs.getObject("updated_at"))), actor.dealershipId());
+    if (profiles.isEmpty()) {
+      return new TaxProfileView(null, null, null, null, null, null,
+          "NOT_ASSESSED", null, null, null, null);
+    }
+    return profiles.getFirst();
+  }
+
+  @Transactional
+  public TaxProfileView saveTaxProfile(StaffPrincipal actor, TaxProfileRequest request) {
+    if (request == null) throw badRequest("Tax profile details are required.");
+    String registrationType = requiredText(request.registrationType(), "Registration type", 24)
+        .toUpperCase(Locale.ROOT);
+    if (!Set.of("REGULAR", "COMPOSITION", "SEZ", "UNREGISTERED").contains(registrationType)) {
+      throw badRequest("Choose a supported GST registration type.");
+    }
+    String gstin = optionalText(request.gstin(), 15);
+    if (gstin != null) gstin = gstin.toUpperCase(Locale.ROOT);
+    String legalName = optionalText(request.legalName(), 160);
+    String tradeName = optionalText(request.tradeName(), 160);
+    String address = optionalText(request.registeredAddress(), 1000);
+    String stateCode = optionalText(request.stateCode(), 2);
+    if (stateCode != null && !stateCode.matches("[0-9]{2}")) {
+      throw badRequest("State code must be two digits.");
+    }
+
+    if ("UNREGISTERED".equals(registrationType)) {
+      if (gstin != null) throw badRequest("An unregistered profile must not include a GSTIN.");
+      gstin = null;
+    } else {
+      if (gstin == null || !gstin.matches("[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]")) {
+        throw badRequest("Enter a 15-character GSTIN in the expected format. This checks format only, not registration validity.");
+      }
+      if (stateCode == null || !stateCode.equals(gstin.substring(0, 2))) {
+        throw badRequest("The profile state code must match the first two digits of the GSTIN.");
+      }
+      if (legalName == null || address == null) {
+        throw badRequest("Registered legal name and address are required for a registered GST profile.");
+      }
+    }
+
+    String applicability = request.eInvoiceApplicability() == null
+        ? "NOT_ASSESSED" : request.eInvoiceApplicability().trim().toUpperCase(Locale.ROOT);
+    if (!Set.of("NOT_ASSESSED", "APPLICABLE", "NOT_APPLICABLE").contains(applicability)) {
+      throw badRequest("E-invoice applicability must be marked as not assessed, applicable, or not applicable.");
+    }
+    String fy = optionalText(request.assessedFinancialYear(), 9);
+    String assessmentNote = optionalText(request.applicabilityAssessmentNote(), 500);
+    if ("NOT_ASSESSED".equals(applicability)) {
+      fy = null;
+      assessmentNote = null;
+    } else {
+      if (fy == null || !fy.matches("20[0-9]{2}-[0-9]{2}")) {
+        throw badRequest("Record the financial year assessed for e-invoice applicability (for example 2026-27).");
+      }
+      if (assessmentNote == null) {
+        throw badRequest("Record a short assessment note and the basis used to determine e-invoice applicability.");
+      }
+      if ("UNREGISTERED".equals(registrationType)) {
+        throw badRequest("An unregistered profile cannot mark GST e-invoice applicability as assessed.");
+      }
+    }
+
+    jdbc.update("""
+        insert into dealership_tax_profile(
+          dealership_id, registration_type, gstin, legal_name, trade_name, registered_address,
+          state_code, e_invoice_applicability, assessed_financial_year, applicability_assessment_note,
+          applicability_assessed_by_staff_user_id, applicability_assessed_at,
+          updated_by_staff_user_id, updated_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, case when ? = 'NOT_ASSESSED' then null else now() end, ?, now())
+        on conflict (dealership_id) do update set
+          registration_type = excluded.registration_type, gstin = excluded.gstin,
+          legal_name = excluded.legal_name, trade_name = excluded.trade_name,
+          registered_address = excluded.registered_address, state_code = excluded.state_code,
+          e_invoice_applicability = excluded.e_invoice_applicability,
+          assessed_financial_year = excluded.assessed_financial_year,
+          applicability_assessment_note = excluded.applicability_assessment_note,
+          applicability_assessed_by_staff_user_id = excluded.applicability_assessed_by_staff_user_id,
+          applicability_assessed_at = excluded.applicability_assessed_at,
+          updated_by_staff_user_id = excluded.updated_by_staff_user_id, updated_at = now()
+        """, actor.dealershipId(), registrationType, gstin, legalName, tradeName, address, stateCode,
+        applicability, fy, assessmentNote, "NOT_ASSESSED".equals(applicability) ? null : actor.staffUserId(),
+        applicability, actor.staffUserId());
+
+    auditTax(actor, "DEALERSHIP_TAX_PROFILE_UPDATED", "DEALERSHIP_TAX_PROFILE",
+        actor.dealershipPublicId(), "Dealership tax profile changed. Details are configuration only; no tax document was generated.");
+    return getTaxProfile(actor);
+  }
+
+  public List<TaxCodeView> listTaxCodes(StaffPrincipal actor) {
+    return jdbc.query("""
+        select tax.public_id, tax.code, tax.description, tax.hsn_sac_code, tax.supply_type,
+          tax.gst_rate, tax.cess_rate, tax.effective_from, tax.effective_to, tax.source_reference,
+          tax.status, tax.verification_note, creator.full_name as created_by_name,
+          verifier.full_name as verified_by_name, tax.created_at, tax.verified_at
+        from dealership_tax_code tax
+        join staff_user creator on creator.dealership_id = tax.dealership_id
+          and creator.id = tax.created_by_staff_user_id
+        left join staff_user verifier on verifier.dealership_id = tax.dealership_id
+          and verifier.id = tax.verified_by_staff_user_id
+        where tax.dealership_id = ?
+        order by tax.status, tax.effective_from desc, tax.code
+        limit 300
+        """, TAX_CODE_ROW_MAPPER, actor.dealershipId());
+  }
+
+  @Transactional
+  public TaxCodeView createTaxCode(StaffPrincipal actor, TaxCodeRequest request) {
+    if (request == null) throw badRequest("Tax code details are required.");
+    String code = requiredText(request.code(), "Tax code", 48).toUpperCase(Locale.ROOT);
+    if (!code.matches("[A-Z0-9][A-Z0-9._/-]{0,47}")) {
+      throw badRequest("Tax code must use letters, numbers, dots, slashes, hyphens, or underscores.");
+    }
+    String description = requiredText(request.description(), "Tax code description", 250);
+    String hsnSac = requiredText(request.hsnSacCode(), "HSN/SAC code", 20);
+    if (!hsnSac.matches("[0-9]{4,8}")) {
+      throw badRequest("HSN/SAC should be entered as a 4–8 digit code. Its correctness must be checked against the applicable official classification.");
+    }
+    String supplyType = requiredText(request.supplyType(), "Supply type", 12).toUpperCase(Locale.ROOT);
+    if (!Set.of("GOODS", "SERVICES").contains(supplyType)) {
+      throw badRequest("Supply type must be goods or services.");
+    }
+    BigDecimal gstRate = normalizeTaxRate(request.gstRate(), "GST rate");
+    BigDecimal cessRate = normalizeTaxRate(request.cessRate() == null ? BigDecimal.ZERO : request.cessRate(), "cess rate");
+    if (request.effectiveFrom() == null) throw badRequest("Tax-code effective-from date is required.");
+    if (request.effectiveTo() != null && request.effectiveTo().isBefore(request.effectiveFrom())) {
+      throw badRequest("Effective-to date cannot precede effective-from date.");
+    }
+    String source = optionalText(request.sourceReference(), 500);
+    UUID publicId;
+    try {
+      publicId = jdbc.queryForObject("""
+          insert into dealership_tax_code(
+            dealership_id, code, description, hsn_sac_code, supply_type, gst_rate, cess_rate,
+            effective_from, effective_to, source_reference, created_by_staff_user_id)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning public_id
+          """, UUID.class, actor.dealershipId(), code, description, hsnSac, supplyType, gstRate,
+          cessRate, request.effectiveFrom(), request.effectiveTo(), source, actor.staffUserId());
+    } catch (org.springframework.dao.DuplicateKeyException duplicate) {
+      throw conflict("A tax code with this code already exists for this dealership.");
+    }
+    auditTax(actor, "DEALERSHIP_TAX_CODE_CREATED", "DEALERSHIP_TAX_CODE", publicId.toString(),
+        "Tax code saved as DRAFT. The submitted classification and rate have not been independently verified.");
+    return getTaxCode(actor, publicId);
+  }
+
+  @Transactional
+  public TaxCodeView verifyTaxCode(StaffPrincipal actor, UUID publicId, String rawSourceReference, String rawNote) {
+    String source = requiredText(rawSourceReference, "Official source reference", 500);
+    String note = requiredText(rawNote, "Verification note", 500);
+    List<Map<String,Object>> rows = jdbc.queryForList("""
+        select id, status from dealership_tax_code
+        where dealership_id = ? and public_id = ? for update
+        """, actor.dealershipId(), publicId);
+    if (rows.isEmpty()) throw notFound("Tax code was not found for this dealership.");
+    Map<String,Object> row = rows.getFirst();
+    if ("VERIFIED".equals(String.valueOf(row.get("status")))) {
+      throw conflict("This tax code is already marked verified. Do not overwrite its verification history; create a new effective-dated code for a change.");
+    }
+    jdbc.update("""
+        update dealership_tax_code set status = 'VERIFIED', source_reference = ?,
+          verification_note = ?, verified_by_staff_user_id = ?, verified_at = now(), updated_at = now()
+        where dealership_id = ? and id = ? and status = 'DRAFT'
+        """, source, note, actor.staffUserId(), actor.dealershipId(), row.get("id"));
+    auditTax(actor, "DEALERSHIP_TAX_CODE_MARKED_VERIFIED", "DEALERSHIP_TAX_CODE", publicId.toString(),
+        "Authorised staff attested that the HSN/SAC classification and rate were checked against the recorded source: " + source);
+    return getTaxCode(actor, publicId);
+  }
+
+  private TaxCodeView getTaxCode(StaffPrincipal actor, UUID publicId) {
+    List<TaxCodeView> rows = jdbc.query("""
+        select tax.public_id, tax.code, tax.description, tax.hsn_sac_code, tax.supply_type,
+          tax.gst_rate, tax.cess_rate, tax.effective_from, tax.effective_to, tax.source_reference,
+          tax.status, tax.verification_note, creator.full_name as created_by_name,
+          verifier.full_name as verified_by_name, tax.created_at, tax.verified_at
+        from dealership_tax_code tax
+        join staff_user creator on creator.dealership_id = tax.dealership_id and creator.id = tax.created_by_staff_user_id
+        left join staff_user verifier on verifier.dealership_id = tax.dealership_id and verifier.id = tax.verified_by_staff_user_id
+        where tax.dealership_id = ? and tax.public_id = ?
+        """, TAX_CODE_ROW_MAPPER, actor.dealershipId(), publicId);
+    if (rows.isEmpty()) throw notFound("Tax code was not found for this dealership.");
+    return rows.getFirst();
+  }
+
+  public TaxReadinessView taxReadiness(StaffPrincipal actor) {
+    TaxProfileView profile = getTaxProfile(actor);
+    long verifiedCodes = countTaxCodes(actor, "VERIFIED");
+    long draftCodes = countTaxCodes(actor, "DRAFT");
+    String status;
+    if (profile.registrationType() == null) status = "NOT_CONFIGURED";
+    else if ("UNREGISTERED".equals(profile.registrationType())) status = "UNREGISTERED_BILL_OF_SUPPLY_REVIEW";
+    else if ("COMPOSITION".equals(profile.registrationType())) status = "COMPOSITION_BILL_OF_SUPPLY_REVIEW";
+    else if (profile.gstin() == null || profile.legalName() == null || profile.registeredAddress() == null
+        || profile.stateCode() == null) status = "PROFILE_INCOMPLETE";
+    else if ("NOT_ASSESSED".equals(profile.eInvoiceApplicability())) status = "EINVOICE_APPLICABILITY_REVIEW_REQUIRED";
+    else if (verifiedCodes == 0) status = "VERIFIED_TAX_CODES_REQUIRED";
+    else status = "IRP_INTEGRATION_NOT_CONFIGURED";
+    return new TaxReadinessView(status, verifiedCodes, draftCodes, "NOT_CONNECTED",
+        "Readiness only: this catalogue is not currently applied to invoices and no statutory tax invoice or IRN is generated.");
+  }
+
+  private long countTaxCodes(StaffPrincipal actor, String status) {
+    Long value = jdbc.queryForObject("""
+        select count(*) from dealership_tax_code where dealership_id = ? and status = ?
+        """, Long.class, actor.dealershipId(), status);
+    return value == null ? 0 : value;
+  }
+
+  private void auditTax(StaffPrincipal actor, String action, String entityType, String entityId, String summary) {
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, ?, ?, ?, jsonb_build_object('summary', ?))
+        """, actor.dealershipId(), actor.staffUserId(), action, entityType, entityId, summary);
+  }
+
+  private static BigDecimal normalizeTaxRate(BigDecimal raw, String label) {
+    if (raw == null || raw.signum() < 0 || raw.compareTo(new BigDecimal("100.00")) > 0) {
+      throw badRequest(label + " must be between 0 and 100.");
+    }
+    try {
+      return raw.setScale(2, RoundingMode.UNNECESSARY);
+    } catch (ArithmeticException invalidScale) {
+      throw badRequest(label + " may have at most two decimal places.");
+    }
+  }
+
+  private static Instant instant(Object raw) {
+    if (raw == null) return null;
+    if (raw instanceof Timestamp value) return value.toInstant();
+    if (raw instanceof java.time.OffsetDateTime value) return value.toInstant();
+    if (raw instanceof Instant value) return value;
+    throw new IllegalStateException("Unexpected timestamp type returned from PostgreSQL.");
+  }
+
+  private static final RowMapper<TaxCodeView> TAX_CODE_ROW_MAPPER = (rs, rowNum) -> new TaxCodeView(
+      rs.getObject("public_id", UUID.class), rs.getString("code"), rs.getString("description"),
+      rs.getString("hsn_sac_code"), rs.getString("supply_type"), rs.getBigDecimal("gst_rate"),
+      rs.getBigDecimal("cess_rate"), rs.getObject("effective_from", LocalDate.class),
+      rs.getObject("effective_to", LocalDate.class), rs.getString("source_reference"),
+      rs.getString("status"), rs.getString("verification_note"), rs.getString("created_by_name"),
+      rs.getString("verified_by_name"), instant(rs.getObject("created_at")), instant(rs.getObject("verified_at")));
+
+  public record TaxProfileRequest(String registrationType, String gstin, String legalName, String tradeName,
+      String registeredAddress, String stateCode, String eInvoiceApplicability, String assessedFinancialYear,
+      String applicabilityAssessmentNote) {}
+  public record TaxProfileView(String registrationType, String gstin, String legalName, String tradeName,
+      String registeredAddress, String stateCode, String eInvoiceApplicability, String assessedFinancialYear,
+      String applicabilityAssessmentNote, String assessedByName, Instant updatedAt) {}
+  public record TaxCodeRequest(String code, String description, String hsnSacCode, String supplyType,
+      BigDecimal gstRate, BigDecimal cessRate, LocalDate effectiveFrom, LocalDate effectiveTo, String sourceReference) {}
+  public record TaxCodeView(UUID publicId, String code, String description, String hsnSacCode, String supplyType,
+      BigDecimal gstRate, BigDecimal cessRate, LocalDate effectiveFrom, LocalDate effectiveTo,
+      String sourceReference, String status, String verificationNote, String createdByName,
+      String verifiedByName, Instant createdAt, Instant verifiedAt) {}
+  public record TaxReadinessView(String status, long verifiedTaxCodeCount, long draftTaxCodeCount,
+      String irpIntegrationStatus, String note) {}
+
   private record InvoiceMetric(long count, BigDecimal amount) {}
   private record LockedExpense(long id, String status, long createdByStaffUserId) {}
 
