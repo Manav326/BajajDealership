@@ -1,7 +1,7 @@
 import type { ExpoConfig } from 'expo/config';
 import { withAndroidManifest } from 'expo/config-plugins';
 
-const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
+const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.31.47:8080/').trim();
 
 const baseConfig: ExpoConfig = {
   name: 'Lucky Bajaj',
