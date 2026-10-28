@@ -2,7 +2,7 @@ export type ApiError = Error & { status?: number };
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 
-function apiRequestUrl(path: string): string {
+export function apiRequestUrl(path: string): string {
   // Empty in local development: Vite/Docker proxy /api to the local Spring Boot API.
   return configuredApiBaseUrl ? new URL(path, `${configuredApiBaseUrl}/`).toString() : path;
 }
