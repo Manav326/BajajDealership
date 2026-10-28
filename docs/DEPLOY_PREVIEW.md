@@ -1,6 +1,16 @@
 # Public preview deployment — Lucky Bajaj Agency
 
-This repository includes a Render Blueprint at `render.yaml`. It describes three public HTTPS services and one PostgreSQL database:
+## Current public URLs
+
+The dealership owner has confirmed the following Render preview deployments:
+
+- **Staff portal:** https://lucky-bajaj-staff-web.onrender.com/
+- **Customer website:** https://lucky-bajaj-customer-web.onrender.com/
+- **API:** https://lucky-bajaj-api.onrender.com
+
+The URLs below are the deployed preview targets, not a declaration that the preview is production-ready. Keep real customer, vehicle, employee and financial data out of the free preview until the hosting/data-retention limitations are addressed.
+
+This repository includes the Render Blueprint at `render.yaml`. It describes three public HTTPS services and one PostgreSQL database:
 
 - **Staff web portal** — React/Vite static site.
 - **Customer website** — React/Vite static site.
@@ -9,10 +19,10 @@ This repository includes a Render Blueprint at `render.yaml`. It describes three
 
 The web clients receive the API URL at build time through `VITE_API_BASE_URL`. The API CORS allowlist is linked to the exact public origins Render assigns to those two sites. The database host, port, database, user and password are supplied through Render's database references, not committed credentials.
 
-## One-time setup in Render
+## Render configuration and recovery
 
 1. Sign in to Render using the account that should own the preview environment.
-2. Choose **New → Blueprint**, connect `Manav326/BajajDealership`, choose the `main` branch, and select the root `render.yaml`.
+2. If recreating the preview, choose **New → Blueprint**, connect `Manav326/BajajDealership`, choose the `main` branch, and select the root `render.yaml`. For the already-deployed services, inspect the existing service configuration rather than creating duplicate resources.
 3. Review the four resources. This Blueprint intentionally uses free preview plans; create the resources only if you accept the temporary-data limitations below.
 4. When Render prompts for `APP_BOOTSTRAP_TOKEN`, generate a long random secret, store it in a password manager, and enter it directly in Render. Never commit it or paste it into a public issue/chat.
 5. Wait for the API health check and both static-site deployments to pass. Render will show the actual URL for each service in its dashboard; use those assigned URLs rather than guessing from service names.
@@ -38,17 +48,17 @@ curl --fail-with-body -X POST "https://YOUR-API-URL/api/v1/system/bootstrap" \
 
 Use a unique password of 12–72 UTF-8 bytes. Supply an owner email or phone (both are allowed). The dealership code must use letters, numbers, underscores or hyphens and start with a letter or number. Store the owner's credentials securely.
 
-## Publish the Android app against the hosted API
+## Build Android against the hosted API
 
-The Android CI build already accepts the GitHub Actions repository variable `BAJAJ_API_BASE_URL`; by default, it points to the local mPAY/LAN development address `http://192.168.31.47:8080/`. That LAN URL is **not publicly reachable** and must not be used in a hosted/customer build.
+The Android app config and CI workflow now default to `https://lucky-bajaj-api.onrender.com/`. The build summary prints the API base compiled into the APK. Set `BAJAJ_API_BASE_URL` only when intentionally creating a local LAN, emulator or staging build. A physical phone's private LAN URL is not publicly reachable.
 
-After the API is deployed:
+To intentionally build against a different environment:
 
 1. Open GitHub → **Settings → Secrets and variables → Actions → Variables** for this repository.
-2. Create/update the repository variable `BAJAJ_API_BASE_URL` with the actual HTTPS API URL ending in `/`, using the URL shown by Render followed by a slash.
-3. Re-run the Android build workflow. Confirm its build summary reports the hosted HTTPS API URL before distributing that APK.
+2. Set `BAJAJ_API_BASE_URL` to the chosen HTTPS URL ending in `/` (or the local LAN/emulator base for development).
+3. Re-run the CI workflow. Confirm its build summary reports the intended API URL before distributing that APK. For the deployed preview, no variable override is required.
 
-Local development continues to use the existing mPAY/LAN default; do not change it to the Render URL unless you intentionally want local builds to use the remote preview database.
+Local development can override the default by setting `EXPO_PUBLIC_API_BASE_URL` to the mPAY-style LAN address; only use that when the device and API host can reach one another.
 
 ## Important: preview only, not production
 
