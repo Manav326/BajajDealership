@@ -17,17 +17,17 @@
 
 ## API address
 
-The default build address is the deployed Lucky Bajaj API. The same environment variable follows mPAY's convention so local device builds can override it:
+The default build address is the deployed Lucky Bajaj API:
 
-`http://192.168.31.47:8080/`
+`https://lucky-bajaj-api.onrender.com/`
 
-The address above must serve the **BajajDealership Spring Boot API** for this app to work. Reusing mPAY's address format does not make mPAY's own backend compatible with Bajaj's endpoints. The computer running Bajaj's backend must be reachable from the phone, and its firewall/network must allow port 8080.
+For local development, the same `EXPO_PUBLIC_API_BASE_URL` setting follows mPAY's convention. Use the LAN examples below only when that host is running the BajajDealership Spring Boot API and is reachable from the phone. Reusing mPAY's address format does not make mPAY's own backend compatible with Bajaj endpoints.
 
 Override the address at build time with `EXPO_PUBLIC_API_BASE_URL` when the development computer has a different LAN IP or the API uses another port/domain.
 
 - **Physical Android phone on the same Wi-Fi:** use the computer's LAN IP, for example `http://192.168.31.47:8080/`.
 - **Android Studio emulator:** use `http://10.0.2.2:8080/` to reach the emulator host computer.
-- **Production/shared external access:** use the deployed Bajaj API's HTTPS URL. A private LAN IP is not reachable from the public internet.
+- **Production/shared external access:** use `https://lucky-bajaj-api.onrender.com/` for the current deployed preview. A private LAN IP is not reachable from the public internet.
 
 ## Run the Android app locally
 
