@@ -101,6 +101,7 @@ public class NotificationManagementService {
     String name = requiredText(request.templateName(), "Template name", 120);
     String description = optionalText(request.description(), 500);
     JsonNode document = validateDocument(request.contentDocument());
+    validateMediaAssets(actor, document);
     String json = writeJson(document);
     Long id = jdbc.queryForObject("""
         insert into notification_template(
@@ -134,6 +135,7 @@ public class NotificationManagementService {
     String name = requiredText(request.templateName(), "Template name", 120);
     String description = optionalText(request.description(), 500);
     JsonNode document = validateDocument(request.contentDocument());
+    validateMediaAssets(actor, document);
     int version = ((Number) current.get("content_version")).intValue() + 1;
     String json = writeJson(document);
     int archived = jdbc.update("""
@@ -234,6 +236,7 @@ public class NotificationManagementService {
     String title = requiredText(request.title(), "Notification title", 120);
     String summary = requiredText(request.summary(), "Notification summary", 300);
     JsonNode document = validateDocument(request.contentDocument());
+    validateMediaAssets(actor, document);
     JsonNode filter = normalizeAudienceFilter(scope, mapper.valueToTree(request.audienceFilter()));
     Long templateId = null;
     Integer templateVersion = null;
@@ -838,6 +841,38 @@ public class NotificationManagementService {
 
   private JsonNode validateDocument(Object rawDocument) {
     return validator.validate(rawDocument);
+  }
+
+  /** A media ID in JSON is a reference, never authority to read another dealership's asset. */
+  private void validateMediaAssets(StaffPrincipal actor, JsonNode document) {
+    Set<UUID> assetIds = new LinkedHashSet<>();
+    collectMediaAssets(document, assetIds);
+    for (UUID assetId : assetIds) {
+      Integer count = jdbc.queryForObject("""
+          select count(*) from notification_media_asset
+          where dealership_id = ? and public_id = ? and status = 'ACTIVE'
+          """, Integer.class, actor.dealershipId(), assetId);
+      if (count == null || count != 1) {
+        throw badRequest("A selected notification image is missing, inactive, or belongs to another dealership.");
+      }
+    }
+  }
+
+  private static void collectMediaAssets(JsonNode node, Set<UUID> output) {
+    if (node == null) return;
+    if (node.isObject()) {
+      JsonNode assetId = node.get("assetId");
+      if (assetId != null && assetId.isTextual() && !assetId.asText().isBlank()) {
+        try {
+          output.add(UUID.fromString(assetId.asText().trim()));
+        } catch (IllegalArgumentException invalid) {
+          throw badRequest("A notification media reference is invalid.");
+        }
+      }
+      node.elements().forEachRemaining(child -> collectMediaAssets(child, output));
+    } else if (node.isArray()) {
+      node.elements().forEachRemaining(child -> collectMediaAssets(child, output));
+    }
   }
 
   private static String normalizeScope(String raw) {
