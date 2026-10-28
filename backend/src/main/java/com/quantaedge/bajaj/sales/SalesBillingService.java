@@ -251,8 +251,8 @@ public class SalesBillingService {
         String.valueOf(row.get("status")), (BigDecimal) row.get("subtotal"),
         (BigDecimal) row.get("discount_amount"), total, paid, balance,
         "Operational vehicle-sale invoice — not a GST tax invoice.",
-        (String) row.get("customer_message"), String.valueOf(row.get("created_by_name"),
-        ), (String) row.get("issued_by_name"), instantOrNull((Timestamp) row.get("created_at")),
+        (String) row.get("customer_message"), String.valueOf(row.get("created_by_name")),
+        (String) row.get("issued_by_name"), instantOrNull((Timestamp) row.get("created_at")),
         instantOrNull((Timestamp) row.get("issued_at")), instantOrNull((Timestamp) row.get("cancelled_at")),
         (String) row.get("cancellation_reason"), String.valueOf(row.get("request_fingerprint")), lines, payments);
   }
