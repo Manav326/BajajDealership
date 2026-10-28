@@ -73,6 +73,69 @@ public class SparePartsService {
     return new Page<>(items, window.page(), window.size(), total);
   }
 
+  public Page<LowStockAlertView> listLowStockAlerts(
+      StaffPrincipal actor, int requestedPage, int requestedSize) {
+    PageWindow window = pageWindow(requestedPage, requestedSize);
+    Long totalValue = jdbc.queryForObject("""
+        select count(*)
+        from spare_part p
+        join spare_part_balance b on b.dealership_id = p.dealership_id and b.part_id = p.id
+        where p.dealership_id = ? and p.active = true and b.low_stock_threshold > 0
+          and b.quantity_on_hand - b.quantity_reserved <= b.low_stock_threshold
+        """, Long.class, actor.dealershipId());
+    long total = totalValue == null ? 0 : totalValue;
+    List<LowStockAlertView> items = jdbc.query("""
+        select p.public_id, p.sku_code, p.part_name, p.unit_of_measure,
+          b.quantity_on_hand, b.quantity_reserved,
+          (b.quantity_on_hand - b.quantity_reserved) as quantity_available,
+          b.low_stock_threshold, b.reorder_to_quantity,
+          greatest(b.reorder_to_quantity - (b.quantity_on_hand - b.quantity_reserved), 0) as suggested_order_quantity,
+          b.updated_at
+        from spare_part p
+        join spare_part_balance b on b.dealership_id = p.dealership_id and b.part_id = p.id
+        where p.dealership_id = ? and p.active = true and b.low_stock_threshold > 0
+          and b.quantity_on_hand - b.quantity_reserved <= b.low_stock_threshold
+        order by (b.quantity_on_hand - b.quantity_reserved) asc, lower(p.part_name), p.id
+        limit ? offset ?
+        """, (rs, rowNum) -> new LowStockAlertView(
+            rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+            rs.getString("unit_of_measure"), rs.getBigDecimal("quantity_on_hand"),
+            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available"),
+            rs.getBigDecimal("low_stock_threshold"), rs.getBigDecimal("reorder_to_quantity"),
+            rs.getBigDecimal("suggested_order_quantity"), rs.getTimestamp("updated_at").toInstant()),
+        actor.dealershipId(), window.size(), window.offset());
+    return new Page<>(items, window.page(), window.size(), total);
+  }
+
+  @Transactional
+  public SparePartView updateReorderPolicy(
+      StaffPrincipal actor, UUID publicId, ReorderPolicyRequest request) {
+    if (request == null) throw badRequest("Reorder policy details are required.");
+    BigDecimal threshold = normalizePolicyQuantity(request.lowStockThreshold(), "Low-stock threshold");
+    BigDecimal target = normalizePolicyQuantity(request.reorderToQuantity(), "Reorder target");
+    if (target.compareTo(threshold) < 0) {
+      throw badRequest("Reorder target must be greater than or equal to the low-stock threshold.");
+    }
+    List<Long> ids = jdbc.query("""
+        select p.id
+        from spare_part p
+        join spare_part_balance b on b.dealership_id = p.dealership_id and b.part_id = p.id
+        where p.dealership_id = ? and p.public_id = ?
+        for update of b
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), publicId);
+    if (ids.isEmpty()) throw notFound("Spare part was not found in this dealership.");
+    int changed = jdbc.update("""
+        update spare_part_balance
+        set low_stock_threshold = ?, reorder_to_quantity = ?, updated_at = now()
+        where dealership_id = ? and part_id = ?
+        """, threshold, target, actor.dealershipId(), ids.getFirst());
+    if (changed != 1) throw conflict("Spare-part reorder policy could not be updated.");
+    audit(actor, "SPARE_PART_REORDER_POLICY_UPDATED", "SPARE_PART", publicId.toString(),
+        "Low-stock threshold set to " + threshold.toPlainString()
+            + " and reorder target set to " + target.toPlainString() + ".");
+    return getPart(actor, publicId);
+  }
+
   public SparePartView getPart(StaffPrincipal actor, UUID publicId) {
     List<SparePartView> rows = jdbc.query("""
         select p.public_id, p.sku_code, p.part_name, p.description, p.unit_of_measure, p.active,
@@ -843,6 +906,17 @@ public class SparePartsService {
         .divide(totalQuantity, 2, RoundingMode.HALF_UP);
   }
 
+  private static BigDecimal normalizePolicyQuantity(BigDecimal value, String label) {
+    if (value == null || value.signum() < 0) {
+      throw badRequest(label + " must be zero or greater.");
+    }
+    BigDecimal normalized = value.setScale(3, RoundingMode.HALF_UP);
+    if (normalized.compareTo(MAX_QUANTITY) > 0) {
+      throw badRequest(label + " exceeds the supported quantity range.");
+    }
+    return normalized;
+  }
+
   private static BigDecimal normalizeQuantity(BigDecimal value, String label) {
     if (value == null || value.signum() <= 0) throw badRequest(label + " must be greater than zero.");
     BigDecimal normalized = value.setScale(3, RoundingMode.HALF_UP);
@@ -938,6 +1012,12 @@ public class SparePartsService {
     return new ResponseStatusException(HttpStatus.CONFLICT, message);
   }
 
+  public record ReorderPolicyRequest(BigDecimal lowStockThreshold, BigDecimal reorderToQuantity) {}
+  public record LowStockAlertView(
+      UUID publicId, String skuCode, String partName, String unitOfMeasure,
+      BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable,
+      BigDecimal lowStockThreshold, BigDecimal reorderToQuantity, BigDecimal suggestedOrderQuantity,
+      Instant updatedAt) {}
   public record PartRequest(String skuCode, String partName, String description, String unitOfMeasure) {}
   public record SupplierRequest(
       String supplierCode, String supplierName, String contactName, String phone,
