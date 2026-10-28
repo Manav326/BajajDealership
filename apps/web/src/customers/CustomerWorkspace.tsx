@@ -172,6 +172,12 @@ export default function CustomerWorkspace({
 
       {error && <div className="notice notice-error" role="alert">{error}</div>}
       {success && <div className="notice notice-success" role="status">{success}</div>}
+      {portalInvitation && <section className="customer-form-card portal-invitation-card" aria-label="Customer portal invitation">
+        <div className="form-card-heading"><div><h2>{portalInvitation.purpose === 'SETUP' ? 'Customer portal invitation' : 'Password reset invitation'}</h2><p>For {portalInvitation.customerName}. The token is shown once here and is not sent by SMS or email.</p></div><button type="button" className="text-button" onClick={() => { setPortalInvitation(null); setPortalTokenCopied(false); }}>Dismiss</button></div>
+        <div className="portal-invitation-warning"><strong>Share securely</strong><span>Verify the customer's identity and deliver this one-time token directly. It expires {new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(portalInvitation.expiresAt))}. Issuing another invitation invalidates the previous unused invitation.</span></div>
+        <label className="portal-token-label">One-time invitation token<input readOnly value={portalInvitation.activationToken} onFocus={(event) => event.currentTarget.select()} aria-label="One-time customer portal invitation token" /></label>
+        <div className="portal-invitation-actions"><button type="button" className="secondary-button" onClick={() => void copyInvitationToken()}>{portalTokenCopied ? 'Copied token ✓' : 'Copy token'}</button><span>Customer activates the account at the customer portal website.</span></div>
+      </section>}
 
       {showCreate && canCreate && (
         <form className="customer-form-card" onSubmit={createCustomer}>
@@ -222,9 +228,9 @@ export default function CustomerWorkspace({
 
         <div className="customer-table-scroll">
           <table className="customer-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Language</th><th>Status</th><th>Added</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Language</th><th>Status</th><th>Added</th>{canUpdate && <th>Portal access</th>}</tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={5} className="table-empty"><span className="loading-dot" /> Loading customer records…</td></tr>
+              {loading ? <tr><td colSpan={canUpdate ? 6 : 5} className="table-empty"><span className="loading-dot" /> Loading customer records…</td></tr>
                 : page.items.length === 0 ? <tr><td colSpan={5} className="table-empty">{activeQuery ? 'No customers match this search.' : 'No customers yet. Add the first customer to begin.'}</td></tr>
                 : page.items.map((customer) => (
                   <tr key={customer.publicId}>
@@ -233,6 +239,7 @@ export default function CustomerWorkspace({
                     <td><span className="language-chip">{customer.preferredLanguage === 'hi' ? 'हिन्दी' : customer.preferredLanguage === 'en' ? 'English' : 'Hinglish'}</span></td>
                     <td><span className={customer.status === 'ACTIVE' ? 'status-chip status-active' : 'status-chip'}>{customer.status}</span></td>
                     <td className="date-cell">{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(customer.createdAt))}</td>
+                    {canUpdate && <td><button type="button" className="text-button portal-invite-button" disabled={portalInvitationBusyId === customer.publicId || customer.status !== 'ACTIVE'} onClick={() => void issuePortalInvitation(customer)}>{portalInvitationBusyId === customer.publicId ? 'Issuing…' : 'Issue access'}</button></td>}
                   </tr>
                 ))}
             </tbody>
