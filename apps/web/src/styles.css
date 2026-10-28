@@ -2387,3 +2387,42 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 .app-shell .inventory-tab {
   font-size: 10px;
 }
+
+
+/* Sales, unread counts, and remaining operational labels. */
+.app-shell .nav-new,
+.app-shell .muted-counter,
+.app-shell .live-badge,
+.app-shell .inbox-trigger-count {
+  font-size: 9px;
+  line-height: 1.35;
+}
+.app-shell .spare-parts-table th,
+.app-shell .spare-low-stock-main strong,
+.app-shell .spare-low-stock-order strong,
+.app-shell .spare-receipt-result > div span,
+.app-shell .sales-step,
+.app-shell .sales-counter,
+.app-shell .sales-enquiry-meta span,
+.app-shell .sales-enquiry-meta small,
+.app-shell .sales-follow-up span,
+.app-shell .sales-follow-up strong,
+.app-shell .sales-status,
+.app-shell .sales-customer-summary span,
+.app-shell .sales-help-text,
+.app-shell .sales-record-copy span,
+.app-shell .sales-record-copy small,
+.app-shell .sales-timeline-copy time,
+.app-shell .sales-timeline-copy > span,
+.app-shell .sales-timeline-copy small,
+.app-shell .sales-table td small,
+.app-shell .sales-sale-form .sales-form-actions small,
+.app-shell .sales-sale-line > div small {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.app-shell .sales-table th { font-size: 10px; }
+.app-shell .sales-ride-row > .subtle-action,
+.app-shell .sales-ride-row > .text-button {
+  font-size: 10px;
+}
