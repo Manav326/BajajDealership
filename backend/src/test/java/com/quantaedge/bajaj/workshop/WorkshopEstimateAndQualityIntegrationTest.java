@@ -471,6 +471,29 @@ class WorkshopEstimateAndQualityIntegrationTest {
         .containsOnly("SUPERSEDED");
   }
 
+  @Test
+  void staffAppointmentsRejectOverlappingSlotsForTheSameMotorcycle() {
+    Fixture fixture = createFixture();
+    Instant firstStart = Instant.now().plusSeconds(7200);
+    var first = workshop.createAppointment(fixture.owner(),
+        new ServiceOperationsService.AppointmentRequest(
+            fixture.customerPublicId(), fixture.vehiclePublicId(), firstStart,
+            60, "First scheduled service", "en", "STAFF", null));
+    assertThat(first.status()).isEqualTo("REQUESTED");
+
+    assertThatThrownBy(() -> workshop.createAppointment(fixture.owner(),
+        new ServiceOperationsService.AppointmentRequest(
+            fixture.customerPublicId(), fixture.vehiclePublicId(), firstStart.plusSeconds(1800),
+            60, "Overlapping service request", "en", "STAFF", null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+
+    assertThat(workshop.listAppointments(fixture.owner(), 0, 25, null).items())
+        .extracting(ServiceOperationsService.AppointmentView::publicId)
+        .containsExactly(first.publicId());
+  }
+
   private ServiceOperationsService.JobCardView createInspectedJobCard(Fixture fixture) {
     var appointment = workshop.createAppointment(fixture.owner(),
         new ServiceOperationsService.AppointmentRequest(
