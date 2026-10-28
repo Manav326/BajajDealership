@@ -18,7 +18,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class StaffSecurityConfiguration {
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http, StaffBearerTokenFilter bearerFilter) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http, StaffBearerTokenFilter bearerFilter, CustomerBearerTokenFilter customerBearerFilter) throws Exception {
     http
         .csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -37,11 +37,12 @@ public class StaffSecurityConfiguration {
             }))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
-            .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap", "/api/v1/auth/staff/login").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap", "/api/v1/auth/staff/login", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
             .anyRequest().authenticated())
-        .addFilterBefore(bearerFilter, UsernamePasswordAuthenticationFilter.class);
+        .addFilterBefore(bearerFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(customerBearerFilter, StaffBearerTokenFilter.class);
     return http.build();
   }
 
