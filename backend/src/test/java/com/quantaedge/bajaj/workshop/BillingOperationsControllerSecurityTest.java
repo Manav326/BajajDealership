@@ -101,4 +101,56 @@ class BillingOperationsControllerSecurityTest {
                 """))
         .andExpect(status().isForbidden());
   }
+
+
+  @Test
+  void financeReadDoesNotGrantWorkshopInvoiceCreationOrPaymentRecording() throws Exception {
+    mvc.perform(post("/api/v1/admin/workshop/job-cards/{publicId}/invoices", UUID.randomUUID())
+            .with(user("finance-reader")
+                .authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"customerMessage":"Authorization boundary test"}
+                """))
+        .andExpect(status().isForbidden());
+
+    mvc.perform(post("/api/v1/admin/workshop/invoices/{publicId}/payments", UUID.randomUUID())
+            .with(user("finance-reader")
+                .authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "idempotencyKey":"security-test-finance-read-only",
+                  "paymentMethod":"CASH",
+                  "amount":1.00,
+                  "paymentReference":null,
+                  "note":"Authorization boundary test"
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void workshopReadDoesNotGrantInvoiceIssueOrHandover() throws Exception {
+    mvc.perform(post("/api/v1/admin/workshop/invoices/{publicId}/issue", UUID.randomUUID())
+            .with(user("workshop-reader")
+                .authorities(new SimpleGrantedAuthority("workshop.read"))))
+        .andExpect(status().isForbidden());
+
+    mvc.perform(post("/api/v1/admin/workshop/job-cards/{publicId}/deliver", UUID.randomUUID())
+            .with(user("workshop-reader")
+                .authorities(new SimpleGrantedAuthority("workshop.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "deliveredToName":"Test customer",
+                  "customerAcknowledged":true,
+                  "acknowledgementMethod":"IN_PERSON",
+                  "acknowledgementReference":null,
+                  "note":"Authorization boundary test"
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
 }

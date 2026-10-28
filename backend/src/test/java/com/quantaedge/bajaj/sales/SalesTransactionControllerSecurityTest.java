@@ -143,4 +143,41 @@ class SalesTransactionControllerSecurityTest {
                 """))
         .andExpect(status().isForbidden());
   }
+
+
+  @Test
+  void salesReadDoesNotGrantInvoiceCreationForBooking() throws Exception {
+    mvc.perform(post("/api/v1/admin/sales/bookings/{publicId}/invoice", UUID.randomUUID())
+            .with(user("sales-reader")
+                .authorities(new SimpleGrantedAuthority("sales.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "idempotencyKey":"security-test-invoice-create",
+                  "vehiclePrice":10000.00,
+                  "vehicleDiscount":0.00,
+                  "customerMessage":"Authorization boundary test",
+                  "addOns":[]
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void salesManageDoesNotGrantFinancialInvoiceIssueOrCancellation() throws Exception {
+    UUID invoiceId = UUID.randomUUID();
+
+    mvc.perform(post("/api/v1/admin/sales/invoices/{publicId}/issue", invoiceId)
+            .with(user("sales-manager")
+                .authorities(new SimpleGrantedAuthority("sales.manage"))))
+        .andExpect(status().isForbidden());
+
+    mvc.perform(post("/api/v1/admin/sales/invoices/{publicId}/cancel", invoiceId)
+            .with(user("sales-manager")
+                .authorities(new SimpleGrantedAuthority("sales.manage")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\\"reason\\":\\"Authorization boundary test\\"}"))
+        .andExpect(status().isForbidden());
+  }
+
 }
