@@ -20,6 +20,26 @@ type InspectionItem = {
   publicId: string; checklistCode: string; label: string; status: 'PENDING' | 'OK' | 'ATTENTION' | 'NOT_APPLICABLE';
   notes: string | null; checkedByName: string | null; checkedAt: string | null; updatedAt: string;
 };
+type EstimateLine = {
+  lineNumber: number; lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type EstimateDecision = {
+  decision: string; evidenceMethod: string; evidenceReference: string | null; note: string | null;
+  recordedByName: string; recordedAt: string;
+};
+type Estimate = {
+  publicId: string; jobCardPublicId: string; jobCardCode: string; revision: number; status: string;
+  partsSubtotal: number; labourSubtotal: number; otherSubtotal: number; discountAmount: number;
+  estimatedTotal: number; customerMessage: string | null; createdByName: string;
+  submittedAt: string | null; decidedAt: string | null; createdAt: string;
+  lines: EstimateLine[]; decisions: EstimateDecision[];
+};
+type EstimateLineDraft = { lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string; quantity: string; unitPrice: string };
+type QualityDraft = {
+  brakesOk: boolean; lightsOk: boolean; hornOk: boolean; noVisibleLeaks: boolean;
+  roadTestOk: boolean; toolsRemoved: boolean; customerConcernResolved: boolean; notes: string;
+};
 type CustomerOption = { publicId: string; fullName: string; phone: string | null; currentVehicleCount: number };
 type VehicleOption = {
   publicId: string; modelName: string; variantName: string | null; colourName: string | null;
@@ -69,6 +89,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const canCheckIn = staff.permissions.includes('workshop.jobcard.checkin');
   const canManageInspection = staff.permissions.includes('workshop.manage');
   const canAssign = staff.permissions.includes('workshop.jobcard.assign');
+  const canCreateEstimate = staff.permissions.includes('workshop.estimate.create');
+  const canApproveEstimate = staff.permissions.includes('workshop.approve_estimate');
+  const canStartWork = staff.permissions.includes('workshop.jobcard.work');
+  const canQualityCheck = staff.permissions.includes('workshop.quality_check');
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'jobCards'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -109,6 +133,20 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const [inspectionItems, setInspectionItems] = useState<InspectionItem[]>([]);
   const [inspectionDrafts, setInspectionDrafts] = useState<Record<string, { status: InspectionItem['status']; notes: string }>>({});
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [estimates, setEstimates] = useState<Estimate[]>([]);
+  const [estimateLines, setEstimateLines] = useState<EstimateLineDraft[]>([
+    { lineType: 'PART', description: '', quantity: '1', unitPrice: '' },
+  ]);
+  const [estimateDiscount, setEstimateDiscount] = useState('0');
+  const [estimateMessage, setEstimateMessage] = useState('');
+  const [decisionValue, setDecisionValue] = useState<'APPROVED' | 'DECLINED' | 'REVISION_REQUESTED'>('APPROVED');
+  const [evidenceMethod, setEvidenceMethod] = useState<'OTP' | 'SIGNED_FORM' | 'IN_PERSON' | 'PHONE_RECORD' | 'WRITTEN_MESSAGE'>('SIGNED_FORM');
+  const [evidenceReference, setEvidenceReference] = useState('');
+  const [evidenceNote, setEvidenceNote] = useState('');
+  const [qualityDraft, setQualityDraft] = useState<QualityDraft>({
+    brakesOk: false, lightsOk: false, hornOk: false, noVisibleLeaks: false,
+    roadTestOk: false, toolsRemoved: false, customerConcernResolved: false, notes: '',
+  });
   const [assignmentRole, setAssignmentRole] = useState<'TECHNICIAN' | 'SERVICE_ADVISOR' | 'QUALITY_INSPECTOR'>('TECHNICIAN');
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [staffSearchInput, setStaffSearchInput] = useState('');
