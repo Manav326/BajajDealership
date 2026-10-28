@@ -1087,3 +1087,33 @@ h1,h2,h3,p { margin-top: 0; }
   .spare-reservation-actions { grid-template-columns: minmax(0,1fr); }
   .spare-reservation-actions .subtle-action,.spare-reservation-actions .text-button { grid-column: 1; justify-self: stretch; }
 }
+
+
+/* Spare-parts low-stock/reorder policy */
+.spare-low-stock-panel { border-color: #f1dfc9; background: linear-gradient(180deg,#fffdf9 0%,#fff 100%); }
+.spare-low-stock-list { display: grid; }
+.spare-low-stock-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #f0e7dc; }
+.spare-low-stock-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #fff0df; color: #b85e1a; font-size: 13px; font-weight: 900; flex-shrink: 0; }
+.spare-low-stock-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.spare-low-stock-main strong { color: #4c463d; font-size: 8px; line-height: 1.5; overflow-wrap: anywhere; }
+.spare-low-stock-main span { color: #9a7047; font-size: 7px; line-height: 1.5; }
+.spare-low-stock-main small { color: #a1978a; font-size: 7px; }
+.spare-low-stock-order { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.spare-low-stock-order span { color: #a08b73; font-size: 7px; }
+.spare-low-stock-order strong { color: #a85e1e; font-size: 9px; white-space: nowrap; }
+.spare-low-stock-row > .text-button { font-size: 8px; white-space: nowrap; }
+.spare-policy-form { display: grid; gap: 10px; border: 1px solid #f0dfca; background: #fffbf5; border-radius: 10px; padding: 13px; margin-bottom: 18px; }
+.spare-policy-form .spare-parts-section-heading { margin-bottom: 0; }
+.spare-policy-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; align-items: end; gap: 9px; }
+.spare-policy-fields label { display: grid; gap: 5px; min-width: 0; color: #7c6b59; font-size: 8px; font-weight: 800; }
+.spare-policy-fields input { width: 100%; min-width: 0; border: 1px solid #eadbc8; border-radius: 7px; background: #fff; color: #514739; padding: 9px; font: inherit; font-size: 9px; }
+.spare-policy-fields .primary-button { padding: 9px 11px; font-size: 8px; box-shadow: none; white-space: nowrap; }
+.spare-policy-fields .primary-button:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 560px) {
+  .spare-low-stock-row { flex-wrap: wrap; align-items: flex-start; }
+  .spare-low-stock-main { flex-basis: calc(100% - 48px); }
+  .spare-low-stock-order { flex: 1; align-items: flex-start; margin-left: 40px; }
+  .spare-low-stock-row > .text-button { margin-left: auto; }
+  .spare-policy-fields { grid-template-columns: minmax(0,1fr); }
+  .spare-policy-fields .primary-button { justify-content: center; }
+}
