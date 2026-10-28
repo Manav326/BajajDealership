@@ -288,19 +288,25 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
       setSaleError('Enter a positive vehicle price and a discount no greater than that price.');
       return;
     }
-    const addOns = saleAddOns.map((line) => {
-      if (!line.description.trim()) throw new Error('Describe every accessory or other charge.');
-      const quantity = Number(line.quantity);
-      const unitPrice = Number(line.unitPrice);
-      const discountAmount = Number(line.discountAmount || 0);
-      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0
-          || !Number.isFinite(discountAmount) || discountAmount < 0 || discountAmount > quantity * unitPrice) {
-        throw new Error('Check the quantity, unit price and discount for each add-on line.');
-      }
-      return {
-        lineType: line.lineType, description: line.description.trim(), quantity, unitPrice, discountAmount,
-      };
-    });
+    let addOns: Array<{ lineType: 'ACCESSORY' | 'OTHER'; description: string; quantity: number; unitPrice: number; discountAmount: number }>;
+    try {
+      addOns = saleAddOns.map((line) => {
+        if (!line.description.trim()) throw new Error('Describe every accessory or other charge.');
+        const quantity = Number(line.quantity);
+        const unitPrice = Number(line.unitPrice);
+        const discountAmount = Number(line.discountAmount || 0);
+        if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0
+            || !Number.isFinite(discountAmount) || discountAmount < 0 || discountAmount > quantity * unitPrice) {
+          throw new Error('Check the quantity, unit price and discount for each add-on line.');
+        }
+        return {
+          lineType: line.lineType, description: line.description.trim(), quantity, unitPrice, discountAmount,
+        };
+      });
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Check the accessory and additional-charge lines.');
+      return;
+    }
     setSaleBusy('invoice'); setSaleError(''); setError(''); setSuccess('');
     try {
       const draft = await apiFetch<SaleInvoice>(
