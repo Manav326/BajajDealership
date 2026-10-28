@@ -59,7 +59,7 @@ const pageRoutes: Record<string, string> = {
 };
 
 function pageFromHash(hash: string): string {
-  const route = hash.replace(/^#\\/?/, '').split(/[?#]/, 1)[0];
+  const route = hash.startsWith('#/') ? hash.slice(2).split(/[?#]/, 1)[0] : hash.startsWith('#') ? hash.slice(1).split(/[?#]/, 1)[0] : '';
   return Object.entries(pageRoutes).find(([, value]) => value === route)?.[0] ?? 'Overview';
 }
 
@@ -95,7 +95,7 @@ function App() {
   // Keep React state in sync with direct links and browser Back/Forward.
   useEffect(() => {
     const syncFromUrl = () => {
-      const requestedRoute = window.location.hash.replace(/^#\\/?/, '').split(/[?#]/, 1)[0];
+      const requestedRoute = window.location.hash.startsWith('#/') ? window.location.hash.slice(2).split(/[?#]/, 1)[0] : window.location.hash.startsWith('#') ? window.location.hash.slice(1).split(/[?#]/, 1)[0] : '';
       const isKnownRoute = Object.values(pageRoutes).includes(requestedRoute);
       if (!isKnownRoute) {
         window.history.replaceState(null, '', window.location.pathname + window.location.search + pageHashFor('Overview'));
@@ -112,8 +112,6 @@ function App() {
     if (!token || !staff) return;
     const requestedPage = navigation.find((item) => item.label === activePage);
     if (requestedPage?.permission && !staff.permissions.includes(requestedPage.permission)) {
-      const overviewHash = pageHashFor('Overview');
-      window.history.replaceState(null, '', window.location.pathname + window.location.search + overviewHash);
       navigateToPage('Overview', true);
     }
   }, [token, staff, activePage]);
@@ -235,7 +233,7 @@ function App() {
     window.sessionStorage.setItem('qe_staff_token', result.accessToken);
     setToken(result.accessToken);
     setStaff(result.staff);
-    setActivePage('Overview');
+    navigateToPage('Overview', true);
     setLogoutError('');
   }
 
