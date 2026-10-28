@@ -12,6 +12,8 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 
 const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
@@ -94,7 +96,7 @@ function cleanError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function GlassCard({ children, style }: { children: ReactNode; style?: object }) {
+function GlassCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   return <View style={[styles.glassCard, style]}>{children}</View>;
 }
 function Field({ label, value, onChangeText, placeholder, secureTextEntry, autoCapitalize = 'none', keyboardType, multiline }: {
