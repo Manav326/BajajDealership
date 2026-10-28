@@ -16,6 +16,13 @@ type Customer = {
 };
 
 type CustomerPage = { items: Customer[]; page: number; pageSize: number; total: number };
+type PortalInvitation = {
+  customerPublicId: string;
+  customerName: string;
+  purpose: 'SETUP' | 'PASSWORD_RESET';
+  activationToken: string;
+  expiresAt: string;
+};
 type CustomerForm = {
   fullName: string;
   phone: string;
@@ -44,9 +51,13 @@ export default function CustomerWorkspace({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [portalInvitation, setPortalInvitation] = useState<PortalInvitation | null>(null);
+  const [portalInvitationBusyId, setPortalInvitationBusyId] = useState('');
+  const [portalTokenCopied, setPortalTokenCopied] = useState(false);
 
   const canCreate = staff.permissions.includes('customer.create');
   const canRead = staff.permissions.includes('customer.read');
+  const canUpdate = staff.permissions.includes('customer.update');
 
   const load = useCallback(async (pageNumber: number, search: string) => {
     setLoading(true);
@@ -98,6 +109,37 @@ export default function CustomerWorkspace({
       setError(cause instanceof Error ? cause.message : 'Could not create the customer.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function issuePortalInvitation(customer: Customer) {
+    setPortalInvitationBusyId(customer.publicId);
+    setPortalInvitation(null);
+    setPortalTokenCopied(false);
+    setError('');
+    setSuccess('');
+    try {
+      const invitation = await apiFetch<PortalInvitation>(
+        `/api/v1/admin/customers/${customer.publicId}/portal-invitation`, token, { method: 'POST' });
+      setPortalInvitation(invitation);
+      setSuccess(invitation.purpose === 'SETUP'
+        ? `A customer portal invitation was issued for ${customer.fullName}.`
+        : `A password-reset invitation was issued for ${customer.fullName}. Existing sessions are revoked when reset completes.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Customer portal invitation could not be issued.');
+    } finally {
+      setPortalInvitationBusyId('');
+    }
+  }
+
+  async function copyInvitationToken() {
+    if (!portalInvitation) return;
+    try {
+      await navigator.clipboard.writeText(portalInvitation.activationToken);
+      setPortalTokenCopied(true);
+    } catch {
+      setPortalTokenCopied(false);
+      setError('Clipboard access is unavailable. Select and copy the invitation token manually.');
     }
   }
 
