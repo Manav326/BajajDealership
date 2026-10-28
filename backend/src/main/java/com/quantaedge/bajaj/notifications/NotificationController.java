@@ -31,7 +31,7 @@ public class NotificationController {
   }
 
   @GetMapping("/options")
-  @PreAuthorize("hasAuthority('notification.create')")
+  @PreAuthorize("hasAuthority('notification.read')")
   public NotificationManagementService.NotificationOptions options(
       @AuthenticationPrincipal StaffPrincipal principal) {
     return notifications.options(principal);
