@@ -19,11 +19,11 @@
 
 ## Immediate validation work
 
-1. Get CI green on the exact newest main commit after the estimate/quality UI and monetary bound changes.
+1. Keep CI green on the exact latest main commit, including the persisted notification approval gate and its permission/audience-drift tests.
 2. Review estimate/quality SQL and APIs for concurrent operations, overflow boundaries, role denial, customer-evidence wording and immutable history.
 3. Add controller-level authorization tests for every workshop mutation (appointment cancel/check-in, estimate, assignment, start work and quality check).
 4. Add robust concurrency tests for duplicate appointment check-in, concurrent estimate submissions, duplicate decisions and quality-check retries.
-5. Harden Notification Studio approval/send semantics, permission split, scheduled cancel races, media access and preview freshness. Keep external providers disabled until configured and tested.
+5. Harden Notification Studio concurrent approval/send/cancel semantics, permission split, scheduled cancel races, media access and preview freshness. Keep external providers disabled until configured and tested.
 
 ## Next business vertical slice: billing integration for workshop
 
