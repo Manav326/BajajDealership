@@ -61,6 +61,12 @@ LAN_IP=""
 if command -v ip >/dev/null 2>&1; then
   LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
 fi
+if [ -z "$LAN_IP" ] && [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v ipconfig >/dev/null 2>&1; then
+  for interface in en0 en1; do
+    LAN_IP="$(ipconfig getifaddr "$interface" 2>/dev/null || true)"
+    [ -z "$LAN_IP" ] || break
+  done
+fi
 if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
   LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 fi
