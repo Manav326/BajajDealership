@@ -395,6 +395,9 @@ public class SparePartsService {
     PartLock part = lockPart(actor, request.partPublicId(), true);
     UUID replayAfterLock = claimOperation(actor, key, fingerprint, "RESERVE");
     if (replayAfterLock != null) return getReservation(actor, replayAfterLock);
+    if (!Set.of("APPROVED", "IN_PROGRESS").contains(job.status())) {
+      throw conflict("Parts can only be reserved after estimate approval and before workshop closure.");
+    }
     if (!part.active()) throw conflict("Inactive spare parts cannot be reserved.");
     BigDecimal available = part.quantityOnHand().subtract(part.quantityReserved());
     if (quantity.compareTo(available) > 0) {
