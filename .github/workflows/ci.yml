@@ -113,6 +113,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Validate startup scripts
+        shell: bash
+        run: |
+          sh -n scripts/start.sh
+          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }'
       - name: Validate Docker Compose configuration
         run: docker compose -f compose.yaml config --quiet
       - name: Build Spring Boot API and both web images
