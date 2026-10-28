@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { apiFetch } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
 
 type Appointment = {
@@ -346,10 +345,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     setJobCardPage(0); setJobCardQuery(jobCardQueryInput.trim());
   }
 
-  function searchCustomers(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setCustomerSearch(customerSearchInput.trim());
-    void loadCustomers(customerSearchInput.trim());
+  function searchCustomers() {
+    const query = customerSearchInput.trim();
+    setCustomerSearch(query);
+    void loadCustomers(query);
   }
 
   if (!staff.permissions.includes('workshop.read') && !canReadAppointments) {
@@ -376,6 +375,15 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             <div className="form-card-heading"><div><h2>New service appointment</h2><p>Only the customer's currently linked vehicle can be booked for this dealership.</p></div><span className="form-step">WORKSHOP INTAKE</span></div>
             <div className="customer-form-grid">
               <label className="field-span-two">Customer *
+                <div className="workshop-customer-search">
+                  <input aria-label="Search customers for appointment" maxLength={100} value={customerSearchInput}
+                    onChange={(event) => setCustomerSearchInput(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); searchCustomers(); } }}
+                    placeholder="Search name, phone or customer code" />
+                  <button className="secondary-button" type="button" onClick={searchCustomers}>Find customer</button>
+                  {customerSearch && <button className="text-button" type="button" onClick={() => { setCustomerSearchInput(''); setCustomerSearch(''); void loadCustomers(''); }}>Clear</button>}
+                </div>
+                <span className="workshop-field-hint">{customerSearch ? `Search results for “${customerSearch}”.` : 'Choose from active customers with a currently linked vehicle.'}</span>
                 <select required value={selectedCustomer} onChange={(event) => { setSelectedCustomer(event.target.value); setSelectedVehicle(''); }}>
                   <option value="">Choose a customer…</option>
                   {customers.map((customer) => <option key={customer.publicId} value={customer.publicId}>{customer.fullName}{customer.phone ? ` · ${customer.phone}` : ''} · ${customer.currentVehicleCount} linked bike(s)</option>)}
