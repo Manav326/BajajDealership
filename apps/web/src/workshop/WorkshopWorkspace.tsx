@@ -880,7 +880,81 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
               </> : <div className="workshop-field-hint">Assign yourself as the quality inspector, or ask an authorized manager/service advisor to assign the inspector.</div>}
             </section>}
 
-            {selectedJobCard.status === 'READY_FOR_COLLECTION' && <div className="workshop-next-stage"><strong>Quality check passed.</strong> The job is ready for collection, but final handover is intentionally blocked until billing and payment controls are implemented.</div>}
+            {selectedJobCard.status === 'READY_FOR_COLLECTION' && <section className="billing-section">
+              <div className="inspection-heading"><div><h3>Operational invoice</h3><p>Quality check passed. Issue the invoice from the approved estimate revision before collecting payment.</p></div><span className="studio-count">Billing · step 1</span></div>
+              {canIssueInvoice
+                ? <div className="billing-action-row"><span>This is an operational service invoice. GST/tax invoice fields and statutory compliance are not implemented by this workflow.</span><button type="button" className="primary-button" disabled={busyId === selectedJobCard.publicId} onClick={() => void issueInvoice()}>{busyId === selectedJobCard.publicId ? 'Issuing…' : 'Issue operational invoice'}</button></div>
+                : <div className="workshop-field-hint">Your role can view this job, but cannot issue an invoice.</div>}
+            </section>}
+
+            {(selectedJobCard.status === 'INVOICED' || selectedJobCard.status === 'DELIVERED') && <section className="billing-section">
+              <div className="inspection-heading"><div><h3>Invoice and payments</h3><p>Operational invoice snapshot, recorded receipts and outstanding balance.</p></div><span className="studio-count">Billing · step 2</span></div>
+              {loadingInvoice && <div className="studio-empty">Loading invoice and payment history…</div>}
+              {!canReadInvoice && <div className="workshop-field-hint">Invoice details are restricted to staff with invoice-read permission.</div>}
+              {canReadInvoice && !loadingInvoice && !invoice && <div className="studio-empty">No issued invoice is available for this job card. Refresh or contact an authorized service advisor.</div>}
+              {invoice && <>
+                <div className="invoice-not-tax-banner"><strong>Operational record only</strong><span>{invoice.documentNotice}</span><small>Invoice {invoice.invoiceNumber} · approved estimate revision {invoice.estimateRevision} · issued {formattedDate(invoice.issuedAt)}</small></div>
+                <div className="invoice-parties">
+                  <div><span>Customer</span><strong>{invoice.customerName}</strong><small>{invoice.customerPhone || 'No phone recorded'}</small></div>
+                  <div><span>Vehicle</span><strong>{invoice.modelName}{invoice.variantName ? ' · ' + invoice.variantName : ''}</strong><small>Chassis {invoice.chassisNumber}</small></div>
+                </div>
+                <div className="invoice-line-list">
+                  {invoice.lines.map((line) => <div className="invoice-line-row" key={line.lineNumber}>
+                    <div><strong>{line.description}</strong><small>{prettyStatus(line.lineType)} · {line.quantity} × ₹{Number(line.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small></div>
+                    <strong>₹{Number(line.lineTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </div>)}
+                </div>
+                <div className="invoice-totals">
+                  <div><span>Parts subtotal</span><strong>₹{Number(invoice.partsSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div><span>Labour subtotal</span><strong>₹{Number(invoice.labourSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div><span>Other charges</span><strong>₹{Number(invoice.otherSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div><span>Discount</span><strong>−₹{Number(invoice.discountAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div className="invoice-total-row"><span>Invoice total</span><strong>₹{Number(invoice.invoiceTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div><span>Payments recorded</span><strong>₹{Number(invoice.paidAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                  <div className={Number(invoice.balanceDue) > 0 ? 'invoice-balance-row due' : 'invoice-balance-row settled'}><span>Balance due</span><strong>₹{Number(invoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                </div>
+
+                {canRecordPayment && selectedJobCard.status === 'INVOICED' && Number(invoice.balanceDue) > 0 && <form className="billing-payment-form" onSubmit={recordInvoicePayment}>
+                  <div className="inspection-heading"><div><h3>Record a payment</h3><p>Partial payments are supported. A receipt is created once per idempotency key.</p></div></div>
+                  <div className="billing-payment-fields">
+                    <label>Amount (₹)<input required type="number" min="0.01" max={Number(invoice.balanceDue)} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>
+                    <label>Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
+                    <label>Payment reference<input maxLength={160} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Optional gateway / bank reference" /></label>
+                    <label>Receipt note<input maxLength={1000} value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional payment note" /></label>
+                  </div>
+                  <div className="billing-submit-row"><span>If a request times out, retry without changing the details. This screen reuses the same key until a successful response.</span><button type="submit" className="primary-button" disabled={busyId === invoice.publicId || !paymentAmount.trim()}>{busyId === invoice.publicId ? 'Recording…' : 'Record payment and receipt'}</button></div>
+                </form>}
+                {canReadInvoice && invoice.payments.length > 0 && <div className="invoice-payment-history">
+                  <div className="inspection-heading"><div><h3>Receipt history</h3><p>Reversals remain visible and are excluded from the paid balance.</p></div><span className="studio-count">{invoice.payments.length} receipt(s)</span></div>
+                  {invoice.payments.map((payment) => <article className="invoice-payment-row" key={payment.publicId}>
+                    <div className="invoice-payment-symbol">{payment.status === 'REVERSED' ? '↶' : '₹'}</div>
+                    <div className="invoice-payment-copy"><strong>{payment.receiptNumber} · ₹{Number(payment.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span>{prettyStatus(payment.paymentMethod)} · recorded by {payment.recordedByName} · {formattedDate(payment.recordedAt)}</span>{payment.paymentReference && <small>Reference: {payment.paymentReference}</small>}{payment.note && <small>{payment.note}</small>}{payment.status === 'REVERSED' && <small className="invoice-reversal-note">Reversed by {payment.reversedByName || 'authorized staff'} · {formattedDate(payment.reversedAt)} · {payment.reversalReason}{payment.reversalReference ? ' · ' + payment.reversalReference : ''}</small>}</div>
+                    <span className={payment.status === 'REVERSED' ? 'campaign-status status-cancelled' : 'campaign-status status-sent'}>{prettyStatus(payment.status)}</span>
+                    {canReversePayment && selectedJobCard.status !== 'DELIVERED' && payment.status === 'RECORDED' && <button type="button" className="text-button danger-link" disabled={busyId === payment.publicId} onClick={() => void reverseInvoicePayment(payment)}>Reverse</button>}
+                  </article>)}
+                  {canReversePayment && selectedJobCard.status === 'INVOICED' && invoice.payments.some((payment) => payment.status === 'RECORDED') && <div className="invoice-reversal-form">
+                    <label>Reversal reason<input required maxLength={500} value={reversalReason} onChange={(event) => setReversalReason(event.target.value)} placeholder="Required audit reason" /></label>
+                    <label>External reversal reference<input maxLength={160} value={reversalReference} onChange={(event) => setReversalReference(event.target.value)} placeholder="Optional reference" /></label>
+                    <small>Choose Reverse on the specific receipt above after entering the reason. Reversals after vehicle handover require a separate refund/credit workflow.</small>
+                  </div>}
+                </div>}
+
+                {selectedJobCard.status === 'INVOICED' && Number(invoice.balanceDue) === 0 && canDeliverVehicle && <form className="billing-handover-form" onSubmit={handoverVehicle}>
+                  <div className="inspection-heading"><div><h3>Vehicle handover</h3><p>Only available after quality pass and full settlement. Record who received the vehicle and acknowledgement evidence.</p></div><span className="studio-count">Final step</span></div>
+                  <div className="billing-payment-fields">
+                    <label>Person receiving vehicle<input required maxLength={160} value={deliveredToName} onChange={(event) => setDeliveredToName(event.target.value)} /></label>
+                    <label>Acknowledgement method<select value={deliveryMethod} onChange={(event) => setDeliveryMethod(event.target.value as typeof deliveryMethod)}><option value="IN_PERSON">In person</option><option value="SIGNED_FORM">Signed form</option><option value="OTP_REFERENCE">OTP reference</option><option value="WRITTEN_MESSAGE">Written message</option></select></label>
+                    <label>Evidence reference<input maxLength={160} required={deliveryMethod === 'SIGNED_FORM' || deliveryMethod === 'OTP_REFERENCE'} value={deliveryReference} onChange={(event) => setDeliveryReference(event.target.value)} placeholder="Required for signed form / OTP reference" /></label>
+                    <label>Handover note<input maxLength={1000} value={deliveryNote} onChange={(event) => setDeliveryNote(event.target.value)} placeholder="Optional handover details" /></label>
+                  </div>
+                  <label className="delivery-acknowledgement"><input type="checkbox" checked={deliveryAcknowledged} onChange={(event) => setDeliveryAcknowledged(event.target.checked)} /> Customer acknowledgement received. I have recorded the receiver and evidence method above.</label>
+                  <div className="billing-submit-row"><span>Payment recording is not a payment-provider confirmation. This is a staff-recorded operational receipt.</span><button type="submit" className="primary-button" disabled={busyId === selectedJobCard.publicId || !deliveryAcknowledged}>{busyId === selectedJobCard.publicId ? 'Recording handover…' : 'Complete vehicle handover'}</button></div>
+                </form>}
+
+                {selectedJobCard.status === 'INVOICED' && Number(invoice.balanceDue) > 0 && <div className="workshop-next-stage"><strong>Handover blocked.</strong> Receive and record the remaining balance of ₹{Number(invoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} before the vehicle can be handed over.</div>}
+                {selectedJobCard.status === 'DELIVERED' && <div className="workshop-next-stage"><strong>Vehicle handed over.</strong> The invoice was settled and an acknowledgement-backed handover record was saved. Receipt reversals now require a separate refund/credit workflow.</div>}
+              </>}
+            </section>}
 
 
             {canAssign && <div className="assignment-section">
