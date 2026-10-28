@@ -192,61 +192,6 @@ public class ServiceOperationsController {
             request.roadTestOk(), request.toolsRemoved(), request.customerConcernResolved(), request.notes()));
   }
 
-  @PostMapping("/job-cards/{publicId}/invoice")
-  @PreAuthorize("hasAuthority('billing.invoice.issue')")
-  public ServiceOperationsService.InvoiceView issueInvoice(
-      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
-    return workshop.createInvoice(principal, publicId);
-  }
-
-  @GetMapping("/job-cards/{publicId}/invoice")
-  @PreAuthorize("hasAuthority('billing.invoice.read')")
-  public ServiceOperationsService.InvoiceView invoiceForJob(
-      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
-    return workshop.getInvoiceForJob(principal, publicId);
-  }
-
-  @GetMapping("/invoices/{invoicePublicId}")
-  @PreAuthorize("hasAuthority('billing.invoice.read')")
-  public ServiceOperationsService.InvoiceView invoice(
-      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID invoicePublicId) {
-    return workshop.getInvoice(principal, invoicePublicId);
-  }
-
-  @PostMapping("/invoices/{invoicePublicId}/payments")
-  @PreAuthorize("hasAuthority('billing.payment.record')")
-  public ServiceOperationsService.PaymentResult recordPayment(
-      @AuthenticationPrincipal StaffPrincipal principal,
-      @PathVariable UUID invoicePublicId,
-      @Valid @RequestBody PaymentRequest request) {
-    return workshop.recordPayment(principal, invoicePublicId,
-        new ServiceOperationsService.PaymentRequest(
-            request.idempotencyKey(), request.paymentMethod(), request.amount(),
-            request.paymentReference(), request.note()));
-  }
-
-  @PostMapping("/payments/{paymentPublicId}/reverse")
-  @PreAuthorize("hasAuthority('billing.payment.reverse')")
-  public ServiceOperationsService.PaymentResult reversePayment(
-      @AuthenticationPrincipal StaffPrincipal principal,
-      @PathVariable UUID paymentPublicId,
-      @Valid @RequestBody PaymentReversalRequest request) {
-    return workshop.reversePayment(principal, paymentPublicId,
-        new ServiceOperationsService.PaymentReversalRequest(request.reason(), request.externalReference()));
-  }
-
-  @PostMapping("/job-cards/{publicId}/deliver")
-  @PreAuthorize("hasAuthority('workshop.jobcard.deliver')")
-  public ServiceOperationsService.JobCardView deliverVehicle(
-      @AuthenticationPrincipal StaffPrincipal principal,
-      @PathVariable UUID publicId,
-      @Valid @RequestBody DeliveryRequest request) {
-    return workshop.deliverVehicle(principal, publicId,
-        new ServiceOperationsService.DeliveryRequest(
-            request.deliveredToName(), request.customerAcknowledged(), request.acknowledgementMethod(),
-            request.acknowledgementReference(), request.note()));
-  }
-
   @GetMapping("/job-cards/{publicId}/inspection")
   @PreAuthorize("hasAuthority('workshop.read')")
   public List<ServiceOperationsService.InspectionItemView> inspection(
@@ -326,22 +271,7 @@ public class ServiceOperationsController {
       @NotNull Boolean noVisibleLeaks, @NotNull Boolean roadTestOk, @NotNull Boolean toolsRemoved,
       @NotNull Boolean customerConcernResolved, @Size(max = 1500) String notes) {}
 
-  public record PaymentRequest(
-      @NotBlank @Size(max = 120) String idempotencyKey,
-      @NotBlank @Pattern(regexp = "CASH|UPI|BANK_TRANSFER|CARD|OTHER") String paymentMethod,
-      @NotNull @DecimalMin(value = "0.01") @Digits(integer = 12, fraction = 2) BigDecimal amount,
-      @Size(max = 160) String paymentReference,
-      @Size(max = 1000) String note) {}
-  public record DeliveryRequest(
-      @NotBlank @Size(max = 160) String deliveredToName,
-      @NotNull Boolean customerAcknowledged,
-      @NotBlank @Pattern(regexp = "IN_PERSON|SIGNED_FORM|OTP_REFERENCE|WRITTEN_MESSAGE") String acknowledgementMethod,
-      @Size(max = 160) String acknowledgementReference,
-      @Size(max = 1000) String note) {}
-    public record PaymentReversalRequest(
-      @NotBlank @Size(max = 500) String reason,
-      @Size(max = 160) String externalReference) {}
-    public record NoteRequest(@Size(max = 500) String note) {}
+  public record NoteRequest(@Size(max = 500) String note) {}
   public record CancelRequest(@NotBlank @Size(max = 500) String reason) {}
   public record CheckInRequest(
       @Min(0) Integer odometerKm,
