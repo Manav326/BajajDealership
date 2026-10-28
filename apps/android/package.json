@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
-    "@react-native-community/datetimepicker": "^9.1.0",
+    "@react-native-community/datetimepicker": "~9.1.0",
     "expo": "~57.0.31",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
-    "typescript": "~5.9.3"
+    "typescript": "~6.0.3"
   }
 }
