@@ -45,12 +45,20 @@
 - The low-stock list compares available quantity (on-hand minus reserved) to the threshold and computes suggested order quantity as max(target minus available, 0).
 - The workspace exposes policy editing and low-stock alerts only to users who already have parts read/manage permissions; backend authorization remains authoritative.
 
-## Next business vertical slice: stock-operation concurrency and reconciliation
+## Completed checkpoint: spare-part stock safety and estimate reconciliation
 
-1. Extend concurrency coverage from reservations to same-SKU receipts, issue, return and release, including idempotency keys reused by different staff sessions and transaction rollback after an unavailable-stock race.
-2. Complete reconciliation of reserved/issued/returned/released part quantities against approved estimate lines when stock changes after a decision. Require a new estimate revision rather than mutate an approved estimate or issued invoice.
-3. Add scheduled reorder notifications only after confirming delivery channel, recipient scope, permissions and operational budgets. Keep CI notifications internal and synthetic.
-4. Defer supplier payables, inventory accounting journals, refunds/credit notes and statutory tax treatment until rules and authorization are agreed.
+- PostgreSQL integration tests cover concurrent same-SKU reservations, concurrent receipt retries, concurrent issue quantity limits, concurrent returns/releases, idempotent retries across staff sessions, and a multi-line receipt rollback when a later SKU exceeds its quantity ceiling.
+- CI run [40699013261](https://github.com/Manav326/BajajDealership/actions/runs/40699013261) passed both PostgreSQL-backed backend tests/migrations and the React production build on commit `091dc2708a3f67c29d13ae15a93b7ec098acd5a9`.
+- Approved part estimate revisions snapshot the source reservation quantities and internal unit-cost basis. Issue is blocked when that snapshot becomes stale, and invoice draft/issue rechecks planned reservations against the approved revision.
+- Released quantities have their own persisted field and are included in reservation status/remaining-quantity calculations.
+
+## Next business vertical slice: sales enquiries and vehicle reservations
+
+1. Add dealership-scoped sales enquiries with customer, model/variant interest, lead source, contact preference, owner/assignee, status, next-follow-up time and notes; record status/follow-up changes in an append-only activity history.
+2. Add test-ride scheduling/check-in/completion/cancellation with vehicle availability checks and auditable state transitions.
+3. Add booking against an individual available vehicle unit. Lock the unit and atomically transition it to RESERVED while recording vehicle stock movement; a vehicle must never be actively booked by two enquiries.
+4. Support booking cancellation that releases only that booking's reservation and returns the unit to AVAILABLE only when the booking is still active and no issued sale invoice/handover exists.
+5. Add transaction/idempotency, permission-denial, dealership-isolation and concurrent-booking tests before enabling sales invoice/delivery flows. Sales payment and vehicle delivery remain blocked until the financial invoice/payment rules are integrated.
 
 ## Follow-on finance controls
 
