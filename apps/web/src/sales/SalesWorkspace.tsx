@@ -698,6 +698,299 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
     }
   }
 
+  async function openSaleBooking(booking: Booking) {
+    setSelectedSaleBookingId(booking.publicId);
+    setSaleInvoice(null);
+    setSalePayments([]);
+    setSaleHandover(null);
+    setSaleBillingLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const invoice = await apiFetch<SalesInvoice>(
+        `/api/v1/admin/sales/bookings/${booking.publicId}/invoice`, token);
+      setSaleInvoice(invoice);
+      const payments = await apiFetch<SalesPayment[]>(
+        `/api/v1/admin/sales/invoices/${invoice.publicId}/payments`, token);
+      setSalePayments(payments ?? []);
+      const vehicleLine = invoice.lines.find((line) => line.lineType === 'VEHICLE');
+      if (vehicleLine) {
+        setSaleVehiclePrice(String(vehicleLine.unitPrice));
+        setSaleVehicleDiscount(String(vehicleLine.discountAmount));
+      }
+      setSaleCustomerMessage(invoice.customerMessage ?? '');
+      const addOnLines = invoice.lines.filter((line) => line.lineType !== 'VEHICLE');
+      setSaleAddOns(addOnLines.length > 0
+        ? addOnLines.map((line) => ({
+            lineType: line.lineType === 'OTHER' ? 'OTHER' as const : 'ACCESSORY' as const,
+            description: line.description,
+            quantity: String(line.quantity),
+            unitPrice: String(line.unitPrice),
+            discountAmount: String(line.discountAmount),
+          }))
+        : [{ lineType: 'ACCESSORY', description: '', quantity: '1', unitPrice: '', discountAmount: '0' }]);
+      if (booking.status === 'CONVERTED_TO_SALE') {
+        try {
+          const handover = await apiFetch<SalesHandover>(
+            `/api/v1/admin/sales/bookings/${booking.publicId}/handover`, token);
+          setSaleHandover(handover);
+          setSaleDeliveredToName(handover.deliveredToName);
+          setSaleAcknowledged(handover.customerAcknowledged);
+          setSaleAcknowledgementMethod(handover.acknowledgementMethod as typeof saleAcknowledgementMethod);
+          setSaleAcknowledgementReference(handover.acknowledgementReference ?? '');
+          setSaleHandoverNote(handover.note ?? '');
+        } catch (cause) {
+          if ((cause as ApiError)?.status !== 404) throw cause;
+          setSaleHandover(null);
+        }
+      } else {
+        setSaleHandover(null);
+        setSaleDeliveredToName(booking.customerName);
+        setSaleAcknowledged(false);
+        setSaleAcknowledgementReference('');
+        setSaleHandoverNote('');
+      }
+    } catch (cause) {
+      if ((cause as ApiError)?.status === 404) {
+        setSaleInvoice(null);
+        setSalePayments([]);
+        setSaleHandover(null);
+        setSaleVehiclePrice('');
+        setSaleVehicleDiscount('0');
+        setSaleCustomerMessage('');
+        setSaleAddOns([{ lineType: 'ACCESSORY', description: '', quantity: '1', unitPrice: '', discountAmount: '0' }]);
+        setSaleDeliveredToName(booking.customerName);
+        setSaleAcknowledged(false);
+        setSaleAcknowledgementReference('');
+        setSaleHandoverNote('');
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Sale invoice details could not be loaded.');
+      }
+    } finally {
+      setSaleBillingLoading(false);
+    }
+  }
+
+  function updateSaleAddOn(index: number, key: keyof SaleAddOnDraft, value: string) {
+    setSaleAddOns((current) => current.map((line, lineIndex) =>
+      lineIndex === index ? { ...line, [key]: value } : line));
+  }
+
+  async function createSaleInvoice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const booking = detail?.bookings.find((item) => item.publicId === selectedSaleBookingId);
+    if (!booking || booking.status !== 'ACTIVE') {
+      setError('An active bike booking is required before creating a sale invoice.');
+      return;
+    }
+    const vehiclePrice = Number(saleVehiclePrice);
+    const vehicleDiscount = Number(saleVehicleDiscount || 0);
+    if (!Number.isFinite(vehiclePrice) || vehiclePrice <= 0
+        || !Number.isFinite(vehicleDiscount) || vehicleDiscount < 0 || vehicleDiscount > vehiclePrice) {
+      setError('Enter a positive vehicle price and a discount no greater than that price.');
+      return;
+    }
+    const editedAddOns = saleAddOns.filter((line) => line.description.trim() || line.unitPrice.trim());
+    const addOns: Array<{ lineType: string; description: string; quantity: number; unitPrice: number; discountAmount: number }> = [];
+    for (const line of editedAddOns) {
+      const quantity = Number(line.quantity);
+      const unitPrice = Number(line.unitPrice);
+      const discountAmount = Number(line.discountAmount || 0);
+      if (!line.description.trim() || !Number.isFinite(quantity) || quantity <= 0
+          || !Number.isFinite(unitPrice) || unitPrice < 0
+          || !Number.isFinite(discountAmount) || discountAmount < 0
+          || discountAmount > quantity * unitPrice) {
+        setError('Complete each accessory/other line with a description, positive quantity, valid price and a valid discount.');
+        return;
+      }
+      addOns.push({
+        lineType: line.lineType, description: line.description.trim(),
+        quantity, unitPrice, discountAmount,
+      });
+    }
+    setBusyId(booking.publicId); setError(''); setSuccess('');
+    try {
+      const invoice = await apiFetch<SalesInvoice>(
+        `/api/v1/admin/sales/bookings/${booking.publicId}/invoice`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            idempotencyKey: saleInvoiceKey,
+            vehiclePrice, vehicleDiscount,
+            customerMessage: saleCustomerMessage.trim() || null,
+            addOns,
+          }),
+        });
+      setSaleInvoice(invoice);
+      setSaleInvoiceKey(createIdempotencyKey());
+      setSuccess(`Draft sales invoice ${invoice.invoiceNumber} saved. It is an operational record, not a GST tax invoice.`);
+      await Promise.all([refresh(), openEnquiry(booking.enquiryPublicId)]);
+      setSelectedSaleBookingId(booking.publicId);
+      // Re-load after the enquiry refresh to retain the current invoice/receipt view.
+      await openSaleBooking(booking);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sales invoice draft could not be saved.');
+      // Keep the same idempotency key and form values after an unknown-outcome failure.
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function issueSaleInvoice() {
+    if (!saleInvoice) return;
+    setBusyId(saleInvoice.publicId); setError(''); setSuccess('');
+    try {
+      const issued = await apiFetch<SalesInvoice>(
+        `/api/v1/admin/sales/invoices/${saleInvoice.publicId}/issue`, token, { method: 'POST' });
+      setSaleInvoice(issued);
+      setSuccess(`Sales invoice ${issued.invoiceNumber} issued. Tax treatment is not implemented by this operational record.`);
+      const payments = await apiFetch<SalesPayment[]>(
+        `/api/v1/admin/sales/invoices/${issued.publicId}/payments`, token);
+      setSalePayments(payments ?? []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sales invoice could not be issued.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function cancelSaleInvoiceDraft() {
+    if (!saleInvoice || !saleDraftCancelReason.trim()) {
+      setError('Enter a reason before cancelling the invoice.');
+      return;
+    }
+    setBusyId(saleInvoice.publicId); setError(''); setSuccess('');
+    try {
+      const cancelled = await apiFetch<SalesInvoice>(
+        `/api/v1/admin/sales/invoices/${saleInvoice.publicId}/cancel`, token, {
+          method: 'POST', body: JSON.stringify({ reason: saleDraftCancelReason.trim() }),
+        });
+      setSaleInvoice(cancelled);
+      setSaleDraftCancelReason('');
+      setSuccess('Invoice cancelled with reason recorded. The bike booking is still reserved; you can create a corrected draft.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sales invoice could not be cancelled.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function recordSalePayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!saleInvoice) return;
+    const amount = Number(salePaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > saleInvoice.balanceDue) {
+      setError('Payment amount must be positive and no greater than the outstanding balance.');
+      return;
+    }
+    if (['UPI', 'BANK_TRANSFER', 'CARD'].includes(salePaymentMethod) && !salePaymentReference.trim()) {
+      setError('A transaction/bank reference is required for UPI, bank transfer and card payments.');
+      return;
+    }
+    setBusyId(saleInvoice.publicId); setError(''); setSuccess('');
+    try {
+      const payment = await apiFetch<SalesPayment>(
+        `/api/v1/admin/sales/invoices/${saleInvoice.publicId}/payments`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            idempotencyKey: salePaymentKey, paymentMethod: salePaymentMethod, amount,
+            paymentReference: salePaymentReference.trim() || null,
+            note: salePaymentNote.trim() || null,
+          }),
+        });
+      const [invoice, payments] = await Promise.all([
+        apiFetch<SalesInvoice>(`/api/v1/admin/sales/invoices/${saleInvoice.publicId}`, token),
+        apiFetch<SalesPayment[]>(`/api/v1/admin/sales/invoices/${saleInvoice.publicId}/payments`, token),
+      ]);
+      setSaleInvoice(invoice);
+      setSalePayments(payments ?? []);
+      setSalePaymentAmount('');
+      setSalePaymentReference('');
+      setSalePaymentNote('');
+      setSalePaymentKey(createIdempotencyKey());
+      setSuccess(`Receipt ${payment.receiptNumber} recorded or recovered. Remaining balance: ₹${Number(invoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sales payment could not be recorded.');
+      // Keep the same key after an unknown outcome so retry cannot create a duplicate receipt.
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function reverseSalePayment(payment: SalesPayment) {
+    if (!saleInvoice || !saleReversalReason.trim()) {
+      setError('Enter a reason before reversing this payment.');
+      return;
+    }
+    setBusyId(payment.publicId); setError(''); setSuccess('');
+    try {
+      const reversed = await apiFetch<SalesPayment>(
+        `/api/v1/admin/sales/payments/${payment.publicId}/reverse`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason: saleReversalReason.trim(),
+            externalReference: saleReversalReference.trim() || null,
+          }),
+        });
+      const [invoice, payments] = await Promise.all([
+        apiFetch<SalesInvoice>(`/api/v1/admin/sales/invoices/${saleInvoice.publicId}`, token),
+        apiFetch<SalesPayment[]>(`/api/v1/admin/sales/invoices/${saleInvoice.publicId}/payments`, token),
+      ]);
+      setSaleInvoice(invoice);
+      setSalePayments(payments ?? []);
+      setSaleReversalReason('');
+      setSaleReversalReference('');
+      setSuccess(`Receipt ${reversed.receiptNumber} marked reversed. The reason remains in the financial audit history.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Sales receipt could not be reversed.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function deliverSaleVehicle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const booking = detail?.bookings.find((item) => item.publicId === selectedSaleBookingId);
+    if (!booking || !saleInvoice || saleInvoice.balanceDue !== 0) {
+      setError('The selected bike booking must have an issued, fully settled sales invoice before delivery.');
+      return;
+    }
+    if (!saleAcknowledged) {
+      setError('Record customer acknowledgement before delivering the bike.');
+      return;
+    }
+    if (['SIGNED_FORM', 'OTP_REFERENCE'].includes(saleAcknowledgementMethod) && !saleAcknowledgementReference.trim()) {
+      setError('A reference is required for signed-form or OTP acknowledgement.');
+      return;
+    }
+    if (['IN_PERSON', 'WRITTEN_MESSAGE'].includes(saleAcknowledgementMethod)
+        && !saleAcknowledgementReference.trim() && !saleHandoverNote.trim()) {
+      setError('Enter a note or reference for this handover acknowledgement.');
+      return;
+    }
+    setBusyId(booking.publicId); setError(''); setSuccess('');
+    try {
+      const handover = await apiFetch<SalesHandover>(
+        `/api/v1/admin/sales/bookings/${booking.publicId}/deliver`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            deliveredToName: saleDeliveredToName.trim(),
+            customerAcknowledged: saleAcknowledged,
+            acknowledgementMethod: saleAcknowledgementMethod,
+            acknowledgementReference: saleAcknowledgementReference.trim() || null,
+            note: saleHandoverNote.trim() || null,
+          }),
+        });
+      setSaleHandover(handover);
+      setSuccess(`Bike marked SOLD and handed over to ${handover.deliveredToName}. The customer ownership record was linked.`);
+      await Promise.all([refresh(), openEnquiry(booking.enquiryPublicId)]);
+      await openSaleBooking(booking);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Bike delivery could not be completed.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
   if (!canRead) {
     return <section className="module-landing"><div className="module-symbol">↗</div><div className="eyebrow">ACCESS CONTROL</div><h1>Sales pipeline</h1><p>Your role does not include sales enquiry or booking access.</p></section>;
   }
