@@ -530,11 +530,16 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     if (!selectedJobCard) return;
     setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
     try {
-      const issued = await request<Invoice>(
-        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/invoice`, token, {
+      const approvedEstimate = estimates.find((estimate) => estimate.status === 'APPROVED');
+      const draft = await request<Invoice>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/invoices`, token, {
           method: 'POST',
+          body: JSON.stringify({ customerMessage: approvedEstimate?.customerMessage ?? null }),
         });
-      setInvoice(issued);
+      const issued = draft.status === 'DRAFT'
+        ? await request<Invoice>(`/api/v1/admin/workshop/invoices/${draft.publicId}/issue`, token, { method: 'POST' })
+        : draft;
+      await refreshBilling(selectedJobCard.publicId);
       const updatedCard = await request<JobCard>(
         `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}`, token);
       setSelectedJobCard(updatedCard);
@@ -548,15 +553,19 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
 
   async function recordInvoicePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!invoice) return;
+    if (!invoice || !selectedJobCard) return;
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setError('Enter a positive payment amount.');
       return;
     }
+    if (['UPI', 'BANK_TRANSFER', 'CARD'].includes(paymentMethod) && !paymentReference.trim()) {
+      setError('A payment reference is required for UPI, bank-transfer and card entries.');
+      return;
+    }
     setBusyId(invoice.publicId); setError(''); setMessage('');
     try {
-      const result = await request<PaymentResult>(
+      const payment = await request<Payment>(
         `/api/v1/admin/workshop/invoices/${invoice.publicId}/payments`, token, {
           method: 'POST',
           body: JSON.stringify({
@@ -566,16 +575,19 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             note: paymentNote.trim() || null,
           }),
         });
-      setInvoice(result.invoice);
+      const updatedInvoice = await request<Invoice>(`/api/v1/admin/workshop/invoices/${invoice.publicId}`, token);
+      const payments = await request<Payment[]>(`/api/v1/admin/workshop/invoices/${invoice.publicId}/payments`, token);
+      setInvoice(updatedInvoice);
+      setInvoicePayments(payments);
       setPaymentAmount('');
       setPaymentReference('');
       setPaymentNote('');
       setPaymentIdempotencyKey(globalThis.crypto?.randomUUID?.()
         ?? `qe-pay-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-      setMessage(`${result.idempotentReplay ? 'Recovered existing' : 'Recorded'} receipt ${result.payment.receiptNumber}. Balance due: ₹${Number(result.invoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
+      setMessage(`Receipt ${payment.receiptNumber} recorded or recovered. Balance due: ₹${Number(updatedInvoice.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Payment could not be recorded.');
-      // Keep the same idempotency key after a network/unknown-outcome failure so retry cannot duplicate the receipt.
+      // Keep the same idempotency key after an unknown-outcome failure so the retry cannot duplicate the receipt.
     } finally { setBusyId(''); }
   }
 
@@ -588,7 +600,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     }
     setBusyId(payment.publicId); setError(''); setMessage('');
     try {
-      const result = await request<PaymentResult>(
+      const reversed = await request<Payment>(
         `/api/v1/admin/workshop/payments/${payment.publicId}/reverse`, token, {
           method: 'POST',
           body: JSON.stringify({
@@ -596,10 +608,13 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             externalReference: reversalReference.trim() || null,
           }),
         });
-      setInvoice(result.invoice);
+      const updatedInvoice = await request<Invoice>(`/api/v1/admin/workshop/invoices/${invoice.publicId}`, token);
+      const payments = await request<Payment[]>(`/api/v1/admin/workshop/invoices/${invoice.publicId}/payments`, token);
+      setInvoice(updatedInvoice);
+      setInvoicePayments(payments);
       setReversalReason('');
       setReversalReference('');
-      setMessage(`Receipt ${result.payment.receiptNumber} is now ${result.payment.status.toLowerCase()}. Reversal reason retained in the audit trail.`);
+      setMessage(`Receipt ${reversed.receiptNumber} is now ${reversed.status.toLowerCase()}. Reversal evidence remains in the ledger.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Payment reversal could not be recorded.');
     } finally { setBusyId(''); }
@@ -618,7 +633,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     }
     setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
     try {
-      const delivered = await request<JobCard>(
+      await request<unknown>(
         `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/deliver`, token, {
           method: 'POST',
           body: JSON.stringify({
@@ -629,8 +644,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             note: deliveryNote.trim() || null,
           }),
         });
+      const delivered = await request<JobCard>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}`, token);
       setSelectedJobCard(delivered);
-      setInvoice((current) => current ? { ...current, jobCardStatus: 'DELIVERED' } : current);
+      await refreshBilling(selectedJobCard.publicId);
       setMessage(`Vehicle handed over and acknowledgement recorded for ${delivered.jobCardCode}.`);
       await loadJobCards();
     } catch (cause) {
