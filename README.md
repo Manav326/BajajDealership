@@ -1,140 +1,142 @@
 # QuantaEdge — Bajaj Dealership Management System
 
 **Customer:** Lucky Bajaj Agency  
-**Software provider:** QuantaEdge  
-**Initial scope:** One outlet handling both new-bike sales and servicing  
-**Delivery target:** 12–16 weeks, subject to team capacity and external dependencies
+**Product owner / software company:** QuantaEdge  
+**Branch:** `main`  
+**Status:** Active implementation — not yet a production release.
 
-A connected dealership management system with an owner/staff web portal, a customer website, and an Android customer app. All clients share one secure Spring Boot API and PostgreSQL database.
+This repository contains the implementation roadmap and application code for a dealership management system that connects new-bike sales, customers, workshop servicing, spare parts, staff, operational finance and notifications.
 
 ## Product roadmap
 
-### Phase 1 — Requirements, UX and architecture (Weeks 1–2)
-- Freeze workflows, screen map, role/permission matrix, data model, API contracts and acceptance tests.
-- Define customer vs staff identity and vehicle ownership.
-- Audit QuantaEdge Notification Studio and adapt its provider-neutral rich-content contract to dealership workflows.
-- Confirm Bajaj/OEM access, payment/tax scope and outbound messaging providers.
-- Exit gate: every quoted feature has a specification and observable acceptance criteria.
+### Product experiences
+- **Owner and staff web portal:** ReactJS, responsive for desktop, tablet and mobile.
+- **Customer website:** service requests, owned vehicles, permitted service history, notifications and feedback.
+- **Android application:** customer workflows and push notifications once the Android project and provider configuration are completed.
+- **One shared backend:** Spring Boot REST APIs and PostgreSQL. Web and mobile clients must use the same authoritative records and permission rules.
 
-### Phase 2 — Secure foundation (Weeks 3–4)
-- Bootstrap ReactJS web app, Spring Boot REST API, PostgreSQL and Flyway.
-- Implement authentication, server-enforced RBAC, audit events, validation/error conventions, secure media storage and health endpoints.
-- Add CI/build/test checks, environment configuration and secret handling.
-- Rehearse database backup and restore.
-- Exit gate: clean database migration and secure test deployment pass.
+### Business modules
+1. **Foundation and access control** — dealership scoping, staff identities, role-based permissions, secure sessions, audit events, database migrations and backup strategy.
+2. **Customers and CRM** — customer profiles, contact preferences, linked vehicles, follow-ups, complaints and consent history.
+3. **Bike inventory** — model/variant catalogue, individual vehicle units, chassis/engine identifiers, stock receiving and auditable stock movement.
+4. **Sales and delivery** — enquiries, test rides, bookings, vehicle allocation, finance/insurance/registration follow-ups, invoice links and delivery.
+5. **Workshop and service** — appointments, check-in, inspection, estimates and customer approval, job cards, mechanic assignment, work status, quality check, billing and handover.
+6. **Spare parts** — suppliers, purchases, receiving, stock ledger, job-card issue/return, damage adjustments and reorder alerts.
+7. **Billing and business controls** — invoices/receipts, payments, partial settlements, refunds/adjustments, expenses, outstanding balances and daily closing.
+8. **Employees** — staff access, assignments, attendance, leave, approvals and verified performance reports.
+9. **Notification Studio** — reusable rich templates, version history, Logo & Graphics workspace, audience search, server-side preview and exclusions, scheduling, durable inbox, audit and delivery history.
+10. **Reports** — sales, servicing, collections, expenses and inventory reports reconciled to source records.
+11. **Customer web and Android** — bookings, vehicle/service views, updates, feedback and appropriately scoped customer notifications.
+12. **Production readiness** — automated tests, responsive/accessibility checks, security verification, backup restoration rehearsal, staff training and staged launch.
 
-### Phase 3 — CRM, sales and vehicle inventory (Weeks 5–7)
-- Customer profiles/preferences, enquiries, test rides, bookings and follow-ups.
-- Vehicle models/units, stock receipt, chassis/engine identity where applicable, reservation, allocation, finance/document tracking and delivery.
-- Owner dashboard and initial reconciliation reports.
-- Exit gate: enquiry-to-delivery journey passes without duplicate or contradictory records.
+## Technical baseline
+- Web: ReactJS + TypeScript + Vite
+- Android: planned React Native application (native build, permissions and push handling require Android-specific implementation and testing)
+- Backend: Java 21 + Spring Boot
+- Database: PostgreSQL with additive Flyway migrations
+- API: authenticated REST + JSON
+- Hosting: conventional HTTPS web/API hosting, private media storage, monitoring and tested backups
+- CI: GitHub Actions for backend/PostgreSQL migration tests and web typecheck/production build
 
-### Phase 4 — Workshop and spare parts (Weeks 8–10)
-- Appointment/walk-in, check-in, inspection, estimates and customer approval.
-- Job cards, technician assignment, status transitions, parts issue/return, quality check, billing and handover.
-- Suppliers, purchase/receipt, stock ledger, reorder rules and parts valuation.
-- Exit gate: end-to-end service journey passes with accurate stock movements and traceable approvals.
+## Implementation status
 
-### Phase 5 — Billing, staff and Notification Studio (Weeks 11–12)
-- Operational invoices/receipts, payment allocations, partial payments, refunds/adjustments, expenses, dues and daily closing.
-- Attendance, work allocation, permission-aware staff views and audit trails.
-- Notification Studio: rich block editor, Logo & Graphics workspace, Hindi/English copy, templates/versioning, audience review, exclusions, preview, approval, scheduling, delivery history, retries and cancellation.
-- Durable in-app inbox and Android push interface.
-- Exit gate: financial reconciliation and notification campaign lifecycle pass acceptance tests.
+### Implemented in the current foundation
+- React web application shell with premium responsive layout and a live API health indicator.
+- Staff sign-in, server-created bearer sessions stored as hashes, logout/revocation, and initial role/permission catalogue.
+- Dealership-scoped customer list/search/create/update APIs, audit trail, preferred language, and separate marketing-consent source handling.
+- Vehicle model and individual vehicle inventory APIs; chassis/engine uniqueness; expected-stock receiving flow; dealership-scoped movement ledger.
+- PostgreSQL migrations for dealership identity, roles/permissions, audit events, customers, vehicle inventory, notification records and dealership-boundary constraints.
+- Notification rich-document validator, versioned templates, server-resolved audience preview, preview proof, idempotent send requests, scheduled campaign dispatch, durable in-app recipient/inbox records, read/unread/archive operations, campaign audit and private PNG/JPEG media upload.
+- Notification Studio web interface adapted from the QuantaEdge rich-notification contract: content blocks, previews, audience selection, consent-filtered marketing audience, template library, campaign history, inbox and a locally editable Logo & Graphics tool.
+- Automated tests for PostgreSQL migrations, authentication, customer isolation/consent, vehicle stock lifecycle and notification contracts.
 
-### Phase 6 — Customer website and Android app (Weeks 13–14)
-- Customer account, linked bikes, appointments, permitted service progress/history, available invoices/receipts, feedback and notification inbox.
-- React Native Android client using the same API; device registration, permission handling and secure deep links.
-- Exit gate: customer workflows match between web and Android; account switching does not leak another customer's records.
+### Not yet complete — do not treat as production-ready
+- Sales pipeline and end-to-end booking/invoice/delivery transaction workflow.
+- Workshop appointment/job-card lifecycle, mechanic work tracking, estimates/approvals, quality checks and service handover.
+- Spare-parts purchasing and job-card stock movement integration.
+- Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
+- Fully implemented customer website and React Native Android app.
+- Android Firebase Cloud Messaging delivery configuration and end-to-end proof of real push delivery.
+- SMS, WhatsApp Business and email provider integrations, templates, consent/process verification and provider billing.
+- Approved Bajaj/OEM APIs or official dealer integrations. No code may imply warranty/coupon/claim/inventory records were submitted to Bajaj unless an authorised integration confirms it.
+- Full cross-browser/mobile acceptance tests, production load/security review and verified backup restoration.
 
-### Phase 7 — Acceptance, hardening and launch (Weeks 15–16)
-- Security, role isolation, responsive UI, performance, migrations and backup recovery tests.
-- Failure/retry tests for payments, stock movements and notifications.
-- End-to-end tests with synthetic data; no real customer notifications during QA.
-- Staff training, deployment checklist and go-live approval.
-- Exit gate: no release-blocking defects, critical workflows pass, reports reconcile, backups restore, acceptance is recorded.
+The existence of a screen, table or API is not evidence that its whole business workflow is complete. Modules stay marked in progress until their acceptance tests pass.
 
-## Quoted product features
+## Local development
 
-| Module | Purpose |
-|---|---|
-| Owner dashboard | Sales, service workload, collections, dues, expenses, stock alerts and staff activity |
-| Customer CRM | Contact preferences, linked vehicles, enquiries, visits, service history and complaints |
-| Bike sales | Enquiries, test rides, bookings, allocation, finance/document tracking, invoices and delivery |
-| Vehicle inventory | Models, individual vehicle identifiers, stock lifecycle and reservation controls |
-| Workshop | Appointments, inspection, estimates, approval, job cards, assigned work, quality checks and handover |
-| Spare parts | Suppliers, purchasing, stock ledger, issue/return, damage, reorder levels and valuation |
-| Billing/operational accounts | Invoices/receipts, partial payments, cash/UPI/bank records, refunds, expenses and daily closing |
-| Staff and permissions | Individual logins, roles, attendance/leave, task allocation, approved incentives and audit |
-| Customer website and Android app | Appointments, vehicle/service records, authorised job status, notifications and feedback |
-| Notification Studio | Visual rich-content editor, graphics/design tools, bilingual templates, audience builder, preview, approval, scheduling, campaign delivery and reports |
-| Reports and exports | Sales/service summaries, collections/dues, expenses, stock and staff activity |
-| Administration | Settings, access controls, audit, backups, monitoring and recovery |
+Requirements: Java 21, Maven, Node.js 24+, npm, Docker with Compose.
 
-## Technology baseline
+1. Start the local PostgreSQL instance:
 
-- Web: ReactJS
-- Android: React Native, subject to validation of native requirements and build tooling
-- Backend: Java / Spring Boot REST API
-- Database: PostgreSQL
-- Schema: additive Flyway migrations; never rewrite a released migration
-- API: REST + JSON, documented contracts and consistent error responses
-- Hosting: conventional HTTPS website/API hosting, protected media storage, monitoring and tested backups
+   ```sh
+   docker compose up -d postgres
+   ```
 
-Start as a modular monolith. All clients share one API and one source of truth. Do not introduce microservices until measured usage justifies them.
+2. Run the backend:
 
-## Notification Studio: adapt QuantaEdge, do not duplicate it blindly
+   ```sh
+   mvn -f backend/pom.xml spring-boot:run
+   ```
 
-Adapt QuantaEdge's provider-neutral rich-content approach:
-- Versioned JSON blocks, a strict validator and safe renderer; no executable HTML or JavaScript.
-- Hero, rich text, images, vehicle/service cards, CTA, badges and footer.
-- Logo & Graphics design workspace with validated raster export.
-- Versioned templates and immutable campaign snapshots.
-- Server-resolved audience review and a short-lived, single-use send-preview proof.
-- Idempotent campaign creation, durable inbox, audit events and delivery attempts.
-- In-app delivery first; Android push via server-side Firebase configuration.
-- Scheduling, bounded retry, token revocation and honest delivery/failure status.
-- SMS, WhatsApp Business and email only after provider, consent, approval and price are confirmed.
+3. Run the web client in another terminal:
 
-Do not copy QuantaEdge's student, parent, institution, course or HRMS identity rules. Create dealership-specific customer/staff roles and vehicle/job access. Provider failure must not erase an in-app notification or be reported as successful delivery.
+   ```sh
+   cd apps/web
+   npm install
+   npm run dev
+   ```
 
-## Core business journeys
+The web dev server runs on port 3000 and proxies `/api` to the Spring Boot API on port 8080.
 
-**Sales:** enquiry → optional test ride → booking → vehicle allocation → documents/finance status → invoice/payment record → delivery → customer/vehicle link.
+### Initial owner bootstrap
 
-**Workshop:** appointment or walk-in → check-in → inspection/estimate → customer approval → assigned job → parts movement → repair → quality inspection → invoice/payment → delivery → feedback/reminder.
+Owner bootstrap is disabled unless `APP_BOOTSTRAP_TOKEN` is configured. Generate a strong, temporary secret and configure it only in the backend environment. Call `POST /api/v1/system/bootstrap` over HTTPS with that secret in `X-Bootstrap-Token` to create the dealership and initial owner. The bootstrap route permits only the first owner for a dealership. Remove the bootstrap secret after setup and never commit real secrets to the repository.
 
-**Parts:** purchase/order → received/checked → available → reserved/issued → consumed/returned/damaged/adjusted with actor, reference and reason.
+Example request body (replace the values with the authorised owner's details):
 
-Validate transitions on the server and audit them. Cancellations and refunds adjust records; they do not silently delete completed transactions.
+```json
+{
+  "dealershipCode": "LUCKY-BAJAJ",
+  "dealershipName": "Lucky Bajaj Agency",
+  "ownerName": "Agency Owner",
+  "email": "owner@example.com",
+  "phone": "+91XXXXXXXXXX",
+  "password": "replace-with-a-long-unique-password"
+}
+```
 
-## Non-negotiable quality gates
+Do not use `bajaj_local_only` outside the local Compose environment. Production requires separate credentials, HTTPS, secret management, private uploads, restricted database access, monitoring and verified backups.
 
-- Server-enforced roles and customer-record isolation.
-- No duplicate payments, sales, stock movements or notification recipients after retries.
-- Database transactions and constraints for critical business state.
-- Traceable stock ledger and financial history.
-- Rich-content/media validation and internal-route or approved HTTPS-only links.
-- Audience resolved on the server; browser-provided counts and IDs are never authority.
-- Template versioning and cancellation before scheduled dispatch.
-- Honest, recoverable provider failures.
-- Web/Android workflow parity and responsive layout tests.
-- Fresh/upgraded DB migration tests, API integration tests, web build, Android build and end-to-end tests.
-- Restore a backup in a rehearsal; do not merely verify that a backup file exists.
-- Use synthetic QA users; never send outbound messages to real customers in tests.
+## Notification Studio design reference
 
-## External dependencies and exclusions
+The behaviour and safety requirements are adapted from QuantaEdge:
+- `docs/product/rich-notification-platform-contract.md`
+- `apps/web/app/components/NotificationStudio.tsx`
+- `services/api/src/main/java/com/quantaedge/api/RichNotificationService.java`
+- `services/api/src/main/java/com/quantaedge/api/NotificationContentValidator.java`
+- `services/api/src/main/java/com/quantaedge/api/AndroidPushService.java`
 
-- Bajaj warranty, service coupon, claims, inventory and dealer APIs are not assumed to exist. Report official submission only after an authorised integration confirms it.
-- The quoted accounts scope covers operational billing, collections, expenses and reconciliation. Full double-entry accounting, live gateway processing, GST/e-invoicing integrations and tax advice need explicit scope if required.
-- In-app notifications are core. Android push requires Firebase configuration. SMS, WhatsApp Business and email require provider credentials, consent/template controls and usage budgets.
-- Third-party fees, legacy-data migration, additional outlets/users and bespoke integrations are separate unless the signed agreement includes them.
+The dealership implementation uses **customer/staff/dealership** audiences and derives scope from the authenticated dealership. Education-specific student, course, guardian and HRMS rules must not be copied into the dealership domain. In-app inbox is the first durable channel. No external channel is labelled delivered until a configured provider confirms it.
 
-## Repository and delivery rules
+## Security and delivery rules
+1. Never trust a dealership ID, recipient count or permission supplied by the client as proof of authority.
+2. All customer, vehicle, campaign, media, stock and financial queries must be scoped to the authenticated dealership.
+3. Record an auditable history for changes to customer consent, stock, financial records, approvals and campaigns.
+4. Retryable writes and message sends must be idempotent; external delivery failures must not erase durable in-app notifications.
+5. Use synthetic recipients in tests. Automated QA must never send notifications to real customers.
+6. Preserve old Flyway migrations; schema changes are additive and tested on a clean PostgreSQL database.
+7. A build being green does not certify business acceptance or production readiness.
 
-1. Keep implementation aligned with the accepted Lucky Bajaj / QuantaEdge quotation.
-2. Make small, reviewable commits. Do not call a feature complete until acceptance evidence exists.
-3. Never hard-code credentials or commit service-account files.
-4. Maintain docs/IMPLEMENTATION_PLAN.md and docs/NOTIFICATION_STUDIO_REUSE.md as detailed companion documents.
-5. Record migrations, test commands/results, known gaps and next steps in the implementation journal.
-6. This roadmap describes planned work; it is not evidence that features are implemented.
+## Acceptance and release gates
+- Exact-head CI passes backend tests, clean/upgraded Flyway migration tests and React production build.
+- Role/permission and dealership-isolation tests pass for every write and read workflow.
+- Source transaction totals reconcile with dashboards and exports.
+- Customer data and private media cannot be retrieved across dealership boundaries.
+- In-app notification, audience preview, preview-token expiry, exclusions, idempotent retry and schedule/cancel transitions pass API integration tests.
+- Android build and external push delivery are verified using a test Firebase project before external push is enabled.
+- Critical customer→sale→vehicle history→service booking→job card→parts→bill/payment→owner-report flows pass end-to-end tests.
+- Backups are actually restored in a rehearsal; no release is labelled production-ready until then.
+
+## Commercial scope
+The customer quote covers one outlet and up to 20 staff logins. It proposes a managed subscription option or a self-hosted licence option. Provider charges (SMS/WhatsApp/email, payment gateway), special OEM integrations, additional outlets and features beyond the signed scope must be agreed separately. Product code ownership, licence, source-code delivery and deployment rights must follow the signed contract.
