@@ -35,3 +35,5 @@ management:
 
 app:
   version: ${APP_VERSION:development}
+  bootstrap:
+    token: ${APP_BOOTSTRAP_TOKEN:}
