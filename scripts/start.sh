@@ -30,6 +30,18 @@ CUSTOMER_WEB_PORT=3000
 STAFF_WEB_PORT=3001
 APP_BOOTSTRAP_TOKEN=$NEW_BOOTSTRAP_TOKEN
 EOF
+  elif grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
+    awk -v token="$NEW_BOOTSTRAP_TOKEN" '
+      BEGIN { written = 0 }
+      /^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=/ {
+        if (!written) print "APP_BOOTSTRAP_TOKEN=" token
+        written = 1
+        next
+      }
+      { print }
+      END { if (!written) print "APP_BOOTSTRAP_TOKEN=" token }
+    ' "$ROOT_ENV" > "$ROOT_ENV.tmp"
+    mv "$ROOT_ENV.tmp" "$ROOT_ENV"
   else
     printf '\\nAPP_BOOTSTRAP_TOKEN=%s\\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
   fi
