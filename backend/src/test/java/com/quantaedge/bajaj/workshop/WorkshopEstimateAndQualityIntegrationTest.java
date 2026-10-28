@@ -144,6 +144,76 @@ class WorkshopEstimateAndQualityIntegrationTest {
   }
 
   @Test
+  void invoiceCannotBeCreatedWhenApprovedPartSnapshotNoLongerMatchesReservation() {
+    Fixture fixture = createFixture();
+    var job = createInspectedJobCard(fixture);
+    var initial = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "LABOUR", "Initial labour", BigDecimal.ONE, new BigDecimal("250.00"))
+        ), BigDecimal.ZERO, "Initial labour estimate."));
+    workshop.recordEstimateDecision(fixture.owner(), job.publicId(), initial.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "INITIAL-" + UUID.randomUUID(), "Initial estimate approved."));
+    UUID mechanic = createMechanic(fixture);
+    workshop.assignStaff(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.AssignmentRequest(mechanic, "TECHNICIAN", "Assigned technician."));
+    workshop.startWork(fixture.owner(), job.publicId(), "Start work.");
+
+    String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    var part = parts.createPart(fixture.owner(), new SparePartsService.PartRequest(
+        "SEAL-" + suffix, "Repair seal " + suffix, "Consumable for invoice reconciliation", "EACH"));
+    var supplier = parts.createSupplier(fixture.owner(), new SparePartsService.SupplierRequest(
+        "SUP-" + suffix, "Invoice test supplier " + suffix, "Contact",
+        "9195" + suffix.substring(0, 6), "invoice-supplier-" + suffix.toLowerCase() + "@example.test",
+        null, null));
+    parts.receiveStock(fixture.owner(), new SparePartsService.ReceiptRequest(
+        supplier.publicId(), "PO-" + suffix, "part-receipt-" + UUID.randomUUID(), null,
+        List.of(new SparePartsService.ReceiptLineRequest(
+            part.publicId(), new BigDecimal("5.000"), new BigDecimal("20.00")))));
+    var reservation = parts.reservePart(fixture.owner(), job.publicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("2.000"), "part-reserve-" + UUID.randomUUID(), null));
+
+    var partEstimate = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "PART", part.skuCode() + " — " + part.partName(),
+                new BigDecimal("2.000"), new BigDecimal("100.00"), reservation.publicId())
+        ), BigDecimal.ZERO, "Approved part estimate."));
+    workshop.recordEstimateDecision(fixture.owner(), job.publicId(), partEstimate.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "PART-APPROVED-" + UUID.randomUUID(), "Part estimate approved."));
+
+    parts.issuePart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            BigDecimal.ONE, "part-issue-" + UUID.randomUUID(), "One unit issued."));
+    parts.returnPart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            new BigDecimal("0.500"), "part-return-" + UUID.randomUUID(), "Half unit returned after approval."));
+
+    workshop.assignStaff(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.AssignmentRequest(
+            UUID.fromString(fixture.owner().staffPublicId()), "QUALITY_INSPECTOR", "Quality inspector."));
+    var ready = workshop.recordQualityCheck(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.QualityCheckRequest(
+            true, true, true, true, true, true, true, "Quality passed."));
+    assertThat(ready.status()).isEqualTo("READY_FOR_COLLECTION");
+
+    assertThatThrownBy(() -> billing.createInvoice(
+        fixture.owner(), job.publicId(), "Should not invoice stale approved part quantity."))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+    assertThat(jdbc.queryForObject("""
+        select count(*) from service_invoice
+        where dealership_id = ? and job_card_id = (
+          select id from service_job_card where dealership_id = ? and public_id = ?)
+        """, Integer.class, fixture.owner().dealershipId(), fixture.owner().dealershipId(), job.publicId()))
+        .isZero();
+  }
+
+  @Test
   void invoicePartialPaymentsAreIdempotentAndHandoverRequiresZeroBalanceAndAcknowledgement() {
     Fixture fixture = createFixture();
     ServiceOperationsService.JobCardView readyJob = createReadyForInvoice(fixture);
