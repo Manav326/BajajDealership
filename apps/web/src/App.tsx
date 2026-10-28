@@ -9,6 +9,7 @@ import NotificationStudio from './notifications/NotificationStudio';
 import NotificationInbox from './notifications/NotificationInbox';
 import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
+import StaffDirectoryWorkspace from './staff/StaffDirectoryWorkspace';
 
 type ApiHealth = {
   status: string;
@@ -283,6 +284,8 @@ function App() {
             <SparePartsWorkspace token={token} staff={staff} />
           ) : activePage === 'Workshop' ? (
             <WorkshopWorkspace token={token} staff={staff} />
+          ) : activePage === 'Team & access' ? (
+            <StaffDirectoryWorkspace token={token} staff={staff} />
           ) : activePage === 'Overview' ? (
             <>
               <section className="welcome-row">
