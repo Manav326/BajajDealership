@@ -34,7 +34,8 @@
 ## Delivered slice: costed part reservation snapshots on estimate revisions
 
 - An estimate PART line may reference a reservation on that same job card and dealership. The service locks the reservation, verifies the expected quantity and SKU description are still current, then snapshots reserved/issued/returned/released quantities, reservation cost basis and snapshot time.
-- The customer-facing selling price is entered independently; the internal stock-cost snapshot does not set the selling price.
+- The customer-facing selling price is entered independently; the internal stock-cost snapshot does not set the selling price. Issuing a reservation requires a matching current approved estimate line; returns/releases that change the quantity snapshot prevent further issue until a new estimate revision is approved.
+- Invoice creation rechecks all nonzero planned reservations against the active approved estimate revision and rejects unpriced/new reservations or changed returned/released quantities before an invoice snapshot is created.
 - A new revision can be submitted while work is approved/in progress; the job pauses in AWAITING_APPROVAL, and the decision resumes the previous active status. Prior revisions and their decisions remain auditable; when a new revision is approved, an older approved revision is marked SUPERSEDED. Issued invoices remain snapshots and are not silently changed.
 - Integration coverage verifies the reservation snapshot, different internal cost vs customer price, approval behavior and resumption of IN_PROGRESS.
 
