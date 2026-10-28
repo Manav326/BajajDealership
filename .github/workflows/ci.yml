@@ -107,6 +107,17 @@ jobs:
             echo "- Contents: Vite production files from `apps/customer-web/dist/` (static files; not a live hosted URL)."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  docker-stack:
+    name: Validate Compose and build local Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate Docker Compose configuration
+        run: docker compose -f compose.yaml config --quiet
+      - name: Build Spring Boot API and both web images
+        run: docker compose -f compose.yaml build --pull api customer-web staff-web
+
   android:
     name: Build Lucky Bajaj Android APK
     runs-on: ubuntu-latest
