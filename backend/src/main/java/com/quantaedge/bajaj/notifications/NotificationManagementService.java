@@ -625,6 +625,10 @@ public class NotificationManagementService {
               rs.getLong("dealership_id"), rs.getString("dealership_name"), rs.getString("dealership_code")),
           actor.dealershipId()));
     }
+    Set<String> selected = selectedRecipientKeys(filter);
+    if (!selected.isEmpty()) {
+      result.removeIf(candidate -> !selected.contains(candidate.key()));
+    }
     if (result.size() > MAX_RECIPIENTS) {
       throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
           "The audience exceeds the 10,000-recipient limit. Narrow the audience.");
@@ -677,7 +681,40 @@ public class NotificationManagementService {
       }
     }
     filter.set("excludedRecipients", exclusions);
+
+    ArrayNode selectedRecipients = mapper.createArrayNode();
+    JsonNode rawSelected = raw == null ? null : raw.path("selectedRecipients");
+    if (rawSelected != null && rawSelected.isArray()) {
+      Set<String> deduplicated = new LinkedHashSet<>();
+      for (JsonNode item : rawSelected) {
+        String kind = item.path("kind").asText("").trim().toUpperCase(Locale.ROOT);
+        long id = item.path("id").asLong(-1);
+        if (!RECIPIENT_KINDS.contains(kind) || id < 1 || !kinds.contains(kind)) {
+          throw badRequest("Selected recipients must belong to the chosen recipient group.");
+        }
+        String key = kind + ":" + id;
+        if (deduplicated.add(key)) {
+          ObjectNode recipient = mapper.createObjectNode();
+          recipient.put("kind", kind);
+          recipient.put("id", id);
+          selectedRecipients.add(recipient);
+        }
+      }
+    }
+    filter.set("selectedRecipients", selectedRecipients);
     return filter;
+  }
+
+  private static Set<String> selectedRecipientKeys(JsonNode filter) {
+    Set<String> selected = new LinkedHashSet<>();
+    JsonNode rows = filter.path("selectedRecipients");
+    if (rows.isArray()) {
+      for (JsonNode item : rows) {
+        selected.add(item.path("kind").asText("").toUpperCase(Locale.ROOT)
+            + ":" + item.path("id").asLong(-1));
+      }
+    }
+    return selected;
   }
 
   private static Set<String> audienceKinds(String scope, JsonNode filter) {
