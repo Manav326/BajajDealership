@@ -44,11 +44,34 @@ const descriptions: Record<string, string> = {
   Reports: 'Sales, workshop, collections, expenses and stock reports based on saved transactions.',
 };
 
+// Stable hash routes work on static hosting without server-side rewrite rules.
+const pageRoutes: Record<string, string> = {
+  Overview: 'overview',
+  Customers: 'customers',
+  'Sales pipeline': 'sales',
+  'Bike inventory': 'inventory',
+  Workshop: 'workshop',
+  'Spare parts': 'parts',
+  'Billing & expenses': 'billing',
+  'Team & access': 'team',
+  'Notification Studio': 'notification-studio',
+  Reports: 'reports',
+};
+
+function pageFromHash(hash: string): string {
+  const route = hash.startsWith('#/') ? hash.slice(2).split(/[?#]/, 1)[0] : hash.startsWith('#') ? hash.slice(1).split(/[?#]/, 1)[0] : '';
+  return Object.entries(pageRoutes).find(([, value]) => value === route)?.[0] ?? 'Overview';
+}
+
+function pageHashFor(page: string): string {
+  return '#/' + (pageRoutes[page] ?? pageRoutes.Overview);
+}
+
 function App() {
   const [token, setToken] = useState<string>(() => window.sessionStorage.getItem('qe_staff_token') ?? '');
   const [staff, setStaff] = useState<StaffSummary | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [activePage, setActivePage] = useState('Overview');
+  const [activePage, setActivePage] = useState<string>(() => pageFromHash(window.location.hash));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mobileNavToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileNavRef = useRef<HTMLElement | null>(null);
@@ -58,6 +81,40 @@ function App() {
   const [showInbox, setShowInbox] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const updateUnreadCount = useCallback((count: number) => setUnreadCount(count), []);
+
+  function navigateToPage(page: string, replace = false) {
+    const hash = pageHashFor(page);
+    if (window.location.hash !== hash) {
+      const url = window.location.pathname + window.location.search + hash;
+      if (replace) window.history.replaceState(null, '', url);
+      else window.location.hash = hash;
+    }
+    setActivePage(page);
+  }
+
+  // Keep React state in sync with direct links and browser Back/Forward.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const requestedRoute = window.location.hash.startsWith('#/') ? window.location.hash.slice(2).split(/[?#]/, 1)[0] : window.location.hash.startsWith('#') ? window.location.hash.slice(1).split(/[?#]/, 1)[0] : '';
+      const isKnownRoute = Object.values(pageRoutes).includes(requestedRoute);
+      if (!isKnownRoute) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search + pageHashFor('Overview'));
+      }
+      setActivePage(pageFromHash(window.location.hash));
+    };
+    syncFromUrl();
+    window.addEventListener('hashchange', syncFromUrl);
+    return () => window.removeEventListener('hashchange', syncFromUrl);
+  }, []);
+
+  // A hash is navigation, not authorization: inaccessible workspaces fall back to Overview.
+  useEffect(() => {
+    if (!token || !staff) return;
+    const requestedPage = navigation.find((item) => item.label === activePage);
+    if (requestedPage?.permission && !staff.permissions.includes(requestedPage.permission)) {
+      navigateToPage('Overview', true);
+    }
+  }, [token, staff, activePage]);
 
   useEffect(() => {
     if (!token) {
@@ -176,7 +233,7 @@ function App() {
     window.sessionStorage.setItem('qe_staff_token', result.accessToken);
     setToken(result.accessToken);
     setStaff(result.staff);
-    setActivePage('Overview');
+    navigateToPage('Overview', true);
     setLogoutError('');
   }
 
@@ -191,7 +248,7 @@ function App() {
       window.sessionStorage.removeItem('qe_staff_token');
       setToken('');
       setStaff(null);
-      setActivePage('Overview');
+      navigateToPage('Overview', true);
       setMobileNavOpen(false);
       setHealth(null);
     }
@@ -237,7 +294,7 @@ function App() {
               <button type="button" key={item.label}
                 className={activePage === item.label ? 'nav-item active' : 'nav-item'}
                 aria-current={activePage === item.label ? 'page' : undefined}
-                onClick={() => { setActivePage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
+                onClick={() => { navigateToPage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
                 <span className="nav-icon" aria-hidden="true">{item.icon}</span>
                 <span className="nav-text">{item.label}</span>
                 {item.label === 'Notification Studio' && <span className="nav-new">STUDIO</span>}
@@ -304,7 +361,7 @@ function App() {
                   <div className="hero-kicker"><span /> YOUR BUSINESS, IN SYNC</div>
                   <h2>Every customer.<br /><em>Every journey.</em> One view.</h2>
                   <p>Bring enquiries, bike delivery, workshop jobs, parts and customer follow-ups together—with clear ownership at every step.</p>
-                  <button type="button" className="primary-button" onClick={() => setActivePage('Customers')}>Open customer workspace <span>↗</span></button>
+                  <button type="button" className="primary-button" onClick={() => navigateToPage('Customers')}>Open customer workspace <span>↗</span></button>
                 </div>
                 <div className="hero-art" aria-hidden="true">
                   <div className="art-ring ring-one" /><div className="art-ring ring-two" />
@@ -364,7 +421,7 @@ function App() {
               <div className="eyebrow">DEALERSHIP WORKSPACE</div><h1>{activePage}</h1><p>{pageDescription ?? 'The owner dashboard brings together your connected business operations.'}</p>
               <div className="module-state"><span className="status-dot" /> Implementation in progress</div>
               <div className="module-footnote">This workspace is not yet connected to live business transactions. It will be enabled after its API, database rules and acceptance tests are implemented. No sample records are presented as real.</div>
-              <button type="button" className="secondary-button" onClick={() => setActivePage('Overview')}>← Back to overview</button>
+              <button type="button" className="secondary-button" onClick={() => navigateToPage('Overview')}>← Back to overview</button>
             </section>
           )}
           <footer className="page-footer"><span>© {new Date().getFullYear()} QuantaEdge</span><span>Secure by design <b>·</b> Built for Lucky Bajaj Agency</span></footer>
