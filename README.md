@@ -271,6 +271,8 @@ The script validates the Compose configuration, builds the Spring Boot API and b
 
 Both websites forward `/api/` requests to the shared Spring Boot API inside Docker. This keeps browser requests same-origin and avoids needing a separate CORS configuration for local development. Port defaults can be changed in the ignored root `.env`.
 
+**Port conflict note:** this stack intentionally uses the QuantaEdge-style ports 3000, 3001, 8080 and 5432. Stop any other local QuantaEdge/mPAY/Docker stack using these same ports before starting this one. The script will report a bind error rather than stopping another project automatically.
+
 To stop the containers without deleting database or private-media data, run `.\scripts\stop.ps1` on Windows or `docker compose -f compose.yaml down` on macOS/Linux. Do **not** append `-v` unless intentionally deleting local data. Useful commands:
 
 ```sh
