@@ -2,55 +2,55 @@
 
 **Provider:** QuantaEdge  
 **Scope:** one outlet for bike sales and service; owner/staff web portal, customer website and Android app.  
-**Status:** active implementation. The root README is the roadmap and current scope/status source.
+**Status:** active implementation. The root README is the roadmap and status source.
 
 ## Delivered foundation and tested slices
 
-- Spring Boot API, PostgreSQL, additive Flyway migrations and GitHub Actions CI with an actual PostgreSQL service.
-- Staff login using dealership code + email/mobile + password; hashed bearer sessions, server-side revocation, password hashing, login-attempt throttling, one-time owner bootstrap and role/permission checks.
-- Dealership-specific customer list/search/create/update, validation, marketing-consent source handling, explicit consent-change audit and tests for cross-dealership isolation.
-- Vehicle model and individual-unit inventory; unique chassis/engine references; expected stock is not available stock until a receiving action; append-only stock movement events; receiving is transactional and tested.
-- Notification block-document validator; private PNG/JPEG upload and integrity checks; immutable template versions; customer/staff audience resolution; marketing-consent filter; selected-recipient and exclusion modes; one-time, expiring preview proof; idempotent send request; scheduled campaign dispatcher; durable in-app recipient records; staff inbox read/unread/dismiss APIs; campaign and notification audit.
-- React web sign-in; responsive owner shell; customer and inventory screens; Notification Studio with block editing, template save/versioning, audience selection/preview, scheduling/send, campaign history and Logo & Graphics export/upload.
-- CI checks for backend tests and Flyway migrations against PostgreSQL plus React typecheck/production build.
+- Spring Boot API, PostgreSQL, additive Flyway migrations and GitHub Actions CI against a real PostgreSQL service.
+- Staff login with dealership code + email/mobile + password; hashed bearer sessions, server-side revocation, password hashing, login-attempt throttling, one-time owner bootstrap and role/permission checks.
+- Dealership-scoped customer list/search/create/update, validation, marketing-consent source handling, audit records and tests for cross-dealership isolation.
+- Vehicle model and individual-unit inventory; unique chassis/engine references; explicit expected-stock receiving; append-only stock-movement history.
+- Rich-notification validator; private PNG/JPEG upload and integrity checks; immutable templates; server-resolved customer/staff audience; consent-filtered marketing audience; selected-only recipients/exclusions; expiring one-time preview proof; idempotent send request; scheduling/cancellation; durable in-app records/inbox; read/unread/dismiss endpoints; audit.
+- React web sign-in, owner shell, customer workspace, vehicle inventory workspace, Notification Studio editor/template/version/preview/scheduling UI, Logo & Graphics raster export/upload, and a topbar in-app inbox with unread badge.
+- Workshop intake: create/list/confirm/cancel appointment; verify current dealership-scoped customer/vehicle ownership; check-in exactly once into a job card; create seven inspection items; checklist edits; require completed inspection before estimate; immutable estimate revisions with calculated line totals/discount; record approval/decline/revision request with evidence method/reference; technician assignment before work; only assigned quality inspector can complete the quality check.
+- Workshop web workspace for appointment search/create/check-in, job-card queue, inspection checklist, estimate revisions/decision capture, technician assignment, start-work and quality-check UI. Final handover remains blocked pending billing/payment integration.
+- Integration tests for migrations, authentication, customer consent/isolation, inventory receiving, notification contracts/inbox, workshop check-in idempotency, inspection completion, estimate calculations/revisions, approval evidence, technician assignment and quality-check gates.
+- CI runs backend tests/migrations with PostgreSQL and TypeScript/React production build. Verify the latest run result before calling a newer commit green.
 
-## Immediate validation focus
+## Immediate validation work
 
-1. Keep latest-head CI green after role-aware Notification Studio changes.
-2. Finish the in-app staff inbox interface and verify unread counts, mark-read, dismiss, and dealership/user isolation.
-3. Add security and integration tests for template version history, preview expiry, stale audience changes, cancellation/scheduling races, media access and role denial.
-4. Re-check notification APIs for transaction boundaries and safe error handling before enabling real campaigns.
+1. Get CI green on the exact newest main commit after the estimate/quality UI and monetary bound changes.
+2. Review estimate/quality SQL and APIs for concurrent operations, overflow boundaries, role denial, customer-evidence wording and immutable history.
+3. Add controller-level authorization tests for every workshop mutation (appointment cancel/check-in, estimate, assignment, start work and quality check).
+4. Add robust concurrency tests for duplicate appointment check-in, concurrent estimate submissions, duplicate decisions and quality-check retries.
+5. Harden Notification Studio approval/send semantics, permission split, scheduled cancel races, media access and preview freshness. Keep external providers disabled until configured and tested.
 
-## Next business vertical slice: workshop intake
+## Next business vertical slice: billing integration for workshop
 
-Implement a complete thin vertical slice before building many disconnected forms:
-1. Appointment create/list/detail with status, customer and owned vehicle references, preferred slot, customer concern, source and requested language.
-2. Server checks that both customer and vehicle belong to the signed-in dealership and that the vehicle has a valid ownership/history relationship.
-3. Check-in creates one job card transactionally; repeated check-in requests must not duplicate cards.
-4. Inspection checklist and estimate revisions; capture explicit approval/decline with actor, timestamp and revision.
-5. Job assignment and state transitions validated on the server; quality check required before completion/handover.
-6. Persisted audit trail, API contract tests and realistic negative-path tests before the frontend is marked done.
-7. Keep spare-parts consumption disabled until job-card reservation/issue/return ledger and concurrent stock protection are implemented.
+1. Add an operational invoice snapshot linked to job card and the approved estimate revision (but do not assume estimate totals are a tax invoice).
+2. Add invoice lines, tax/discount adjustments only after requirements are confirmed, customer-visible invoice numbering, issue/cancel/credit-note lifecycle, and audit history.
+3. Add payment allocations with idempotency key and gateway/reference, partial-payment support, refunds/adjustments and balances due.
+4. Gate READY_FOR_COLLECTION to invoiced/paid or explicitly authorised payment terms; then allow delivery/handover with customer, vehicle, staff and timestamp recorded.
+5. Add daily cash/UPI/bank reconciliation and integration tests. No live gateway processing is enabled until credentials and scope are approved.
 
 ## Follow-on vertical slices
 
-- Sales: enquiry -> test ride -> booking -> reservation -> documents/finance tracking -> invoice/payment allocations -> delivery and customer/vehicle ownership.
-- Parts: supplier/purchase -> receiving -> stock ledger -> job-card reservation/issue/return -> valuation and reorder threshold.
-- Finance: operational invoice/receipt, partial payment, refunds/adjustments, expenses, due balances, daily close and reconciliations.
-- Customer web/Android: authenticated ownership-scoped appointments, service status/history, invoices, feedback and the durable customer inbox.
-- Production: responsive and accessibility audit for each route/component, API permission matrix review, performance/retry tests, secure deployment, backup restore rehearsal and staff acceptance.
+- Workshop spare parts: supplier/purchase -> receipt -> stock ledger -> reservation/issue/return against job card -> valuation and reorder thresholds.
+- Sales: enquiry -> test ride -> booking -> vehicle reservation -> documents/finance -> invoice/payment allocation -> delivery and customer/vehicle ownership.
+- Customer website/Android: account sign-in, verified current vehicle ownership, appointment requests, allowed job status, invoices/receipts, feedback and durable customer inbox.
+- Production: route/component responsive and accessibility audit, permission matrix review, performance/retry tests, secure hosting, backup restore rehearsal, staff training and acceptance.
 
 ## Release gates
 
 - Every DB change uses an additive Flyway migration; never rewrite a released migration or reset production data.
-- Every query and write is dealership-scoped from the authenticated principal, not client-provided IDs.
-- Customer/vehicle/job ownership is enforced in service logic and relational constraints.
-- All state transitions are transactionally guarded and audited; high-risk writes are idempotent.
-- Role-denial tests cover every mutation route. UI hiding improves UX but never replaces API authorization.
-- Tests use synthetic identities only; no external messages are sent by CI.
-- External sends report delivery only when that provider confirms it. Durable in-app records are not erased on provider failure.
-- Verify fresh migrations, existing-schema upgrade, backups and restore before any production rollout.
-- Feature status remains in progress until integration tests and user acceptance demonstrate its full business journey.
+- Every query/write derives dealership scope from the authenticated principal, not client-supplied dealership IDs.
+- Customer/vehicle/job relationships are enforced both in service logic and relational constraints.
+- State transitions are validated, transactional and audited; high-risk writes are idempotent.
+- Role-denial tests cover every mutation route. UI hiding supplements but never replaces API authorization.
+- CI uses synthetic identities only and never sends external notifications.
+- “Sent” external delivery means provider-confirmed delivery. Durable in-app records survive transport failure.
+- Fresh migrations, supported schema upgrades, backup and restore must pass before production rollout.
+- A module remains in progress until integration tests and real user acceptance cover the full business journey.
 
 ## Explicit external dependencies
 
