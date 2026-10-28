@@ -218,6 +218,8 @@ function App() {
             <div className="brand-name">Quanta<span>Edge</span></div>
             <div className="brand-caption">DEALERSHIP MANAGEMENT</div>
           </div>
+          <button type="button" className="mobile-drawer-close" aria-label="Close navigation menu"
+            onClick={() => setMobileNavOpen(false)}>×</button>
         </div>
         <div className="agency-switcher">
           <div className="agency-avatar">LB</div>
