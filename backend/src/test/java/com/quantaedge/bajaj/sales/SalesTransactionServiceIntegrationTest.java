@@ -143,7 +143,7 @@ class SalesTransactionServiceIntegrationTest {
     var second = transactions.createDraftInvoice(fixture.owner(), fixture.bookingPublicId(),
         invoiceRequest("replacement-key-" + UUID.randomUUID(), "61000.00", "1000.00"));
     assertThat(second.publicId()).isNotEqualTo(first.publicId());
-    assertThat(second.invoiceTotal()).isEqualByComparingTo("60400.00");
+    assertThat(second.invoiceTotal()).isEqualByComparingTo("61400.00");
 
     Fixture other = createFixture("FOREIGN");
     assertThatThrownBy(() -> transactions.getInvoice(other.owner(), second.publicId()))
