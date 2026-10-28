@@ -218,7 +218,6 @@ public class ServiceOperationsService {
     String where = "";
     List<Object> args = new ArrayList<>();
     args.add(actor.dealershipId());
-    args.add(role);
     if (term != null) {
       String like = "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
       where = " and (lower(u.full_name) like ? escape '!' or lower(coalesce(u.email,'')) like ? escape '!') ";
