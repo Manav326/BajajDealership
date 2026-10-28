@@ -582,9 +582,9 @@ public class ServiceOperationsService {
         where dealership_id = ? and id = ? for update
         """, actor.dealershipId(), jobCardId);
     if (cardRows.isEmpty()) throw notFound("Workshop job card was not found.");
-    String cardStatus = String.valueOf(cardRows.getFirst().get("status"));
-    if (!"ESTIMATE_PENDING".equals(cardStatus)) {
-      throw conflict("An estimate can only be submitted when the job card is awaiting an estimate.");
+    String sourceJobStatus = String.valueOf(cardRows.getFirst().get("status"));
+    if (!List.of("ESTIMATE_PENDING", "APPROVED", "IN_PROGRESS").contains(sourceJobStatus)) {
+      throw conflict("An estimate revision can only be created before a job is closed or while work is paused for an estimate.");
     }
 
     Integer previousRevision = jdbc.queryForObject("""
@@ -596,7 +596,10 @@ public class ServiceOperationsService {
     BigDecimal parts = BigDecimal.ZERO.setScale(2);
     BigDecimal labour = BigDecimal.ZERO.setScale(2);
     BigDecimal other = BigDecimal.ZERO.setScale(2);
-    List<EstimateLineInput> normalizedLines = new ArrayList<>();
+    BigDecimal maxMoney = new BigDecimal("999999999999.99");
+    List<NormalizedEstimateLine> normalizedLines = new ArrayList<>();
+    Set<UUID> selectedReservations = new LinkedHashSet<>();
+
     for (EstimateLineInput line : request.lines()) {
       if (line == null) throw badRequest("Estimate line items cannot be empty.");
       String lineType = line.lineType() == null ? "" : line.lineType().trim().toUpperCase(Locale.ROOT);
@@ -613,10 +616,33 @@ public class ServiceOperationsService {
           || unitPrice.compareTo(new BigDecimal("100000000")) > 0) {
         throw badRequest("Unit price must be non-negative and within the supported range.");
       }
+
       BigDecimal safeQuantity = quantity.setScale(3, RoundingMode.HALF_UP);
       BigDecimal safeUnitPrice = unitPrice.setScale(2, RoundingMode.HALF_UP);
+      PartEstimateSnapshot sourceSnapshot = null;
+      if (line.reservationPublicId() != null) {
+        if (!"PART".equals(lineType)) {
+          throw badRequest("Only a PART estimate line can be linked to a job-card part reservation.");
+        }
+        if (!selectedReservations.add(line.reservationPublicId())) {
+          throw badRequest("A part reservation may be included only once in each estimate revision.");
+        }
+        sourceSnapshot = lockPartEstimateSnapshot(actor, jobCardId, line.reservationPublicId());
+        BigDecimal expectedQuantity = sourceSnapshot.quantityReserved()
+            .subtract(sourceSnapshot.quantityReturned()).subtract(sourceSnapshot.quantityReleased())
+            .setScale(3, RoundingMode.HALF_UP);
+        if (expectedQuantity.signum() <= 0) {
+          throw conflict("This reservation has no planned or unreturned quantity to include in an estimate.");
+        }
+        if (safeQuantity.compareTo(expectedQuantity) != 0) {
+          throw conflict("Reserved/returned part quantity changed. Refresh the job-card part list before creating a revision.");
+        }
+        if (!description.equals(sourceSnapshot.skuCode() + " — " + sourceSnapshot.partName())) {
+          throw conflict("Part description changed from the selected reservation. Refresh and select the reservation again.");
+        }
+      }
+
       BigDecimal lineTotal = safeQuantity.multiply(safeUnitPrice).setScale(2, RoundingMode.HALF_UP);
-      BigDecimal maxMoney = new BigDecimal("999999999999.99");
       if (lineTotal.compareTo(maxMoney) > 0) {
         throw badRequest("An estimate line total exceeds the supported monetary range.");
       }
@@ -626,8 +652,10 @@ public class ServiceOperationsService {
       if (parts.compareTo(maxMoney) > 0 || labour.compareTo(maxMoney) > 0 || other.compareTo(maxMoney) > 0) {
         throw badRequest("The estimate subtotal exceeds the supported monetary range.");
       }
-      normalizedLines.add(new EstimateLineInput(lineType, description, safeQuantity, safeUnitPrice));
+      normalizedLines.add(new NormalizedEstimateLine(
+          lineType, description, safeQuantity, safeUnitPrice, sourceSnapshot));
     }
+
     parts = parts.setScale(2, RoundingMode.HALF_UP);
     labour = labour.setScale(2, RoundingMode.HALF_UP);
     other = other.setScale(2, RoundingMode.HALF_UP);
@@ -644,44 +672,81 @@ public class ServiceOperationsService {
         insert into service_estimate(
           dealership_id, job_card_id, revision, status, parts_subtotal, labour_subtotal,
           other_subtotal, discount_amount, estimated_total, customer_message,
-          created_by_staff_user_id, submitted_at)
-        values (?, ?, ?, 'AWAITING_CUSTOMER', ?, ?, ?, ?, ?, ?, ?, now())
+          created_by_staff_user_id, submitted_at, source_job_status)
+        values (?, ?, ?, 'AWAITING_CUSTOMER', ?, ?, ?, ?, ?, ?, ?, now(), ?)
         returning public_id
         """, UUID.class, actor.dealershipId(), jobCardId, revision,
-        parts, labour, other, discount, estimatedTotal, customerMessage, actor.staffUserId());
+        parts, labour, other, discount, estimatedTotal, customerMessage, actor.staffUserId(), sourceJobStatus);
     long estimateId = jdbc.queryForObject("""
         select id from service_estimate where dealership_id = ? and public_id = ?
         """, Long.class, actor.dealershipId(), estimatePublicId);
+
     int lineNumber = 0;
-    for (EstimateLineInput line : normalizedLines) {
+    for (NormalizedEstimateLine line : normalizedLines) {
       lineNumber++;
       BigDecimal lineTotal = line.quantity().multiply(line.unitPrice()).setScale(2, RoundingMode.HALF_UP);
+      PartEstimateSnapshot source = line.sourceSnapshot();
       jdbc.update("""
           insert into service_estimate_line(
-            dealership_id, estimate_id, line_number, line_type, description,
-            quantity, unit_price, line_total)
-          values (?, ?, ?, ?, ?, ?, ?, ?)
+            dealership_id, estimate_id, line_number, line_type, description, quantity, unit_price, line_total,
+            source_reservation_id, source_quantity_reserved, source_quantity_issued,
+            source_quantity_returned, source_quantity_released, source_unit_cost_snapshot, source_snapshot_at)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """, actor.dealershipId(), estimateId, lineNumber, line.lineType(), line.description(),
-          line.quantity(), line.unitPrice(), lineTotal);
+          line.quantity(), line.unitPrice(), lineTotal,
+          source == null ? null : source.id(),
+          source == null ? null : source.quantityReserved(),
+          source == null ? null : source.quantityIssued(),
+          source == null ? null : source.quantityReturned(),
+          source == null ? null : source.quantityReleased(),
+          source == null ? null : source.unitCostSnapshot(),
+          source == null ? null : Timestamp.from(Instant.now()));
     }
 
     int changed = jdbc.update("""
         update service_job_card set status = 'AWAITING_APPROVAL', updated_at = now()
-        where dealership_id = ? and id = ? and status = 'ESTIMATE_PENDING'
-        """, actor.dealershipId(), jobCardId);
-    if (changed != 1) throw conflict("Job-card status changed while the estimate was being created.");
+        where dealership_id = ? and id = ? and status = ?
+        """, actor.dealershipId(), jobCardId, sourceJobStatus);
+    if (changed != 1) throw conflict("Job-card status changed while the estimate revision was being created.");
 
     jdbc.update("""
         insert into service_job_transition(
           dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason, details)
-        values (?, ?, 'ESTIMATE_PENDING', 'AWAITING_APPROVAL', 'ESTIMATE_SUBMITTED', ?, ?,
-          jsonb_build_object('estimateRevision', ?, 'estimatedTotal', ?::numeric, 'lineCount', ?))
-        """, actor.dealershipId(), jobCardId, actor.staffUserId(),
+        values (?, ?, ?, 'AWAITING_APPROVAL', 'ESTIMATE_SUBMITTED', ?, ?,
+          jsonb_build_object('estimateRevision', ?, 'estimatedTotal', ?::numeric, 'lineCount', ?,
+            'sourceJobStatus', ?))
+        """, actor.dealershipId(), jobCardId, sourceJobStatus, actor.staffUserId(),
         "Estimate revision " + revision + " submitted for customer decision.",
-        revision, estimatedTotal, normalizedLines.size());
+        revision, estimatedTotal, normalizedLines.size(), sourceJobStatus);
     audit(actor, "SERVICE_ESTIMATE_SUBMITTED", "SERVICE_ESTIMATE", estimatePublicId.toString(),
-        "Estimate revision " + revision + " submitted for recorded customer decision.");
+        "Estimate revision " + revision + " submitted for customer decision from job state " + sourceJobStatus
+            + "; linked part reservations preserve issued/returned/released and unit-cost snapshots.");
     return getEstimate(actor, jobCardPublicId, estimatePublicId);
+  }
+
+  private PartEstimateSnapshot lockPartEstimateSnapshot(
+      StaffPrincipal actor, long jobCardId, UUID reservationPublicId) {
+    List<PartEstimateSnapshot> rows = jdbc.query("""
+        select reservation.id, reservation.public_id, reservation.reservation_code,
+          part.sku_code, part.part_name, reservation.quantity_reserved, reservation.quantity_issued,
+          reservation.quantity_returned, reservation.quantity_released, reservation.unit_cost_snapshot,
+          reservation.status
+        from service_job_part_reservation reservation
+        join spare_part part on part.dealership_id = reservation.dealership_id and part.id = reservation.part_id
+        where reservation.dealership_id = ? and reservation.job_card_id = ?
+          and reservation.public_id = ?
+        for update of reservation
+        """, (rs, rowNum) -> new PartEstimateSnapshot(
+            rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("reservation_code"),
+            rs.getString("sku_code"), rs.getString("part_name"), rs.getBigDecimal("quantity_reserved"),
+            rs.getBigDecimal("quantity_issued"), rs.getBigDecimal("quantity_returned"),
+            rs.getBigDecimal("quantity_released"), rs.getBigDecimal("unit_cost_snapshot"),
+            rs.getString("status")),
+        actor.dealershipId(), jobCardId, reservationPublicId);
+    if (rows.isEmpty()) {
+      throw notFound("The selected part reservation was not found on this job card.");
+    }
+    return rows.getFirst();
   }
 
   public List<EstimateView> listEstimates(StaffPrincipal actor, UUID jobCardPublicId) {
@@ -1247,7 +1312,19 @@ public class ServiceOperationsService {
       UUID publicId, String checklistCode, String label, String status, String notes,
       String checkedByName, Instant checkedAt, Instant updatedAt) {}
 
-  public record EstimateLineInput(String lineType, String description, BigDecimal quantity, BigDecimal unitPrice) {}
+  public record EstimateLineInput(
+      String lineType, String description, BigDecimal quantity, BigDecimal unitPrice, UUID reservationPublicId) {
+    public EstimateLineInput(String lineType, String description, BigDecimal quantity, BigDecimal unitPrice) {
+      this(lineType, description, quantity, unitPrice, null);
+    }
+  }
+  private record NormalizedEstimateLine(
+      String lineType, String description, BigDecimal quantity, BigDecimal unitPrice,
+      PartEstimateSnapshot sourceSnapshot) {}
+  private record PartEstimateSnapshot(
+      long id, UUID publicId, String reservationCode, String skuCode, String partName,
+      BigDecimal quantityReserved, BigDecimal quantityIssued, BigDecimal quantityReturned,
+      BigDecimal quantityReleased, BigDecimal unitCostSnapshot, String status) {}
   public record EstimateRequest(List<EstimateLineInput> lines, BigDecimal discountAmount, String customerMessage) {}
   public record EstimateDecisionRequest(
       String decision, String evidenceMethod, String evidenceReference, String note) {}
