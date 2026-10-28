@@ -2,6 +2,9 @@ package com.quantaedge.bajaj.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,13 +16,17 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableMethodSecurity
 public class StaffSecurityConfiguration {
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http, StaffBearerTokenFilter bearerFilter, CustomerBearerTokenFilter customerBearerFilter) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http, StaffBearerTokenFilter bearerFilter, CustomerBearerTokenFilter customerBearerFilter, CorsConfigurationSource corsConfigurationSource) throws Exception {
     http
+        .cors(cors -> cors.configurationSource(corsConfigurationSource))
         .csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .exceptionHandling(errors -> errors
@@ -44,6 +51,39 @@ public class StaffSecurityConfiguration {
         .addFilterBefore(bearerFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(customerBearerFilter, StaffBearerTokenFilter.class);
     return http.build();
+  }
+
+  @Bean
+  CorsConfigurationSource corsConfigurationSource(
+      @Value("${app.cors.allowed-origins:}") String configuredOrigins,
+      @Value("${app.cors.allowed-origin-1:}") String originOne,
+      @Value("${app.cors.allowed-origin-2:}") String originTwo) {
+    List<String> allowedOrigins = new ArrayList<>();
+    addOrigins(allowedOrigins, configuredOrigins);
+    addOrigins(allowedOrigins, originOne);
+    addOrigins(allowedOrigins, originTwo);
+
+    CorsConfiguration configuration = new CorsConfiguration();
+    configuration.setAllowedOrigins(allowedOrigins.stream().distinct().toList());
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+    configuration.setAllowedHeaders(Arrays.asList(
+        "Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key"));
+    configuration.setExposedHeaders(List.of("Retry-After"));
+    configuration.setAllowCredentials(false);
+    configuration.setMaxAge(3600L);
+
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/api/**", configuration);
+    source.registerCorsConfiguration("/actuator/**", configuration);
+    return source;
+  }
+
+  private static void addOrigins(List<String> origins, String raw) {
+    if (raw == null || raw.isBlank()) return;
+    for (String candidate : raw.split(",")) {
+      String origin = candidate.trim();
+      if (!origin.isEmpty()) origins.add(origin);
+    }
   }
 
   @Bean
