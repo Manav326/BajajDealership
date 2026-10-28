@@ -31,7 +31,7 @@ This repository contains the implementation roadmap and application code for a d
 
 ## Technical baseline
 - Web: ReactJS + TypeScript + Vite
-- Android: planned React Native application (native build, permissions and push handling require Android-specific implementation and testing)
+- Android: React Native + Expo SDK 58, targeting React Native 0.88 / React 19.3; native Android APK built in CI. Release signing, public API URL configuration, Play Store submission and push delivery are separate release steps
 - Backend: Java 21 + Spring Boot
 - Database: PostgreSQL with additive Flyway migrations
 - API: authenticated REST + JSON
@@ -52,6 +52,7 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 ## Implementation status
 
 ### Implemented in the current foundation
+- React staff portal and customer website both build successfully in CI; their static build outputs are uploaded as downloadable workflow artifacts. React Native Android customer app is built as an installable debug APK artifact by CI. See `apps/android/README.md` for configuration and install notes.
 - React web application shell with premium responsive layout and a live API health indicator.
 - Staff sign-in, server-created bearer sessions stored as hashes, logout/revocation, and initial role/permission catalogue.
 - Dealership-scoped customer list/search/create/update APIs, audit trail, preferred language, and separate marketing-consent source handling.
@@ -67,13 +68,23 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 - Workshop is partially complete: intake, inspection, estimate/decision evidence, assignment, work/quality gates, operational invoice/receipt records and paid/acknowledged handover exist. Spare-parts catalogue/receipts/ledger, job-card reservation/issue/return/release, per-SKU reorder policies and low-stock alerts are implemented. Estimate revisions can link same-job reservations and freeze reserved/issued/returned/released quantities plus a unit-cost snapshot, separately from customer price; part issue requires a matching approved estimate, return/release makes an old snapshot stale until a revision is approved, and invoice creation rejects stale part quantities. The previous approved revision remains auditable and is superseded only when a replacement is approved. PostgreSQL integration tests cover same-SKU concurrent reservations, receipt idempotency/weighted cost, released quantities, low-stock calculations and stale estimate quantities. Remaining work includes deeper concurrency testing across receipt/issue/return, customer-facing estimate approval, richer mechanic work entries, refunds/credit notes, financial reconciliation, tax-compliant GST/e-invoicing, and external payment-provider verification.
 - Spare-parts purchasing and job-card stock movement integration.
 - Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
-- Fully implemented customer website and React Native Android app.
+- Production deployment of the staff portal/customer website and a signed Android release. CI artifacts are test builds, not public hosting or Play Store releases.
 - Android Firebase Cloud Messaging delivery configuration and end-to-end proof of real push delivery.
 - SMS, WhatsApp Business and email provider integrations, templates, consent/process verification and provider billing.
 - Approved Bajaj/OEM APIs or official dealer integrations. No code may imply warranty/coupon/claim/inventory records were submitted to Bajaj unless an authorised integration confirms it.
 - Full cross-browser/mobile acceptance tests, production load/security review and verified backup restoration.
 
 The existence of a screen, table or API is not evidence that its whole business workflow is complete. Modules stay marked in progress until their acceptance tests pass.
+
+## Build outputs and where to find them
+
+Every CI run on `main` (and pull requests targeting `main`) validates the backend and builds the two React websites plus the Android debug APK. Open **GitHub → Actions → CI → select the run → Artifacts** to download:
+
+- `staff-portal-web-<commit>` — compiled staff/admin website in `dist/`.
+- `customer-portal-web-<commit>` — compiled customer website in `dist/`.
+- `lucky-bajaj-android-debug-apk-<commit>` — installable Android debug APK.
+
+Artifacts are retained for 14 days. The web artifacts are not hosted URLs; deploy their contents to the selected HTTPS hosting provider to make them public. The Android artifact is a debug APK, not a Play Store-signed release. CI configures its API URL for the Android emulator host bridge (`10.0.2.2:8080)); to use a real backend, build with `EXPO_PUBLIC_API_BASE_URL` set to the reachable API's HTTPS base URL and rebuild.
 
 ## Local development
 
