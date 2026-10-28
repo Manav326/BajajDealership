@@ -39,23 +39,23 @@ type InvoiceLine = {
   lineNumber: number; sourceEstimateLineNumber: number; lineType: string; description: string;
   quantity: number; unitPrice: number; lineTotal: number;
 };
+type PaymentAllocation = { invoicePublicId: string; invoiceNumber: string; jobCardCode: string; amount: number };
 type Payment = {
   publicId: string; receiptNumber: string; paymentMethod: string; amount: number;
   paymentReference: string | null; note: string | null; status: 'RECORDED' | 'REVERSED';
-  recordedByName: string; recordedAt: string; reversalReason: string | null;
-  reversalReference: string | null; reversedAt: string | null; reversedByName: string | null;
+  recordedByName: string; recordedAt: string; reversedByName: string | null; reversedAt: string | null;
+  reversalReason: string | null; reversalReference: string | null; allocations: PaymentAllocation[];
 };
 type Invoice = {
   publicId: string; invoiceNumber: string; jobCardPublicId: string; jobCardCode: string;
-  estimatePublicId: string; estimateRevision: number; status: string; jobCardStatus: string;
-  customerName: string; customerPhone: string | null; modelName: string;
-  variantName: string | null; colourName: string | null; chassisNumber: string; engineNumber: string;
+  customerPublicId: string; customerName: string; customerPhone: string | null;
+  vehiclePublicId: string; modelName: string; variantName: string | null; colourName: string | null;
+  chassisNumber: string; engineNumber: string; estimateRevision: number; status: 'DRAFT' | 'ISSUED' | 'CANCELLED';
   partsSubtotal: number; labourSubtotal: number; otherSubtotal: number; discountAmount: number;
-  invoiceTotal: number; paidAmount: number; balanceDue: number; documentNotice: string;
+  invoiceTotal: number; paidAmount: number; balanceDue: number; customerMessage: string | null;
   createdByName: string; issuedByName: string | null; createdAt: string; issuedAt: string | null;
-  cancelledAt: string | null; lines: InvoiceLine[]; payments: Payment[];
+  lines: InvoiceLine[];
 };
-type PaymentResult = { payment: Payment; invoice: Invoice; idempotentReplay: boolean };
 type EstimateLineDraft = { lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string; quantity: string; unitPrice: string };
 type QualityDraft = {
   brakesOk: boolean; lightsOk: boolean; hornOk: boolean; noVisibleLeaks: boolean;
@@ -114,10 +114,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const canApproveEstimate = staff.permissions.includes('workshop.approve_estimate');
   const canStartWork = staff.permissions.includes('workshop.jobcard.work');
   const canQualityCheck = staff.permissions.includes('workshop.quality_check');
-  const canReadInvoice = staff.permissions.includes('billing.invoice.read');
-  const canIssueInvoice = staff.permissions.includes('billing.invoice.issue');
-  const canRecordPayment = staff.permissions.includes('billing.payment.record');
-  const canReversePayment = staff.permissions.includes('billing.payment.reverse');
+  const canReadInvoice = staff.permissions.includes('finance.read');
+  const canIssueInvoice = staff.permissions.includes('finance.invoice');
+  const canRecordPayment = staff.permissions.includes('finance.payment');
+  const canReversePayment = staff.permissions.includes('finance.payment.reverse');
   const canDeliverVehicle = staff.permissions.includes('workshop.jobcard.deliver');
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'jobCards'>('appointments');
@@ -179,6 +179,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const [selectedStaff, setSelectedStaff] = useState('');
   const [assignmentNote, setAssignmentNote] = useState('');
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [invoicePayments, setInvoicePayments] = useState<Payment[]>([]);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER'>('UPI');
@@ -340,6 +341,27 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     finally { setBusyId(''); }
   }
 
+  async function refreshBilling(jobCardPublicId: string) {
+    const invoices = await request<Invoice[]>(
+      `/api/v1/admin/workshop/job-cards/${jobCardPublicId}/invoices`, token);
+    const chosen = invoices.find((item) => item.status === 'ISSUED')
+      ?? invoices.find((item) => item.status === 'DRAFT');
+    if (!chosen) {
+      setInvoice(null);
+      setInvoicePayments([]);
+      return null;
+    }
+    const [current, payments] = await Promise.all([
+      request<Invoice>(`/api/v1/admin/workshop/invoices/${chosen.publicId}`, token),
+      chosen.status === 'ISSUED'
+        ? request<Payment[]>(`/api/v1/admin/workshop/invoices/${chosen.publicId}/payments`, token)
+        : Promise.resolve([] as Payment[]),
+    ]);
+    setInvoice(current);
+    setInvoicePayments(payments);
+    return current;
+  }
+
   async function openJobCard(publicId: string) {
     setSelectedJobCardId(publicId);
     setInvoice(null);
@@ -364,9 +386,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
       if (canReadInvoice && ['INVOICED', 'DELIVERED'].includes(card.status)) {
         setLoadingInvoice(true);
         try {
-          const currentInvoice = await request<Invoice>(
-            `/api/v1/admin/workshop/job-cards/${publicId}/invoice`, token);
-          setInvoice(currentInvoice);
+          await refreshBilling(publicId);
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : 'Invoice details could not be loaded.');
         } finally {
@@ -374,6 +394,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
         }
       } else {
         setInvoice(null);
+        setInvoicePayments([]);
         setLoadingInvoice(false);
       }
     } catch (cause) {
