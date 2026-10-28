@@ -317,6 +317,70 @@ public class NotificationManagementService {
   }
 
   @Transactional
+  public CampaignView approve(StaffPrincipal approver, UUID publicId, String rawPreviewToken) {
+    String previewToken = requiredText(rawPreviewToken, "Preview token", 200);
+    CampaignRecord campaign = loadCampaign(approver.dealershipId(), publicId, true);
+    if (!"PREVIEWED".equals(campaign.status())) {
+      throw conflict("Only a previewed campaign can be approved.");
+    }
+    if (campaign.previewExpiresAt() == null || !campaign.previewExpiresAt().isAfter(Instant.now())) {
+      throw new ResponseStatusException(HttpStatus.GONE,
+          "The preview expired. Run audience preview again before approval.");
+    }
+    if (campaign.previewTokenHash() == null || !constantTimeEquals(
+        campaign.previewTokenHash(), TokenDigests.sha256(previewToken))) {
+      throw conflict("Preview token is invalid. Run audience preview again.");
+    }
+    if (campaign.previewFingerprint() == null || !constantTimeEquals(
+        campaign.previewFingerprint(), fingerprint(campaign))) {
+      throw conflict("Campaign content changed after preview. Rebuild the preview before approval.");
+    }
+
+    ObjectNode filter = parseObject(campaign.audienceFilterJson());
+    List<RecipientCandidate> currentAudience = resolveAudience(approver, campaign.scope(), filter);
+    currentAudience = excludeRecipients(currentAudience, filter);
+    Set<String> currentKeys = new LinkedHashSet<>();
+    currentAudience.forEach(candidate -> currentKeys.add(candidate.key()));
+    Set<String> previewKeys = recipientSnapshotKeys(campaign.audienceSnapshotJson());
+    if (!currentKeys.equals(previewKeys)) {
+      throw conflict("The eligible audience changed after preview. Run a fresh preview before approval.");
+    }
+    if (currentAudience.isEmpty()) {
+      throw conflict("No eligible recipients remain. Review the audience and run preview again.");
+    }
+
+    int changed = jdbc.update("""
+        update notification_campaign
+        set status = 'APPROVED', approved_by_staff_user_id = ?, approved_at = now(), updated_at = now()
+        where id = ? and dealership_id = ? and status = 'PREVIEWED'
+          and preview_expires_at > now()
+        """, approver.staffUserId(), campaign.id(), approver.dealershipId());
+    if (changed != 1) throw conflict("Campaign status changed while approval was being recorded.");
+
+    audit(approver, "CAMPAIGN_APPROVED", campaign.id(), campaign.templateId(),
+        Map.of("recipientCount", currentAudience.size(),
+            "previewExpiresAt", campaign.previewExpiresAt().toString(),
+            "contentFingerprint", campaign.previewFingerprint()));
+    return toView(loadCampaign(approver.dealershipId(), campaign.publicId(), false));
+  }
+
+  private static Set<String> recipientSnapshotKeys(String rawSnapshot) {
+    ObjectNode snapshot = parseObject(rawSnapshot);
+    JsonNode rows = snapshot.path("recipients");
+    if (!rows.isArray()) throw conflict("Stored audience preview is invalid. Run preview again.");
+    Set<String> keys = new LinkedHashSet<>();
+    for (JsonNode row : rows) {
+      String kind = row.path("kind").asText("").trim().toUpperCase(Locale.ROOT);
+      long id = row.path("id").asLong(-1);
+      if (!RECIPIENT_KINDS.contains(kind) || id < 1) {
+        throw conflict("Stored audience preview is invalid. Run preview again.");
+      }
+      keys.add(kind + ":" + id);
+    }
+    return keys;
+  }
+
+  @Transactional
   public CampaignResult send(StaffPrincipal actor, SendRequest request) {
     if (request.campaignPublicId() == null) throw badRequest("A previewed campaign ID is required.");
     String idempotencyKey = requiredText(request.idempotencyKey(), "Idempotency key", 120);
@@ -329,7 +393,7 @@ public class NotificationManagementService {
       }
       throw conflict("This preview has already been accepted by another send request.");
     }
-    if (!"PREVIEWED".equals(campaign.status())) throw conflict("Only a previewed campaign can be sent or scheduled.");
+    if (!"APPROVED".equals(campaign.status())) throw conflict("Campaign approval is required before it can be sent or scheduled.");
     if (campaign.previewExpiresAt() == null || !campaign.previewExpiresAt().isAfter(Instant.now())) {
       throw new ResponseStatusException(HttpStatus.GONE, "The preview expired. Review the audience and preview again.");
     }
@@ -402,8 +466,8 @@ public class NotificationManagementService {
   @Transactional
   public CampaignView cancel(StaffPrincipal actor, UUID publicId) {
     CampaignRecord campaign = loadCampaign(actor.dealershipId(), publicId, true);
-    if (!List.of("PREVIEWED", "SCHEDULED", "QUEUED").contains(campaign.status())) {
-      throw conflict("Only a previewed or pending campaign can be cancelled.");
+    if (!List.of("PREVIEWED", "APPROVED", "SCHEDULED", "QUEUED").contains(campaign.status())) {
+      throw conflict("Only a previewed, approved or pending campaign can be cancelled.");
     }
     jdbc.update("""
         update notification_campaign set status = 'CANCELLED', cancelled_at = now(), updated_at = now()
