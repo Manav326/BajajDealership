@@ -121,6 +121,14 @@ public class SparePartsController {
     return parts.listMovements(principal, publicId, page, pageSize);
   }
 
+  @GetMapping("/part-job-cards")
+  @PreAuthorize("hasAuthority('parts.read')")
+  public List<SparePartsService.JobCardOption> jobCardOptions(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @RequestParam(required = false) @Size(max = 100) String q) {
+    return parts.listJobCardOptions(principal, q);
+  }
+
   @GetMapping("/job-cards/{jobCardPublicId}/part-reservations")
   @PreAuthorize("hasAuthority('parts.read')")
   public List<SparePartsService.ReservationView> reservations(
