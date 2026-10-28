@@ -16,7 +16,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+const DEFAULT_API_BASE_URL = 'http://192.168.31.47:8080'; // mPAY's local physical-device LAN address; must serve Bajaj APIs.
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).trim().replace(/\/$/, '');
 const TOKEN_KEY = 'lucky_bajaj_customer_access_token';
 
 type Customer = {
