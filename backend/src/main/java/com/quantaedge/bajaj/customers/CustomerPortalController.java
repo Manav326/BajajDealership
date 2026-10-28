@@ -71,6 +71,40 @@ public class CustomerPortalController {
     return portal.serviceHistory(principal);
   }
 
+  @GetMapping("/notifications")
+  @PreAuthorize("hasAuthority('customer.portal')")
+  public CustomerPortalService.NotificationPage notifications(
+      @AuthenticationPrincipal CustomerPrincipal principal,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int pageSize,
+      @RequestParam(defaultValue = "false") boolean unreadOnly) {
+    return portal.notifications(principal, page, pageSize, unreadOnly);
+  }
+
+  @PostMapping("/notifications/{publicId}/read")
+  @PreAuthorize("hasAuthority('customer.portal')")
+  public OperationResult markNotificationRead(
+      @AuthenticationPrincipal CustomerPrincipal principal, @PathVariable UUID publicId) {
+    portal.markNotificationRead(principal, publicId, true);
+    return new OperationResult(true, "Notification marked as read.");
+  }
+
+  @PostMapping("/notifications/{publicId}/unread")
+  @PreAuthorize("hasAuthority('customer.portal')")
+  public OperationResult markNotificationUnread(
+      @AuthenticationPrincipal CustomerPrincipal principal, @PathVariable UUID publicId) {
+    portal.markNotificationRead(principal, publicId, false);
+    return new OperationResult(true, "Notification marked as unread.");
+  }
+
+  @PostMapping("/notifications/{publicId}/dismiss")
+  @PreAuthorize("hasAuthority('customer.portal')")
+  public OperationResult dismissNotification(
+      @AuthenticationPrincipal CustomerPrincipal principal, @PathVariable UUID publicId) {
+    portal.dismissNotification(principal, publicId);
+    return new OperationResult(true, "Notification dismissed.");
+  }
+
   @GetMapping("/appointments")
   @PreAuthorize("hasAuthority('customer.portal')")
   public List<CustomerPortalService.AppointmentView> appointments(
