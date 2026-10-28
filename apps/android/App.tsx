@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.0.2.2:8080').replace(/\/$/, '');
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 const TOKEN_KEY = 'lucky_bajaj_customer_access_token';
 
 type Customer = {
@@ -56,6 +56,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
 ];
 
 async function api<T>(path: string, token?: string, options: { method?: string; body?: string } = {}): Promise<T> {
+  if (!API_BASE_URL) throw new Error('This app build has no customer API address configured. Build with EXPO_PUBLIC_API_BASE_URL.');
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = 'Bearer ' + token;
