@@ -108,7 +108,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   docker-stack:
-    name: Validate Compose and build local Docker images
+    name: Build and smoke-test local Docker stack
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -117,6 +117,28 @@ jobs:
         run: docker compose -f compose.yaml config --quiet
       - name: Build Spring Boot API and both web images
         run: docker compose -f compose.yaml build --pull api customer-web staff-web
+      - name: Start full stack and verify API plus both websites
+        shell: bash
+        run: |
+          docker compose -f compose.yaml up -d || {
+            docker compose -f compose.yaml logs --tail=100
+            exit 1
+          }
+          for attempt in $(seq 1 120); do
+            if curl -fsS http://localhost:8080/actuator/health >/dev/null \
+              && curl -fsS http://localhost:3000/ >/dev/null \
+              && curl -fsS http://localhost:3001/ >/dev/null; then
+              echo "Customer site, staff portal and API are healthy."
+              docker compose -f compose.yaml ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f compose.yaml logs --tail=150
+          exit 1
+      - name: Clean up ephemeral Docker stack
+        if: always()
+        run: docker compose -f compose.yaml down --volumes --remove-orphans
 
   android:
     name: Build Lucky Bajaj Android APK
