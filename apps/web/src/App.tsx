@@ -90,7 +90,7 @@ function App() {
     if (!drawer) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnDesktopResize = () => {
-      if (window.innerWidth > 560) setMobileNavOpen(false);
+      if (window.innerWidth > 820) setMobileNavOpen(false);
     };
     document.body.style.overflow = 'hidden';
 
@@ -135,7 +135,7 @@ function App() {
       window.removeEventListener('keydown', closeOnKeyDown);
       window.removeEventListener('resize', closeOnDesktopResize);
       // Return focus to the visible toggle after a user closes the mobile drawer.
-      if (window.innerWidth <= 560 && mobileNavToggleRef.current?.isConnected) {
+      if (window.innerWidth <= 820 && mobileNavToggleRef.current?.isConnected) {
         mobileNavToggleRef.current.focus();
       }
     };
