@@ -85,6 +85,15 @@ public class NotificationController {
     return notifications.send(principal, request.toServiceRequest());
   }
 
+  @PostMapping("/campaigns/{publicId}/approve")
+  @PreAuthorize("hasAuthority('notification.approve')")
+  public NotificationManagementService.CampaignView approve(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody ApprovalRequest request) {
+    return notifications.approve(principal, publicId, request.previewToken());
+  }
+
   @GetMapping("/campaigns")
   @PreAuthorize("hasAuthority('notification.read')")
   public CampaignList campaigns(
@@ -175,5 +184,6 @@ public class NotificationController {
   public record TemplateList(List<NotificationManagementService.TemplateView> templates) {}
   public record RecipientList(List<NotificationManagementService.RecipientOption> recipients) {}
   public record CampaignList(List<NotificationManagementService.CampaignView> campaigns) {}
-  public record MarkReadResult(int updatedCount) {}
+  public record ApprovalRequest(@NotBlank @Size(max = 200) String previewToken) {}
+    public record MarkReadResult(int updatedCount) {}
 }
