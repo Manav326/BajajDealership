@@ -52,7 +52,6 @@ create table vehicle_sale_invoice (
   updated_at timestamptz not null default now(),
   unique (dealership_id, invoice_number),
   unique (dealership_id, id),
-  unique (dealership_id, request_fingerprint, booking_id),
   check (discount_amount <= subtotal),
   check (invoice_total = subtotal - discount_amount),
   check (
