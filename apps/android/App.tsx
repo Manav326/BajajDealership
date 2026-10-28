@@ -651,6 +651,7 @@ const styles = StyleSheet.create({
   successText: { color: '#19784C', fontSize: 9, lineHeight: 16, marginTop: 5 },
 
   invoiceTotal: { color: '#31415A', fontSize: 22, fontWeight: '800', marginBottom: 6 },
+  loadingPanel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingVertical: 14, marginBottom: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' },
   bottomNote: { alignItems: 'center', paddingVertical: 18, gap: 5 },
   bottomNoteText: { color: '#96A1B0', fontSize: 7, letterSpacing: 1.1, fontWeight: '800', textAlign: 'center' },
   bottomNoteSub: { color: '#A5AEBA', fontSize: 8 },
