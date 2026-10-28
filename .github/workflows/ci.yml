@@ -44,7 +44,7 @@ jobs:
         run: mvn -B -f backend/pom.xml test
 
   web:
-    name: React web builds (staff and customer portal)
+    name: Build and publish staff/customer web artifacts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -53,15 +53,75 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install dependencies
+
+      - name: Install staff portal dependencies
         working-directory: apps/web
         run: npm install
       - name: Typecheck and build staff portal
         working-directory: apps/web
         run: npm run build
+      - name: Upload staff portal website
+        uses: actions/upload-artifact@v4
+        with:
+          name: staff-portal-web-${{ github.sha }}
+          path: apps/web/dist/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Install customer portal dependencies
         working-directory: apps/customer-web
         run: npm install
       - name: Typecheck and build customer portal
         working-directory: apps/customer-web
         run: npm run build
+      - name: Upload customer portal website
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-portal-web-${{ github.sha }}
+          path: apps/customer-web/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Build Lucky Bajaj Android APK
+    runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_API_BASE_URL: http://10.0.2.2:8080
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up Java for Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform packages
+        run: sdkmanager "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+      - name: Install mobile dependencies
+        working-directory: apps/android
+        run: npm install
+      - name: Align Expo native dependency versions
+        working-directory: apps/android
+        run: npx expo install --fix
+      - name: Typecheck Android app
+        working-directory: apps/android
+        run: npm run typecheck
+      - name: Generate native Android project
+        working-directory: apps/android
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Build debug APK
+        working-directory: apps/android/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lucky-bajaj-android-debug-apk-${{ github.sha }}
+          path: apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
