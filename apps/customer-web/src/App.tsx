@@ -425,7 +425,8 @@ export default function App() {
             ['vehicles', 'My bikes', '♧'],
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
-          ] as const).map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'portal-tab active' : 'portal-tab'} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span>{icon}</span>{label}</button>)}
+            ['notifications', 'Updates', '✦'],
+          ] as const).map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'portal-tab active' : 'portal-tab'} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span>{icon}</span>{label}{key === 'notifications' && notificationPage.unreadCount > 0 && <b className="notification-tab-badge">{notificationPage.unreadCount > 99 ? '99+' : notificationPage.unreadCount}</b>}</button>)}
         </nav>
         <div id="portal-content" className="portal-content">
           {loadingData && <div className="glass-empty"><span className="loading-spinner" />Refreshing your portal data…</div>}
@@ -453,6 +454,26 @@ export default function App() {
             <div className="portal-section-heading"><div><h2>Service history</h2><p>Job-card status and recorded operational bill balances from your saved customer records.</p></div><span className="section-mark">{history.length} RECORDS</span></div>
             {history.length === 0 ? <div className="glass-panel inline-empty">Your recorded workshop history will appear here when a job card is linked to your customer profile.</div> : <div className="service-history-list">{history.map((job) => <article className="glass-panel service-history-card" key={job.jobCardPublicId}><div className="service-history-top"><div><span className="history-job-code">{job.jobCardCode}</span><h3>{job.modelName}{job.variantName ? ' · ' + job.variantName : ''}</h3><p>{job.customerConcern}</p></div><span className={`status-pill status-${job.status.toLowerCase()}`}>{pretty(job.status)}</span></div><div className="history-timeline"><div><small>Checked in</small><strong>{dateTime(job.checkedInAt)}</strong></div><div><small>Completed</small><strong>{dateTime(job.completedAt)}</strong></div><div><small>Vehicle handover</small><strong>{dateTime(job.deliveredAt)}</strong></div></div>{job.invoiceNumber ? <div className="service-invoice-summary"><div><small>Operational invoice</small><strong>{job.invoiceNumber}</strong><span>{job.invoiceNotice}</span></div><div><small>Invoice total</small><strong>{money(job.invoiceTotal)}</strong></div><div><small>Recorded paid</small><strong>{money(job.paidAmount)}</strong></div><div><small>Balance due</small><strong className={job.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(job.balanceDue)}</strong></div></div> : <div className="service-invoice-unavailable">No issued operational invoice is recorded for this job card.</div>}</article>)}</div>}
           </>}
+          {!loadingData && tab === 'notifications' && <>
+            <div className="portal-section-heading"><div><h2>Updates from Lucky Bajaj</h2><p>Service messages and dealership updates delivered through the QuantaEdge Notification Studio.</p></div><span className="section-mark">{notificationPage.unreadCount} UNREAD</span></div>
+            {notificationPage.items.length === 0
+              ? <div className="glass-panel inline-empty"><strong>You are all caught up.</strong><span>Messages delivered to your customer inbox will appear here. Marketing communication remains subject to recorded consent.</span></div>
+              : <div className="customer-notification-list">{notificationPage.items.map((item) => {
+                  const unread = !item.readAt;
+                  return <article className={unread ? 'glass-panel customer-notification-card unread' : 'glass-panel customer-notification-card'} key={item.recipientPublicId}>
+                    <div className="customer-notification-heading"><span className="notification-envelope">{unread ? '✦' : '✓'}</span><div><div className="customer-notification-title-row"><h3>{item.title}</h3>{unread && <span className="notification-unread-dot" aria-label="Unread" />}</div><span>{item.senderName} · {dateTime(item.createdAt)}</span></div></div>
+                    {item.summary && <p className="customer-notification-summary">{item.summary}</p>}
+                    {renderNotificationContent(item.contentDocumentJson)}
+                    <div className="customer-notification-actions">
+                      {unread
+                        ? <button type="button" className="text-link" onClick={() => void updateNotification(item, 'read')}>Mark as read</button>
+                        : <button type="button" className="text-link" onClick={() => void updateNotification(item, 'unread')}>Mark as unread</button>}
+                      <button type="button" className="text-link danger-link" onClick={() => void updateNotification(item, 'dismiss')}>Dismiss</button>
+                    </div>
+                  </article>;
+                })}</div>}
+          </>}
+
           {!loadingData && tab === 'appointments' && <>
             <div className="portal-section-heading"><div><h2>Appointments</h2><p>Send a service request to Lucky Bajaj, then track confirmation and status here.</p></div><span className="section-mark">{appointments.length} REQUESTS</span></div>
             <div className="appointments-layout">
