@@ -31,7 +31,7 @@ This repository contains the implementation roadmap and application code for a d
 
 ## Technical baseline
 - Web: ReactJS + TypeScript + Vite
-- Android: React Native + Expo SDK 58, targeting React Native 0.88 / React 19.3; native Android APK built in CI. Release signing, public API URL configuration, Play Store submission and push delivery are separate release steps
+- Android: React Native + Expo SDK 57, targeting React Native 0.86 / React 19.2; native Android APK built in CI. Release signing, public API URL configuration, Play Store submission and push delivery are separate release steps
 - Backend: Java 21 + Spring Boot
 - Database: PostgreSQL with additive Flyway migrations
 - API: authenticated REST + JSON
