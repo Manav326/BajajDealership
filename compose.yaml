@@ -28,7 +28,7 @@ services:
       DB_USERNAME: ${POSTGRES_USER:-bajaj_app}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-bajaj_local_only}
       APP_VERSION: ${APP_VERSION:-local}
-      APP_BOOTSTRAP_TOKEN: ${APP_BOOTSTRAP_TOKEN:-local-owner-bootstrap-change-me}
+      APP_BOOTSTRAP_TOKEN: ${APP_BOOTSTRAP_TOKEN:-}
       APP_NOTIFICATION_MEDIA_DIR: /app/var/private-notification-media
       NOTIFICATION_DISPATCH_INTERVAL_MS: ${NOTIFICATION_DISPATCH_INTERVAL_MS:-15000}
     ports:
