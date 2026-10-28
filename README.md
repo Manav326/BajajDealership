@@ -64,9 +64,9 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 - Automated tests for PostgreSQL migrations, authentication, customer isolation/consent, vehicle stock lifecycle, notification permission denial, appointment/check-in idempotency, estimate revision/approval rules, quality gates, spare-part receipt retries, weighted-average cost, reservation/issue/return/release quantities, closed-job rejection and cross-dealership isolation.
 
 ### Not yet complete — do not treat as production-ready
-- Sales pipeline and end-to-end booking/invoice/delivery transaction workflow.
+- Sales enquiry, test-ride, booking, sale-invoice, manual-payment and handover flows are implemented in the current source tree. They are not accepted as complete until the current backend CI failure is resolved and transaction security, concurrency and end-to-end acceptance gates pass.
 - Workshop is partially complete: intake, inspection, estimate/decision evidence, assignment, work/quality gates, operational invoice/receipt records and paid/acknowledged handover exist. Spare-parts catalogue/receipts/ledger, job-card reservation/issue/return/release, per-SKU reorder policies and low-stock alerts are implemented. Estimate revisions can link same-job reservations and freeze reserved/issued/returned/released quantities plus a unit-cost snapshot, separately from customer price; part issue requires a matching approved estimate, return/release makes an old snapshot stale until a revision is approved, and invoice creation rejects stale part quantities. The previous approved revision remains auditable and is superseded only when a replacement is approved. PostgreSQL integration tests cover same-SKU concurrent reservations, receipt idempotency/weighted cost, released quantities, low-stock calculations and stale estimate quantities. Remaining work includes deeper concurrency testing across receipt/issue/return, customer-facing estimate approval, richer mechanic work entries, refunds/credit notes, financial reconciliation, tax-compliant GST/e-invoicing, and external payment-provider verification.
-- Spare-parts purchasing and job-card stock movement integration.
+- Spare-parts catalogue, supplier receipts, weighted-average cost, stock ledger, job-card reservation/issue/return/release, reorder policy and low-stock alerts are implemented. Broader cross-workflow concurrency, failure-recovery and financial reconciliation tests remain.
 - Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
 - Production deployment of the staff portal/customer website and a signed Android release. CI artifacts are test builds, not public hosting or Play Store releases.
 - Android Firebase Cloud Messaging delivery configuration and end-to-end proof of real push delivery.
@@ -75,6 +75,151 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 - Full cross-browser/mobile acceptance tests, production load/security review and verified backup restoration.
 
 The existence of a screen, table or API is not evidence that its whole business workflow is complete. Modules stay marked in progress until their acceptance tests pass.
+
+
+## Implementation roadmap & resume checkpoint
+
+**Purpose:** This section is the actionable handoff for continuing implementation. Follow the phases in order, update the checkboxes only after evidence exists, and keep this file synchronized with actual code and CI. A page, endpoint or table alone does not satisfy a phase.
+
+### Last audited baseline
+
+- Baseline commit inspected: `4367501eadac3ab8069498041456fba73c9a7347` on `main`.
+- CI run [#334](https://github.com/Manav326/BajajDealership/actions/runs/40717938068) on that commit **failed**. The staff/customer web build and Android debug APK jobs passed; the PostgreSQL-backed backend test job failed.
+- Failure: `SalesTransactionServiceIntegrationTest.issueAndPaymentRejectInvalidBookingAndExcessPayment`. The test expects a ₹15,001 payment to exceed the balance, but its fixture also adds two helmets at ₹750 each with a ₹100 discount; with the ₹15,000 bike line, the invoice total is ₹16,400. First verify the intended business rule, then correct the fixture or expected amount so the test truly tests overpayment. Do not weaken or remove the server-side balance guard.
+- Repository baseline had only `main` listed, no open PRs/issues, and no branch protection/rulesets visible in the inspected GitHub endpoints. Confirm governance settings before treating direct pushes as protected release workflow.
+- Do not call the project production-ready from a successful build alone. External integrations and launch checks below are still outstanding.
+
+### Execution rules
+
+1. Work in small, reviewable vertical slices; do not combine unrelated refactors with feature work.
+2. Preserve existing business behavior and customer/financial/audit history. Never reset or delete data to make tests pass.
+3. Keep released Flyway migrations immutable; use additive migrations and test both clean schema creation and upgrade from the current schema.
+4. Derive dealership scope from the authenticated principal on every read and write. Never trust a client-supplied dealership identifier, role, recipient count, or acknowledgement as proof of authorization.
+5. Treat recorded manual receipts as operational records, not payment-provider confirmation. Treat an operational invoice as distinct from a GST tax invoice until compliant tax requirements and provider integrations are implemented.
+6. Automated tests use synthetic identities and recipients only. Do not send real customer notifications during QA.
+7. After each phase, run the relevant PostgreSQL integration/security tests plus the web/Android builds affected by the change. Update this checklist only when the evidence is on the exact current commit.
+
+### Phase 0 — Restore a green baseline (P0; do first)
+
+- [ ] Reproduce and understand the sales overpayment assertion failure described above.
+- [ ] Correct the test data or expectation so the amount genuinely exceeds the computed outstanding balance; preserve a separate passing assertion that a valid partial payment is accepted.
+- [ ] Add/retain boundary checks for payment equal to balance, payment above balance, payment before invoice issue, cancelled invoice/booking, and idempotent retry with both same and changed payloads.
+- [ ] Run the full backend suite against PostgreSQL and verify all Flyway migrations on a clean database.
+- [ ] Confirm both web production builds and the Android debug APK build on the same exact commit.
+- [ ] Re-check latest Actions run and record its URL and commit SHA here after the run completes.
+
+**Exit gate:** all CI jobs pass on the same commit; no test was deleted or watered down to hide a business-rule failure.
+
+### Phase 1 — Security and transactional invariants (P1)
+
+- [ ] Build an endpoint inventory from every backend controller and map each route to its required permission and dealership-scope invariant.
+- [ ] Add controller-level tests for sales transaction endpoints: invoice create/issue/cancel, payments, reversals, handover and history. Cover unauthenticated access, insufficient permissions, malformed inputs and forbidden state transitions.
+- [ ] Expand equivalent negative-authorization coverage for workshop billing, estimates/quality gates, parts receiving/reservation/issue/return/release, customer portal actions, notification approval/send/cancel, and media retrieval.
+- [ ] Verify that IDs from another dealership return safe not-found/denial responses and never reveal cross-dealership data.
+- [ ] Add transaction/concurrency tests for duplicate booking attempts on one bike, simultaneous invoice payments, repeated delivery, retries with idempotency keys, and rollback after a rejected quantity/state change.
+- [ ] Review session expiry/revocation, login throttling, password handling, bootstrap-secret removal, CORS/proxy configuration, upload size/type validation and private media access.
+
+**Exit gate:** every state-changing route has a permission-denial test; high-risk workflows have dealership-isolation, idempotency and transactional/concurrency coverage.
+
+### Phase 2 — Finish Team & Access (P1)
+
+- [ ] Implement staff listing/search and staff detail with dealership-scoped APIs.
+- [ ] Implement owner-authorized staff invitation/activation, disable/reactivation, and role assignment/revocation. Never expose passwords or raw session tokens.
+- [ ] Provide a permission/role view that explains effective access and prevents privilege escalation; ensure owner-level actions cannot be granted by ordinary staff.
+- [ ] Add staff assignments needed for sales follow-ups, test rides, mechanics and approval duties where the domain already supports them.
+- [ ] Record auditable actor, target, before/after and reason for sensitive access changes; revoke or invalidate sessions when required by disablement/security policy.
+- [ ] Add integration tests for each role, least-privilege defaults and privilege escalation denial.
+
+**Exit gate:** the Team & Access navigation item opens a working screen, all actions have server-side permission checks, and tests demonstrate staff cannot administer their own permissions or cross dealership boundaries without explicit authority.
+
+### Phase 3 — Complete billing and operational finance (P1)
+
+- [ ] Implement the Billing & Expenses workspace against source records; do not show fabricated counts/totals.
+- [ ] Deliver expense creation, category, evidence/reference, approval controls, reversals and auditable history.
+- [ ] Implement daily closing and cash/UPI/bank reconciliation with opening balance, receipts, reversals, expenses, counted balance, variance, reason and approving actor.
+- [ ] Implement refund/credit-note/adjustment workflows as separate authorized transactions with immutable reversal history. Do not rewrite or delete issued invoices/receipts.
+- [ ] Keep sale and workshop billing paths consistent where appropriate while respecting their different lifecycle/state rules.
+- [ ] Define the legal dealership entity and GST requirements before implementing tax calculations or e-invoicing; validate invoice numbering, tax breakup, customer details, cancellation/credit-note rules and provider response handling with the approved integration.
+- [ ] Add payment-provider integration only after credentials, webhook/signature verification, idempotency, duplicate callback handling, refund semantics and reconciliation are defined. Never treat a manually entered reference as provider verification.
+- [ ] Add downloadable invoice/receipt/closing records only after the underlying data, permissions and calculations are verified. Use a proper PDF layout and test its totals against database transactions.
+
+**Exit gate:** financial balances reconcile to source transactions; duplicate/replayed events cannot double-post; refunds are auditable; statutory documents are enabled only when their legal/provider rules are implemented and verified.
+
+### Phase 4 — Implement Reports (P1)
+
+- [ ] Add backend report endpoints based on authoritative saved transactions, with consistent dealership scoping, permission checks, date range and timezone handling.
+- [ ] Implement sales/enquiry conversion, bookings/deliveries, workshop jobs/status, parts movement/low-stock, collections/payment reversals, expenses and daily closing reports.
+- [ ] Define each metric explicitly (source table/event, inclusion/exclusion rules, time zone, reversal handling and status semantics) so the UI does not invent business definitions.
+- [ ] Add pagination/filtering where necessary and protect expensive queries; use indexes or pre-aggregation only where measurements justify them.
+- [ ] Add CSV/export permissions and reconciliation tests that compare report totals with source transaction queries.
+- [ ] Replace current overview placeholder cards with real API-backed metrics when reliable aggregate endpoints exist; otherwise display a clear “not available yet” state instead of implying live data.
+
+**Exit gate:** report totals reconcile to source records and reversals; date boundaries use the dealership timezone; unauthorized exports are denied.
+
+### Phase 5 — Complete customer and workshop end-to-end journeys (P1)
+
+- [ ] Finish customer-facing estimate presentation and explicit approve/reject/request-change evidence, tied to the correct estimate revision. Customer decisions must not silently approve a stale revision.
+- [ ] Implement richer mechanic work entries, labour/parts completion notes, progress events and customer-visible status where permitted.
+- [ ] Complete customer complaints/feedback and follow-up workflows with consent handling and assigned ownership.
+- [ ] Re-check appointment-to-job-card exactly-once behavior; inspection-completion, estimate approval, quality inspection and invoice/handover state transitions.
+- [ ] Exercise parts reservations and estimate cost snapshots through issue, return, release, re-approval and invoice issue. Never silently mutate an already-approved estimate or issued invoice.
+- [ ] Add full journey tests for customer → enquiry/booking → bike reservation → invoice/payment → acknowledged delivery → ownership history → service booking → job card → estimate/parts → quality check → invoice/payment → handover → report.
+- [ ] Test failure/retry and concurrent requests at each irreversible transition, not just service happy paths.
+
+**Exit gate:** each critical journey passes automated integration tests and documented user acceptance with no missing state transitions, ownership mismatch, double booking or unexplained balance discrepancy.
+
+### Phase 6 — Notification delivery and lifecycle (P1/P2; providers are external dependencies)
+
+- [ ] Harden concurrent approval/send/cancel and scheduled-dispatch races; recheck preview freshness, exclusions and recipient-set drift immediately before dispatch.
+- [ ] Test private media authorization, content validation, upload limits and failure recovery.
+- [ ] Configure Firebase Cloud Messaging in a test project and prove push delivery on a physical test device before enabling production push.
+- [ ] Integrate SMS, WhatsApp Business and email only after approved provider accounts, templates, consent/legal process, opt-out, pricing and operational ownership are confirmed.
+- [ ] Add bounded retry/backoff, provider response tracking, failed-delivery history and safe idempotency. Keep durable in-app inbox records even if external delivery fails.
+- [ ] Label a message as externally delivered only when the provider's trustworthy response/status confirms it.
+
+**Exit gate:** automated tests use synthetic recipients; delivery states reflect actual provider evidence; retries do not duplicate sends or erase the in-app record.
+
+### Phase 7 — Customer app/web parity and release hardening (P1)
+
+- [ ] Verify that customer website and Android use the same authenticated customer API rules and represent equivalent supported workflows.
+- [ ] Test session expiry/logout, invitation activation, ownership changes, appointment changes, notification read/dismiss and empty/error/loading states on both clients.
+- [ ] Resolve the production API base URL. The default `192.168.31.47:8080` value is local-network development only, and must serve this repository's API. Production must use the deployed HTTPS Bajaj API.
+- [ ] Add automated and manual responsive/accessibility checks for each route/component at mobile, tablet and desktop sizes, with keyboard/focus visibility, readable contrast and reduced-motion behavior.
+- [ ] Build, sign and securely store the Android release key; validate release APK/AAB installation and production API connectivity. Debug APK CI output is not a production release.
+- [ ] Deploy backend and both static websites with HTTPS, managed secrets, private media/object storage, restricted database access, monitoring and alerting.
+- [ ] Test database backup and restore in a separate rehearsal environment; document recovery procedure and verify restored application access.
+- [ ] Run dependency/security review, load/performance tests and production-like smoke tests. Train staff and record acceptance sign-off before launch.
+
+**Exit gate:** public URLs resolve securely, mobile release is signed, external services are verified, monitoring and restore procedures work, and all acceptance gates in this README pass.
+
+### Phase 8 — Approved Bajaj/OEM integration (external dependency; do not simulate)
+
+- [ ] Confirm authorized API/partner access, documented capabilities, credentials, contract and sandbox before implementation.
+- [ ] Define per-operation request/response, idempotency, audit, retry and reconciliation behavior.
+- [ ] Keep external submission status separate from internal dealership records; only show “submitted/accepted” when the approved integration confirms it.
+- [ ] If no approved API exists, keep the integration explicitly unavailable; do not imply warranty, coupon, claim or stock data was sent to Bajaj.
+
+**Exit gate:** a sandbox or authorized live integration proves the workflow, with auditable provider correlation IDs and safe failure handling.
+
+### Final acceptance and definition of done
+
+- [ ] Exact-head CI is green: backend/PostgreSQL migrations, staff web build, customer web build and Android build.
+- [ ] All privileged routes have controller-level authorization tests; tenant isolation is covered for records and private media.
+- [ ] Financial figures and report exports reconcile with source transactions, including reversals/refunds.
+- [ ] Critical customer/sales/workshop journeys pass end-to-end tests and human acceptance.
+- [ ] Responsive/accessibility, security and performance reviews have no unresolved release-blocking findings.
+- [ ] Production HTTPS, provider integrations, monitoring and secret management are verified.
+- [ ] Backup restoration is rehearsed; recovery steps are documented.
+- [ ] README status and this checklist match actual merged code and test evidence.
+
+### Resume instructions for the next implementation session
+
+1. Read this section first, then read `docs/IMPLEMENTATION_PLAN.md` for the detailed domain constraints and acceptance history.
+2. Check the current `main` SHA and latest [CI run](https://github.com/Manav326/BajajDealership/actions/workflows/ci.yml); do not rely on the baseline status above if new commits have landed.
+3. Start with **Phase 0** if the exact current commit is not green. Otherwise start with the earliest unchecked phase whose dependencies are satisfied.
+4. Implement one small slice, write/extend tests, run the relevant checks and full CI, then update this section with the exact commit/run evidence and checkboxes actually completed.
+5. Do not mark a phase complete because a screen/API exists. Require all stated exit-gate evidence first.
+
 
 ## Build outputs and where to find them
 
