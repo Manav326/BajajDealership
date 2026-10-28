@@ -534,6 +534,13 @@ public class SalesOperationsService {
     if (!"ACTIVE".equals(String.valueOf(booking.get("status")))) {
       throw conflict("Only an active booking can be cancelled.");
     }
+    Integer activeInvoices = jdbc.queryForObject("""
+        select count(*) from vehicle_sale_invoice
+        where dealership_id = ? and booking_id = ? and status in ('DRAFT', 'ISSUED')
+        """, Integer.class, actor.dealershipId(), number(booking.get("id")));
+    if (activeInvoices != null && activeInvoices > 0) {
+      throw conflict("Cancel the unissued invoice draft first. An issued sales invoice requires an authorised finance correction before the booking can be released.");
+    }
     long unitId = number(booking.get("vehicle_unit_id"));
     List<Map<String, Object>> unitRows = jdbc.queryForList("""
         select public_id, stock_status from vehicle_unit
