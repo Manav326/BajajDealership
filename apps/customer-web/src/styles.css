@@ -352,3 +352,41 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .portal-tab.active { background: SelectedItem; color: SelectedItemText; border: 1px solid Highlight; }
   .status-pill,.primary-button,.secondary-button { border: 1px solid ButtonText; }
 }
+
+
+/* Customer inbox backed by QuantaEdge Notification Studio */
+.notification-tab-badge { display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border: 1px solid rgba(255,255,255,.88); border-radius: 6px; color: #fff; background: linear-gradient(145deg,#f49a58,#df6716); box-shadow: 0 3px 8px rgba(220,100,19,.14),inset 0 1px rgba(255,255,255,.35); font-size: 7px; font-weight: 900; }
+.customer-notification-list { display: grid; gap: 12px; }
+.customer-notification-card { padding: 18px; }
+.customer-notification-card.unread { background: linear-gradient(145deg,rgba(255,255,255,.88),rgba(255,246,237,.66)); border-color: rgba(255,223,199,.9); box-shadow: 0 20px 50px rgba(37,53,78,.07),inset 0 1px rgba(255,255,255,.98); }
+.customer-notification-heading { display: flex; align-items: flex-start; gap: 11px; }
+.notification-envelope { display: grid; place-items: center; width: 37px; height: 37px; flex: 0 0 37px; border: 1px solid rgba(255,255,255,.95); border-radius: 12px; color: #b15b1e; background: linear-gradient(145deg,rgba(255,230,210,.97),rgba(255,245,237,.75)); box-shadow: inset 0 1px #fff; font-size: 13px; font-weight: 900; }
+.customer-notification-card:not(.unread) .notification-envelope { color: #26805b; background: linear-gradient(145deg,rgba(224,248,235,.97),rgba(243,252,247,.75)); }
+.customer-notification-heading > div { min-width: 0; flex: 1; }
+.customer-notification-title-row { display: flex; align-items: center; gap: 8px; }
+.customer-notification-title-row h3 { margin: 1px 0 6px; color: #35455d; font-size: 11px; line-height: 1.5; font-weight: 850; overflow-wrap: anywhere; }
+.customer-notification-heading > div > span { color: #8d99aa; font-size: 7px; line-height: 1.5; }
+.notification-unread-dot { width: 7px; height: 7px; flex: 0 0 7px; margin-top: -5px; border-radius: 50%; background: #e87521; box-shadow: 0 0 0 4px rgba(232,117,33,.1); }
+.customer-notification-summary { color: #78869a; font-size: 9px; line-height: 1.75; margin: 13px 0 0; overflow-wrap: anywhere; }
+.notification-content-blocks { display: grid; gap: 9px; margin-top: 12px; }
+.notification-content-hero { display: flex; flex-direction: column; gap: 6px; padding: 13px; border: 1px solid rgba(255,255,255,.93); border-radius: 10px; background: linear-gradient(145deg,rgba(245,249,254,.75),rgba(236,243,251,.53)); box-shadow: inset 0 1px #fff; }
+.notification-content-hero > span { color: #ae5d21; letter-spacing: 1px; font-size: 7px; font-weight: 850; }
+.notification-content-hero > strong { color: #34445c; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.notification-content-hero > p,.notification-content-text,.notification-content-card p,.notification-content-highlight p { color: #78869a; margin: 0; font-size: 8px; line-height: 1.75; overflow-wrap: anywhere; white-space: pre-wrap; }
+.notification-content-card { padding: 11px 12px; border: 1px solid rgba(255,255,255,.92); border-radius: 9px; background: rgba(244,248,253,.58); box-shadow: inset 0 1px #fff; }
+.notification-content-card > strong { color: #47566d; font-size: 9px; }
+.notification-content-card p { margin-top: 5px; }
+.notification-content-highlight { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid rgba(184,229,205,.8); border-radius: 9px; background: linear-gradient(145deg,rgba(235,251,242,.82),rgba(246,253,249,.58)); }
+.notification-content-highlight > span { color: #618c77; font-size: 7px; font-weight: 800; }
+.notification-content-highlight > strong { color: #1a8055; font-size: 14px; font-weight: 850; }
+.notification-content-badge { display: inline-flex; align-items: center; width: fit-content; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,.95); color: #a95b1e; background: linear-gradient(145deg,rgba(255,236,220,.95),rgba(255,246,238,.7)); box-shadow: inset 0 1px #fff; font-size: 7px; font-weight: 900; letter-spacing: .6px; }
+.notification-content-image-note { padding: 11px; border: 1px dashed rgba(152,170,193,.55); border-radius: 9px; background: rgba(242,247,252,.48); color: #8794a6; font-size: 8px; line-height: 1.6; }
+.notification-content-footer { color: #9aa5b4; font-size: 7px; line-height: 1.7; margin: 0; overflow-wrap: anywhere; }
+.notification-content-divider { height: 1px; background: var(--glass-separator); }
+.customer-notification-actions { display: flex; align-items: center; gap: 14px; padding-top: 12px; margin-top: 13px; border-top: 1px solid var(--glass-separator); }
+.customer-notification-actions .text-link { font-size: 8px; }
+@media (max-width: 560px) {
+  .customer-notification-card { padding: 14px; }
+  .customer-notification-heading { gap: 8px; }
+  .notification-envelope { width: 31px; height: 31px; flex-basis: 31px; }
+}
