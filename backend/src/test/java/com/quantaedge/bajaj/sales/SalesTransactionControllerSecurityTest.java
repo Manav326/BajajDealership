@@ -97,6 +97,21 @@ class SalesTransactionControllerSecurityTest {
   }
 
   @Test
+  void financePaymentPermissionDoesNotGrantSalesPaymentReversal() throws Exception {
+    mvc.perform(post("/api/v1/admin/sales/payments/{publicId}/reverse", UUID.randomUUID())
+            .with(user("cashier")
+                .authorities(new SimpleGrantedAuthority("finance.payment")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "reason":"Authorization boundary test",
+                  "externalReference":null
+                }
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void salesDeliveryPermissionDoesNotGrantPaymentReversal() throws Exception {
     mvc.perform(post("/api/v1/admin/sales/payments/{publicId}/reverse", UUID.randomUUID())
             .with(user("delivery-staff")
