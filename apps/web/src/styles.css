@@ -843,3 +843,19 @@ h1,h2,h3,p { margin-top: 0; }
   .estimate-history-heading { flex-direction: column; }
   .estimate-history-total { align-items: flex-start; }
 }
+
+
+/* Notification campaign approval */
+.campaign-approval-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 11px 12px; border: 1px solid #f0d7b9; border-radius: 9px; background: #fff8ef; }
+.campaign-approval-banner > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.campaign-approval-banner > div strong { color: #9a5a1a; font-size: 9px; font-weight: 800; }
+.campaign-approval-banner > div span { color: #977d5d; font-size: 8px; line-height: 1.6; }
+.campaign-approval-banner > .primary-button { padding: 9px 11px; box-shadow: none; font-size: 8px; white-space: nowrap; flex-shrink: 0; }
+.campaign-approval-banner.approved { border-color: #c7ead6; background: #f2fcf6; }
+.campaign-approval-banner.approved > div strong { color: #16784d; }
+.campaign-approval-banner.approved > div span { color: #648b75; }
+.approval-permission-note { color: #9a6c36; font-size: 8px; white-space: nowrap; }
+@media (max-width: 560px) {
+  .campaign-approval-banner { align-items: stretch; flex-direction: column; }
+  .campaign-approval-banner > .primary-button { width: 100%; justify-content: center; }
+}
