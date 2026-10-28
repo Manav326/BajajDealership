@@ -2,7 +2,7 @@ spring:
   application:
     name: bajaj-dealership-api
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/bajaj_dealership}
+    url: "${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:bajaj_dealership}}"
     username: ${DB_USERNAME:bajaj_app}
     password: ${DB_PASSWORD:bajaj_local_only}
     hikari:
@@ -39,6 +39,12 @@ management:
 
 app:
   version: ${APP_VERSION:development}
+  cors:
+    # Empty by default: local dev and Docker use same-origin API proxies.
+    # Production/preview deployment injects explicit frontend origins.
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:}
+    allowed-origin-1: ${APP_CORS_ALLOWED_ORIGIN_1:}
+    allowed-origin-2: ${APP_CORS_ALLOWED_ORIGIN_2:}
   notifications:
     dispatch-interval-ms: ${NOTIFICATION_DISPATCH_INTERVAL_MS:15000}
     media-root: ${APP_NOTIFICATION_MEDIA_DIR:./var/private-notification-media}
