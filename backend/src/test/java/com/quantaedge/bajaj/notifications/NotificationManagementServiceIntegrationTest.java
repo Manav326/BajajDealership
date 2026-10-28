@@ -44,6 +44,16 @@ class NotificationManagementServiceIntegrationTest {
     assertThat(preview.previewToken()).isNotBlank();
 
     String key = "send-" + UUID.randomUUID();
+    assertThatThrownBy(() -> notifications.send(owner,
+        new NotificationManagementService.SendRequest(preview.campaignPublicId(),
+            preview.previewToken(), key, null, null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+
+    var approved = notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    assertThat(approved.status()).isEqualTo("APPROVED");
+
     NotificationManagementService.CampaignResult result = notifications.send(owner,
         new NotificationManagementService.SendRequest(preview.campaignPublicId(),
             preview.previewToken(), key, null, null));
@@ -76,13 +86,42 @@ class NotificationManagementServiceIntegrationTest {
             Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
             CONTENT, null, null));
 
-    assertThatThrownBy(() -> notifications.send(owner,
-        new NotificationManagementService.SendRequest(preview.campaignPublicId(),
-            "wrong-preview-proof", "bad-" + UUID.randomUUID(), null, null)))
+    assertThatThrownBy(() -> notifications.approve(owner, preview.campaignPublicId(), "wrong-preview-proof"))
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT));
 
+    assertThatThrownBy(() -> notifications.send(owner,
+        new NotificationManagementService.SendRequest(preview.campaignPublicId(),
+            preview.previewToken(), "blocked-" + UUID.randomUUID(), null, null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+
+    assertThat(jdbc.queryForObject("""
+        select status from notification_campaign where public_id = ?
+        """, String.class, preview.campaignPublicId())).isEqualTo("PREVIEWED");
+  }
+
+  @Test
+  void approvalRejectsAudienceDriftAfterPreview() {
+    StaffPrincipal owner = createOwner();
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Team notice", "Audience must remain stable",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+
+    String unique = UUID.randomUUID().toString().substring(0, 8).toLowerCase();
+    jdbc.update("""
+        insert into staff_user(dealership_id, full_name, email, password_hash, status)
+        values (?, 'Added after preview', ?, 'test-hash-not-used', 'ACTIVE')
+        """, owner.dealershipId(), "new-staff-" + unique + "@example.test");
+
+    assertThatThrownBy(() -> notifications.approve(owner, preview.campaignPublicId(), preview.previewToken()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
     assertThat(jdbc.queryForObject("""
         select status from notification_campaign where public_id = ?
         """, String.class, preview.campaignPublicId())).isEqualTo("PREVIEWED");
