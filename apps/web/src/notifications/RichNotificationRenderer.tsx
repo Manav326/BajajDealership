@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { apiFetch } from './apiClient';
 import styles from './RichNotificationRenderer.module.css';
 
@@ -66,7 +66,7 @@ export default function RichNotificationRenderer({
     return <div className={styles.empty}>Choose a validated notification design to preview it.</div>;
   }
 
-  const renderBlock = (block: RichBlock, index: number): React.ReactNode => {
+  const renderBlock = (block: RichBlock, index: number): ReactNode => {
     const type = block.type;
     const text = (key: string, fallback = '') => typeof block[key] === 'string' ? String(block[key]) : fallback;
     const asset = text('assetId');
