@@ -1,0 +1,212 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { apiFetch } from '../apiClient';
+import type { StaffSummary } from '../auth/StaffLogin';
+
+type VehicleModel = {
+  publicId: string; modelCode: string; modelName: string; variantName: string | null;
+  colourName: string | null; modelYear: number | null; active: boolean;
+  expectedCount: number; availableCount: number; reservedCount: number; soldCount: number;
+};
+type VehicleUnit = {
+  publicId: string; modelPublicId: string; modelCode: string; modelName: string;
+  variantName: string | null; colourName: string | null; chassisNumber: string;
+  engineNumber: string; stockStatus: string; supplierReference: string | null;
+  purchaseCost: number | null; receivedAt: string | null; createdAt: string;
+};
+type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
+type ModelForm = { modelCode: string; modelName: string; variantName: string; colourName: string; modelYear: string };
+type UnitForm = { modelPublicId: string; chassisNumber: string; engineNumber: string; supplierReference: string; purchaseCost: string };
+
+const emptyModel: ModelForm = { modelCode: '', modelName: '', variantName: '', colourName: '', modelYear: '' };
+const emptyUnit: UnitForm = { modelPublicId: '', chassisNumber: '', engineNumber: '', supplierReference: '', purchaseCost: '' };
+
+export default function VehicleInventoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
+  const canManage = staff.permissions.includes('vehicle.manage');
+  const [activeTab, setActiveTab] = useState<'models' | 'units'>('units');
+  const [models, setModels] = useState<VehicleModel[]>([]);
+  const [units, setUnits] = useState<VehicleUnit[]>([]);
+  const [modelForm, setModelForm] = useState<ModelForm>(emptyModel);
+  const [unitForm, setUnitForm] = useState<UnitForm>(emptyUnit);
+  const [showModelForm, setShowModelForm] = useState(false);
+  const [showUnitForm, setShowUnitForm] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
+  const [receiptRefs, setReceiptRefs] = useState<Record<string, string>>({});
+  const [receivingId, setReceivingId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const refresh = useCallback(async (searchValue = activeSearch) => {
+    setLoading(true);
+    setError('');
+    try {
+      const modelParams = new URLSearchParams({ page: '0', pageSize: '100' });
+      if (searchValue) modelParams.set('q', searchValue);
+      const [modelPage, unitPage] = await Promise.all([
+        apiFetch<Page<VehicleModel>>(`/api/v1/admin/vehicle-models?${modelParams.toString()}`, token),
+        apiFetch<Page<VehicleUnit>>('/api/v1/admin/vehicle-units?page=0&pageSize=100', token),
+      ]);
+      setModels(modelPage.items);
+      setUnits(unitPage.items);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load vehicle inventory.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token, activeSearch]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function createModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      await apiFetch<VehicleModel>('/api/v1/admin/vehicle-models', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...modelForm,
+          modelCode: modelForm.modelCode.trim().toUpperCase(),
+          modelName: modelForm.modelName.trim(),
+          variantName: modelForm.variantName.trim() || null,
+          colourName: modelForm.colourName.trim() || null,
+          modelYear: modelForm.modelYear ? Number(modelForm.modelYear) : null,
+        }),
+      });
+      setModelForm(emptyModel); setShowModelForm(false);
+      setSuccess('Vehicle model saved.');
+      await refresh('');
+      setModelSearch(''); setActiveSearch('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save vehicle model.');
+    } finally { setSaving(false); }
+  }
+
+  async function registerUnit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      await apiFetch<VehicleUnit>('/api/v1/admin/vehicle-units', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          modelPublicId: unitForm.modelPublicId,
+          chassisNumber: unitForm.chassisNumber.trim(),
+          engineNumber: unitForm.engineNumber.trim(),
+          supplierReference: unitForm.supplierReference.trim() || null,
+          purchaseCost: unitForm.purchaseCost ? Number(unitForm.purchaseCost) : null,
+        }),
+      });
+      setUnitForm(emptyUnit); setShowUnitForm(false);
+      setSuccess('Vehicle recorded as expected stock. Receive it only after physically verifying delivery.');
+      await refresh();
+      setActiveTab('units');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to register vehicle stock.');
+    } finally { setSaving(false); }
+  }
+
+  async function receiveUnit(unit: VehicleUnit) {
+    setReceivingId(unit.publicId); setError(''); setSuccess('');
+    try {
+      await apiFetch<VehicleUnit>(`/api/v1/admin/vehicle-units/${unit.publicId}/receive`, token, {
+        method: 'POST',
+        body: JSON.stringify({ receiptReference: receiptRefs[unit.publicId]?.trim() || null, reason: 'Stock received and chassis/engine verified.' }),
+      });
+      setSuccess(`${unit.modelName} received into available stock.`);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to receive this vehicle.');
+    } finally { setReceivingId(''); }
+  }
+
+  function searchModels(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = modelSearch.trim();
+    setActiveSearch(next);
+  }
+
+  const availableCount = units.filter((unit) => unit.stockStatus === 'AVAILABLE').length;
+  const expectedCount = units.filter((unit) => unit.stockStatus === 'EXPECTED').length;
+  const reservedCount = units.filter((unit) => unit.stockStatus === 'RESERVED').length;
+  const soldCount = units.filter((unit) => unit.stockStatus === 'SOLD').length;
+
+  if (!staff.permissions.includes('vehicle.read')) {
+    return <section className="module-landing"><div className="module-symbol">▤</div><div className="eyebrow">ACCESS CONTROL</div><h1>Bike inventory</h1><p>Your assigned role does not include access to vehicle stock.</p></section>;
+  }
+
+  return (
+    <section className="inventory-workspace">
+      <div className="inventory-heading">
+        <div><div className="eyebrow">VEHICLE & STOCK CONTROL</div><h1>Bike inventory</h1><p>Track the model catalogue and every individual vehicle by its identifying numbers.</p></div>
+        {canManage && <div className="inventory-actions">
+          <button className="secondary-button" type="button" onClick={() => { setShowModelForm((v) => !v); setShowUnitForm(false); setError(''); }}>{showModelForm ? 'Close model form' : '+ Add model'}</button>
+          <button className="primary-button" type="button" onClick={() => { setShowUnitForm((v) => !v); setShowModelForm(false); setError(''); }}>{showUnitForm ? 'Close vehicle form' : '+ Register vehicle'}</button>
+        </div>}
+      </div>
+
+      {error && <div className="notice notice-error" role="alert">{error}</div>}
+      {success && <div className="notice notice-success" role="status">{success}</div>}
+
+      {showModelForm && canManage && <form className="customer-form-card" onSubmit={createModel}>
+        <div className="form-card-heading"><div><h2>Add vehicle model</h2><p>Use the manufacturer model/variant as printed in your authorised inventory records.</p></div><span className="form-step">MODEL CATALOGUE</span></div>
+        <div className="customer-form-grid">
+          <label>Model code *<input required maxLength={60} value={modelForm.modelCode} onChange={(e) => setModelForm((v) => ({ ...v, modelCode: e.target.value }))} placeholder="e.g. PULSAR-150" /></label>
+          <label>Model name *<input required maxLength={160} value={modelForm.modelName} onChange={(e) => setModelForm((v) => ({ ...v, modelName: e.target.value }))} placeholder="e.g. Pulsar 150" /></label>
+          <label>Variant<input maxLength={120} value={modelForm.variantName} onChange={(e) => setModelForm((v) => ({ ...v, variantName: e.target.value }))} placeholder="Optional" /></label>
+          <label>Colour<input maxLength={80} value={modelForm.colourName} onChange={(e) => setModelForm((v) => ({ ...v, colourName: e.target.value }))} placeholder="Optional" /></label>
+          <label>Model year<input type="number" min={1990} max={2200} value={modelForm.modelYear} onChange={(e) => setModelForm((v) => ({ ...v, modelYear: e.target.value }))} placeholder="Optional" /></label>
+        </div>
+        <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setShowModelForm(false)}>Cancel</button><button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Save model'}</button></div>
+      </form>}
+
+      {showUnitForm && canManage && <form className="customer-form-card" onSubmit={registerUnit}>
+        <div className="form-card-heading"><div><h2>Register expected vehicle</h2><p>This creates a pending stock record. It does not become available until the receiving step is completed.</p></div><span className="form-step">INDIVIDUAL VEHICLE</span></div>
+        <div className="customer-form-grid">
+          <label className="field-span-two">Vehicle model *<select required value={unitForm.modelPublicId} onChange={(e) => setUnitForm((v) => ({ ...v, modelPublicId: e.target.value }))}><option value="">Choose model…</option>{models.filter((model) => model.active).map((model) => <option key={model.publicId} value={model.publicId}>{model.modelName}{model.variantName ? ` · ${model.variantName}` : ''}{model.colourName ? ` · ${model.colourName}` : ''}</option>)}</select></label>
+          <label>Chassis number (VIN) *<input required maxLength={100} value={unitForm.chassisNumber} onChange={(e) => setUnitForm((v) => ({ ...v, chassisNumber: e.target.value }))} placeholder="Enter exact chassis/VIN" /></label>
+          <label>Engine number *<input required maxLength={100} value={unitForm.engineNumber} onChange={(e) => setUnitForm((v) => ({ ...v, engineNumber: e.target.value }))} placeholder="Enter exact engine number" /></label>
+          <label>Purchase reference<input maxLength={120} value={unitForm.supplierReference} onChange={(e) => setUnitForm((v) => ({ ...v, supplierReference: e.target.value }))} placeholder="PO / supplier reference" /></label>
+          <label>Purchase cost (₹)<input type="number" min="0" step="0.01" value={unitForm.purchaseCost} onChange={(e) => setUnitForm((v) => ({ ...v, purchaseCost: e.target.value }))} placeholder="Optional" /></label>
+        </div>
+        <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setShowUnitForm(false)}>Cancel</button><button type="submit" className="primary-button" disabled={saving || models.length === 0}>{saving ? 'Saving…' : 'Register expected stock'}</button></div>
+      </form>}
+
+      <div className="inventory-metrics">
+        {[['Available', availableCount, 'available'], ['Expected', expectedCount, 'expected'], ['Reserved', reservedCount, 'reserved'], ['Sold', soldCount, 'sold']].map(([label, count, tone]) => (
+          <article key={String(label)} className="inventory-metric"><span className={`inventory-metric-icon ${tone}`}>{label === 'Available' ? '✓' : label === 'Expected' ? '↗' : label === 'Reserved' ? '◷' : '▤'}</span><div><span>{label}</span><strong>{Number(count).toLocaleString('en-IN')}</strong></div></article>
+        ))}
+      </div>
+
+      <div className="inventory-table-card">
+        <div className="inventory-tabs">
+          <button type="button" className={activeTab === 'units' ? 'inventory-tab active' : 'inventory-tab'} onClick={() => setActiveTab('units')}>Individual vehicles <span>{units.length}</span></button>
+          <button type="button" className={activeTab === 'models' ? 'inventory-tab active' : 'inventory-tab'} onClick={() => setActiveTab('models')}>Model catalogue <span>{models.length}</span></button>
+          {activeTab === 'models' && <form className="search-form inventory-search" onSubmit={searchModels}><input aria-label="Search models" value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} placeholder="Search models, variants or colours" /><button type="submit" className="secondary-button">Search</button></form>}
+        </div>
+        <div className="customer-table-scroll">
+          {activeTab === 'units' ? <table className="customer-table inventory-table">
+            <thead><tr><th>Vehicle / model</th><th>Chassis number</th><th>Engine number</th><th>Status</th><th>Received</th>{canManage && <th>Action</th>}</tr></thead>
+            <tbody>{loading ? <tr><td colSpan={canManage ? 6 : 5} className="table-empty">Loading inventory…</td></tr>
+              : units.length === 0 ? <tr><td colSpan={canManage ? 6 : 5} className="table-empty">No vehicle stock has been registered yet.</td></tr>
+              : units.map((unit) => <tr key={unit.publicId}>
+                <td><div className="customer-name-cell"><span className="vehicle-model-mark">B</span><div><strong>{unit.modelName}</strong><span>{[unit.variantName, unit.colourName, unit.modelCode].filter(Boolean).join(' · ')}</span></div></div></td>
+                <td className="vehicle-serial">{unit.chassisNumber}</td><td className="vehicle-serial">{unit.engineNumber}</td>
+                <td><span className={`status-chip status-${unit.stockStatus.toLowerCase()}`}>{unit.stockStatus}</span></td>
+                <td className="date-cell">{unit.receivedAt ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(unit.receivedAt)) : 'Not received'}</td>
+                {canManage && <td>{unit.stockStatus === 'EXPECTED' ? <div className="receive-action"><input aria-label={`Receipt reference for ${unit.chassisNumber}`} placeholder="Receipt ref (optional)" maxLength={120} value={receiptRefs[unit.publicId] ?? ''} onChange={(e) => setReceiptRefs((v) => ({ ...v, [unit.publicId]: e.target.value }))} /><button className="receive-button" type="button" disabled={receivingId === unit.publicId} onClick={() => void receiveUnit(unit)}>{receivingId === unit.publicId ? 'Receiving…' : 'Receive'}</button></div> : <span className="muted-action">—</span>}</td>}
+              </tr>)}
+            </tbody>
+          </table> : <table className="customer-table inventory-table">
+            <thead><tr><th>Model</th><th>Model code</th><th>Variant / colour</th><th>Expected</th><th>Available</th><th>Reserved</th><th>Sold</th></tr></thead>
+            <tbody>{loading ? <tr><td colSpan={7} className="table-empty">Loading model catalogue…</td></tr>
+              : models.length === 0 ? <tr><td colSpan={7} className="table-empty">No models found. Add a model before registering vehicles.</td></tr>
+              : models.map((model) => <tr key={model.publicId}><td><div className="customer-name-cell"><span className="vehicle-model-mark">B</span><div><strong>{model.modelName}</strong><span>{model.modelYear ?? 'Model year not set'}</span></div></div></td><td className="vehicle-serial">{model.modelCode}</td><td>{[model.variantName, model.colourName].filter(Boolean).join(' · ') || '—'}</td><td>{model.expectedCount}</td><td><strong className="stock-available-count">{model.availableCount}</strong></td><td>{model.reservedCount}</td><td>{model.soldCount}</td></tr>)}
+            </tbody>
+          </table>}
+        </div>
+        <div className="inventory-footnote"><span className="status-dot" /> Stock totals are from saved vehicle-unit records. Reservation and sale transitions are enabled only through the corresponding verified sales workflow.</div>
+      </div>
+    </section>
+  );
+}
