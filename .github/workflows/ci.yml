@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Keep only the newest validation run for each branch/ref. Intermediate main commits are
+# superseded by the newest tree, which re-runs the complete test/build matrix.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
