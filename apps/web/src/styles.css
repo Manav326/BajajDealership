@@ -1537,3 +1537,127 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 @media (max-width: 560px) {
   .auth-card { backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); }
 }
+
+
+/* Liquid Glass: harmonised inner surfaces across workshop, sales and notification studio.
+   Keep dense data readable; reserve stronger translucency for containers, not form controls. */
+:root {
+  --glass-highlight: rgba(255,255,255,.88);
+  --glass-inner: rgba(255,255,255,.48);
+  --glass-inner-strong: rgba(255,255,255,.68);
+  --glass-separator: rgba(148,163,184,.18);
+}
+.template-save-form,.scope-choice,.recipient-type-choices,.recipient-search-panel,
+.content-block-editor,.preview-summary,.rich-preview-frame,.send-channel-note,
+.studio-trust-note,.studio-honesty-note,.inbox-error,
+.job-detail-summary > div,.job-detail-concern,.checkin-inline,.active-assignment,
+.estimate-line-edit-row,.estimate-total-preview,.estimate-decision-panel,
+.invoice-parties > div,.invoice-line-list,.invoice-totals,.invoice-reversal-form,
+.quality-check-option,.workshop-next-stage,.sales-customer-summary > div,
+.sales-action-card,.sales-inline-warning,.sales-enquiry-card,.sales-history-card,
+.spare-reservation-card,.spare-receipt-result,.spare-selected-job {
+  position: relative;
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px var(--glass-highlight),0 5px 16px rgba(34,53,82,.035);
+  backdrop-filter: blur(14px) saturate(138%);
+  -webkit-backdrop-filter: blur(14px) saturate(138%);
+}
+.template-save-form,.recipient-type-choices,.recipient-search-panel,.content-block-editor,
+.preview-summary,.send-channel-note,.studio-trust-note,.studio-honesty-note,
+.job-detail-summary > div,.job-detail-concern,.active-assignment,.estimate-line-edit-row,
+.invoice-parties > div,.invoice-line-list,.sales-customer-summary > div,
+.sales-action-card,.spare-reservation-card,.spare-selected-job {
+  background: linear-gradient(145deg,rgba(255,255,255,.64),rgba(246,249,253,.47));
+}
+.scope-choice {
+  background: linear-gradient(145deg,rgba(255,255,255,.66),rgba(245,248,252,.54));
+  box-shadow: inset 0 1px rgba(255,255,255,.9),0 4px 12px rgba(34,53,82,.025);
+}
+.scope-choice:hover,.recipient-option:hover,.sales-enquiry-card:hover {
+  border-color: rgba(243,156,99,.45);
+  background: linear-gradient(145deg,rgba(255,250,245,.88),rgba(255,241,229,.68));
+}
+.scope-choice.active,.sales-enquiry-card.selected {
+  border-color: rgba(239,156,98,.72);
+  background: linear-gradient(145deg,rgba(255,247,239,.94),rgba(255,231,211,.72));
+  box-shadow: inset 3px 0 rgba(232,121,50,.9),inset 0 1px rgba(255,255,255,.95),0 8px 18px rgba(193,98,32,.065);
+}
+.content-block-header,.inbox-popover-header,.inbox-popover-footer,
+.workshop-filter-row,.workshop-pagination,.sales-table th,.spare-parts-table th {
+  background: rgba(241,246,252,.62);
+  border-color: var(--glass-separator);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+.rich-preview-frame {
+  background: linear-gradient(145deg,rgba(238,243,250,.76),rgba(248,250,253,.58));
+  border-color: rgba(255,255,255,.8);
+}
+.preview-result,.estimate-total-preview,.spare-receipt-result {
+  background: linear-gradient(145deg,rgba(241,252,246,.82),rgba(225,247,235,.57));
+  border-color: rgba(181,228,201,.72);
+}
+.workshop-next-stage,.sales-inline-warning,.invoice-not-tax-banner {
+  background: linear-gradient(145deg,rgba(255,249,239,.82),rgba(255,239,218,.56));
+  border-color: rgba(239,205,165,.7);
+}
+.invoice-totals > div,.invoice-line-row,.spare-parts-table td,.sales-table td {
+  border-color: var(--glass-separator);
+}
+.spare-parts-table tbody tr.selected,.sales-enquiry-card.selected,
+.job-card-list-row.active,.job-card-list-row:hover {
+  background: linear-gradient(110deg,rgba(255,244,233,.82),rgba(255,255,255,.52));
+}
+.job-card-list-row {
+  background: rgba(255,255,255,.38);
+  border-bottom-color: var(--glass-separator);
+  transition: background .18s ease,box-shadow .18s ease;
+}
+.job-card-list-row.active { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.job-card-list-row.active,.spare-parts-table tbody tr.selected {
+  box-shadow: inset 3px 0 rgba(232,121,50,.86);
+}
+.inbox-item { transition: background .18s ease,border-color .18s ease; }
+.inbox-item:hover { background: rgba(248,250,254,.7); border-color: rgba(210,220,233,.48); }
+.inbox-item.unread { background: rgba(255,242,230,.68); border-color: rgba(255,226,204,.82); }
+.status-requested,.status-confirmed,.status-cancelled,.status-checked_in,.status-inspecting,
+.status-in_progress,.status-estimate_pending,.status-awaiting_approval,.status-approved,
+.status-quality_check,.status-ready_for_collection,.status-delivered,.campaign-status,.sales-status {
+  box-shadow: inset 0 1px rgba(255,255,255,.62);
+}
+button:not(:disabled):focus-visible,a:focus-visible,[role="tab"]:focus-visible {
+  outline: 3px solid rgba(249,115,22,.72);
+  outline-offset: 3px;
+}
+button:disabled { cursor: not-allowed; }
+input:not([type="checkbox"]):not([type="radio"]),select,textarea {
+  color: #24334b;
+  border-color: rgba(167,183,204,.66);
+  background-color: rgba(255,255,255,.84);
+}
+input:not([type="checkbox"]):not([type="radio"])::placeholder,textarea::placeholder {
+  color: #7e8ba0;
+  opacity: 1;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:focus {
+  border-color: rgba(232,121,50,.86);
+  box-shadow: 0 0 0 3px rgba(249,115,22,.14),inset 0 1px rgba(255,255,255,.96);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .template-save-form,.scope-choice,.recipient-type-choices,.recipient-search-panel,
+  .content-block-editor,.preview-summary,.rich-preview-frame,.send-channel-note,
+  .studio-trust-note,.studio-honesty-note,.inbox-popover,.job-detail-summary > div,
+  .job-detail-concern,.active-assignment,.estimate-line-edit-row,.estimate-decision-panel,
+  .invoice-parties > div,.invoice-line-list,.invoice-totals,.quality-check-option,
+  .sales-customer-summary > div,.sales-action-card,.sales-enquiry-card,.spare-reservation-card {
+    background-color: #fff;
+  }
+}
+@media (max-width: 560px) {
+  .metric-card,.surface-card,.workshop-queue-card,.workshop-job-detail,.spare-parts-panel,
+  .sales-form-card,.sales-list-panel,.sales-detail-panel,.sales-history-card,
+  .studio-panel,.studio-preview-panel,.studio-campaigns {
+    backdrop-filter: blur(16px) saturate(135%);
+    -webkit-backdrop-filter: blur(16px) saturate(135%);
+  }
+}
