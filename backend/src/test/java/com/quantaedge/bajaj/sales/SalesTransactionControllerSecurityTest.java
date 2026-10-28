@@ -176,7 +176,9 @@ class SalesTransactionControllerSecurityTest {
             .with(user("sales-manager")
                 .authorities(new SimpleGrantedAuthority("sales.manage")))
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\\"reason\\":\\"Authorization boundary test\\"}"))
+            .content("""
+                {"reason":"Authorization boundary test"}
+                """))
         .andExpect(status().isForbidden());
   }
 
