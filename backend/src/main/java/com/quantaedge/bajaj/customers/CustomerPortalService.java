@@ -335,6 +335,92 @@ public class CustomerPortalService {
     }, actor.dealershipId(), actor.customerId());
   }
 
+  public NotificationPage notifications(
+      CustomerPrincipal actor, int requestedPage, int requestedSize, boolean unreadOnly) {
+    int page = Math.max(0, Math.min(requestedPage, 1_000_000));
+    int size = Math.max(1, Math.min(requestedSize, 100));
+    long offset = (long) page * size;
+    String unreadFilter = unreadOnly ? " and recipient.read_at is null " : "";
+    Long totalValue = jdbc.queryForObject("""
+        select count(*)
+        from notification_recipient recipient
+        join notification_campaign campaign
+          on campaign.id = recipient.campaign_id and campaign.dealership_id = recipient.dealership_id
+        where recipient.dealership_id = ? and recipient.recipient_kind = 'CUSTOMER'
+          and recipient.customer_id = ? and recipient.status <> 'DISMISSED' and campaign.status = 'SENT'
+        """ + unreadFilter, Long.class, actor.dealershipId(), actor.customerId());
+    long total = totalValue == null ? 0 : totalValue;
+    List<CustomerNotificationView> items = jdbc.query("""
+        select recipient.public_id as recipient_public_id, campaign.public_id as campaign_public_id,
+          campaign.title, campaign.summary, campaign.content_document::text as content_document_json,
+          sender.full_name as sender_name, recipient.status, recipient.created_at, recipient.read_at
+        from notification_recipient recipient
+        join notification_campaign campaign
+          on campaign.id = recipient.campaign_id and campaign.dealership_id = recipient.dealership_id
+        join staff_user sender
+          on sender.dealership_id = campaign.dealership_id and sender.id = campaign.created_by_staff_user_id
+        where recipient.dealership_id = ? and recipient.recipient_kind = 'CUSTOMER'
+          and recipient.customer_id = ? and recipient.status <> 'DISMISSED' and campaign.status = 'SENT'
+        """ + unreadFilter + " order by recipient.created_at desc, recipient.id desc limit ? offset ?",
+        (rs, rowNum) -> new CustomerNotificationView(
+            rs.getObject("recipient_public_id", UUID.class), rs.getObject("campaign_public_id", UUID.class),
+            rs.getString("title"), rs.getString("summary"), rs.getString("content_document_json"),
+            rs.getString("sender_name"), rs.getString("status"),
+            rs.getTimestamp("created_at").toInstant(), instantOrNull(rs.getTimestamp("read_at"))),
+        actor.dealershipId(), actor.customerId(), size, offset);
+    Integer unreadValue = jdbc.queryForObject("""
+        select count(*)
+        from notification_recipient recipient
+        join notification_campaign campaign
+          on campaign.id = recipient.campaign_id and campaign.dealership_id = recipient.dealership_id
+        where recipient.dealership_id = ? and recipient.recipient_kind = 'CUSTOMER'
+          and recipient.customer_id = ? and recipient.status <> 'DISMISSED'
+          and recipient.read_at is null and campaign.status = 'SENT'
+        """, Integer.class, actor.dealershipId(), actor.customerId());
+    return new NotificationPage(items, page, size, total, unreadValue == null ? 0 : unreadValue);
+  }
+
+  @Transactional
+  public void markNotificationRead(CustomerPrincipal actor, UUID recipientPublicId, boolean read) {
+    int changed = jdbc.update("""
+        update notification_recipient recipient
+        set status = case when ? then 'READ' else 'IN_APP_CREATED' end,
+            read_at = case when ? then coalesce(recipient.read_at, now()) else null end
+        where recipient.dealership_id = ? and recipient.recipient_kind = 'CUSTOMER'
+          and recipient.customer_id = ? and recipient.public_id = ?
+          and recipient.status <> 'DISMISSED'
+          and exists (
+            select 1 from notification_campaign campaign
+            where campaign.id = recipient.campaign_id
+              and campaign.dealership_id = recipient.dealership_id
+              and campaign.status = 'SENT')
+        """, read, read, actor.dealershipId(), actor.customerId(), recipientPublicId);
+    if (changed == 0) throw notFound("Notification was not found in this customer's inbox.");
+    recordActivity(actor.dealershipId(), actor.accountId(), read ? "NOTIFICATION_READ" : "NOTIFICATION_MARKED_UNREAD",
+        "NOTIFICATION_RECIPIENT", recipientPublicId.toString(),
+        read ? "Customer marked a dealership notification as read." : "Customer marked a dealership notification as unread.");
+  }
+
+  @Transactional
+  public void dismissNotification(CustomerPrincipal actor, UUID recipientPublicId) {
+    int changed = jdbc.update("""
+        update notification_recipient recipient
+        set status = 'DISMISSED', dismissed_at = now()
+        where recipient.dealership_id = ? and recipient.recipient_kind = 'CUSTOMER'
+          and recipient.customer_id = ? and recipient.public_id = ?
+          and recipient.status <> 'DISMISSED'
+          and exists (
+            select 1 from notification_campaign campaign
+            where campaign.id = recipient.campaign_id
+              and campaign.dealership_id = recipient.dealership_id
+              and campaign.status = 'SENT')
+        """, actor.dealershipId(), actor.customerId(), recipientPublicId);
+    if (changed == 0) throw notFound("Notification was not found in this customer's inbox.");
+    recordActivity(actor.dealershipId(), actor.accountId(), "NOTIFICATION_DISMISSED",
+        "NOTIFICATION_RECIPIENT", recipientPublicId.toString(),
+        "Customer dismissed a dealership notification from the inbox.");
+  }
+
   public List<AppointmentView> appointments(CustomerPrincipal actor) {
     return queryAppointments(actor, null);
   }
@@ -618,6 +704,11 @@ public class CustomerPortalService {
       UUID customerPublicId, String customerName, String purpose, String activationToken, Instant expiresAt) {}
   public record CustomerAppointmentRequest(
       UUID vehiclePublicId, Instant scheduledFor, Integer slotMinutes, String customerConcern, String customerLanguage) {}
+  public record CustomerNotificationView(
+      UUID recipientPublicId, UUID campaignPublicId, String title, String summary,
+      String contentDocumentJson, String senderName, String status, Instant createdAt, Instant readAt) {}
+  public record NotificationPage(
+      List<CustomerNotificationView> items, int page, int pageSize, long total, int unreadCount) {}
   public record AppointmentView(
       UUID publicId, String appointmentCode, UUID vehiclePublicId,
       String modelName, String variantName, String colourName, String chassisNumber,
