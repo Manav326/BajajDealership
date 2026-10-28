@@ -1736,3 +1736,54 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
     -webkit-backdrop-filter: blur(16px) saturate(135%);
   }
 }
+
+
+/* Final polish: interactive glass rows and dense data lists */
+.campaign-row {
+  margin: 4px 0;
+  padding: 13px 11px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  transition: background .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.campaign-row:hover {
+  border-color: rgba(205,216,231,.52);
+  background: linear-gradient(145deg,rgba(255,255,255,.56),rgba(246,249,253,.32));
+  box-shadow: inset 0 1px rgba(255,255,255,.75),0 5px 14px rgba(34,53,82,.025);
+}
+.campaign-row + .campaign-row { border-top-color: rgba(148,163,184,.1); }
+.recipient-option {
+  border: 1px solid transparent;
+  transition: background .16s ease,border-color .16s ease;
+}
+.recipient-option.active {
+  border-color: rgba(239,156,98,.36);
+  background: linear-gradient(145deg,rgba(255,244,233,.82),rgba(255,255,255,.43));
+  box-shadow: inset 0 1px rgba(255,255,255,.86);
+}
+.appointment-row { transition: background .16s ease; }
+.appointment-row:hover { background: rgba(255,255,255,.29); }
+.appointment-row + .appointment-row { border-top: 1px solid rgba(148,163,184,.09); }
+.appointment-calendar {
+  box-shadow: inset 0 1px rgba(255,255,255,.9),0 4px 12px rgba(34,53,82,.025);
+  backdrop-filter: blur(10px) saturate(135%);
+  -webkit-backdrop-filter: blur(10px) saturate(135%);
+}
+.spare-parts-tab,.sales-tab,.workshop-tab,.studio-tab {
+  transition: color .16s ease,background .16s ease,box-shadow .16s ease;
+}
+.spare-parts-tab:hover:not(.active),.sales-tab:hover:not(.active),
+.workshop-tab:hover:not(.active),.studio-tab:hover:not(.active) {
+  color: #46566f;
+  background: rgba(255,255,255,.46);
+}
+.invoice-payment-row,.spare-movement-row {
+  transition: background .16s ease;
+}
+.invoice-payment-row:hover,.spare-movement-row:hover {
+  background: rgba(255,255,255,.32);
+}
+@media (max-width: 560px) {
+  .campaign-row { padding: 11px 8px; }
+  .appointment-row:hover,.invoice-payment-row:hover,.spare-movement-row:hover { background: transparent; }
+}
