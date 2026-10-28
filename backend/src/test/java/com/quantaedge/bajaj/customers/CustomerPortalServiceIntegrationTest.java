@@ -135,25 +135,23 @@ class CustomerPortalServiceIntegrationTest {
   }
 
   @Test
-  void customerInvitationCannotBeUsedAcrossDealerships() {
-    Fixture fixture = createFixture("ISOLATION");
-    StaffPrincipal otherOwner = createOwner("DIFFERENT");
-    var customer = customers.create(otherOwner,
-        new CustomerService.CustomerRequest("Different Agency Customer", "919999" + UUID.randomUUID().toString().substring(0, 4),
-            null, null, "en", false, null, null));
+  void invitationTokenCanOnlyActivateTheCustomerItWasIssuedFor() {
+    Fixture firstAgencyCustomer = createFixture("FIRST");
+    Fixture secondAgencyCustomer = createFixture("SECOND");
 
-    var invitation = portal.issueInvitation(fixture.owner(), fixture.customerPublicId());
-    assertThatThrownBy(() -> portal.activate(
+    var invitation = portal.issueInvitation(secondAgencyCustomer.owner(), secondAgencyCustomer.customerPublicId());
+    var session = portal.activate(
         new CustomerPortalService.ActivationRequest(invitation.activationToken(), "Strong-Customer-Password-123"),
-        "203.0.113.30", "portal-test-agent"))
-        .isInstanceOf(Exception.class)
-        .satisfies(error -> assertThat(error).isNotNull());
+        "203.0.113.30", "portal-test-agent");
 
-    assertThat(jdbc.queryForObject("""
-        select count(*) from customer_portal_account
-        where dealership_id = ? and customer_id = ?
-        """, Integer.class, otherOwner.dealershipId(), customer.publicId()))
-        .isZero();
+    assertThat(session.customer().publicId()).isEqualTo(secondAgencyCustomer.customerPublicId());
+    assertThat(session.customer().publicId()).isNotEqualTo(firstAgencyCustomer.customerPublicId());
+    CustomerPrincipal principal = principalForToken(session.accessToken());
+    assertThat(portal.profile(principal).dealershipCode()).isEqualTo(secondAgencyCustomer.dealershipCode());
+    assertThat(portal.vehicles(principal)).extracting(CustomerPortalService.VehicleView::publicId)
+        .containsExactly(secondAgencyCustomer.vehiclePublicId());
+    assertThat(portal.vehicles(principal)).extracting(CustomerPortalService.VehicleView::publicId)
+        .doesNotContain(firstAgencyCustomer.vehiclePublicId());
   }
 
   private CustomerPrincipal principalForToken(String rawToken) {
@@ -181,7 +179,7 @@ class CustomerPortalServiceIntegrationTest {
     StaffPrincipal owner = createOwner(suffix);
     CustomerService.CustomerView customer = customers.create(owner,
         new CustomerService.CustomerRequest(
-            "Portal Test Customer " + suffix, "9198" + UUID.randomUUID().toString().substring(0, 6),
+            "Portal Test Customer " + suffix, "9198" + String.format("%06d", Math.abs(UUID.randomUUID().hashCode()) % 1_000_000),
             null, null, "en", false, null, "Created for customer portal integration test."));
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     Long modelId = jdbc.queryForObject("""
