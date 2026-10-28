@@ -10,7 +10,6 @@ const baseConfig: ExpoConfig = {
   version: '0.1.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
-  newArchEnabled: true,
   plugins: ['@react-native-community/datetimepicker'],
   android: {
     package: 'com.quantaedge.luckybajaj',
