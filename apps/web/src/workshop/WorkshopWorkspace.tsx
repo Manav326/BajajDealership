@@ -488,6 +488,18 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     void loadCustomers(query);
   }
 
+  const estimateSubtotalPreview = estimateLines.reduce((sum, line) => {
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
+    return sum + (Number.isFinite(quantity) && Number.isFinite(unitPrice) ? Math.max(0, quantity) * Math.max(0, unitPrice) : 0);
+  }, 0);
+  const hasActiveTechnician = assignments.some((assignment) =>
+    assignment.assignmentRole === 'TECHNICIAN' && assignment.unassignedAt === null);
+  const isAssignedQualityInspector = assignments.some((assignment) =>
+    assignment.assignmentRole === 'QUALITY_INSPECTOR'
+      && assignment.staffPublicId === staff.staffPublicId
+      && assignment.unassignedAt === null);
+
   if (!staff.permissions.includes('workshop.read') && !canReadAppointments) {
     return <section className="module-landing"><div className="module-symbol">⚙</div><div className="eyebrow">ACCESS CONTROL</div><h1>Workshop</h1><p>Your assigned role does not include access to service appointments or job cards.</p></section>;
   }
@@ -629,7 +641,77 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
               </div>;
             })}
             {canManageInspection && selectedJobCard.status === 'INSPECTING' && <div className="inspection-complete-row"><span>All seven checklist items must have a result before the estimate step can begin.</span><button type="button" className="primary-button" disabled={busyId === selectedJobCard.publicId || selectedJobCard.pendingInspectionCount > 0} onClick={() => void completeInspection()}>{busyId === selectedJobCard.publicId ? 'Completing…' : 'Complete inspection'}</button></div>}
-            {selectedJobCard.status === 'ESTIMATE_PENDING' && <div className="workshop-next-stage">Inspection completed. The next workflow step is estimate creation and customer approval; that step is not enabled yet.</div>}
+            {selectedJobCard.status === 'ESTIMATE_PENDING' && canCreateEstimate && <section className="estimate-create-section">
+              <div className="inspection-heading"><div><h3>Create service estimate</h3><p>This creates a new immutable revision. The customer decision must be recorded before work can start.</p></div><span className="studio-count">`Revision ${estimates.length + 1}`</span></div>
+              <form className="estimate-form" onSubmit={createEstimate}>
+                {estimateLines.map((line, index) => <div className="estimate-line-edit-row" key={index}>
+                  <label>Type<select value={line.lineType} onChange={(event) => updateEstimateLine(index, 'lineType', event.target.value as EstimateLineDraft['lineType'])}><option value="PART">Part</option><option value="LABOUR">Labour</option><option value="OTHER">Other</option></select></label>
+                  <label className="estimate-description">Description<input required maxLength={300} value={line.description} onChange={(event) => updateEstimateLine(index, 'description', event.target.value)} placeholder="Part / labour / charge" /></label>
+                  <label>Qty<input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateEstimateLine(index, 'quantity', event.target.value)} /></label>
+                  <label>Unit price (₹)<input required type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateEstimateLine(index, 'unitPrice', event.target.value)} placeholder="0.00" /></label>
+                  {estimateLines.length > 1 && <button type="button" className="text-button danger-link" onClick={() => setEstimateLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Remove</button>}
+                </div>)}
+                <button type="button" className="secondary-button estimate-add-line" disabled={estimateLines.length >= 100}
+                  onClick={() => setEstimateLines((current) => [...current, { lineType: 'PART', description: '', quantity: '1', unitPrice: '' }])}>+ Add line item</button>
+                <div className="estimate-footer-fields">
+                  <label>Discount (₹)<input type="number" min="0" step="0.01" value={estimateDiscount} onChange={(event) => setEstimateDiscount(event.target.value)} /></label>
+                  <label>Message to customer<textarea rows={2} maxLength={2000} value={estimateMessage} onChange={(event) => setEstimateMessage(event.target.value)} placeholder="Clarify what the estimate includes." /></label>
+                  <div className="estimate-total-preview"><span>Estimated subtotal before discount</span><strong>₹{estimateSubtotalPreview.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+                </div>
+                <div className="estimate-submit-row"><span>Prices are based on the saved estimate lines; no tax/GST is added by this workflow.</span><button className="primary-button" type="submit" disabled={saving || estimateLines.every((line) => !line.description.trim() || !line.unitPrice.trim())}>{saving ? 'Submitting…' : 'Submit estimate for decision'}</button></div>
+              </form>
+            </section>}
+            {selectedJobCard.status === 'ESTIMATE_PENDING' && !canCreateEstimate && <div className="workshop-next-stage">Inspection completed. This role can view the job card but cannot create an estimate.</div>}
+
+            {estimates.length > 0 && <section className="estimate-history-section">
+              <div className="inspection-heading"><div><h3>Estimate history</h3><p>Revisions and recorded decisions remain available for audit.</p></div><span className="studio-count">{estimates.length} revision(s)</span></div>
+              {estimates.map((estimate) => <article className="estimate-history-card" key={estimate.publicId}>
+                <div className="estimate-history-heading"><div><strong>Revision {estimate.revision}</strong><span>Submitted by {estimate.createdByName} · {formattedDate(estimate.submittedAt)}</span></div><div className="estimate-history-total"><span className={`campaign-status status-${estimate.status.toLowerCase()}`}>{prettyStatus(estimate.status)}</span><strong>₹{Number(estimate.estimatedTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div></div>
+                <div className="estimate-line-table">
+                  {estimate.lines.map((line) => <div className="estimate-line-history-row" key={line.lineNumber}><span>{line.lineNumber}. {line.description}<small>{prettyStatus(line.lineType)} · {line.quantity} × ₹{Number(line.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small></span><strong>₹{Number(line.lineTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>)}
+                </div>
+                <div className="estimate-breakdown"><span>Parts ₹{Number(estimate.partsSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Labour ₹{Number(estimate.labourSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Other ₹{Number(estimate.otherSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Discount ₹{Number(estimate.discountAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                {estimate.customerMessage && <p className="estimate-customer-message">{estimate.customerMessage}</p>}
+                {estimate.decisions.map((decision, index) => <div className="estimate-decision-history" key={`${decision.recordedAt}-${index}`}><strong>{prettyStatus(decision.decision)}</strong><span>{decision.evidenceMethod}{decision.evidenceReference ? ` · ${decision.evidenceReference}` : ''}</span><small>Recorded by {decision.recordedByName} · {formattedDate(decision.recordedAt)}{decision.note ? ` · ${decision.note}` : ''}</small></div>)}
+                {estimate.status === 'AWAITING_CUSTOMER' && canApproveEstimate && <div className="estimate-decision-panel">
+                  <div className="inspection-heading"><div><h3>Record customer decision</h3><p>This records evidence provided by dealership staff; it does not independently verify an external OTP.</p></div></div>
+                  <div className="estimate-decision-fields">
+                    <label>Decision<select value={decisionValue} onChange={(event) => setDecisionValue(event.target.value as typeof decisionValue)}><option value="APPROVED">Approved</option><option value="DECLINED">Declined</option><option value="REVISION_REQUESTED">Revision requested</option></select></label>
+                    <label>Evidence method<select value={evidenceMethod} onChange={(event) => setEvidenceMethod(event.target.value as typeof evidenceMethod)}><option value="SIGNED_FORM">Signed form</option><option value="OTP">OTP reference</option><option value="IN_PERSON">In person</option><option value="PHONE_RECORD">Phone record</option><option value="WRITTEN_MESSAGE">Written message</option></select></label>
+                    <label>Evidence reference<input maxLength={160} value={evidenceReference} onChange={(event) => setEvidenceReference(event.target.value)} placeholder={evidenceMethod === 'OTP' || evidenceMethod === 'SIGNED_FORM' ? 'Required reference' : 'Optional reference'} /></label>
+                    <label>Decision note<input maxLength={1000} value={evidenceNote} onChange={(event) => setEvidenceNote(event.target.value)} placeholder="Decision notes or customer context" /></label>
+                  </div>
+                  <button type="button" className="primary-button" disabled={busyId === estimate.publicId} onClick={() => void recordEstimateDecision(estimate)}>{busyId === estimate.publicId ? 'Recording…' : 'Record customer decision'}</button>
+                </div>}
+              </article>)}
+            </section>}
+
+            {selectedJobCard.status === 'APPROVED' && canStartWork && <div className="workshop-next-stage workshop-stage-action">
+              <div><strong>Estimate approved</strong><span>{hasActiveTechnician ? 'A technician is assigned. Work may now begin.' : 'Assign a technician before starting work.'}</span></div>
+              <button className="primary-button" type="button" disabled={!hasActiveTechnician || busyId === selectedJobCard.publicId} onClick={() => void startApprovedWork()}>{busyId === selectedJobCard.publicId ? 'Starting…' : 'Start repair work'}</button>
+            </div>}
+
+            {selectedJobCard.status === 'IN_PROGRESS' && canQualityCheck && <section className="quality-check-section">
+              <div className="inspection-heading"><div><h3>Final quality check</h3><p>Only the assigned quality inspector can record this result. Any failed item keeps the job in progress.</p></div></div>
+              {isAssignedQualityInspector ? <>
+                <div className="quality-check-grid">
+                  {([
+                    ['brakesOk', 'Brakes operate correctly'],
+                    ['lightsOk', 'Lights and indicators work'],
+                    ['hornOk', 'Horn works'],
+                    ['noVisibleLeaks', 'No visible leaks'],
+                    ['roadTestOk', 'Road test passed'],
+                    ['toolsRemoved', 'Tools and loose items removed'],
+                    ['customerConcernResolved', 'Customer concern addressed'],
+                  ] as const).map(([key, label]) => <label className="quality-check-option" key={key}><input type="checkbox" checked={qualityDraft[key]} onChange={(event) => setQualityDraft((current) => ({ ...current, [key]: event.target.checked }))} /><span>{label}</span></label>)}
+                </div>
+                <label className="quality-check-notes">Quality notes<textarea rows={2} maxLength={1500} value={qualityDraft.notes} onChange={(event) => setQualityDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Record result and corrective work if any." /></label>
+                <button type="button" className="primary-button quality-check-submit" disabled={busyId === selectedJobCard.publicId} onClick={() => void submitQualityCheck()}>{busyId === selectedJobCard.publicId ? 'Saving quality check…' : 'Record quality check'}</button>
+              </> : <div className="workshop-field-hint">Assign yourself as the quality inspector, or ask an authorized manager/service advisor to assign the inspector.</div>}
+            </section>}
+
+            {selectedJobCard.status === 'READY_FOR_COLLECTION' && <div className="workshop-next-stage"><strong>Quality check passed.</strong> The job is ready for collection, but final handover is intentionally blocked until billing and payment controls are implemented.</div>}
+
 
             {canAssign && <div className="assignment-section">
               <div className="inspection-heading"><div><h3>Team assignments</h3><p>Assignment changes are recorded in the job history.</p></div></div>
