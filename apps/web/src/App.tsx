@@ -4,6 +4,7 @@ import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
 import SparePartsWorkspace from './inventory/SparePartsWorkspace';
 import WorkshopWorkspace from './workshop/WorkshopWorkspace';
+import SalesWorkspace from './sales/SalesWorkspace';
 import NotificationStudio from './notifications/NotificationStudio';
 import NotificationInbox from './notifications/NotificationInbox';
 import GlobalNotificationHost from './notifications/GlobalNotificationHost';
@@ -203,6 +204,8 @@ function App() {
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
           {activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
+          ) : activePage === 'Sales pipeline' ? (
+            <SalesWorkspace token={token} staff={staff} />
           ) : activePage === 'Notification Studio' ? (
             <NotificationStudio staff={staff} />
           ) : activePage === 'Bike inventory' ? (
