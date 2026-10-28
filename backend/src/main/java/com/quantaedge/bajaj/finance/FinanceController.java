@@ -79,6 +79,33 @@ public class FinanceController {
     return finance.reverseExpense(actor, expensePublicId, request.reason(), request.externalReference());
   }
 
+
+  @GetMapping("/daily-close/preview")
+  @PreAuthorize("hasAuthority('finance.close.read')")
+  public FinanceOperationsService.DailyCloseView dailyClosePreview(
+      @AuthenticationPrincipal StaffPrincipal actor, @RequestParam LocalDate businessDate) {
+    return finance.previewDailyClose(actor,businessDate);
+  }
+
+  @PostMapping("/daily-close")
+  @PreAuthorize("hasAuthority('finance.reconcile')")
+  public FinanceOperationsService.DailyCloseView closeDailyFinance(
+      @AuthenticationPrincipal StaffPrincipal actor,@Valid @RequestBody DailyCloseRequest request) {
+    return finance.closeBusinessDay(actor,new FinanceOperationsService.DailyCloseRequest(
+      request.businessDate(),request.openingBalances(),request.countedClosing(),request.notes()));
+  }
+
+  @GetMapping("/reports/daily")
+  @PreAuthorize("hasAuthority('report.read')")
+  public List<FinanceOperationsService.DailyFinanceReport> dailyReports(
+      @AuthenticationPrincipal StaffPrincipal actor,@RequestParam LocalDate fromDate,@RequestParam LocalDate toDate) {
+    return finance.getDailyReports(actor,fromDate,toDate);
+  }
+
+  public record MoneyChannels(BigDecimal cash,BigDecimal upi,BigDecimal bankTransfer,BigDecimal card,BigDecimal other){}
+  public record DailyCloseRequest(@NotNull LocalDate businessDate,@Valid @NotNull MoneyChannels openingBalances,
+      @Valid @NotNull MoneyChannels countedClosing,@Size(max=1000) String notes){}
+
   public record CreateExpenseRequest(
       @NotBlank @Size(max = 120) String idempotencyKey,
       @NotNull LocalDate expenseDate,
