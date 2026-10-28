@@ -46,6 +46,7 @@ function App() {
   const [staff, setStaff] = useState<StaffSummary | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activePage, setActivePage] = useState('Overview');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -77,6 +78,20 @@ function App() {
       });
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     if (!token || !staff || !staff.permissions.includes('notification.read')) {
@@ -129,6 +144,7 @@ function App() {
       setToken('');
       setStaff(null);
       setActivePage('Overview');
+      setMobileNavOpen(false);
       setHealth(null);
     }
   }
@@ -145,7 +161,8 @@ function App() {
   return (
     <div className="app-shell">
       <GlobalNotificationHost />
-      <aside className="sidebar">
+      {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation menu" onClick={() => setMobileNavOpen(false)} />}
+      <aside id="primary-navigation" className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'}>
         <div className="brand-lockup">
           <div className="brand-mark">Q</div>
           <div className="brand-copy">
@@ -166,7 +183,7 @@ function App() {
               <button type="button" key={item.label}
                 className={activePage === item.label ? 'nav-item active' : 'nav-item'}
                 aria-current={activePage === item.label ? 'page' : undefined}
-                onClick={() => setActivePage(item.label)}>
+                onClick={() => { setActivePage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
                 <span className="nav-icon" aria-hidden="true">{item.icon}</span>
                 <span className="nav-text">{item.label}</span>
                 {item.label === 'Notification Studio' && <span className="nav-new">STUDIO</span>}
@@ -183,6 +200,7 @@ function App() {
 
       <main className="main-content">
         <header className="topbar">
+          <button type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? '×' : '☰'}</button>
           <div className="breadcrumbs">Lucky Bajaj Agency <span>/</span> {activePage}</div>
           <div className="topbar-actions">
             <div className={health ? 'connection-status online' : 'connection-status'}>
