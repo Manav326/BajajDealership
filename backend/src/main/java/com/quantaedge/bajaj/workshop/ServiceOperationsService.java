@@ -776,13 +776,23 @@ public class ServiceOperationsService {
     Map<String, Object> row = rows.getFirst();
     long estimateId = ((Number) row.get("id")).longValue();
     List<EstimateLineView> lines = jdbc.query("""
-        select line_number, line_type, description, quantity, unit_price, line_total
-        from service_estimate_line
-        where dealership_id = ? and estimate_id = ?
-        order by line_number
+        select line.line_number, line.line_type, line.description, line.quantity, line.unit_price, line.line_total,
+          reservation.public_id as source_reservation_public_id,
+          reservation.reservation_code as source_reservation_code,
+          line.source_quantity_reserved, line.source_quantity_issued, line.source_quantity_returned,
+          line.source_quantity_released, line.source_unit_cost_snapshot, line.source_snapshot_at
+        from service_estimate_line line
+        left join service_job_part_reservation reservation
+          on reservation.dealership_id = line.dealership_id and reservation.id = line.source_reservation_id
+        where line.dealership_id = ? and line.estimate_id = ?
+        order by line.line_number
         """, (rs, rowNum) -> new EstimateLineView(
             rs.getInt("line_number"), rs.getString("line_type"), rs.getString("description"),
-            rs.getBigDecimal("quantity"), rs.getBigDecimal("unit_price"), rs.getBigDecimal("line_total")),
+            rs.getBigDecimal("quantity"), rs.getBigDecimal("unit_price"), rs.getBigDecimal("line_total"),
+            (UUID) rs.getObject("source_reservation_public_id"), rs.getString("source_reservation_code"),
+            rs.getBigDecimal("source_quantity_reserved"), rs.getBigDecimal("source_quantity_issued"),
+            rs.getBigDecimal("source_quantity_returned"), rs.getBigDecimal("source_quantity_released"),
+            rs.getBigDecimal("source_unit_cost_snapshot"), instantOrNull(rs.getTimestamp("source_snapshot_at"))),
         actor.dealershipId(), estimateId);
     List<EstimateDecisionView> decisions = jdbc.query("""
         select decision.decision, decision.evidence_method, decision.evidence_reference, decision.note,
@@ -822,7 +832,7 @@ public class ServiceOperationsService {
     }
 
     List<Map<String, Object>> estimateRows = jdbc.queryForList("""
-        select id, status, revision, estimated_total
+        select id, status, revision, estimated_total, source_job_status
         from service_estimate
         where dealership_id = ? and job_card_id = ? and public_id = ?
         for update
@@ -865,7 +875,17 @@ public class ServiceOperationsService {
         """, estimateStatus, actor.dealershipId(), estimateId);
     if (estimateChanged != 1) throw conflict("Estimate status changed while recording its decision.");
 
-    String nextJobStatus = "APPROVED".equals(decision) ? "APPROVED" : "ESTIMATE_PENDING";
+    String sourceJobStatus = String.valueOf(estimate.get("source_job_status"));
+    String nextJobStatus = "APPROVED".equals(decision)
+        ? ("ESTIMATE_PENDING".equals(sourceJobStatus) ? "APPROVED" : sourceJobStatus)
+        : sourceJobStatus;
+    if ("APPROVED".equals(decision)) {
+      jdbc.update("""
+          update service_estimate
+          set status = 'SUPERSEDED', updated_at = now()
+          where dealership_id = ? and job_card_id = ? and id <> ? and status = 'APPROVED'
+          """, actor.dealershipId(), jobCardId, estimateId);
+    }
     int cardChanged = jdbc.update("""
         update service_job_card set status = ?, updated_at = now()
         where dealership_id = ? and id = ? and status = 'AWAITING_APPROVAL'
@@ -1329,7 +1349,10 @@ public class ServiceOperationsService {
   public record EstimateDecisionRequest(
       String decision, String evidenceMethod, String evidenceReference, String note) {}
   public record EstimateLineView(
-      int lineNumber, String lineType, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
+      int lineNumber, String lineType, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal,
+      UUID sourceReservationPublicId, String sourceReservationCode,
+      BigDecimal sourceQuantityReserved, BigDecimal sourceQuantityIssued, BigDecimal sourceQuantityReturned,
+      BigDecimal sourceQuantityReleased, BigDecimal sourceUnitCostSnapshot, Instant sourceSnapshotAt) {}
   public record EstimateDecisionView(
       String decision, String evidenceMethod, String evidenceReference, String note,
       String recordedByName, Instant recordedAt) {}
