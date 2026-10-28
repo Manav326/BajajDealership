@@ -166,6 +166,12 @@ public class SalesTransactionService {
     if (((BigDecimal) row.get("paid_amount")).signum() > 0) {
       throw conflict("Reverse recorded payments before cancelling this invoice.");
     }
+    Integer reservedCredits=jdbc.queryForObject("""
+        select count(*) from finance_invoice_adjustment
+        where dealership_id=? and sales_invoice_id=? and adjustment_type='CREDIT_NOTE'
+          and status in ('PENDING_APPROVAL','APPROVED','PAID')
+        """,Integer.class,actor.dealershipId(),number(row.get("id")));
+    if(reservedCredits!=null && reservedCredits>0) throw conflict("Reject or resolve financial credit adjustments before cancelling this invoice.");
     int changed = jdbc.update("""
         update vehicle_sale_invoice
         set status = 'CANCELLED', cancelled_by_staff_user_id = ?, cancelled_at = now(),
@@ -202,7 +208,11 @@ public class SalesTransactionService {
           creator.full_name as created_by_name, issuer.full_name as issued_by_name,
           coalesce((select sum(payment.amount) from vehicle_sale_payment payment
             where payment.dealership_id = invoice.dealership_id and payment.invoice_id = invoice.id
-              and payment.status = 'RECORDED'), 0) as paid_amount
+              and payment.status = 'RECORDED'), 0) as paid_amount,
+          coalesce((select sum(adjustment.amount) from finance_invoice_adjustment adjustment
+            where adjustment.dealership_id=invoice.dealership_id and adjustment.sales_invoice_id=invoice.id
+              and adjustment.source_type='SALES' and adjustment.adjustment_type='CREDIT_NOTE'
+              and adjustment.status='APPROVED'),0) as credited_amount
         from vehicle_sale_invoice invoice
         join sales_booking booking on booking.dealership_id = invoice.dealership_id and booking.id = invoice.booking_id
         join customer on customer.dealership_id = invoice.dealership_id and customer.id = invoice.customer_id
@@ -216,7 +226,7 @@ public class SalesTransactionService {
     Map<String, Object> row = rows.getFirst();
     long invoiceId = number(row.get("id"));
     BigDecimal total = (BigDecimal) row.get("invoice_total");
-    BigDecimal paid = (BigDecimal) row.get("paid_amount");
+    BigDecimal paid = sumRecordedPayments(actor.dealershipId(), invoiceId);
     List<InvoiceLineView> lines = jdbc.query("""
         select line_number, line_type, description, quantity, unit_price, discount_amount, line_total
         from vehicle_sale_invoice_line
@@ -230,7 +240,8 @@ public class SalesTransactionService {
     BigDecimal calculated = lines.stream().map(InvoiceLineView::lineTotal)
         .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
     if (calculated.compareTo(total) != 0) throw conflict("Invoice line total does not match the saved invoice header.");
-    BigDecimal balance = total.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    BigDecimal credited = zero((BigDecimal) row.get("credited_amount"));
+    BigDecimal balance = total.subtract(paid).subtract(credited).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     return new SaleInvoiceView(
         (UUID) row.get("public_id"), String.valueOf(row.get("invoice_number")),
         (UUID) row.get("booking_public_id"), String.valueOf(row.get("booking_code")),
@@ -290,7 +301,8 @@ public class SalesTransactionService {
     }
     BigDecimal total = (BigDecimal) invoiceRow.get("invoice_total");
     BigDecimal paid = sumRecordedPayments(actor.dealershipId(), number(invoiceRow.get("id")));
-    BigDecimal balance = total.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    BigDecimal balance = total.subtract(paid).subtract(approvedCreditAmount(actor.dealershipId(), number(invoiceRow.get("id"))))
+        .max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     if (amount.compareTo(balance) > 0) throw conflict("Payment exceeds the outstanding sales invoice balance of " + balance + ".");
 
     String receiptNumber = "SALE-RCP-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
@@ -353,6 +365,12 @@ public class SalesTransactionService {
     Map<String, Object> payment = paymentRows.getFirst();
     if ("REVERSED".equals(String.valueOf(payment.get("status")))) return getPayment(actor, paymentPublicId);
     long paymentId = number(payment.get("id"));
+    Integer activeRefunds=jdbc.queryForObject("""
+        select count(*) from finance_invoice_adjustment
+        where dealership_id=? and sales_payment_id=? and adjustment_type='REFUND'
+          and status in ('PENDING_APPROVAL','APPROVED','PAID')
+        """,Integer.class,actor.dealershipId(),paymentId);
+    if(activeRefunds!=null && activeRefunds>0) throw conflict("Resolve the linked refund request before reversing this payment receipt.");
     int changed = jdbc.update("""
         update vehicle_sale_payment
         set status = 'REVERSED', reversed_by_staff_user_id = ?, reversed_at = now()
@@ -406,7 +424,8 @@ public class SalesTransactionService {
     long invoiceId = number(invoice.get("id"));
     BigDecimal total = (BigDecimal) invoice.get("invoice_total");
     BigDecimal paid = sumRecordedPayments(actor.dealershipId(), invoiceId);
-    BigDecimal balance = total.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    BigDecimal balance = total.subtract(paid).subtract(approvedCreditAmount(actor.dealershipId(), invoiceId))
+        .max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     if (balance.signum() != 0) throw conflict("The sales invoice must be fully settled before delivery. Balance due: " + balance + ".");
 
     try {
@@ -622,12 +641,29 @@ public class SalesTransactionService {
     return count != null && count > 0;
   }
 
+  private BigDecimal approvedCreditAmount(long dealershipId, long invoiceId) {
+    BigDecimal amount=jdbc.queryForObject("""
+        select coalesce(sum(amount),0) from finance_invoice_adjustment
+        where dealership_id=? and source_type='SALES' and sales_invoice_id=?
+          and adjustment_type='CREDIT_NOTE' and status='APPROVED'
+        """,BigDecimal.class,dealershipId,invoiceId);
+    return amount==null?BigDecimal.ZERO.setScale(2):amount.setScale(2,RoundingMode.HALF_UP);
+  }
+
+  private static BigDecimal zero(BigDecimal value) { return value==null?BigDecimal.ZERO.setScale(2):value; }
+
   private BigDecimal sumRecordedPayments(long dealershipId, long invoiceId) {
     BigDecimal paid = jdbc.queryForObject("""
         select coalesce(sum(amount), 0) from vehicle_sale_payment
         where dealership_id = ? and invoice_id = ? and status = 'RECORDED'
         """, BigDecimal.class, dealershipId, invoiceId);
-    return paid == null ? BigDecimal.ZERO.setScale(2) : paid.setScale(2, RoundingMode.HALF_UP);
+    BigDecimal refunded = jdbc.queryForObject("""
+        select coalesce(sum(amount),0) from finance_invoice_adjustment
+        where dealership_id=? and source_type='SALES' and sales_invoice_id=?
+          and adjustment_type='REFUND' and status='PAID'
+        """,BigDecimal.class,dealershipId,invoiceId);
+    return (paid == null ? BigDecimal.ZERO : paid)
+        .subtract(refunded == null ? BigDecimal.ZERO : refunded).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
   }
 
   private void insertInvoiceLine(

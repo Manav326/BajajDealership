@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import com.quantaedge.bajaj.finance.FinanceAdjustmentService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -24,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 class SalesTransactionServiceIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private SalesTransactionService transactions;
+  @Autowired private FinanceAdjustmentService adjustments;
 
   @Test
   void salesInvoicePaymentRetryReversalAndHandoverAreGatedAndAuditable() {
@@ -185,6 +187,76 @@ class SalesTransactionServiceIntegrationTest {
         List.of(new SalesTransactionService.SaleInvoiceLineRequest(
             "ACCESSORY", "Helmet", new BigDecimal("2.000"), new BigDecimal("750.00"),
             new BigDecimal("100.00"))));
+  }
+
+  @Test
+  void creditAdjustmentRefundPayoutAndHistoryAreIndependentAndIdempotent() {
+    Fixture fixture = createFixture("ADJUST");
+    var draft = transactions.createDraftInvoice(fixture.owner(), fixture.bookingPublicId(),
+        invoiceRequest("adjust-invoice-" + UUID.randomUUID(), "50000.00", "2000.00"));
+    var invoice = transactions.issueInvoice(fixture.owner(), draft.publicId());
+    var payment = transactions.recordPayment(fixture.owner(), invoice.publicId(),
+        new SalesTransactionService.SalePaymentRequest(
+            "adjust-payment-" + UUID.randomUUID(), "UPI", new BigDecimal("1000.00"),
+            "UPI-ADJUST-1000", "Payment before credit adjustment"));
+
+    String creditKey = "credit-adjust-" + UUID.randomUUID();
+    var credit = adjustments.create(fixture.owner(), new FinanceAdjustmentService.CreateAdjustmentRequest(
+        "CREDIT_NOTE", "SALES", invoice.publicId(), null, null,
+        new BigDecimal("1000.00"), "Approved commercial correction", creditKey));
+    assertThat(credit.status()).isEqualTo("PENDING_APPROVAL");
+    var replay = adjustments.create(fixture.owner(), new FinanceAdjustmentService.CreateAdjustmentRequest(
+        "CREDIT_NOTE", "SALES", invoice.publicId(), null, null,
+        new BigDecimal("1000.00"), "Approved commercial correction", creditKey));
+    assertThat(replay.publicId()).isEqualTo(credit.publicId());
+    assertThatThrownBy(() -> adjustments.approve(fixture.owner(), credit.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+
+    String reviewerEmail = "adjustment-reviewer-" + UUID.randomUUID() + "@example.test";
+    Long reviewerId = jdbc.queryForObject("""
+        insert into staff_user(dealership_id,full_name,email,password_hash,status)
+        values (?,'Adjustment Reviewer',?,'test-hash-not-used','ACTIVE') returning id
+        """, Long.class, fixture.dealershipId(), reviewerEmail);
+    Long reviewerRoleId = jdbc.queryForObject("select id from role where code='MANAGER'", Long.class);
+    jdbc.update("insert into staff_user_role(dealership_id,staff_user_id,role_id) values (?,?,?)",
+        fixture.dealershipId(), reviewerId, reviewerRoleId);
+    UUID reviewerPublicId = jdbc.queryForObject("""
+        select public_id from staff_user where dealership_id=? and id=?
+        """, UUID.class, fixture.dealershipId(), reviewerId);
+    StaffPrincipal reviewer = new StaffPrincipal(1, reviewerId, reviewerPublicId.toString(),
+        fixture.dealershipId(), fixture.owner().dealershipPublicId(), fixture.owner().dealershipCode(),
+        "Adjustment Reviewer", Set.of("MANAGER"),
+        Set.of("finance.read", "finance.adjustment.approve", "finance.payment", "finance.payment.reverse"));
+
+    var approvedCredit = adjustments.approve(reviewer, credit.publicId());
+    assertThat(approvedCredit.status()).isEqualTo("APPROVED");
+    assertThat(transactions.getInvoice(fixture.owner(), invoice.publicId()).balanceDue())
+        .isEqualByComparingTo(invoice.invoiceTotal().subtract(new BigDecimal("2000.00")));
+
+    var refund = adjustments.create(fixture.owner(), new FinanceAdjustmentService.CreateAdjustmentRequest(
+        "REFUND", null, null, approvedCredit.publicId(), payment.publicId(),
+        new BigDecimal("1000.00"), "Return the credited amount", "refund-adjust-" + UUID.randomUUID()));
+    assertThat(refund.status()).isEqualTo("PENDING_APPROVAL");
+    var approvedRefund = adjustments.approve(reviewer, refund.publicId());
+    assertThat(approvedRefund.status()).isEqualTo("APPROVED");
+    var paidRefund = adjustments.markRefundPaid(reviewer, refund.publicId(),
+        new FinanceAdjustmentService.PayoutRequest("BANK_TRANSFER", "REFUND-BANK-1000"));
+    assertThat(paidRefund.status()).isEqualTo("PAID");
+    assertThat(paidRefund.paymentMethod()).isEqualTo("BANK_TRANSFER");
+    assertThat(transactions.getInvoice(fixture.owner(), invoice.publicId()).paidAmount())
+        .isEqualByComparingTo("0.00");
+    assertThat(transactions.getInvoice(fixture.owner(), invoice.publicId()).balanceDue())
+        .isEqualByComparingTo(invoice.invoiceTotal().subtract(new BigDecimal("1000.00")));
+    assertThat(adjustments.history(fixture.owner(), refund.publicId()))
+        .extracting(FinanceAdjustmentService.AdjustmentEvent::eventType)
+        .containsExactly("CREATED", "APPROVED", "PAID");
+    assertThatThrownBy(() -> transactions.reversePayment(fixture.owner(), payment.publicId(),
+        new SalesTransactionService.SalePaymentReversalRequest("Refund payout already recorded", "REV-AFTER-REFUND")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
   }
 
   private Fixture createFixture(String suffix) {

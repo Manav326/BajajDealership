@@ -80,12 +80,22 @@ public class FinanceOperationsService {
         where p.dealership_id = ? and p.status = 'RECORDED' and i.status = 'ISSUED'
         """, actor.dealershipId());
     BigDecimal salesOutstanding = amount("""
-        select coalesce(sum(greatest(i.invoice_total - coalesce(paid.paid_amount, 0), 0)), 0)
+        select coalesce(sum(greatest(i.invoice_total - coalesce(paid.paid_amount, 0) - coalesce(credits.credited_amount,0) + coalesce(refunds.refunded_amount,0), 0)), 0)
         from vehicle_sale_invoice i
         left join (
           select dealership_id, invoice_id, sum(amount) as paid_amount
           from vehicle_sale_payment where status = 'RECORDED' group by dealership_id, invoice_id
         ) paid on paid.dealership_id = i.dealership_id and paid.invoice_id = i.id
+        left join (
+          select dealership_id,sales_invoice_id,sum(amount) credited_amount from finance_invoice_adjustment
+          where adjustment_type='CREDIT_NOTE' and source_type='SALES' and status='APPROVED'
+          group by dealership_id,sales_invoice_id
+        ) credits on credits.dealership_id=i.dealership_id and credits.sales_invoice_id=i.id
+        left join (
+          select dealership_id,sales_invoice_id,sum(amount) refunded_amount from finance_invoice_adjustment
+          where adjustment_type='REFUND' and source_type='SALES' and status='PAID'
+          group by dealership_id,sales_invoice_id
+        ) refunds on refunds.dealership_id=i.dealership_id and refunds.sales_invoice_id=i.id
         where i.dealership_id = ? and i.status = 'ISSUED'
         """, actor.dealershipId());
     BigDecimal workshopCollected = amount("""
@@ -98,7 +108,7 @@ public class FinanceOperationsService {
         where allocation.dealership_id = ?
         """, actor.dealershipId());
     BigDecimal workshopOutstanding = amount("""
-        select coalesce(sum(greatest(i.invoice_total - coalesce(paid.paid_amount, 0), 0)), 0)
+        select coalesce(sum(greatest(i.invoice_total - coalesce(paid.paid_amount, 0) - coalesce(credits.credited_amount,0) + coalesce(refunds.refunded_amount,0), 0)), 0)
         from service_invoice i
         left join (
           select allocation.dealership_id, allocation.invoice_id, sum(allocation.amount) as paid_amount
@@ -107,8 +117,26 @@ public class FinanceOperationsService {
             and payment.id = allocation.payment_id and payment.status = 'RECORDED'
           group by allocation.dealership_id, allocation.invoice_id
         ) paid on paid.dealership_id = i.dealership_id and paid.invoice_id = i.id
+        left join (
+          select dealership_id,service_invoice_id,sum(amount) credited_amount from finance_invoice_adjustment
+          where adjustment_type='CREDIT_NOTE' and source_type='WORKSHOP' and status='APPROVED'
+          group by dealership_id,service_invoice_id
+        ) credits on credits.dealership_id=i.dealership_id and credits.service_invoice_id=i.id
+        left join (
+          select dealership_id,service_invoice_id,sum(amount) refunded_amount from finance_invoice_adjustment
+          where adjustment_type='REFUND' and source_type='WORKSHOP' and status='PAID'
+          group by dealership_id,service_invoice_id
+        ) refunds on refunds.dealership_id=i.dealership_id and refunds.service_invoice_id=i.id
         where i.dealership_id = ? and i.status = 'ISSUED'
         """, actor.dealershipId());
+    BigDecimal approvedRefundPayoutAmount = amount("""
+        select coalesce(sum(amount),0) from finance_invoice_adjustment
+        where dealership_id=? and adjustment_type='REFUND' and status='APPROVED'
+        """, actor.dealershipId());
+    Long approvedRefundPayoutCount = jdbc.queryForObject("""
+        select count(*) from finance_invoice_adjustment
+        where dealership_id=? and adjustment_type='REFUND' and status='APPROVED'
+        """, Long.class, actor.dealershipId());
     BigDecimal approvedExpenses = amount("""
         select coalesce(sum(amount), 0) from business_expense
         where dealership_id = ? and status = 'APPROVED'
@@ -122,7 +150,8 @@ public class FinanceOperationsService {
         sales == null ? 0 : sales.count(), zeroIfNull(sales == null ? null : sales.amount()),
         salesCollected, salesOutstanding, workshop == null ? 0 : workshop.count(),
         zeroIfNull(workshop == null ? null : workshop.amount()), workshopCollected, workshopOutstanding,
-        salesOutstanding.add(workshopOutstanding), approvedExpenses, pending == null ? 0 : pending);
+        salesOutstanding.add(workshopOutstanding), approvedRefundPayoutAmount,
+        approvedRefundPayoutCount == null ? 0 : approvedRefundPayoutCount, approvedExpenses, pending == null ? 0 : pending);
   }
 
   public List<ExpenseView> listExpenses(StaffPrincipal actor, String rawStatus) {
@@ -379,11 +408,11 @@ public class FinanceOperationsService {
       UUID closePublicId=(UUID)inserted.get("public_id");
       for(ChannelReconciliation c:channels) jdbc.update("""
           insert into daily_finance_close_channel(dealership_id,close_id,payment_method,opening_balance,
-            recorded_collections,payment_reversals,approved_expenses,expense_reversals,
+            recorded_collections,payment_reversals,refund_payouts,approved_expenses,expense_reversals,
             expected_closing,counted_closing,variance)
-          values(?,?,?,?,?,?,?,?,?,?,?)
+          values(?,?,?,?,?,?,?,?,?,?,?,?)
           """,actor.dealershipId(),closeId,c.paymentMethod(),c.openingBalance(),c.recordedCollections(),
-          c.paymentReversals(),c.approvedExpenses(),c.expenseReversals(),c.expectedClosing(),c.countedClosing(),c.variance());
+          c.paymentReversals(),c.refundPayouts(),c.approvedExpenses(),c.expenseReversals(),c.expectedClosing(),c.countedClosing(),c.variance());
       BigDecimal netVariance=channels.stream().map(ChannelReconciliation::variance).reduce(BigDecimal.ZERO,BigDecimal::add);
       jdbc.update("""
           insert into audit_event(dealership_id,actor_kind,actor_staff_user_id,action,entity_type,entity_id,reason,details)
@@ -446,6 +475,21 @@ public class FinanceOperationsService {
         on p.dealership_id=r.dealership_id and p.id=r.payment_id
       where r.dealership_id=? and r.reversed_at>=? and r.reversed_at<? group by 1
       """);
+    appendTimedReport(actor,zone,start,end,byDate,"SALES_CREDIT_NOTES", """
+      select (a.reviewed_at at time zone ?)::date business_date,sum(a.amount) amount,count(*) event_count
+      from finance_invoice_adjustment a where a.dealership_id=? and a.adjustment_type='CREDIT_NOTE'
+        and a.source_type='SALES' and a.status='APPROVED' and a.reviewed_at>=? and a.reviewed_at<? group by 1
+      """);
+    appendTimedReport(actor,zone,start,end,byDate,"WORKSHOP_CREDIT_NOTES", """
+      select (a.reviewed_at at time zone ?)::date business_date,sum(a.amount) amount,count(*) event_count
+      from finance_invoice_adjustment a where a.dealership_id=? and a.adjustment_type='CREDIT_NOTE'
+        and a.source_type='WORKSHOP' and a.status='APPROVED' and a.reviewed_at>=? and a.reviewed_at<? group by 1
+      """);
+    appendTimedReport(actor,zone,start,end,byDate,"REFUND_PAYOUTS", """
+      select (a.paid_at at time zone ?)::date business_date,sum(a.amount) amount,count(*) event_count
+      from finance_invoice_adjustment a where a.dealership_id=? and a.adjustment_type='REFUND'
+        and a.status='PAID' and a.paid_at>=? and a.paid_at<? group by 1
+      """);
     appendDateReport(actor,fromDate,toDate,byDate,"EXPENSES", """
       select expense_date business_date,sum(amount) amount,count(*) event_count from business_expense
       where dealership_id=? and expense_date between ? and ? and status in ('APPROVED','REVERSED') group by expense_date
@@ -485,6 +529,9 @@ public class FinanceOperationsService {
         case "WORKSHOP_CANCELLED" -> r.workshopCancelled=r.workshopCancelled.add(v);
         case "SALES_COLLECTIONS" -> {r.salesCollections=r.salesCollections.add(v);r.salesReceiptCount+=e.count();}
         case "WORKSHOP_COLLECTIONS" -> {r.workshopCollections=r.workshopCollections.add(v);r.workshopReceiptCount+=e.count();}
+        case "SALES_CREDIT_NOTES" -> r.salesCreditNotes=r.salesCreditNotes.add(v);
+        case "WORKSHOP_CREDIT_NOTES" -> r.workshopCreditNotes=r.workshopCreditNotes.add(v);
+        case "REFUND_PAYOUTS" -> r.refundPayouts=r.refundPayouts.add(v);
         case "SALES_REVERSALS" -> r.salesReversals=r.salesReversals.add(v);
         case "WORKSHOP_REVERSALS" -> r.workshopReversals=r.workshopReversals.add(v);
         case "EXPENSES" -> r.expenses=r.expenses.add(v);
@@ -518,6 +565,11 @@ public class FinanceOperationsService {
       join service_payment p on p.dealership_id=r.dealership_id and p.id=r.payment_id
       where r.dealership_id=? and r.reversed_at>=? and r.reversed_at<? group by p.payment_method
       """,actor.dealershipId(),start,end));
+    Map<String,BigDecimal> refundPayouts=queryChannelAmounts("""
+      select payment_method,coalesce(sum(amount),0) amount from finance_invoice_adjustment
+      where dealership_id=? and adjustment_type='REFUND' and status='PAID'
+        and paid_at>=? and paid_at<? group by payment_method
+      """,actor.dealershipId(),start,end);
     Map<String,BigDecimal> expenses=queryChannelAmounts("""
       select payment_method,coalesce(sum(amount),0) amount from business_expense
       where dealership_id=? and expense_date=? and status in ('APPROVED','REVERSED') group by payment_method
@@ -533,16 +585,17 @@ public class FinanceOperationsService {
     for(String method:List.of("CASH","UPI","BANK_TRANSFER","CARD","OTHER")) {
       BigDecimal o=channelValue(opening,method),c=zeroIfNull(collection.get(method));
       BigDecimal p=zeroIfNull(reverse.get(method)),e=zeroIfNull(expenses.get(method));
+      BigDecimal rp=zeroIfNull(refundPayouts.get(method));
       BigDecimal er=zeroIfNull(expenseRev.get(method)),count=channelValue(counted,method);
-      BigDecimal expected=o.add(c).subtract(p).subtract(e).add(er).setScale(2,RoundingMode.HALF_UP);
-      result.add(new ChannelReconciliation(method,o,c,p,e,er,expected,count,count.subtract(expected).setScale(2,RoundingMode.HALF_UP)));
+      BigDecimal expected=o.add(c).subtract(p).subtract(rp).subtract(e).add(er).setScale(2,RoundingMode.HALF_UP);
+      result.add(new ChannelReconciliation(method,o,c,p,rp,e,er,expected,count,count.subtract(expected).setScale(2,RoundingMode.HALF_UP)));
     }
     return List.copyOf(result);
   }
 
   private List<ChannelReconciliation> readCloseChannels(long dealershipId,long closeId) {
     return jdbc.query("""
-      select payment_method,opening_balance,recorded_collections,payment_reversals,approved_expenses,
+      select payment_method,opening_balance,recorded_collections,payment_reversals,refund_payouts,approved_expenses,
         expense_reversals,expected_closing,counted_closing,variance
       from daily_finance_close_channel where dealership_id=? and close_id=?
       order by case payment_method when 'CASH' then 1 when 'UPI' then 2 when 'BANK_TRANSFER' then 3 when 'CARD' then 4 else 5 end
@@ -595,7 +648,7 @@ public class FinanceOperationsService {
   }
   private static final RowMapper<ChannelReconciliation> CHANNEL_ROW_MAPPER=(rs,n)->new ChannelReconciliation(
     rs.getString("payment_method"),rs.getBigDecimal("opening_balance"),rs.getBigDecimal("recorded_collections"),
-    rs.getBigDecimal("payment_reversals"),rs.getBigDecimal("approved_expenses"),rs.getBigDecimal("expense_reversals"),
+    rs.getBigDecimal("payment_reversals"),rs.getBigDecimal("refund_payouts"),rs.getBigDecimal("approved_expenses"),rs.getBigDecimal("expense_reversals"),
     rs.getBigDecimal("expected_closing"),rs.getBigDecimal("counted_closing"),rs.getBigDecimal("variance"));
   private record ChannelAmount(String method,BigDecimal amount){}
   private record ReportAggregate(LocalDate date,BigDecimal amount,long count){}
@@ -604,23 +657,25 @@ public class FinanceOperationsService {
     private BigDecimal salesInvoices=BigDecimal.ZERO,salesCancelled=BigDecimal.ZERO,workshopInvoices=BigDecimal.ZERO,
       workshopCancelled=BigDecimal.ZERO,salesCollections=BigDecimal.ZERO,workshopCollections=BigDecimal.ZERO,
       salesReversals=BigDecimal.ZERO,workshopReversals=BigDecimal.ZERO,expenses=BigDecimal.ZERO,expenseReversals=BigDecimal.ZERO;
+    private BigDecimal salesCreditNotes=BigDecimal.ZERO,workshopCreditNotes=BigDecimal.ZERO,refundPayouts=BigDecimal.ZERO;
     private long salesInvoiceCount,workshopInvoiceCount,salesReceiptCount,workshopReceiptCount;
     private MutableFinanceReport(LocalDate date){this.date=date;}
     private DailyFinanceReport view(){return new DailyFinanceReport(date,salesInvoices,salesCancelled,salesInvoiceCount,
       workshopInvoices,workshopCancelled,workshopInvoiceCount,salesCollections,salesReceiptCount,workshopCollections,
-      workshopReceiptCount,salesReversals,workshopReversals,expenses,expenseReversals);}
+      workshopReceiptCount,salesReversals,workshopReversals,expenses,expenseReversals,salesCreditNotes,workshopCreditNotes,refundPayouts);}
   }
   public record MoneyChannels(BigDecimal cash,BigDecimal upi,BigDecimal bankTransfer,BigDecimal card,BigDecimal other){}
   public record DailyCloseRequest(LocalDate businessDate,MoneyChannels openingBalances,MoneyChannels countedClosing,String notes){}
   public record ChannelReconciliation(String paymentMethod,BigDecimal openingBalance,BigDecimal recordedCollections,
-    BigDecimal paymentReversals,BigDecimal approvedExpenses,BigDecimal expenseReversals,BigDecimal expectedClosing,
+    BigDecimal paymentReversals,BigDecimal refundPayouts,BigDecimal approvedExpenses,BigDecimal expenseReversals,BigDecimal expectedClosing,
     BigDecimal countedClosing,BigDecimal variance){}
   public record DailyCloseView(UUID publicId,LocalDate businessDate,boolean closed,Instant closedAt,String closedByName,
     String notes,List<ChannelReconciliation> channels,BigDecimal expectedTotal,BigDecimal countedTotal,BigDecimal varianceTotal){}
   public record DailyFinanceReport(LocalDate businessDate,BigDecimal salesInvoiced,BigDecimal salesCancelled,
     long salesInvoiceCount,BigDecimal workshopInvoiced,BigDecimal workshopCancelled,long workshopInvoiceCount,
     BigDecimal salesCollections,long salesReceiptCount,BigDecimal workshopCollections,long workshopReceiptCount,
-    BigDecimal salesPaymentReversals,BigDecimal workshopPaymentReversals,BigDecimal approvedExpenses,BigDecimal expenseReversals){}
+    BigDecimal salesPaymentReversals,BigDecimal workshopPaymentReversals,BigDecimal approvedExpenses,BigDecimal expenseReversals,
+    BigDecimal salesCreditNotes,BigDecimal workshopCreditNotes,BigDecimal refundPayouts){}
 
 
   public TaxProfileView getTaxProfile(StaffPrincipal actor) {
@@ -897,7 +952,8 @@ public class FinanceOperationsService {
       BigDecimal salesCollectedAmount, BigDecimal salesOutstandingAmount,
       long workshopInvoiceCount, BigDecimal workshopInvoicedAmount,
       BigDecimal workshopCollectedAmount, BigDecimal workshopOutstandingAmount,
-      BigDecimal totalOutstandingAmount, BigDecimal approvedExpenseAmount, long pendingExpenseCount) {}
+      BigDecimal totalOutstandingAmount, BigDecimal approvedRefundPayoutAmount, long approvedRefundPayoutCount,
+      BigDecimal approvedExpenseAmount, long pendingExpenseCount) {}
 
   public record ExpenseView(UUID publicId, String expenseNumber, LocalDate expenseDate,
       String category, String description, String vendorName, String paymentMethod,

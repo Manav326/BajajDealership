@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
 import DailyCloseWorkspace from './DailyCloseWorkspace';
+import FinanceAdjustmentsWorkspace from './FinanceAdjustmentsWorkspace';
 import TaxReadinessWorkspace from './TaxReadinessWorkspace';
 
 type FinanceSummary = {
@@ -8,6 +9,7 @@ type FinanceSummary = {
   salesOutstandingAmount: number | string; workshopInvoiceCount: number;
   workshopInvoicedAmount: number | string; workshopCollectedAmount: number | string;
   workshopOutstandingAmount: number | string; totalOutstandingAmount: number | string;
+  approvedRefundPayoutAmount: number | string; approvedRefundPayoutCount: number;
   approvedExpenseAmount: number | string; pendingExpenseCount: number;
 };
 type Expense = {
@@ -157,6 +159,7 @@ export default function BillingWorkspace({ token, permissions }: Props) {
       {notice && <div className="finance-alert finance-alert-success" role="status">{notice}</div>}
 
       <DailyCloseWorkspace token={token} permissions={permissions} />
+      <FinanceAdjustmentsWorkspace token={token} permissions={permissions} />
       <TaxReadinessWorkspace token={token} permissions={permissions} />
 
       <section className="finance-summary-grid" aria-label="Financial summary">
@@ -172,6 +175,9 @@ export default function BillingWorkspace({ token, permissions }: Props) {
         <article className="finance-glass-card finance-glass-card-warm"><span className="finance-card-label">Outstanding balance</span>
           <strong>{summary ? money(summary.totalOutstandingAmount) : '—'}</strong>
           <small>Across issued sales and workshop invoices</small></article>
+        <article className="finance-glass-card finance-glass-card-warm"><span className="finance-card-label">Approved refunds to pay</span>
+          <strong>{summary ? money(summary.approvedRefundPayoutAmount) : '—'}</strong>
+          <small>{summary ? summary.approvedRefundPayoutCount.toLocaleString('en-IN') + ' authorised payout(s) awaiting staff attestation' : 'Loading saved records…'}</small></article>
         <article className="finance-glass-card"><span className="finance-card-label">Approved expenses</span>
           <strong>{summary ? money(summary.approvedExpenseAmount) : '—'}</strong>
           <small>Reversed expenses are excluded from this total</small></article>

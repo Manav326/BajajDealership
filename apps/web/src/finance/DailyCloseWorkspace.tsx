@@ -4,7 +4,7 @@ import { apiFetch } from '../apiClient';
 type Channel = 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER';
 type Values = Record<Channel, string>;
 type Line = { paymentMethod: Channel; openingBalance: number|string; recordedCollections: number|string;
-  paymentReversals: number|string; approvedExpenses: number|string; expenseReversals: number|string;
+  paymentReversals: number|string; refundPayouts: number|string; approvedExpenses: number|string; expenseReversals: number|string;
   expectedClosing: number|string; countedClosing: number|string; variance: number|string };
 type Close = { publicId: string|null; businessDate: string; closed: boolean; closedAt: string|null;
   closedByName: string|null; notes: string|null; channels: Line[]; expectedTotal: number|string;
@@ -64,8 +64,10 @@ export default function DailyCloseWorkspace({token,permissions}:Props) {
   }
 
   const channels=close?.channels??[];
+  const expectedTotal=channels.reduce((total,row)=>total+n(opening[row.paymentMethod])+n(row.recordedCollections)
+    -n(row.paymentReversals)-n(row.refundPayouts)-n(row.approvedExpenses)+n(row.expenseReversals),0);
   const variance=channels.reduce((total,row)=>{
-    const expected=n(opening[row.paymentMethod])+n(row.recordedCollections)-n(row.paymentReversals)-n(row.approvedExpenses)+n(row.expenseReversals);
+    const expected=n(opening[row.paymentMethod])+n(row.recordedCollections)-n(row.paymentReversals)-n(row.refundPayouts)-n(row.approvedExpenses)+n(row.expenseReversals);
     return total+n(counted[row.paymentMethod])-expected;
   },0);
 
@@ -81,17 +83,17 @@ export default function DailyCloseWorkspace({token,permissions}:Props) {
     {canView&&!loading&&close&&<>
       <div className="finance-close-summary">
         <div><span>Status</span><strong>{close.closed?'Closed · immutable snapshot':'Preview · not closed'}</strong></div>
-        <div><span>Expected closing total</span><strong>{money(channels.reduce((s,r)=>s+n(r.expectedClosing),0)+(close.closed?0:CHANNELS.reduce((s,c)=>s+n(opening[c.key]),0)) )}</strong></div>
+        <div><span>Expected closing total</span><strong>{money(close.closed?close.expectedTotal:expectedTotal)}</strong></div>
         <div><span>Net variance</span><strong className={(close.closed?n(close.varianceTotal):variance)===0?'finance-variance-zero':'finance-variance-nonzero'}>{money(close.closed?close.varianceTotal:variance)}</strong></div>
       </div>
       <div className="finance-table-scroll"><table className="finance-table finance-close-table">
-        <thead><tr><th>Channel</th><th>Opening</th><th>Collections</th><th>Payment reversals</th><th>Expenses</th><th>Expense reversals</th><th>Expected</th><th>Counted / statement</th><th>Variance</th></tr></thead>
+        <thead><tr><th>Channel</th><th>Opening</th><th>Collections</th><th>Payment reversals</th><th>Refund payouts</th><th>Expenses</th><th>Expense reversals</th><th>Expected</th><th>Counted / statement</th><th>Variance</th></tr></thead>
         <tbody>{channels.map(row=>{
-          const expected=n(opening[row.paymentMethod])+n(row.recordedCollections)-n(row.paymentReversals)-n(row.approvedExpenses)+n(row.expenseReversals);
+          const expected=n(opening[row.paymentMethod])+n(row.recordedCollections)-n(row.paymentReversals)-n(row.refundPayouts)-n(row.approvedExpenses)+n(row.expenseReversals);
           const delta=n(counted[row.paymentMethod])-expected;
           return <tr key={row.paymentMethod}><td><strong>{CHANNELS.find(c=>c.key===row.paymentMethod)?.label}</strong></td>
             <td>{close.closed?money(row.openingBalance):<input aria-label={row.paymentMethod+' opening balance'} className="finance-balance-input" type="number" min="0" step="0.01" value={opening[row.paymentMethod]} onChange={e=>setOpening(v=>({...v,[row.paymentMethod]:e.target.value}))}/>}</td>
-            <td>{money(row.recordedCollections)}</td><td>{money(row.paymentReversals)}</td><td>{money(row.approvedExpenses)}</td><td>{money(row.expenseReversals)}</td>
+            <td>{money(row.recordedCollections)}</td><td>{money(row.paymentReversals)}</td><td>{money(row.refundPayouts)}</td><td>{money(row.approvedExpenses)}</td><td>{money(row.expenseReversals)}</td>
             <td><strong>{money(close.closed?row.expectedClosing:expected)}</strong></td>
             <td>{close.closed?money(row.countedClosing):<input aria-label={row.paymentMethod+' counted closing balance'} className="finance-balance-input" type="number" min="0" step="0.01" value={counted[row.paymentMethod]} onChange={e=>setCounted(v=>({...v,[row.paymentMethod]:e.target.value}))}/>}</td>
             <td><strong className={(close.closed?n(row.variance):delta)===0?'finance-variance-zero':'finance-variance-nonzero'}>{money(close.closed?row.variance:delta)}</strong></td>
@@ -107,8 +109,8 @@ export default function DailyCloseWorkspace({token,permissions}:Props) {
       <div className="finance-print-target"><h1>Lucky Bajaj Agency</h1><h2>Daily finance close</h2>
         <p><strong>Business date:</strong> {close.businessDate}</p><p><strong>Status:</strong> {close.closed?'Closed snapshot':'Preview only — not closed'}</p>
         {close.closed&&<p><strong>Closed by:</strong> {close.closedByName} · {dateTime(close.closedAt)}</p>}
-        <table><thead><tr><th>Channel</th><th>Opening</th><th>Collections</th><th>Reversals</th><th>Expenses</th><th>Expense reversals</th><th>Expected</th><th>Counted</th><th>Variance</th></tr></thead>
-          <tbody>{channels.map(r=><tr key={r.paymentMethod}><td>{r.paymentMethod}</td><td>{money(r.openingBalance)}</td><td>{money(r.recordedCollections)}</td><td>{money(r.paymentReversals)}</td><td>{money(r.approvedExpenses)}</td><td>{money(r.expenseReversals)}</td><td>{money(r.expectedClosing)}</td><td>{money(r.countedClosing)}</td><td>{money(r.variance)}</td></tr>)}</tbody>
+        <table><thead><tr><th>Channel</th><th>Opening</th><th>Collections</th><th>Reversals</th><th>Refund payouts</th><th>Expenses</th><th>Expense reversals</th><th>Expected</th><th>Counted</th><th>Variance</th></tr></thead>
+          <tbody>{channels.map(r=><tr key={r.paymentMethod}><td>{r.paymentMethod}</td><td>{money(r.openingBalance)}</td><td>{money(r.recordedCollections)}</td><td>{money(r.paymentReversals)}</td><td>{money(r.refundPayouts)}</td><td>{money(r.approvedExpenses)}</td><td>{money(r.expenseReversals)}</td><td>{money(r.expectedClosing)}</td><td>{money(r.countedClosing)}</td><td>{money(r.variance)}</td></tr>)}</tbody>
         </table><p><strong>Notes:</strong> {close.notes||'—'}</p>
         <p className="finance-print-disclaimer">Operational reconciliation from saved records only; no bank/UPI/card settlement or GST calculation is represented.</p>
       </div>
