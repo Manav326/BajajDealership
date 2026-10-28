@@ -340,6 +340,17 @@ class WorkshopEstimateAndQualityIntegrationTest {
     assertThat(afterReturn.quantityReturned()).isEqualByComparingTo("0.500");
     assertThat(afterReturn.quantityReleased()).isEqualByComparingTo("0.000");
 
+    assertThatThrownBy(() -> workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "PART", part.skuCode() + " — " + part.partName(),
+                new BigDecimal("3.000"), new BigDecimal("100.00"), reservation.publicId())
+        ), BigDecimal.ZERO, "This stale quantity must be rejected.")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+    assertThat(workshop.getJobCard(fixture.owner(), job.publicId()).status()).isEqualTo("IN_PROGRESS");
+
     var revision = workshop.createEstimate(fixture.owner(), job.publicId(),
         new ServiceOperationsService.EstimateRequest(List.of(
             new ServiceOperationsService.EstimateLineInput(
