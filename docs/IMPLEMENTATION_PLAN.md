@@ -38,11 +38,17 @@
 - A new revision can be submitted while work is approved/in progress; the job pauses in AWAITING_APPROVAL, and the decision resumes the previous active status. Prior revisions and their decisions remain auditable; when a new revision is approved, an older approved revision is marked SUPERSEDED. Issued invoices remain snapshots and are not silently changed.
 - Integration coverage verifies the reservation snapshot, different internal cost vs customer price, approval behavior and resumption of IN_PROGRESS.
 
-## Next business vertical slice: stock-operation hardening and reorder controls
+## Delivered slice: spare-parts reorder policy
+
+- Each SKU has a low-stock threshold and reorder-to target, both stored with the dealership-scoped balance. A zero threshold disables alerting.
+- The low-stock list compares available quantity (on-hand minus reserved) to the threshold and computes suggested order quantity as max(target minus available, 0).
+- The workspace exposes policy editing and low-stock alerts only to users who already have parts read/manage permissions; backend authorization remains authoritative.
+
+## Next business vertical slice: stock-operation concurrency and reconciliation
 
 1. Extend concurrency coverage from reservations to same-SKU receipts, issue, return and release, including idempotency keys reused by different staff sessions and transaction rollback after an unavailable-stock race.
-2. Add low-stock thresholds and a reorder queue scoped by dealership/SKU, with notifications kept internal until permissions, budgets and dispatch semantics are defined.
-3. Complete price/cost reconciliation for approved estimates when reserved part quantity changes after a decision; require a new revision rather than mutating an approved estimate or issued invoice.
+2. Complete reconciliation of reserved/issued/returned/released part quantities against approved estimate lines when stock changes after a decision. Require a new estimate revision rather than mutate an approved estimate or issued invoice.
+3. Add scheduled reorder notifications only after confirming delivery channel, recipient scope, permissions and operational budgets. Keep CI notifications internal and synthetic.
 4. Defer supplier payables, inventory accounting journals, refunds/credit notes and statutory tax treatment until rules and authorization are agreed.
 
 ## Follow-on finance controls
