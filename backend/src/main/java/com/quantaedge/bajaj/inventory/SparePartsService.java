@@ -368,6 +368,41 @@ public class SparePartsService {
     return new Page<>(items, window.page(), window.size(), total);
   }
 
+  public List<JobCardOption> listJobCardOptions(StaffPrincipal actor, String query) {
+    String term = cleanSearch(query);
+    String where = " where job.dealership_id = ? ";
+    List<Object> args = new ArrayList<>();
+    args.add(actor.dealershipId());
+    if (term != null) {
+      String like = "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
+      where += """
+          and (
+            lower(job.job_card_code) like ? escape '!'
+            or lower(customer.full_name) like ? escape '!'
+            or lower(model.model_name) like ? escape '!'
+            or lower(vehicle.chassis_number) like ? escape '!'
+          )
+          """;
+      args.add(like);
+      args.add(like);
+      args.add(like);
+      args.add(like);
+    }
+    args.add(100);
+    return jdbc.query("""
+        select job.public_id, job.job_card_code, job.status, customer.full_name as customer_name,
+          model.model_name, model.variant_name, vehicle.chassis_number
+        from service_job_card job
+        join customer on customer.dealership_id = job.dealership_id and customer.id = job.customer_id
+        join vehicle_unit vehicle on vehicle.dealership_id = job.dealership_id and vehicle.id = job.vehicle_unit_id
+        join vehicle_model model on model.dealership_id = vehicle.dealership_id and model.id = vehicle.vehicle_model_id
+        """ + where + " order by job.updated_at desc, job.id desc limit ?",
+        (rs, rowNum) -> new JobCardOption(
+            rs.getObject("public_id", UUID.class), rs.getString("job_card_code"), rs.getString("status"),
+            rs.getString("customer_name"), rs.getString("model_name"), rs.getString("variant_name"),
+            rs.getString("chassis_number")), args.toArray());
+  }
+
   public List<ReservationView> listReservations(StaffPrincipal actor, UUID jobCardPublicId) {
     long jobCardId = requireJobCard(actor, jobCardPublicId, false).id();
     List<UUID> ids = jdbc.query("""
@@ -927,6 +962,9 @@ public class SparePartsService {
   public record ReceiptSummaryView(
       UUID publicId, String receiptNumber, String supplierName, String supplierReference, String status,
       BigDecimal totalCost, Instant receivedAt, String receivedByName) {}
+  public record JobCardOption(
+      UUID publicId, String jobCardCode, String status, String customerName,
+      String modelName, String variantName, String chassisNumber) {}
   public record ReservationView(
       UUID publicId, String reservationCode, UUID jobCardPublicId, String jobCardCode,
       UUID partPublicId, String skuCode, String partName, String unitOfMeasure,
