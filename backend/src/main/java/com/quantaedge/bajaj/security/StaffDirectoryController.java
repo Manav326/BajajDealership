@@ -122,7 +122,7 @@ public class StaffDirectoryController {
 
   private SearchFilter searchFilter(StaffPrincipal actor, String query) {
     String trimmed = query == null ? "" : query.trim();
-    StringBuilder where = new StringBuilder(" where u.dealership_id = ?");
+    StringBuilder where = new StringBuilder(" where u.dealership_id = ? ");
     List<Object> args = new ArrayList<>();
     args.add(actor.dealershipId());
 
