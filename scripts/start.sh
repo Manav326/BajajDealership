@@ -5,21 +5,20 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 
 command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
 
-# Generate a random first-owner setup token in the ignored local .env.
-GENERATED_BOOTSTRAP_TOKEN=0
+# Create a private ignored .env and a random one-time first-owner token.
 ROOT_ENV=".env"
-ROOT_ENV_EXISTS=0
-[ -f "$ROOT_ENV" ] && ROOT_ENV_EXISTS=1
+GENERATED_BOOTSTRAP_TOKEN=0
 if ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]]+' "$ROOT_ENV" 2>/dev/null; then
   if command -v openssl >/dev/null 2>&1; then
     NEW_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
   else
-    NEW_BOOTSTRAP_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')"
+    NEW_BOOTSTRAP_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' ')"
   fi
-  if [ "$ROOT_ENV_EXISTS" -eq 0 ]; then
+  if [ ! -f "$ROOT_ENV" ]; then
     cat > "$ROOT_ENV" <<EOF
 POSTGRES_DB=bajaj_dealership
 POSTGRES_USER=bajaj_app
@@ -43,10 +42,11 @@ EOF
     ' "$ROOT_ENV" > "$ROOT_ENV.tmp"
     mv "$ROOT_ENV.tmp" "$ROOT_ENV"
   else
-    printf '\\nAPP_BOOTSTRAP_TOKEN=%s\\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
+    printf '\nAPP_BOOTSTRAP_TOKEN=%s\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
   fi
   GENERATED_BOOTSTRAP_TOKEN=1
 fi
+
 if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
   echo ""
   echo "One-time initial owner setup token (local only):"
@@ -56,6 +56,7 @@ if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
   echo ""
 fi
 
+# Match the mPAY physical-device convention but discover the current host LAN IP.
 LAN_IP=""
 if command -v ip >/dev/null 2>&1; then
   LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
