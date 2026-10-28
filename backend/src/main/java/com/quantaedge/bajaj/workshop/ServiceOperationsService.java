@@ -616,9 +616,16 @@ public class ServiceOperationsService {
       BigDecimal safeQuantity = quantity.setScale(3, RoundingMode.HALF_UP);
       BigDecimal safeUnitPrice = unitPrice.setScale(2, RoundingMode.HALF_UP);
       BigDecimal lineTotal = safeQuantity.multiply(safeUnitPrice).setScale(2, RoundingMode.HALF_UP);
+      BigDecimal maxMoney = new BigDecimal("999999999999.99");
+      if (lineTotal.compareTo(maxMoney) > 0) {
+        throw badRequest("An estimate line total exceeds the supported monetary range.");
+      }
       if ("PART".equals(lineType)) parts = parts.add(lineTotal);
       else if ("LABOUR".equals(lineType)) labour = labour.add(lineTotal);
       else other = other.add(lineTotal);
+      if (parts.compareTo(maxMoney) > 0 || labour.compareTo(maxMoney) > 0 || other.compareTo(maxMoney) > 0) {
+        throw badRequest("The estimate subtotal exceeds the supported monetary range.");
+      }
       normalizedLines.add(new EstimateLineInput(lineType, description, safeQuantity, safeUnitPrice));
     }
     parts = parts.setScale(2, RoundingMode.HALF_UP);
