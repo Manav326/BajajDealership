@@ -390,3 +390,107 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .customer-notification-heading { gap: 8px; }
   .notification-envelope { width: 31px; height: 31px; flex-basis: 31px; }
 }
+
+
+/* Functional customer copy should remain legible on phone-sized screens. */
+.portal-form label,
+.appointment-form > label {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.portal-form input,
+.portal-form select,
+.portal-form textarea,
+.appointment-form input,
+.appointment-form select,
+.appointment-form textarea,
+.inline-cancel-form input {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.portal-form input::placeholder,
+.portal-form textarea::placeholder,
+.appointment-form textarea::placeholder,
+.inline-cancel-form input::placeholder {
+  font-size: 10px;
+}
+.portal-auth-footer,
+.invite-note span,
+.public-footer,
+.portal-topbar .customer-identity small,
+.customer-identity small,
+.portal-logout,
+.portal-dealership-pill small,
+.portal-hero-copy .primary-button,
+.portal-hero-copy p,
+.portal-metric small,
+.portal-metric span:last-child,
+.portal-tab,
+.portal-section-heading p,
+.section-mark,
+.panel-heading p,
+.text-link,
+.mini-vehicle-copy strong,
+.mini-vehicle-copy span,
+.mini-vehicle-copy small,
+.next-visit-date span,
+.next-visit-bike strong,
+.next-visit-bike span,
+.next-visit-concern,
+.inline-empty,
+.inline-empty strong,
+.recent-service-copy strong,
+.recent-service-copy span,
+.recent-service-copy small,
+.status-pill,
+.vehicle-overline,
+.vehicle-card-facts small,
+.vehicle-card-facts strong,
+.history-job-code,
+.history-timeline small,
+.history-timeline strong,
+.service-invoice-summary small,
+.service-invoice-summary strong,
+.service-invoice-summary span,
+.service-invoice-unavailable,
+.appointment-honesty-note,
+.appointment-date-card span,
+.customer-appointment-top > strong,
+.customer-appointment-copy h4,
+.customer-appointment-copy > span,
+.customer-appointment-copy p,
+.status-explanation,
+.inline-cancel-form input,
+.glass-empty,
+.portal-footer,
+.customer-notification-heading > div > span,
+.customer-notification-summary,
+.customer-notification-actions .text-link,
+.notification-content-hero > span,
+.notification-content-highlight > span,
+.notification-content-badge,
+.notification-content-footer {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.portal-metric strong,
+.portal-section-heading h2,
+.vehicle-card-copy h3,
+.service-history-top h3,
+.customer-notification-title-row h3 {
+  line-height: 1.3;
+}
+.vehicle-card-facts strong,
+.service-invoice-summary strong,
+.history-timeline strong,
+.customer-notification-heading h3,
+.customer-notification-summary,
+.notification-content-footer {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 420px) {
+  .portal-tabs { align-items: stretch; }
+  .portal-tab { font-size: 10px; padding: 9px 8px; }
+  .portal-logout { font-size: 10px; }
+  .section-mark { font-size: 9px; }
+}
