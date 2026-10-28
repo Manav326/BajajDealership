@@ -56,7 +56,7 @@ Keep provider secrets out of source control and browser responses. Production se
 
 - [x] GitHub tracking issue created.
 - [x] Work branch created: feature/issue-9-social-media-studio.
-- [ ] Add browser-local composer, format presets, PNG download and caption copy.
+- [x] Add browser-local composer, format presets, PNG download and caption copy (initial implementation; CI validation pending).
 - [ ] Run web typecheck/build and existing CI on this branch.
 - [ ] Implement and test Meta account connection/publishing.
 - [ ] Implement and test WhatsApp Business messaging; keep Status on manual share/export unless official API capability is verified.
