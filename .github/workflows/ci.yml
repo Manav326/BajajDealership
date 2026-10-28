@@ -111,7 +111,11 @@ jobs:
           fi
           echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+          "$SDKMANAGER" "platform-tools"
+          if ! "$SDKMANAGER" "platforms;android-37" "build-tools;37.0.0"; then
+            echo "API 37 is not in the stable SDK channel yet; retrying the Android preview channel."
+            "$SDKMANAGER" --channel=3 "platforms;android-37" "build-tools;37.0.0"
+          fi
       - name: Install mobile dependencies
         working-directory: apps/android
         run: npm install
