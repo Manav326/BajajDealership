@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { apiFetch } from '../apiClient';
+import { apiFetch, type ApiError } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
 
 type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
@@ -45,6 +45,38 @@ type Booking = {
   status: string; notes: string | null; createdByName: string; createdAt: string;
   cancelledAt: string | null; cancellationReason: string | null;
 };
+type SalesInvoiceLine = {
+  lineNumber: number; lineType: string; description: string; quantity: number;
+  unitPrice: number; discountAmount: number; lineTotal: number;
+};
+type SalesPayment = {
+  publicId: string; receiptNumber: string; paymentMethod: string; amount: number;
+  paymentReference: string | null; note: string | null; status: 'RECORDED' | 'REVERSED';
+  recordedByName: string; recordedAt: string; reversalReason: string | null;
+  reversalReference: string | null; reversedByName: string | null; reversedAt: string | null;
+};
+type SalesInvoice = {
+  publicId: string; invoiceNumber: string; bookingPublicId: string; bookingCode: string;
+  bookingStatus: string; customerPublicId: string; customerCode: string; customerName: string;
+  customerPhone: string | null; vehiclePublicId: string; modelCode: string; modelName: string;
+  variantName: string | null; colourName: string | null; chassisNumber: string; engineNumber: string;
+  status: 'DRAFT' | 'ISSUED' | 'CANCELLED'; invoiceTotal: number; paidAmount: number; balanceDue: number;
+  documentNotice: string; customerMessage: string | null; createdByName: string; issuedByName: string | null;
+  createdAt: string; issuedAt: string | null; cancelledAt: string | null; cancellationReason: string | null;
+  lines: SalesInvoiceLine[];
+};
+type SalesHandover = {
+  publicId: string; bookingPublicId: string; bookingCode: string; invoicePublicId: string; invoiceNumber: string;
+  deliveredToName: string; customerAcknowledged: boolean; acknowledgementMethod: string;
+  acknowledgementReference: string | null; note: string | null; deliveredAt: string; deliveredByName: string;
+  customerName: string; chassisNumber: string; engineNumber: string; stockStatus: string; invoiceTotal: number;
+};
+type SaleAddOnDraft = {
+  lineType: 'ACCESSORY' | 'OTHER'; description: string; quantity: string; unitPrice: string; discountAmount: string;
+};
+const createIdempotencyKey = () => globalThis.crypto?.randomUUID?.()
+  ?? `qe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
 type EnquiryDetail = { enquiry: Enquiry; activities: Activity[]; testRides: TestRide[]; bookings: Booking[] };
 type EnquiryForm = {
   customerPublicId: string; interestedModelPublicId: string; leadSource: string; contactPreference: string;
@@ -106,6 +138,31 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
   const [bookingNote, setBookingNote] = useState('');
   const [rideCancelReason, setRideCancelReason] = useState('');
   const [bookingCancelReason, setBookingCancelReason] = useState('');
+  const [selectedSaleBookingId, setSelectedSaleBookingId] = useState('');
+  const [saleInvoice, setSaleInvoice] = useState<SalesInvoice | null>(null);
+  const [salePayments, setSalePayments] = useState<SalesPayment[]>([]);
+  const [saleHandover, setSaleHandover] = useState<SalesHandover | null>(null);
+  const [saleBillingLoading, setSaleBillingLoading] = useState(false);
+  const [saleInvoiceKey, setSaleInvoiceKey] = useState(createIdempotencyKey);
+  const [saleVehiclePrice, setSaleVehiclePrice] = useState('');
+  const [saleVehicleDiscount, setSaleVehicleDiscount] = useState('0');
+  const [saleCustomerMessage, setSaleCustomerMessage] = useState('');
+  const [saleAddOns, setSaleAddOns] = useState<SaleAddOnDraft[]>([
+    { lineType: 'ACCESSORY', description: '', quantity: '1', unitPrice: '', discountAmount: '0' },
+  ]);
+  const [saleDraftCancelReason, setSaleDraftCancelReason] = useState('');
+  const [salePaymentKey, setSalePaymentKey] = useState(createIdempotencyKey);
+  const [salePaymentAmount, setSalePaymentAmount] = useState('');
+  const [salePaymentMethod, setSalePaymentMethod] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER'>('UPI');
+  const [salePaymentReference, setSalePaymentReference] = useState('');
+  const [salePaymentNote, setSalePaymentNote] = useState('');
+  const [saleReversalReason, setSaleReversalReason] = useState('');
+  const [saleReversalReference, setSaleReversalReference] = useState('');
+  const [saleDeliveredToName, setSaleDeliveredToName] = useState('');
+  const [saleAcknowledged, setSaleAcknowledged] = useState(false);
+  const [saleAcknowledgementMethod, setSaleAcknowledgementMethod] = useState<'IN_PERSON' | 'SIGNED_FORM' | 'OTP_REFERENCE' | 'WRITTEN_MESSAGE'>('IN_PERSON');
+  const [saleAcknowledgementReference, setSaleAcknowledgementReference] = useState('');
+  const [saleHandoverNote, setSaleHandoverNote] = useState('');
 
   const loadReferenceData = useCallback(async () => {
     const [customerPage, modelPage, unitPage] = await Promise.all([
