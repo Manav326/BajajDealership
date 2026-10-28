@@ -40,6 +40,7 @@ Blur and transparency are visual enhancements only; no text or state depends on 
 ## Accessibility and resilience
 
 - Focus-visible outlines must remain visible above glass surfaces.
+- The mobile navigation drawer uses modal semantics, traps keyboard focus while open, closes on Escape/selection/desktop resize, and returns focus to its toggle.
 - Text contrast must be checked against the actual surface, not the decorative background behind it.
 - Motion is reduced when prefers-reduced-motion: reduce is enabled.
 - Users who request reduced transparency receive opaque surfaces; forced-colors mode restores system colors and explicit focus outlines.
@@ -52,7 +53,7 @@ Blur and transparency are visual enhancements only; no text or state depends on 
 For any future UI change, run the React production build and manually verify at minimum:
 
 - desktop and phone-width layouts;
-- sign-in and staff shell navigation;
+- sign-in, staff shell navigation and the mobile drawer (Escape, focus containment, focus return and viewport resize);
 - customer records and bike inventory tables/forms;
 - notification studio, approval state and inbox popover;
 - sales pipeline list, enquiry detail and forms;
