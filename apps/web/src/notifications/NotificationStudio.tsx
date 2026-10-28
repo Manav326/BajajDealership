@@ -150,6 +150,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [excludedRecipients, setExcludedRecipients] = useState<Recipient[]>([]);
   const [document, setDocument] = useState<DocumentV1>(defaultDocument);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [approvedCampaignPublicId, setApprovedCampaignPublicId] = useState('');
   const [scheduleValue, setScheduleValue] = useState('');
   const [expiryValue, setExpiryValue] = useState('');
   const [showGraphics, setShowGraphics] = useState(false);
@@ -302,6 +303,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     setError('');
     setMessage('');
     setPreview(null);
+    setApprovedCampaignPublicId('');
     try {
       if (!document.blocks.length) throw new Error('Add at least one content block before previewing.');
       if (selectionMode === 'SELECTED' && selectedRecipients.length === 0) {
@@ -329,6 +331,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       };
       const result = await sendJson<Preview>('/api/v1/admin/notifications/preview', 'POST', request);
       setPreview(result);
+      setApprovedCampaignPublicId('');
       setMessage(result.message);
       notifyUser('Audience preview is ready. Review the recipients and expiry before sending.', 'success');
     } catch (cause) {
@@ -369,10 +372,49 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
   }
 
+  async function approveCampaign() {
+    if (!preview) {
+      setError('Run a fresh audience preview before approving this campaign.');
+      return;
+    }
+    if (!canApprove) {
+      setError('Your assigned role cannot approve notification campaigns.');
+      return;
+    }
+    if (new Date(preview.expiresAt).getTime() <= Date.now()) {
+      setError('This preview has expired. Run a new preview before approval.');
+      setPreview(null);
+      setApprovedCampaignPublicId('');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const approved = await sendJson<Campaign>(
+        `/api/v1/admin/notifications/campaigns/${preview.campaignPublicId}/approve`,
+        'POST',
+        { previewToken: preview.previewToken },
+      );
+      setCampaigns((current) => [approved, ...current.filter((item) => item.publicId !== approved.publicId)]);
+      setApprovedCampaignPublicId(approved.publicId);
+      setMessage('Campaign approved. Sending or scheduling is now enabled for this approved preview.');
+      notifyUser('Notification campaign approved.', 'success');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Campaign approval failed.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function sendCampaign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!preview) {
       setError('Preview the campaign before sending or scheduling it.');
+      return;
+    }
+    if (approvedCampaignPublicId !== preview.campaignPublicId) {
+      setError('An authorized approver must approve this exact preview before sending or scheduling.');
       return;
     }
     if (new Date(preview.expiresAt).getTime() <= Date.now()) {
@@ -408,6 +450,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         ? `Campaign scheduled for ${humanDate(savedCampaign.scheduledAt)}. Recipients will be resolved again at dispatch.`
         : `In-app notification created for ${savedCampaign.resolvedRecipientCount} recipient(s).`);
       setPreview(null);
+      setApprovedCampaignPublicId('');
       setScheduleValue('');
       notifyUser(savedCampaign.status === 'SCHEDULED' ? 'Notification campaign scheduled.' : 'In-app notification sent.', 'success');
       setActiveTab('campaigns');
@@ -505,7 +548,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <article className="campaign-row" key={campaign.publicId}>
                   <div className="campaign-symbol">✳</div>
                   <div className="campaign-main"><strong>{campaign.title}</strong><p>{campaign.summary}</p><div className="campaign-meta"><span>{campaign.scope}</span><span>{campaign.resolvedRecipientCount} recipients</span><span>Created {humanDate(campaign.createdAt)}</span>{campaign.scheduledAt && <span>Scheduled {humanDate(campaign.scheduledAt)}</span>}</div></div>
-                  <div className="campaign-actions"><span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>{canApprove && ['PREVIEWED','SCHEDULED','QUEUED'].includes(campaign.status) && <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}</div>
+                  <div className="campaign-actions"><span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>{canApprove && ['PREVIEWED','APPROVED','SCHEDULED','QUEUED'].includes(campaign.status) && <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}</div>
                 </article>
               ))}
             </div>
