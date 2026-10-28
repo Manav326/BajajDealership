@@ -1,4 +1,4 @@
-name: bajaj-dealership
+name: bajajdealership
 
 services:
   postgres:
