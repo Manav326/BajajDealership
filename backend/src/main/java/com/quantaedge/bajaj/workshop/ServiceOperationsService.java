@@ -1,6 +1,8 @@
 package com.quantaedge.bajaj.workshop;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -569,6 +571,346 @@ public class ServiceOperationsService {
     return getJobCard(actor, jobCardPublicId);
   }
 
+  @Transactional
+  public EstimateView createEstimate(StaffPrincipal actor, UUID jobCardPublicId, EstimateRequest request) {
+    if (request.lines() == null || request.lines().isEmpty() || request.lines().size() > 100) {
+      throw badRequest("An estimate must contain between 1 and 100 line items.");
+    }
+    long jobCardId = requireJobCardId(actor, jobCardPublicId);
+    List<Map<String, Object>> cardRows = jdbc.queryForList("""
+        select status, job_card_code from service_job_card
+        where dealership_id = ? and id = ? for update
+        """, actor.dealershipId(), jobCardId);
+    if (cardRows.isEmpty()) throw notFound("Workshop job card was not found.");
+    String cardStatus = String.valueOf(cardRows.getFirst().get("status"));
+    if (!"ESTIMATE_PENDING".equals(cardStatus)) {
+      throw conflict("An estimate can only be submitted when the job card is awaiting an estimate.");
+    }
+
+    Integer previousRevision = jdbc.queryForObject("""
+        select coalesce(max(revision), 0) from service_estimate
+        where dealership_id = ? and job_card_id = ?
+        """, Integer.class, actor.dealershipId(), jobCardId);
+    int revision = (previousRevision == null ? 0 : previousRevision) + 1;
+
+    BigDecimal parts = BigDecimal.ZERO.setScale(2);
+    BigDecimal labour = BigDecimal.ZERO.setScale(2);
+    BigDecimal other = BigDecimal.ZERO.setScale(2);
+    List<EstimateLineInput> normalizedLines = new ArrayList<>();
+    for (EstimateLineInput line : request.lines()) {
+      if (line == null) throw badRequest("Estimate line items cannot be empty.");
+      String lineType = line.lineType() == null ? "" : line.lineType().trim().toUpperCase(Locale.ROOT);
+      if (!List.of("PART", "LABOUR", "OTHER").contains(lineType)) {
+        throw badRequest("Estimate line type must be PART, LABOUR or OTHER.");
+      }
+      String description = requiredText(line.description(), "Estimate line description", 300);
+      BigDecimal quantity = line.quantity();
+      BigDecimal unitPrice = line.unitPrice();
+      if (quantity == null || quantity.signum() <= 0 || quantity.compareTo(new BigDecimal("1000000")) > 0) {
+        throw badRequest("Estimate quantity must be greater than zero and within the supported range.");
+      }
+      if (unitPrice == null || unitPrice.signum() < 0
+          || unitPrice.compareTo(new BigDecimal("100000000")) > 0) {
+        throw badRequest("Unit price must be non-negative and within the supported range.");
+      }
+      BigDecimal safeQuantity = quantity.setScale(3, RoundingMode.HALF_UP);
+      BigDecimal safeUnitPrice = unitPrice.setScale(2, RoundingMode.HALF_UP);
+      BigDecimal lineTotal = safeQuantity.multiply(safeUnitPrice).setScale(2, RoundingMode.HALF_UP);
+      if ("PART".equals(lineType)) parts = parts.add(lineTotal);
+      else if ("LABOUR".equals(lineType)) labour = labour.add(lineTotal);
+      else other = other.add(lineTotal);
+      normalizedLines.add(new EstimateLineInput(lineType, description, safeQuantity, safeUnitPrice));
+    }
+    parts = parts.setScale(2, RoundingMode.HALF_UP);
+    labour = labour.setScale(2, RoundingMode.HALF_UP);
+    other = other.setScale(2, RoundingMode.HALF_UP);
+    BigDecimal subtotal = parts.add(labour).add(other);
+    BigDecimal discount = request.discountAmount() == null
+        ? BigDecimal.ZERO.setScale(2) : request.discountAmount().setScale(2, RoundingMode.HALF_UP);
+    if (discount.signum() < 0 || discount.compareTo(subtotal) > 0) {
+      throw badRequest("Discount must be non-negative and cannot exceed the estimate subtotal.");
+    }
+    BigDecimal estimatedTotal = subtotal.subtract(discount).setScale(2, RoundingMode.HALF_UP);
+    String customerMessage = optionalText(request.customerMessage(), 2000);
+
+    UUID estimatePublicId = jdbc.queryForObject("""
+        insert into service_estimate(
+          dealership_id, job_card_id, revision, status, parts_subtotal, labour_subtotal,
+          other_subtotal, discount_amount, estimated_total, customer_message,
+          created_by_staff_user_id, submitted_at)
+        values (?, ?, ?, 'AWAITING_CUSTOMER', ?, ?, ?, ?, ?, ?, ?, now())
+        returning public_id
+        """, UUID.class, actor.dealershipId(), jobCardId, revision,
+        parts, labour, other, discount, estimatedTotal, customerMessage, actor.staffUserId());
+    long estimateId = jdbc.queryForObject("""
+        select id from service_estimate where dealership_id = ? and public_id = ?
+        """, Long.class, actor.dealershipId(), estimatePublicId);
+    int lineNumber = 0;
+    for (EstimateLineInput line : normalizedLines) {
+      lineNumber++;
+      BigDecimal lineTotal = line.quantity().multiply(line.unitPrice()).setScale(2, RoundingMode.HALF_UP);
+      jdbc.update("""
+          insert into service_estimate_line(
+            dealership_id, estimate_id, line_number, line_type, description,
+            quantity, unit_price, line_total)
+          values (?, ?, ?, ?, ?, ?, ?, ?)
+          """, actor.dealershipId(), estimateId, lineNumber, line.lineType(), line.description(),
+          line.quantity(), line.unitPrice(), lineTotal);
+    }
+
+    int changed = jdbc.update("""
+        update service_job_card set status = 'AWAITING_APPROVAL', updated_at = now()
+        where dealership_id = ? and id = ? and status = 'ESTIMATE_PENDING'
+        """, actor.dealershipId(), jobCardId);
+    if (changed != 1) throw conflict("Job-card status changed while the estimate was being created.");
+
+    jdbc.update("""
+        insert into service_job_transition(
+          dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason, details)
+        values (?, ?, 'ESTIMATE_PENDING', 'AWAITING_APPROVAL', 'ESTIMATE_SUBMITTED', ?, ?,
+          jsonb_build_object('estimateRevision', ?, 'estimatedTotal', ?::numeric, 'lineCount', ?))
+        """, actor.dealershipId(), jobCardId, actor.staffUserId(),
+        "Estimate revision " + revision + " submitted for customer decision.",
+        revision, estimatedTotal, normalizedLines.size());
+    audit(actor, "SERVICE_ESTIMATE_SUBMITTED", "SERVICE_ESTIMATE", estimatePublicId.toString(),
+        "Estimate revision " + revision + " submitted for recorded customer decision.");
+    return getEstimate(actor, jobCardPublicId, estimatePublicId);
+  }
+
+  public List<EstimateView> listEstimates(StaffPrincipal actor, UUID jobCardPublicId) {
+    long jobCardId = requireJobCardId(actor, jobCardPublicId);
+    List<UUID> ids = jdbc.query("""
+        select public_id from service_estimate
+        where dealership_id = ? and job_card_id = ?
+        order by revision desc
+        """, (rs, rowNum) -> rs.getObject(1, UUID.class), actor.dealershipId(), jobCardId);
+    return ids.stream().map(id -> getEstimate(actor, jobCardPublicId, id)).toList();
+  }
+
+  public EstimateView getEstimate(StaffPrincipal actor, UUID jobCardPublicId, UUID estimatePublicId) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select estimate.id, estimate.public_id, estimate.revision, estimate.status,
+          estimate.parts_subtotal, estimate.labour_subtotal, estimate.other_subtotal,
+          estimate.discount_amount, estimate.estimated_total, estimate.customer_message,
+          estimate.submitted_at, estimate.decided_at, estimate.created_at,
+          creator.full_name as creator_name, jc.public_id as job_card_public_id, jc.job_card_code
+        from service_estimate estimate
+        join service_job_card jc on jc.dealership_id = estimate.dealership_id and jc.id = estimate.job_card_id
+        join staff_user creator on creator.dealership_id = estimate.dealership_id
+          and creator.id = estimate.created_by_staff_user_id
+        where estimate.dealership_id = ? and jc.public_id = ? and estimate.public_id = ?
+        """, actor.dealershipId(), jobCardPublicId, estimatePublicId);
+    if (rows.isEmpty()) throw notFound("Service estimate was not found for this job card.");
+    Map<String, Object> row = rows.getFirst();
+    long estimateId = ((Number) row.get("id")).longValue();
+    List<EstimateLineView> lines = jdbc.query("""
+        select line_number, line_type, description, quantity, unit_price, line_total
+        from service_estimate_line
+        where dealership_id = ? and estimate_id = ?
+        order by line_number
+        """, (rs, rowNum) -> new EstimateLineView(
+            rs.getInt("line_number"), rs.getString("line_type"), rs.getString("description"),
+            rs.getBigDecimal("quantity"), rs.getBigDecimal("unit_price"), rs.getBigDecimal("line_total")),
+        actor.dealershipId(), estimateId);
+    List<EstimateDecisionView> decisions = jdbc.query("""
+        select decision.decision, decision.evidence_method, decision.evidence_reference, decision.note,
+          staff.full_name as recorded_by_name, decision.recorded_at
+        from service_estimate_decision decision
+        join staff_user staff on staff.dealership_id = decision.dealership_id
+          and staff.id = decision.recorded_by_staff_user_id
+        where decision.dealership_id = ? and decision.estimate_id = ?
+        order by decision.recorded_at desc, decision.id desc
+        """, (rs, rowNum) -> new EstimateDecisionView(
+            rs.getString("decision"), rs.getString("evidence_method"), rs.getString("evidence_reference"),
+            rs.getString("note"), rs.getString("recorded_by_name"), rs.getTimestamp("recorded_at").toInstant()),
+        actor.dealershipId(), estimateId);
+    return new EstimateView(
+        (UUID) row.get("public_id"), (UUID) row.get("job_card_public_id"), String.valueOf(row.get("job_card_code")),
+        ((Number) row.get("revision")).intValue(), String.valueOf(row.get("status")),
+        (BigDecimal) row.get("parts_subtotal"), (BigDecimal) row.get("labour_subtotal"),
+        (BigDecimal) row.get("other_subtotal"), (BigDecimal) row.get("discount_amount"),
+        (BigDecimal) row.get("estimated_total"), (String) row.get("customer_message"),
+        String.valueOf(row.get("creator_name")), instantOrNull((Timestamp) row.get("submitted_at")),
+        instantOrNull((Timestamp) row.get("decided_at")), (Timestamp) row.get("created_at") == null
+            ? null : ((Timestamp) row.get("created_at")).toInstant(), lines, decisions);
+  }
+
+  @Transactional
+  public EstimateView recordEstimateDecision(
+      StaffPrincipal actor, UUID jobCardPublicId, UUID estimatePublicId, EstimateDecisionRequest request) {
+    long jobCardId = requireJobCardId(actor, jobCardPublicId);
+    List<Map<String, Object>> cardRows = jdbc.queryForList("""
+        select status from service_job_card
+        where dealership_id = ? and id = ? for update
+        """, actor.dealershipId(), jobCardId);
+    if (cardRows.isEmpty()) throw notFound("Workshop job card was not found.");
+    String cardStatus = String.valueOf(cardRows.getFirst().get("status"));
+    if (!"AWAITING_APPROVAL".equals(cardStatus)) {
+      throw conflict("The job card is not awaiting a customer estimate decision.");
+    }
+
+    List<Map<String, Object>> estimateRows = jdbc.queryForList("""
+        select id, status, revision, estimated_total
+        from service_estimate
+        where dealership_id = ? and job_card_id = ? and public_id = ?
+        for update
+        """, actor.dealershipId(), jobCardId, estimatePublicId);
+    if (estimateRows.isEmpty()) throw notFound("Service estimate was not found for this job card.");
+    Map<String, Object> estimate = estimateRows.getFirst();
+    if (!"AWAITING_CUSTOMER".equals(String.valueOf(estimate.get("status")))) {
+      throw conflict("Only an estimate awaiting customer decision can be decided.");
+    }
+    String decision = request.decision() == null ? "" : request.decision().trim().toUpperCase(Locale.ROOT);
+    if (!List.of("APPROVED", "DECLINED", "REVISION_REQUESTED").contains(decision)) {
+      throw badRequest("Decision must be APPROVED, DECLINED or REVISION_REQUESTED.");
+    }
+    String evidenceMethod = request.evidenceMethod() == null ? "" : request.evidenceMethod().trim().toUpperCase(Locale.ROOT);
+    if (!List.of("OTP", "SIGNED_FORM", "IN_PERSON", "PHONE_RECORD", "WRITTEN_MESSAGE").contains(evidenceMethod)) {
+      throw badRequest("Choose a supported customer-decision evidence method.");
+    }
+    String evidenceReference = optionalText(request.evidenceReference(), 160);
+    String note = optionalText(request.note(), 1000);
+    if (List.of("OTP", "SIGNED_FORM").contains(evidenceMethod) && evidenceReference == null) {
+      throw badRequest("An evidence reference is required for OTP or signed-form decisions.");
+    }
+    if (List.of("IN_PERSON", "PHONE_RECORD", "WRITTEN_MESSAGE").contains(evidenceMethod)
+        && note == null && evidenceReference == null) {
+      throw badRequest("Record a short note or evidence reference for this decision method.");
+    }
+
+    long estimateId = ((Number) estimate.get("id")).longValue();
+    jdbc.update("""
+        insert into service_estimate_decision(
+          dealership_id, estimate_id, decision, evidence_method, evidence_reference, note, recorded_by_staff_user_id)
+        values (?, ?, ?, ?, ?, ?, ?)
+        """, actor.dealershipId(), estimateId, decision, evidenceMethod, evidenceReference, note, actor.staffUserId());
+
+    String estimateStatus = "APPROVED".equals(decision) ? "APPROVED"
+        : "DECLINED".equals(decision) ? "DECLINED" : "SUPERSEDED";
+    int estimateChanged = jdbc.update("""
+        update service_estimate set status = ?, decided_at = now(), updated_at = now()
+        where dealership_id = ? and id = ? and status = 'AWAITING_CUSTOMER'
+        """, estimateStatus, actor.dealershipId(), estimateId);
+    if (estimateChanged != 1) throw conflict("Estimate status changed while recording its decision.");
+
+    String nextJobStatus = "APPROVED".equals(decision) ? "APPROVED" : "ESTIMATE_PENDING";
+    int cardChanged = jdbc.update("""
+        update service_job_card set status = ?, updated_at = now()
+        where dealership_id = ? and id = ? and status = 'AWAITING_APPROVAL'
+        """, nextJobStatus, actor.dealershipId(), jobCardId);
+    if (cardChanged != 1) throw conflict("Job-card status changed while recording the estimate decision.");
+
+    jdbc.update("""
+        insert into service_job_transition(
+          dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason, details)
+        values (?, ?, 'AWAITING_APPROVAL', ?, 'ESTIMATE_DECISION_RECORDED', ?, ?,
+          jsonb_build_object('estimateRevision', ?, 'decision', ?, 'evidenceMethod', ?))
+        """, actor.dealershipId(), jobCardId, nextJobStatus, actor.staffUserId(),
+        note == null ? "Customer estimate decision recorded." : note,
+        estimate.get("revision"), decision, evidenceMethod);
+    audit(actor, "SERVICE_ESTIMATE_DECISION_RECORDED", "SERVICE_ESTIMATE", estimatePublicId.toString(),
+        "Recorded customer decision " + decision + " using evidence method " + evidenceMethod
+            + ". The evidence method is staff-recorded and does not itself verify an external OTP/provider.");
+    return getEstimate(actor, jobCardPublicId, estimatePublicId);
+  }
+
+  @Transactional
+  public JobCardView startWork(StaffPrincipal actor, UUID jobCardPublicId, String note) {
+    long jobCardId = requireJobCardId(actor, jobCardPublicId);
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select status from service_job_card where dealership_id = ? and id = ? for update
+        """, actor.dealershipId(), jobCardId);
+    if (rows.isEmpty()) throw notFound("Workshop job card was not found.");
+    String current = String.valueOf(rows.getFirst().get("status"));
+    if ("IN_PROGRESS".equals(current)) return getJobCard(actor, jobCardPublicId);
+    if (!"APPROVED".equals(current)) throw conflict("Only a customer-approved job card can begin work.");
+    Integer technicianAssigned = jdbc.queryForObject("""
+        select count(*) from service_job_assignment
+        where dealership_id = ? and job_card_id = ? and assignment_role = 'TECHNICIAN'
+          and unassigned_at is null
+        """, Integer.class, actor.dealershipId(), jobCardId);
+    if (technicianAssigned == null || technicianAssigned == 0) {
+      throw conflict("Assign an active technician before starting work.");
+    }
+    int changed = jdbc.update("""
+        update service_job_card set status = 'IN_PROGRESS', updated_at = now()
+        where dealership_id = ? and id = ? and status = 'APPROVED'
+        """, actor.dealershipId(), jobCardId);
+    if (changed != 1) throw conflict("Job-card status changed while starting work.");
+    jdbc.update("""
+        insert into service_job_transition(
+          dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason)
+        values (?, ?, 'APPROVED', 'IN_PROGRESS', 'WORK_STARTED', ?, ?)
+        """, actor.dealershipId(), jobCardId, actor.staffUserId(), optionalText(note, 500));
+    audit(actor, "SERVICE_WORK_STARTED", "SERVICE_JOB_CARD", jobCardPublicId.toString(),
+        "Repair work started after customer estimate approval and technician assignment.");
+    return getJobCard(actor, jobCardPublicId);
+  }
+
+  @Transactional
+  public JobCardView recordQualityCheck(
+      StaffPrincipal actor, UUID jobCardPublicId, QualityCheckRequest request) {
+    long jobCardId = requireJobCardId(actor, jobCardPublicId);
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select status from service_job_card where dealership_id = ? and id = ? for update
+        """, actor.dealershipId(), jobCardId);
+    if (rows.isEmpty()) throw notFound("Workshop job card was not found.");
+    String current = String.valueOf(rows.getFirst().get("status"));
+    if (!"IN_PROGRESS".equals(current)) {
+      throw conflict("Quality check is available only after repair work is in progress.");
+    }
+    Integer assignedInspector = jdbc.queryForObject("""
+        select count(*) from service_job_assignment
+        where dealership_id = ? and job_card_id = ? and assignment_role = 'QUALITY_INSPECTOR'
+          and assigned_staff_user_id = ? and unassigned_at is null
+        """, Integer.class, actor.dealershipId(), jobCardId, actor.staffUserId());
+    if (assignedInspector == null || assignedInspector == 0) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+          "The signed-in staff member must be the assigned quality inspector for this job card.");
+    }
+    if (request.brakesOk() == null || request.lightsOk() == null || request.hornOk() == null
+        || request.noVisibleLeaks() == null || request.roadTestOk() == null
+        || request.toolsRemoved() == null || request.customerConcernResolved() == null) {
+      throw badRequest("Complete every quality-check item before recording the result.");
+    }
+
+    boolean passed = request.brakesOk() && request.lightsOk() && request.hornOk()
+        && request.noVisibleLeaks() && request.roadTestOk() && request.toolsRemoved()
+        && request.customerConcernResolved();
+    String outcome = passed ? "PASSED" : "FAILED";
+    String notes = optionalText(request.notes(), 1500);
+    jdbc.update("""
+        insert into service_quality_check(
+          dealership_id, job_card_id, outcome, checklist_document, notes, checked_by_staff_user_id)
+        values (?, ?, ?, jsonb_build_object(
+          'brakesOk', ?, 'lightsOk', ?, 'hornOk', ?, 'noVisibleLeaks', ?,
+          'roadTestOk', ?, 'toolsRemoved', ?, 'customerConcernResolved', ?), ?, ?)
+        """, actor.dealershipId(), jobCardId, outcome,
+        request.brakesOk(), request.lightsOk(), request.hornOk(), request.noVisibleLeaks(),
+        request.roadTestOk(), request.toolsRemoved(), request.customerConcernResolved(),
+        notes, actor.staffUserId());
+
+    String next = passed ? "READY_FOR_COLLECTION" : "IN_PROGRESS";
+    int changed = jdbc.update("""
+        update service_job_card set status = ?, updated_at = now()
+        where dealership_id = ? and id = ? and status = 'IN_PROGRESS'
+        """, next, actor.dealershipId(), jobCardId);
+    if (changed != 1) throw conflict("Job-card status changed while recording the quality check.");
+    jdbc.update("""
+        insert into service_job_transition(
+          dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason,
+          details)
+        values (?, ?, 'IN_PROGRESS', ?, 'QUALITY_CHECK_RECORDED', ?, ?,
+          jsonb_build_object('outcome', ?, 'canHandOver', false))
+        """, actor.dealershipId(), jobCardId, next, actor.staffUserId(),
+        notes == null ? "Quality check " + outcome.toLowerCase(Locale.ROOT) + "." : notes, outcome);
+    audit(actor, "SERVICE_QUALITY_CHECK_RECORDED", "SERVICE_JOB_CARD", jobCardPublicId.toString(),
+        "Quality check " + outcome + (passed
+            ? "; ready for collection, but final handover remains blocked until invoice/payment controls exist."
+            : "; job remains in progress for corrective work."));
+    return getJobCard(actor, jobCardPublicId);
+  }
+
   public List<AssignmentView> listAssignments(StaffPrincipal actor, UUID jobCardPublicId) {
     long jobCardId = requireJobCardId(actor, jobCardPublicId);
     return jdbc.query("""
@@ -897,6 +1239,25 @@ public class ServiceOperationsService {
   public record InspectionItemView(
       UUID publicId, String checklistCode, String label, String status, String notes,
       String checkedByName, Instant checkedAt, Instant updatedAt) {}
+
+  public record EstimateLineInput(String lineType, String description, BigDecimal quantity, BigDecimal unitPrice) {}
+  public record EstimateRequest(List<EstimateLineInput> lines, BigDecimal discountAmount, String customerMessage) {}
+  public record EstimateDecisionRequest(
+      String decision, String evidenceMethod, String evidenceReference, String note) {}
+  public record EstimateLineView(
+      int lineNumber, String lineType, String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
+  public record EstimateDecisionView(
+      String decision, String evidenceMethod, String evidenceReference, String note,
+      String recordedByName, Instant recordedAt) {}
+  public record EstimateView(
+      UUID publicId, UUID jobCardPublicId, String jobCardCode, int revision, String status,
+      BigDecimal partsSubtotal, BigDecimal labourSubtotal, BigDecimal otherSubtotal,
+      BigDecimal discountAmount, BigDecimal estimatedTotal, String customerMessage,
+      String createdByName, Instant submittedAt, Instant decidedAt, Instant createdAt,
+      List<EstimateLineView> lines, List<EstimateDecisionView> decisions) {}
+  public record QualityCheckRequest(
+      Boolean brakesOk, Boolean lightsOk, Boolean hornOk, Boolean noVisibleLeaks,
+      Boolean roadTestOk, Boolean toolsRemoved, Boolean customerConcernResolved, String notes) {}
 
   public record AssignmentRequest(UUID staffPublicId, String assignmentRole, String note) {}
   public record AssignmentView(
