@@ -900,14 +900,29 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
               </div>;
             })}
             {canManageInspection && selectedJobCard.status === 'INSPECTING' && <div className="inspection-complete-row"><span>All seven checklist items must have a result before the estimate step can begin.</span><button type="button" className="primary-button" disabled={busyId === selectedJobCard.publicId || selectedJobCard.pendingInspectionCount > 0} onClick={() => void completeInspection()}>{busyId === selectedJobCard.publicId ? 'Completing…' : 'Complete inspection'}</button></div>}
-            {selectedJobCard.status === 'ESTIMATE_PENDING' && canCreateEstimate && <section className="estimate-create-section">
-              <div className="inspection-heading"><div><h3>Create service estimate</h3><p>This creates a new immutable revision. The customer decision must be recorded before work can start.</p></div><span className="studio-count">Revision {estimates.length + 1}</span></div>
+            {['ESTIMATE_PENDING', 'APPROVED', 'IN_PROGRESS'].includes(selectedJobCard.status) && canCreateEstimate && <section className="estimate-create-section">
+              <div className="inspection-heading"><div><h3>{selectedJobCard.status === 'ESTIMATE_PENDING' ? 'Create service estimate' : 'Create estimate revision'}</h3><p>{selectedJobCard.status === 'ESTIMATE_PENDING'
+                ? 'Submit the initial estimate after inspection.'
+                : 'Submitting a revision pauses the job until the customer decision is recorded. Existing approved revisions remain in history.'}</p></div><span className="studio-count">Revision {estimates.length + 1}</span></div>
               <form className="estimate-form" onSubmit={createEstimate}>
                 {estimateLines.map((line, index) => <div className="estimate-line-edit-row" key={index}>
                   <label>Type<select value={line.lineType} onChange={(event) => updateEstimateLine(index, 'lineType', event.target.value as EstimateLineDraft['lineType'])}><option value="PART">Part</option><option value="LABOUR">Labour</option><option value="OTHER">Other</option></select></label>
+                  {canReadParts && line.lineType === 'PART' && <label className="estimate-description">Link job-card reservation
+                    <select value={line.reservationPublicId} onChange={(event) => selectPartReservation(index, event.target.value)}>
+                      <option value="">Manual part line (no stock link)</option>
+                      {partReservations.filter((reservation) =>
+                        reservation.quantityReserved - reservation.quantityReturned - reservation.quantityReleased > 0
+                        && reservation.status !== 'CANCELLED').map((reservation) =>
+                        <option key={reservation.publicId} value={reservation.publicId}>
+                          {reservation.reservationCode} · {reservation.skuCode} · qty {quantity(
+                            reservation.quantityReserved - reservation.quantityReturned - reservation.quantityReleased)} · cost snapshot {money(reservation.unitCostSnapshot)}
+                        </option>)}
+                    </select>
+                  </label>}
                   <label className="estimate-description">Description<input required maxLength={300} value={line.description} onChange={(event) => updateEstimateLine(index, 'description', event.target.value)} placeholder="Part / labour / charge" /></label>
                   <label>Qty<input required type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateEstimateLine(index, 'quantity', event.target.value)} /></label>
-                  <label>Unit price (₹)<input required type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateEstimateLine(index, 'unitPrice', event.target.value)} placeholder="0.00" /></label>
+                  <label>Customer unit price (₹)<input required type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateEstimateLine(index, 'unitPrice', event.target.value)} placeholder="0.00" /></label>
+                  {line.reservationPublicId && <p className="estimate-part-cost-note">Internal snapshot only: {partReservations.find((item) => item.publicId === line.reservationPublicId)?.quantityIssued ?? 0} issued, {partReservations.find((item) => item.publicId === line.reservationPublicId)?.quantityReturned ?? 0} returned, {partReservations.find((item) => item.publicId === line.reservationPublicId)?.quantityReleased ?? 0} released. The snapshot cost is not the customer selling price.</p>}
                   {estimateLines.length > 1 && <button type="button" className="text-button danger-link" onClick={() => setEstimateLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Remove</button>}
                 </div>)}
                 <button type="button" className="secondary-button estimate-add-line" disabled={estimateLines.length >= 100}
@@ -917,7 +932,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
                   <label>Message to customer<textarea rows={2} maxLength={2000} value={estimateMessage} onChange={(event) => setEstimateMessage(event.target.value)} placeholder="Clarify what the estimate includes." /></label>
                   <div className="estimate-total-preview"><span>Estimated subtotal before discount</span><strong>₹{estimateSubtotalPreview.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
                 </div>
-                <div className="estimate-submit-row"><span>Prices are based on the saved estimate lines; no tax/GST is added by this workflow.</span><button className="primary-button" type="submit" disabled={saving || estimateLines.every((line) => !line.description.trim() || !line.unitPrice.trim())}>{saving ? 'Submitting…' : 'Submit estimate for decision'}</button></div>
+                <div className="estimate-submit-row"><span>Prices are set by dealership staff. This workflow does not add GST/tax. Linked reservation quantities/cost are snapshotted into this revision.</span><button className="primary-button" type="submit" disabled={saving || estimateLines.every((line) => !line.description.trim() || !line.unitPrice.trim())}>{saving ? 'Submitting…' : 'Submit estimate revision for decision'}</button></div>
               </form>
             </section>}
             {selectedJobCard.status === 'ESTIMATE_PENDING' && !canCreateEstimate && <div className="workshop-next-stage">Inspection completed. This role can view the job card but cannot create an estimate.</div>}
@@ -927,7 +942,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
               {estimates.map((estimate) => <article className="estimate-history-card" key={estimate.publicId}>
                 <div className="estimate-history-heading"><div><strong>Revision {estimate.revision}</strong><span>Submitted by {estimate.createdByName} · {formattedDate(estimate.submittedAt)}</span></div><div className="estimate-history-total"><span className={`campaign-status status-${estimate.status.toLowerCase()}`}>{prettyStatus(estimate.status)}</span><strong>₹{Number(estimate.estimatedTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div></div>
                 <div className="estimate-line-table">
-                  {estimate.lines.map((line) => <div className="estimate-line-history-row" key={line.lineNumber}><span>{line.lineNumber}. {line.description}<small>{prettyStatus(line.lineType)} · {line.quantity} × ₹{Number(line.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small></span><strong>₹{Number(line.lineTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>)}
+                  {estimate.lines.map((line) => <div className="estimate-line-history-row" key={line.lineNumber}><span>{line.lineNumber}. {line.description}<small>{prettyStatus(line.lineType)} · {line.quantity} × ₹{Number(line.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>{line.sourceReservationPublicId && <small>Reservation {line.sourceReservationCode} · frozen quantity snapshot: {quantity(line.sourceQuantityReserved)} reserved, {quantity(line.sourceQuantityIssued)} issued, {quantity(line.sourceQuantityReturned)} returned, {quantity(line.sourceQuantityReleased)} released · stock cost snapshot {money(line.sourceUnitCostSnapshot)} at {formattedDate(line.sourceSnapshotAt)}</small>}</span><strong>₹{Number(line.lineTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>)}
                 </div>
                 <div className="estimate-breakdown"><span>Parts ₹{Number(estimate.partsSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Labour ₹{Number(estimate.labourSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Other ₹{Number(estimate.otherSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><span>Discount ₹{Number(estimate.discountAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
                 {estimate.customerMessage && <p className="estimate-customer-message">{estimate.customerMessage}</p>}
