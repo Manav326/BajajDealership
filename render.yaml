@@ -1,0 +1,89 @@
+# Preview deployment only. Do not use this free-tier stack for production customer data.
+# Render creates a separate public URL for the staff portal, customer website and API.
+services:
+  - type: web
+    name: lucky-bajaj-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: DB_HOST
+        fromDatabase:
+          name: lucky-bajaj-preview-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: lucky-bajaj-preview-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: lucky-bajaj-preview-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: lucky-bajaj-preview-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: lucky-bajaj-preview-db
+          property: password
+      - key: APP_VERSION
+        value: preview
+      - key: APP_BOOTSTRAP_TOKEN
+        sync: false
+      - key: APP_NOTIFICATION_MEDIA_DIR
+        value: /app/var/private-notification-media
+      - key: APP_CORS_ALLOWED_ORIGIN_1
+        fromService:
+          type: web
+          name: lucky-bajaj-staff-web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: APP_CORS_ALLOWED_ORIGIN_2
+        fromService:
+          type: web
+          name: lucky-bajaj-customer-web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: lucky-bajaj-staff-web
+    runtime: static
+    region: singapore
+    rootDir: apps/web
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: lucky-bajaj-api
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: lucky-bajaj-customer-web
+    runtime: static
+    region: singapore
+    rootDir: apps/customer-web
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: lucky-bajaj-api
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: lucky-bajaj-preview-db
+    databaseName: bajaj_dealership
+    user: bajaj_app
+    region: singapore
+    plan: free
+    postgresMajorVersion: "17"
