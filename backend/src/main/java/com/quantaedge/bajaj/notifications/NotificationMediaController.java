@@ -158,8 +158,8 @@ public class NotificationMediaController {
           .contentType(MediaType.parseMediaType(mimeType))
           .contentLength(bytes.length)
           .cacheControl(CacheControl.noStore())
-          .header(HttpHeaders.X_CONTENT_TYPE_OPTIONS, "nosniff")
-          .header(HttpHeaders.CONTENT_SECURITY_POLICY, "default-src 'none'; sandbox")
+          .header("X-Content-Type-Options", "nosniff")
+          .header("Content-Security-Policy", "default-src 'none'; sandbox")
           .body(bytes);
     } catch (IOException failure) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification image was not found.");
