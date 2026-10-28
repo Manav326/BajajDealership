@@ -11,10 +11,12 @@ type Report = {
   sparePartMovements:{movementType:string;movementCount:number;quantity:number|string}[];
   currentOutOfStockPartCount:number;currentLowStockPartCount:number;
 };
-type Props={token:string;fromDate:string;toDate:string};
+type Props={token:string;fromDate:string;toDate:string;permissions:string[]};
+const csvCell=(value:unknown)=>'"'+String(value??'').replaceAll('"','""')+'"';
 const money=(v:number|string)=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(Number(v)||0);
 const label=(v:string)=>v.replaceAll('_',' ').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
-export default function OperationalReportsWorkspace({token,fromDate,toDate}:Props){
+export default function OperationalReportsWorkspace({token,fromDate,toDate,permissions}:Props){
+  const canExport=permissions.includes('report.export');
   const [report,setReport]=useState<Report|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
@@ -27,11 +29,34 @@ export default function OperationalReportsWorkspace({token,fromDate,toDate}:Prop
       .finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
   },[token,fromDate,toDate]);
+  function exportCsv(){
+    if(!report||!canExport)return;
+    const rows:[string,string,string,string,string][]=[
+      ['Sales','Enquiries created',String(report.enquiriesCreated),'','Created timestamp in selected period'],
+      ['Sales','Bookings created',String(report.bookingsCreated),'','Created timestamp in selected period'],
+      ['Sales','Vehicle deliveries',String(report.vehicleDeliveries),'','Handover timestamp in selected period'],
+      ['Sales','Completed test rides',String(report.completedTestRides),'','Completion timestamp in selected period'],
+      ['Workshop','Job cards checked in',String(report.workshopJobsCheckedIn),'','Check-in timestamp in selected period'],
+      ['Workshop','Invoices issued',String(report.workshopInvoicesIssued),String(report.workshopInvoiceValue),'Issue timestamp in selected period; operational invoice value'],
+      ['Parts','Purchase receipts',String(report.sparePartPurchaseReceipts),String(report.sparePartPurchaseValue),'Receipt timestamp in selected period'],
+      ['Parts','Units issued','',String(report.sparePartUnitsIssued),'Absolute stock movement quantity in selected period'],
+      ['Parts','Units returned','',String(report.sparePartUnitsReturned),'Absolute stock movement quantity in selected period'],
+      ['Inventory','Out-of-stock SKUs now',String(report.currentOutOfStockPartCount),'','Current available stock snapshot'],
+      ['Inventory','Low-stock SKUs now',String(report.currentLowStockPartCount),'','Current available stock snapshot'],
+      ...report.currentJobStatusesForPeriod.map(item=>['Workshop job status',item.currentStatus,String(item.jobCount),'','Current status of job cards checked in during the selected period'] as [string,string,string,string,string]),
+      ...report.sparePartMovements.map(item=>['Spare-part movement',item.movementType,String(item.movementCount),String(item.quantity),'Movement timestamp in selected period; absolute quantity'] as [string,string,string,string,string])
+    ];
+    const content=[['Section','Metric','Count','Value','Definition'],...rows]
+      .map(row=>row.map(csvCell).join(',')).join('\\r\\n');
+    const url=URL.createObjectURL(new Blob(['\\uFEFF'+content],{type:'text/csv;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download='lucky-bajaj-operations-'+fromDate+'-'+toDate+'.csv';
+    document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  }
   return <section className="finance-panel">
-    <div className="finance-section-heading"><div><h2>Operational performance &amp; inventory</h2>
+    <div className="finance-section-heading finance-section-heading-wrap"><div><h2>Operational performance &amp; inventory</h2>
       <p>Event activity uses {report?.dealershipTimeZone || 'the dealership time zone'} from {fromDate} through {toDate}.
       Job-card status is the current status of job cards checked in during this period; stock alerts are current snapshots.</p>
-    </div></div>
+    </div>{canExport&&<button type="button" className="finance-primary-button" disabled={!report||loading} onClick={exportCsv}>Export operations CSV</button>}</div>
     {error&&<div className="finance-alert finance-alert-error" role="alert">{error}</div>}
     {loading?<div className="finance-empty">Loading operations metrics…</div>:report&&<>
       <div className="finance-summary-grid">
