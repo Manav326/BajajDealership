@@ -74,6 +74,7 @@ public class BillingOperationsService {
     }
     Map<String, Object> estimate = estimates.getFirst();
     long estimateId = number(estimate.get("id"));
+    requireCurrentApprovedPartReservations(actor, jobCardId, estimateId);
     int revision = ((Number) estimate.get("revision")).intValue();
     String invoiceNumber = "INV-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
     String message = optionalText(customerMessage, 2000);
@@ -123,6 +124,33 @@ public class BillingOperationsService {
         "Created operational invoice draft from approved estimate revision " + revision
             + ". Tax treatment is not calculated by this workflow.");
     return getInvoice(actor, invoicePublicId);
+  }
+
+  private void requireCurrentApprovedPartReservations(
+      StaffPrincipal actor, long jobCardId, long estimateId) {
+    Integer staleCount = jdbc.queryForObject("""
+        select count(*)
+        from service_job_part_reservation reservation
+        left join service_estimate_line line
+          on line.dealership_id = reservation.dealership_id
+          and line.estimate_id = ?
+          and line.source_reservation_id = reservation.id
+        where reservation.dealership_id = ? and reservation.job_card_id = ?
+          and reservation.quantity_reserved - reservation.quantity_returned - reservation.quantity_released > 0
+          and (
+            line.id is null
+            or line.source_quantity_reserved is distinct from reservation.quantity_reserved
+            or line.source_quantity_issued is distinct from reservation.quantity_issued
+            or line.source_quantity_returned is distinct from reservation.quantity_returned
+            or line.source_quantity_released is distinct from reservation.quantity_released
+            or line.source_unit_cost_snapshot is distinct from reservation.unit_cost_snapshot
+            or line.quantity is distinct from
+              (reservation.quantity_reserved - reservation.quantity_returned - reservation.quantity_released)
+          )
+        """, Integer.class, estimateId, actor.dealershipId(), jobCardId);
+    if (staleCount != null && staleCount > 0) {
+      throw conflict("An approved estimate has stale or missing part-reservation snapshots. Rebuild and approve the estimate revision before creating or issuing the invoice.");
+    }
   }
 
   public List<InvoiceView> listInvoices(StaffPrincipal actor, UUID jobCardPublicId) {
@@ -204,7 +232,7 @@ public class BillingOperationsService {
         """, actor.dealershipId(), jobCardId);
     if (jobs.isEmpty()) throw notFound("Workshop job card was not found.");
     List<Map<String, Object>> invoices = jdbc.queryForList("""
-        select id, status, invoice_number from service_invoice
+        select id, estimate_id, status, invoice_number from service_invoice
         where dealership_id = ? and job_card_id = ? and public_id = ?
         for update
         """, actor.dealershipId(), jobCardId, invoicePublicId);
@@ -217,6 +245,8 @@ public class BillingOperationsService {
     if (!"READY_FOR_COLLECTION".equals(jobStatus)) {
       throw conflict("The job card must have passed quality check before invoice issue.");
     }
+    requireCurrentApprovedPartReservations(
+        actor, jobCardId, number(invoice.get("estimate_id")));
 
     int issued = jdbc.update("""
         update service_invoice set status = 'ISSUED', issued_by_staff_user_id = ?,
