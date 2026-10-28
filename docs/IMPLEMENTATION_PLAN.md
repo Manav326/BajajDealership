@@ -12,9 +12,9 @@
 - Vehicle model and individual-unit inventory; unique chassis/engine references; explicit expected-stock receiving; append-only stock-movement history.
 - Rich-notification validator; private PNG/JPEG upload and integrity checks; immutable templates; server-resolved customer/staff audience; consent-filtered marketing audience; selected-only recipients/exclusions; expiring one-time preview proof; idempotent send request; scheduling/cancellation; durable in-app records/inbox; read/unread/dismiss endpoints; audit.
 - React web sign-in, owner shell, customer workspace, vehicle inventory workspace, Notification Studio editor/template/version/preview/scheduling UI, Logo & Graphics raster export/upload, and a topbar in-app inbox with unread badge.
-- Workshop intake: create/list/confirm/cancel appointment; verify current dealership-scoped customer/vehicle ownership; check-in exactly once into a job card; create seven inspection items; checklist edits; require completed inspection before estimate; immutable estimate revisions with calculated line totals/discount; record approval/decline/revision request with evidence method/reference; technician assignment before work; only assigned quality inspector can complete the quality check.
-- Workshop web workspace for appointment search/create/check-in, job-card queue, inspection checklist, estimate revisions/decision capture, technician assignment, start-work and quality-check UI. Final handover remains blocked pending billing/payment integration.
-- Integration tests for migrations, authentication, customer consent/isolation, inventory receiving, notification contracts/inbox, workshop check-in idempotency, inspection completion, estimate calculations/revisions, approval evidence, technician assignment and quality-check gates.
+- Workshop intake and quality: create/list/confirm/cancel appointment; verify current dealership-scoped customer/vehicle ownership; check-in exactly once into a job card; create seven inspection items; require completed checklist before estimate; immutable estimate revisions with line totals/discount; record customer decision evidence; technician assignment before work; only assigned quality inspector can pass quality check.
+- Workshop web workspace for appointment search/create/check-in, job-card queue, inspection checklist, estimate revision/decision capture, technician assignment, start-work, quality-check, invoice issue, partial-payment receipts, reversals and receiver-acknowledged paid handover. Billing uses the existing BillingOperationsService and a single controller route set; receipts are manual operational records, not evidence of payment-provider settlement.
+- Integration tests for migrations, authentication, customer consent/isolation, inventory receiving, notification contracts/inbox, workshop check-in idempotency, inspection completion, estimate calculations/revisions, approval evidence, technician assignment, quality-check gates, invoice issue, partial payment/idempotency, reversal history, balance enforcement and acknowledgement-backed handover.
 - CI runs backend tests/migrations with PostgreSQL and TypeScript/React production build. Verify the latest run result before calling a newer commit green.
 
 ## Immediate validation work
@@ -25,13 +25,20 @@
 4. Add robust concurrency tests for duplicate appointment check-in, concurrent estimate submissions, duplicate decisions and quality-check retries.
 5. Harden Notification Studio concurrent approval/send/cancel semantics, permission split, scheduled cancel races, media access and preview freshness. Keep external providers disabled until configured and tested.
 
-## Next business vertical slice: billing integration for workshop
+## Next business vertical slice: workshop spare-parts ledger
 
-1. Add an operational invoice snapshot linked to job card and the approved estimate revision (but do not assume estimate totals are a tax invoice).
-2. Add invoice lines, tax/discount adjustments only after requirements are confirmed, customer-visible invoice numbering, issue/cancel/credit-note lifecycle, and audit history.
-3. Add payment allocations with idempotency key and gateway/reference, partial-payment support, refunds/adjustments and balances due.
-4. Gate READY_FOR_COLLECTION to invoiced/paid or explicitly authorised payment terms; then allow delivery/handover with customer, vehicle, staff and timestamp recorded.
-5. Add daily cash/UPI/bank reconciliation and integration tests. No live gateway processing is enabled until credentials and scope are approved.
+1. Inspect and reuse the current bike-unit inventory/stock movement pattern where it fits; do not merge motorcycle-unit stock with consumable spare-part SKUs.
+2. Add part SKU/catalogue, supplier references, purchase receipt and a stock movement ledger with quantities, cost basis, actor, timestamp, source reference and idempotency protection.
+3. Add job-card part reservation, issue, return and wastage flows. A job cannot consume parts from another dealership, oversell available stock, or issue more than its reservation.
+4. Serialize stock-changing transactions per dealership/SKU and add tests for duplicate receipt/issue retries, concurrent issue, return limits and full audit history.
+5. Include issued/returned part lines in estimate revisions only through an explicit revision and customer approval; never silently alter an already-approved estimate or issued invoice.
+6. Defer valuation methods, accounting journal, supplier payables and formal tax treatment until rules are agreed. No automated OEM or payment-provider submission is implied.
+
+## Follow-on finance controls
+
+- Credit notes/refunds/adjustments with separate authority and append-only reversal history.
+- Daily cash/UPI/bank reconciliation against external statements. Manual receipt records do not indicate a gateway transaction was verified.
+- GST/e-invoicing only after the correct legal entity, registration data, tax rules and approved provider integration are defined and tested.
 
 ## Follow-on vertical slices
 
