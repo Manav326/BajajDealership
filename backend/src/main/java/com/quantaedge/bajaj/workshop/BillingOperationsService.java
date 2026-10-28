@@ -346,12 +346,15 @@ public class BillingOperationsService {
         select payment.id, payment.public_id, payment.receipt_number, payment.payment_method, payment.amount,
           payment.payment_reference, payment.note, payment.status, payment.recorded_at,
           recorder.full_name as recorded_by_name, reverser.full_name as reversed_by_name,
-          payment.reversed_at
+          payment.reversed_at, reversal.reason as reversal_reason,
+           reversal.external_reference as reversal_reference
         from service_payment payment
         join staff_user recorder on recorder.dealership_id = payment.dealership_id
           and recorder.id = payment.recorded_by_staff_user_id
         left join staff_user reverser on reverser.dealership_id = payment.dealership_id
           and reverser.id = payment.reversed_by_staff_user_id
+        left join service_payment_reversal reversal on reversal.dealership_id = payment.dealership_id
+          and reversal.payment_id = payment.id
         where payment.dealership_id = ? and payment.public_id = ?
         """, actor.dealershipId(), paymentPublicId);
     if (rows.isEmpty()) throw notFound("Payment record was not found.");
@@ -372,7 +375,8 @@ public class BillingOperationsService {
         String.valueOf(row.get("payment_method")), (BigDecimal) row.get("amount"),
         (String) row.get("payment_reference"), (String) row.get("note"), String.valueOf(row.get("status")),
         String.valueOf(row.get("recorded_by_name")), ((Timestamp) row.get("recorded_at")).toInstant(),
-        (String) row.get("reversed_by_name"), instantOrNull((Timestamp) row.get("reversed_at")), allocations);
+        (String) row.get("reversed_by_name"), instantOrNull((Timestamp) row.get("reversed_at")),
+        (String) row.get("reversal_reason"), (String) row.get("reversal_reference"), allocations);
   }
 
   @Transactional
@@ -633,7 +637,8 @@ public class BillingOperationsService {
   public record PaymentAllocationView(UUID invoicePublicId, String invoiceNumber, String jobCardCode, BigDecimal amount) {}
   public record PaymentView(UUID publicId, String receiptNumber, String paymentMethod, BigDecimal amount,
       String paymentReference, String note, String status, String recordedByName, Instant recordedAt,
-      String reversedByName, Instant reversedAt, List<PaymentAllocationView> allocations) {}
+      String reversedByName, Instant reversedAt, String reversalReason, String reversalReference,
+      List<PaymentAllocationView> allocations) {}
   public record HandoverRequest(String deliveredToName, Boolean customerAcknowledged,
       String acknowledgementMethod, String acknowledgementReference, String note) {}
   public record HandoverView(UUID publicId, UUID jobCardPublicId, String jobCardCode,
