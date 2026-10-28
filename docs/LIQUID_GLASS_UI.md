@@ -42,6 +42,7 @@ Blur and transparency are visual enhancements only; no text or state depends on 
 - Focus-visible outlines must remain visible above glass surfaces.
 - Text contrast must be checked against the actual surface, not the decorative background behind it.
 - Motion is reduced when prefers-reduced-motion: reduce is enabled.
+- Users who request reduced transparency receive opaque surfaces; forced-colors mode restores system colors and explicit focus outlines.
 - Browsers without backdrop-filter support fall back to opaque backgrounds.
 - Glass cannot be the only distinction for status: status labels remain visible as text.
 - Mobile breakpoints reduce blur and stack controls, rather than shrinking the interaction targets.
