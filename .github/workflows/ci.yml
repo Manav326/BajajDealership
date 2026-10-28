@@ -11,8 +11,26 @@ permissions:
 
 jobs:
   backend:
-    name: Backend tests
+    name: Backend tests and PostgreSQL migrations
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bajaj_dealership
+          POSTGRES_USER: bajaj_app
+          POSTGRES_PASSWORD: bajaj_local_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bajaj_app -d bajaj_dealership"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/bajaj_dealership
+      DB_USERNAME: bajaj_app
+      DB_PASSWORD: bajaj_local_only
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +40,12 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Test Spring Boot API
+      - name: Test Spring Boot API and PostgreSQL migrations
         run: mvn -B -f backend/pom.xml test
 
   web:
     name: React web build
+    runs-on: ubuntu-latest
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
