@@ -76,10 +76,10 @@ The Blueprint uses free preview resources only. Do not enter production customer
 - Automated tests for PostgreSQL migrations, authentication, customer isolation/consent, vehicle stock lifecycle, notification permission denial, appointment/check-in idempotency, estimate revision/approval rules, quality gates, spare-part receipt retries, weighted-average cost, reservation/issue/return/release quantities, closed-job rejection and cross-dealership isolation.
 
 ### Not yet complete — do not treat as production-ready
-- Sales enquiry, test-ride, booking, sale-invoice, manual-payment and handover flows are implemented in the current source tree. They are not accepted as complete until the current backend CI failure is resolved and transaction security, concurrency and end-to-end acceptance gates pass.
-- Workshop is partially complete: intake, inspection, estimate/decision evidence, assignment, work/quality gates, operational invoice/receipt records and paid/acknowledged handover exist. Spare-parts catalogue/receipts/ledger, job-card reservation/issue/return/release, per-SKU reorder policies and low-stock alerts are implemented. Estimate revisions can link same-job reservations and freeze reserved/issued/returned/released quantities plus a unit-cost snapshot, separately from customer price; part issue requires a matching approved estimate, return/release makes an old snapshot stale until a revision is approved, and invoice creation rejects stale part quantities. The previous approved revision remains auditable and is superseded only when a replacement is approved. PostgreSQL integration tests cover same-SKU concurrent reservations, receipt idempotency/weighted cost, released quantities, low-stock calculations and stale estimate quantities. Remaining work includes deeper concurrency testing across receipt/issue/return, customer-facing estimate approval, richer mechanic work entries, refunds/credit notes, financial reconciliation, tax-compliant GST/e-invoicing, and external payment-provider verification.
+- Sales enquiry, test-ride, booking, operational-invoice, manual-payment, receipt reversal and acknowledged handover flows exist in the current source tree. The latest checked CI run has passing backend tests/migrations, web builds and Docker smoke test; the Android APK job was still running at the checkpoint. Keep sales open until transaction/concurrency and full journey acceptance gates pass on the current commit.
+- Workshop is partially complete: intake, inspection, estimate/decision evidence, assignment, work/quality gates, operational invoice/receipt records, printable operational documents, and paid/acknowledged handover exist. Spare-parts catalogue/receipts/ledger, job-card reservation/issue/return/release, per-SKU reorder policies and low-stock alerts are implemented. Estimate revisions link same-job reservations and freeze reserved/issued/returned/released quantities plus a unit-cost snapshot, separately from customer price; part issue requires a matching approved estimate, return/release makes an old snapshot stale until a revision is approved, and invoice creation rejects stale part quantities. The previous approved revision remains auditable and is superseded only when a replacement is approved. PostgreSQL integration tests cover same-SKU concurrent reservations, receipt idempotency/weighted cost, released quantities, low-stock calculations and stale estimate quantities. Remaining work includes deeper cross-workflow concurrency testing, customer-facing estimate approval, richer mechanic work entries, refunds/credit notes, external payment-provider verification, and legally verified GST/e-invoice issuance.
 - Spare-parts catalogue, supplier receipts, weighted-average cost, stock ledger, job-card reservation/issue/return/release, reorder policy and low-stock alerts are implemented. Broader cross-workflow concurrency, failure-recovery and financial reconciliation tests remain.
-- Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
+- Billing & Expenses now has a live route backed by dealership-scoped finance APIs: saved sales/workshop invoice totals, recorded collections, outstanding balances, an expense ledger with approval/rejection and reasoned reversals, daily close/reconciliation snapshots, date-wise financial reports, CSV export, and browser print/save-as-PDF layouts for operational invoices, receipts, closes and reports. V19 adds expenses, V20 adds immutable daily closes, and V21 adds a tax profile plus HSN/SAC readiness catalogue. Tax-code verification is a staff attestation against a recorded source, not a government validation. No GST is calculated, no tax catalogue is applied to existing invoices, no IRN is issued, and no IRP/payment provider is connected.
 - Production hardening and acceptance for the deployed preview, plus a signed Android release. The three URLs above are the current public preview deployment; CI web/APK artifacts remain separate build outputs and do not constitute a Play Store release.
 - Android Firebase Cloud Messaging delivery configuration and end-to-end proof of real push delivery.
 - SMS, WhatsApp Business and email provider integrations, templates, consent/process verification and provider billing.
@@ -95,11 +95,12 @@ The existence of a screen, table or API is not evidence that its whole business 
 
 ### Last audited baseline
 
-- Baseline commit inspected: `4367501eadac3ab8069498041456fba73c9a7347` on `main`.
-- CI run [#334](https://github.com/Manav326/BajajDealership/actions/runs/40717938068) on that commit **failed**. The staff/customer web build and Android debug APK jobs passed; the PostgreSQL-backed backend test job failed.
-- Failure: `SalesTransactionServiceIntegrationTest.issueAndPaymentRejectInvalidBookingAndExcessPayment`. The test expects a ₹15,001 payment to exceed the balance, but its fixture also adds two helmets at ₹750 each with a ₹100 discount; with the ₹15,000 bike line, the invoice total is ₹16,400. First verify the intended business rule, then correct the fixture or expected amount so the test truly tests overpayment. Do not weaken or remove the server-side balance guard.
-- Repository baseline had only `main` listed, no open PRs/issues, and no branch protection/rulesets visible in the inspected GitHub endpoints. Confirm governance settings before treating direct pushes as protected release workflow.
-- Do not call the project production-ready from a successful build alone. External integrations and launch checks below are still outstanding.
+- Baseline commit inspected: `981c990e92202647851f5fbeed08827548792d48` on `main`.
+- Latest CI run: [run 434](https://github.com/Manav326/BajajDealership/actions/runs/40742633220) on commit `981c990e92202647851f5fbeed08827548792d48`. Backend tests/PostgreSQL migrations, staff/customer web builds and Docker smoke test are green. At the time this checkpoint was refreshed, the Android debug APK job was still running; confirm its final outcome before declaring all CI green.
+- The prior stale checkpoint describing a sales overpayment assertion as the current blocker has been superseded by subsequent green backend runs. Preserve the overpayment guard and keep the related boundary/transaction tests.
+- Recent finance increments: V19 business-expense ledger; V20 immutable daily finance close and daily report endpoints; V21 dealership tax profile and tax-code readiness catalogue. Sales/workshop invoice and receipt print layouts are operational-only documents. No GST tax calculation, IRN/IRP integration, payment provider settlement, refund/credit-note flow or complete business report suite is present yet.
+- Current repository governance/branch protection settings should be checked in GitHub before treating direct pushes as a protected release workflow.
+- Do not call the project production-ready from a successful build alone. External integrations and the launch checks below remain outstanding.
 
 ### Execution rules
 
@@ -146,24 +147,25 @@ The existence of a screen, table or API is not evidence that its whole business 
 
 ### Phase 3 — Complete billing and operational finance (P1)
 
-- [ ] Implement the Billing & Expenses workspace against source records; do not show fabricated counts/totals.
-- [ ] Deliver expense creation, category, evidence/reference, approval controls, reversals and auditable history.
-- [ ] Implement daily closing and cash/UPI/bank reconciliation with opening balance, receipts, reversals, expenses, counted balance, variance, reason and approving actor.
+- [x] Implement the Billing & Expenses workspace against saved source records; empty states do not invent sample totals.
+- [x] Deliver expense creation, category/description/vendor/reference fields, approval/rejection, permissioned reversals and audit history in a separate expense ledger.
+- [x] Implement daily closing/reconciliation by payment channel with opening balance, saved receipt movements, payment reversals, approved expenses, counted balance, variance, notes and closing actor. Each dealership/business date can be closed once; the saved snapshot cannot be overwritten.
 - [ ] Implement refund/credit-note/adjustment workflows as separate authorized transactions with immutable reversal history. Do not rewrite or delete issued invoices/receipts.
-- [ ] Keep sale and workshop billing paths consistent where appropriate while respecting their different lifecycle/state rules.
-- [ ] Define the legal dealership entity and GST requirements before implementing tax calculations or e-invoicing; validate invoice numbering, tax breakup, customer details, cancellation/credit-note rules and provider response handling with the approved integration.
+- [x] Align the shared reversal permission boundary and provide common print layouts while preserving different sales and workshop invoice lifecycle rules.
+- [x] Add dealership tax profile and a source-backed draft/verified HSN/SAC readiness catalogue with effective dates and review attribution. This is configuration readiness only: no tax is calculated or applied and no statutory document is generated.
+- [ ] Define and legally verify the dealership’s GST obligations, tax treatment, invoice numbering, supply classification, customer fields, cancellation/credit-note rules and approved IRP integration before enabling tax calculations or e-invoicing.
 - [ ] Add payment-provider integration only after credentials, webhook/signature verification, idempotency, duplicate callback handling, refund semantics and reconciliation are defined. Never treat a manually entered reference as provider verification.
-- [ ] Add downloadable invoice/receipt/closing records only after the underlying data, permissions and calculations are verified. Use a proper PDF layout and test its totals against database transactions.
+- [x] Add print/save-as-PDF layouts for operational invoices, receipts and daily closes, plus CSV/printable date-wise finance reports. Documents clearly state their operational-only scope and are not GST tax invoices.
 
 **Exit gate:** financial balances reconcile to source transactions; duplicate/replayed events cannot double-post; refunds are auditable; statutory documents are enabled only when their legal/provider rules are implemented and verified.
 
 ### Phase 4 — Implement Reports (P1)
 
-- [ ] Add backend report endpoints based on authoritative saved transactions, with consistent dealership scoping, permission checks, date range and timezone handling.
-- [ ] Implement sales/enquiry conversion, bookings/deliveries, workshop jobs/status, parts movement/low-stock, collections/payment reversals, expenses and daily closing reports.
+- [x] Add dealership-scoped daily report endpoints for sales/workshop invoice issue/cancellation events, recorded collections, payment reversals, approved expenses and expense reversals; enforce date-range limits and use the configured dealership timezone.
+- [ ] Extend reports to sales/enquiry conversion, bookings/deliveries, workshop jobs/status, parts movement/low-stock and other operational metrics.
 - [ ] Define each metric explicitly (source table/event, inclusion/exclusion rules, time zone, reversal handling and status semantics) so the UI does not invent business definitions.
 - [ ] Add pagination/filtering where necessary and protect expensive queries; use indexes or pre-aggregation only where measurements justify them.
-- [ ] Add CSV/export permissions and reconciliation tests that compare report totals with source transaction queries.
+- [ ] Keep CSV export gated by the report.export UI permission and add explicit report-total integration tests comparing endpoints with source transaction queries.
 - [ ] Replace current overview placeholder cards with real API-backed metrics when reliable aggregate endpoints exist; otherwise display a clear “not available yet” state instead of implying live data.
 
 **Exit gate:** report totals reconcile to source records and reversals; date boundaries use the dealership timezone; unauthorized exports are denied.
