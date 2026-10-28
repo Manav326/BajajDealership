@@ -547,6 +547,68 @@ class SparePartsServiceIntegrationTest {
         .hasSize(1);
   }
 
+  @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void receiptAndReservationIdempotencyIsSharedAcrossStaffSessions() {
+    Fixture fixture = createFixture("CROSS-STAFF", "IN_PROGRESS");
+    var part = createPart(fixture, "CROSS-STAFF-PART", "Cross-staff idempotency part");
+    var supplier = createSupplier(fixture);
+    String receiptKey = "cross-staff-receipt-" + UUID.randomUUID();
+    var receiptRequest = new SparePartsService.ReceiptRequest(
+        supplier.publicId(), "PO-CROSS-STAFF", receiptKey, "Retry across staff login",
+        List.of(new SparePartsService.ReceiptLineRequest(
+            part.publicId(), new BigDecimal("8.000"), new BigDecimal("10.00"))));
+    var originalReceipt = parts.receiveStock(fixture.owner(), receiptRequest);
+
+    StaffPrincipal secondStaff = createAdditionalStaffPrincipal(fixture);
+    var receiptReplay = parts.receiveStock(secondStaff, receiptRequest);
+    assertThat(receiptReplay.publicId()).isEqualTo(originalReceipt.publicId());
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("8.000");
+    assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+        .filteredOn(movement -> movement.movementType().equals("PURCHASE_RECEIPT"))
+        .hasSize(1);
+
+    String reservationKey = "cross-staff-reserve-" + UUID.randomUUID();
+    var reservationRequest = new SparePartsService.ReservationRequest(
+        part.publicId(), new BigDecimal("3.000"), reservationKey, "One reservation, two staff sessions");
+    var originalReservation = parts.reservePart(fixture.owner(), fixture.jobCardPublicId(), reservationRequest);
+    var reservationReplay = parts.reservePart(secondStaff, fixture.jobCardPublicId(), reservationRequest);
+    assertThat(reservationReplay.publicId()).isEqualTo(originalReservation.publicId());
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("3.000");
+    assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+        .filteredOn(movement -> movement.movementType().equals("RESERVATION_CREATED"))
+        .hasSize(1);
+
+    assertThatThrownBy(() -> parts.reservePart(secondStaff, fixture.jobCardPublicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("2.000"), reservationKey, "Different payload")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  private StaffPrincipal createAdditionalStaffPrincipal(Fixture fixture) {
+    String unique = UUID.randomUUID().toString().substring(0, 8).toLowerCase();
+    Long staffId = jdbc.queryForObject("""
+        insert into staff_user(dealership_id, full_name, email, password_hash, status)
+        values (?, 'Second Parts Owner', ?, 'test-hash-not-used', 'ACTIVE')
+        returning id
+        """, Long.class, fixture.dealershipId(), "second-parts-owner-" + unique + "@example.test");
+    Long ownerRoleId = jdbc.queryForObject("select id from role where code='OWNER'", Long.class);
+    jdbc.update("""
+        insert into staff_user_role(dealership_id, staff_user_id, role_id)
+        values (?, ?, ?)
+        """, fixture.dealershipId(), staffId, ownerRoleId);
+    UUID staffPublicId = jdbc.queryForObject("""
+        select public_id from staff_user where dealership_id = ? and id = ?
+        """, UUID.class, fixture.dealershipId(), staffId);
+    return new StaffPrincipal(
+        fixture.owner().sessionId() + 1, staffId, staffPublicId.toString(),
+        fixture.owner().dealershipId(), fixture.owner().dealershipPublicId(),
+        fixture.owner().dealershipCode(), "Second Parts Owner",
+        fixture.owner().roles(), fixture.owner().permissions());
+  }
+
   private Fixture createAnotherJobCard(Fixture fixture, String jobStatus) {
     var row = jdbc.queryForMap("""
         select customer_id, vehicle_unit_id from service_job_card
