@@ -30,6 +30,30 @@ public class ServiceOperationsController {
     this.workshop = workshop;
   }
 
+  @GetMapping("/customers")
+  @PreAuthorize("hasAuthority('workshop.appointment.read')")
+  public List<ServiceOperationsService.WorkshopCustomerOption> customerOptions(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @RequestParam(required = false) @Size(max = 100) String q) {
+    return workshop.listCustomerOptions(principal, q);
+  }
+
+  @GetMapping("/customers/{customerPublicId}/vehicles")
+  @PreAuthorize("hasAuthority('workshop.appointment.read')")
+  public List<ServiceOperationsService.WorkshopVehicleOption> customerVehicles(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID customerPublicId) {
+    return workshop.listCustomerVehicles(principal, customerPublicId);
+  }
+
+  @GetMapping("/staff-options")
+  @PreAuthorize("hasAuthority('workshop.jobcard.assign')")
+  public List<ServiceOperationsService.StaffOption> staffOptions(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @RequestParam @Pattern(regexp = "SERVICE_ADVISOR|TECHNICIAN|QUALITY_INSPECTOR") String assignmentRole,
+      @RequestParam(required = false) @Size(max = 100) String q) {
+    return workshop.listAssignableStaff(principal, assignmentRole, q);
+  }
+
   @GetMapping("/appointments")
   @PreAuthorize("hasAuthority('workshop.appointment.read')")
   public ServiceOperationsService.Page<ServiceOperationsService.AppointmentView> appointments(
