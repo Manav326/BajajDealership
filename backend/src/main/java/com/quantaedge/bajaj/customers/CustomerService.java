@@ -53,7 +53,7 @@ public class CustomerService {
 
     Long totalValue = jdbc.queryForObject(
         "select count(*) from customer" + where, Long.class, filterArguments);
-    long total = totalValue == null ? 0 : total;
+    long total = totalValue == null ? 0 : totalValue;
 
     Object[] pageArguments = java.util.Arrays.copyOf(filterArguments, filterArguments.length + 2);
     pageArguments[filterArguments.length] = pageSize;
