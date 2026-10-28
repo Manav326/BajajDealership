@@ -126,10 +126,12 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     setActiveSearch(next);
   }
 
-  const availableCount = units.filter((unit) => unit.stockStatus === 'AVAILABLE').length;
-  const expectedCount = units.filter((unit) => unit.stockStatus === 'EXPECTED').length;
-  const reservedCount = units.filter((unit) => unit.stockStatus === 'RESERVED').length;
-  const soldCount = units.filter((unit) => unit.stockStatus === 'SOLD').length;
+  // Aggregate counts come from the model stock summaries, not the first paginated
+  // unit rows, so the figures remain correct when an outlet has more than 100 bikes.
+  const availableCount = models.reduce((sum, model) => sum + model.availableCount, 0);
+  const expectedCount = models.reduce((sum, model) => sum + model.expectedCount, 0);
+  const reservedCount = models.reduce((sum, model) => sum + model.reservedCount, 0);
+  const soldCount = models.reduce((sum, model) => sum + model.soldCount, 0);
 
   if (!staff.permissions.includes('vehicle.read')) {
     return <section className="module-landing"><div className="module-symbol">▤</div><div className="eyebrow">ACCESS CONTROL</div><h1>Bike inventory</h1><p>Your assigned role does not include access to vehicle stock.</p></section>;
