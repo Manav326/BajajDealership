@@ -208,7 +208,10 @@ class SalesOperationsServiceIntegrationTest {
           and status = 'ACTIVE'
         """, Integer.class, fixture.owner().dealershipId(), fixture.owner().dealershipId(),
         fixture.vehiclePublicId())).isEqualTo(1);
-    assertThat(sales.getAvailableVehicleStatus(fixture.owner(), fixture.vehiclePublicId())).isEqualTo("RESERVED");
+    assertThat(jdbc.queryForObject("""
+        select stock_status from vehicle_unit
+        where dealership_id = ? and public_id = ?
+        """, String.class, fixture.owner().dealershipId(), fixture.vehiclePublicId())).isEqualTo("RESERVED");
   }
 
   @Test
