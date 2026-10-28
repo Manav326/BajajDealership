@@ -1011,6 +1011,18 @@ public class ServiceOperationsService {
     return getInvoice(actor, invoicePublicId);
   }
 
+  public InvoiceView getInvoiceForJob(StaffPrincipal actor, UUID jobCardPublicId) {
+    List<UUID> ids = jdbc.query("""
+        select invoice.public_id
+        from service_invoice invoice
+        join service_job_card jc on jc.dealership_id = invoice.dealership_id and jc.id = invoice.job_card_id
+        where invoice.dealership_id = ? and jc.public_id = ? and invoice.status = 'ISSUED'
+        order by invoice.id desc limit 1
+        """, (rs, rowNum) -> rs.getObject(1, UUID.class), actor.dealershipId(), jobCardPublicId);
+    if (ids.isEmpty()) throw notFound("No issued operational invoice was found for this job card.");
+    return getInvoice(actor, ids.getFirst());
+  }
+
   public InvoiceView getInvoice(StaffPrincipal actor, UUID invoicePublicId) {
     List<Map<String, Object>> rows = jdbc.queryForList("""
         select invoice.id, invoice.public_id, invoice.invoice_number, invoice.status,
