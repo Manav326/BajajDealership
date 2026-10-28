@@ -39,7 +39,9 @@ class SalesOperationsControllerSecurityTest {
     mvc.perform(post("/api/v1/admin/sales/enquiries/{publicId}/status", UUID.randomUUID())
             .with(user("sales-reader").authorities(new SimpleGrantedAuthority("sales.read")))
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\\"status\\":\\"CONTACTED\\",\\"note\\":\\"Permission check\\"}"))
+            .content("""
+                {"status":"CONTACTED","note":"Permission check"}
+                """))
         .andExpect(status().isForbidden());
   }
 
@@ -48,8 +50,9 @@ class SalesOperationsControllerSecurityTest {
     mvc.perform(post("/api/v1/admin/sales/enquiries/{publicId}/bookings", UUID.randomUUID())
             .with(user("sales-reader").authorities(new SimpleGrantedAuthority("sales.read")))
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\\"vehicleUnitPublicId\\":\\"%s\\",\\"notes\\":\\"Permission check\\"}"
-                .formatted(UUID.randomUUID())))
+            .content("""
+                {"vehicleUnitPublicId":"%s","notes":"Permission check"}
+                """.formatted(UUID.randomUUID())))
         .andExpect(status().isForbidden());
   }
 }
