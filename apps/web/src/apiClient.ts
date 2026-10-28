@@ -1,5 +1,13 @@
 export type ApiError = Error & { status?: number };
 
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+
+function apiRequestUrl(path: string): string {
+  // Empty in local development: Vite/Docker proxy /api to the local Spring Boot API.
+  return configuredApiBaseUrl ? new URL(path, `${configuredApiBaseUrl}/`).toString() : path;
+}
+
+
 export async function apiFetch<T>(
   path: string,
   token: string,
@@ -12,7 +20,7 @@ export async function apiFetch<T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(apiRequestUrl(path), { ...init, headers });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
