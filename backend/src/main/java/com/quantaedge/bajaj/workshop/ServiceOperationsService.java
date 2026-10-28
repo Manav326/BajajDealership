@@ -1133,8 +1133,8 @@ public class ServiceOperationsService {
 
     List<Map<String, Object>> replayRows = jdbc.queryForList("""
         select public_id, request_fingerprint from service_payment
-        where dealership_id = ? and recorded_by_staff_user_id = ? and idempotency_key = ?
-        """, actor.dealershipId(), actor.staffUserId(), key);
+        where dealership_id = ? and idempotency_key = ?
+        """, actor.dealershipId(), key);
     if (!replayRows.isEmpty()) {
       Map<String, Object> prior = replayRows.getFirst();
       if (!constantTimeEquals(String.valueOf(prior.get("request_fingerprint")), fingerprint)) {
@@ -1158,19 +1158,32 @@ public class ServiceOperationsService {
     }
 
     String receiptNumber = "RCP-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
-    UUID paymentPublicId;
-    try {
-      paymentPublicId = jdbc.queryForObject("""
-          insert into service_payment(
-            dealership_id, receipt_number, idempotency_key, request_fingerprint,
-            payment_method, amount, payment_reference, note, recorded_by_staff_user_id)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning public_id
-          """, UUID.class, actor.dealershipId(), receiptNumber, key, fingerprint,
-          method, amount, reference, note, actor.staffUserId());
-    } catch (DuplicateKeyException duplicate) {
-      throw new ResponseStatusException(HttpStatus.CONFLICT,
-          "Payment was recorded concurrently. Refresh the invoice and retry with the same idempotency key.", duplicate);
+    List<UUID> createdPaymentIds = jdbc.query("""
+        insert into service_payment(
+          dealership_id, receipt_number, idempotency_key, request_fingerprint,
+          payment_method, amount, payment_reference, note, recorded_by_staff_user_id)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        on conflict (dealership_id, idempotency_key) do nothing
+        returning public_id
+        """, (rs, rowNum) -> rs.getObject(1, UUID.class),
+        actor.dealershipId(), receiptNumber, key, fingerprint, method, amount, reference, note, actor.staffUserId());
+    if (createdPaymentIds.isEmpty()) {
+      List<Map<String, Object>> concurrentReplay = jdbc.queryForList("""
+          select public_id, request_fingerprint from service_payment
+          where dealership_id = ? and idempotency_key = ?
+          """, actor.dealershipId(), key);
+      if (concurrentReplay.isEmpty()) throw conflict("Payment could not be recorded. Refresh the invoice and retry.");
+      Map<String, Object> prior = concurrentReplay.getFirst();
+      if (!constantTimeEquals(String.valueOf(prior.get("request_fingerprint")), fingerprint)) {
+        throw conflict("This idempotency key was concurrently used for a different payment request.");
+      }
+      UUID priorPublicId = (UUID) prior.get("public_id");
+      InvoiceView invoice = getInvoice(actor, invoicePublicId);
+      PaymentView payment = invoice.payments().stream().filter(item -> item.publicId().equals(priorPublicId))
+          .findFirst().orElseThrow(() -> conflict("Stored payment is not allocated to this invoice."));
+      return new PaymentResult(payment, invoice, true);
     }
+    UUID paymentPublicId = createdPaymentIds.getFirst();
     long paymentId = jdbc.queryForObject(
         "select id from service_payment where dealership_id = ? and public_id = ?",
         Long.class, actor.dealershipId(), paymentPublicId);
@@ -1234,14 +1247,34 @@ public class ServiceOperationsService {
   }
 
   @Transactional
-  public JobCardView deliverVehicle(StaffPrincipal actor, UUID jobCardPublicId, String note) {
+  public JobCardView deliverVehicle(StaffPrincipal actor, UUID jobCardPublicId, DeliveryRequest request) {
+    if (request == null) throw badRequest("Vehicle handover details are required.");
+    String deliveredToName = requiredText(request.deliveredToName(), "Person receiving the vehicle", 160);
+    if (!Boolean.TRUE.equals(request.customerAcknowledged())) {
+      throw badRequest("Record the customer's acknowledgement before completing handover.");
+    }
+    String method = request.acknowledgementMethod() == null
+        ? "" : request.acknowledgementMethod().trim().toUpperCase(Locale.ROOT);
+    if (!List.of("IN_PERSON", "SIGNED_FORM", "OTP_REFERENCE", "WRITTEN_MESSAGE").contains(method)) {
+      throw badRequest("Choose a supported handover acknowledgement method.");
+    }
+    String reference = optionalText(request.acknowledgementReference(), 160);
+    String note = optionalText(request.note(), 1000);
+    if (List.of("SIGNED_FORM", "OTP_REFERENCE").contains(method) && reference == null) {
+      throw badRequest("A reference is required for signed-form or OTP-reference acknowledgement.");
+    }
+    if (List.of("IN_PERSON", "WRITTEN_MESSAGE").contains(method) && reference == null && note == null) {
+      throw badRequest("Record a note or reference for the handover acknowledgement.");
+    }
+
     List<Map<String, Object>> rows = jdbc.queryForList("""
-        select id, status from service_job_card
+        select id, customer_id, status from service_job_card
         where dealership_id = ? and public_id = ? for update
         """, actor.dealershipId(), jobCardPublicId);
     if (rows.isEmpty()) throw notFound("Workshop job card was not found.");
     Map<String, Object> row = rows.getFirst();
     long jobCardId = ((Number) row.get("id")).longValue();
+    long customerId = ((Number) row.get("customer_id")).longValue();
     String status = String.valueOf(row.get("status"));
     if ("DELIVERED".equals(status)) return getJobCard(actor, jobCardPublicId);
     if (!"INVOICED".equals(status)) throw conflict("Issue an operational invoice before vehicle handover.");
@@ -1249,6 +1282,22 @@ public class ServiceOperationsService {
     if (!"ISSUED".equals(invoice.status())) throw conflict("An issued invoice is required before vehicle handover.");
     if (invoice.balanceDue().signum() != 0) {
       throw conflict("The invoice must be fully paid before handover. Outstanding balance: " + invoice.balanceDue() + ".");
+    }
+    Long invoiceId = jdbc.queryForObject("""
+        select id from service_invoice where dealership_id = ? and public_id = ? and job_card_id = ?
+        """, Long.class, actor.dealershipId(), invoice.publicId(), jobCardId);
+    try {
+      jdbc.update("""
+          insert into service_delivery_handover(
+            dealership_id, job_card_id, invoice_id, customer_id, delivered_to_name,
+            customer_acknowledged, acknowledgement_method, acknowledgement_reference,
+            note, delivered_by_staff_user_id)
+          values (?, ?, ?, ?, ?, true, ?, ?, ?, ?)
+          """, actor.dealershipId(), jobCardId, invoiceId, customerId, deliveredToName,
+          method, reference, note, actor.staffUserId());
+    } catch (DuplicateKeyException duplicate) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "A handover record already exists for this job card. Refresh before retrying.", duplicate);
     }
     int changed = jdbc.update("""
         update service_job_card set status = 'DELIVERED', delivered_at = now(), updated_at = now()
@@ -1259,11 +1308,12 @@ public class ServiceOperationsService {
         insert into service_job_transition(
           dealership_id, job_card_id, from_status, to_status, action, actor_staff_user_id, reason, details)
         values (?, ?, 'INVOICED', 'DELIVERED', 'VEHICLE_HANDED_OVER', ?, ?,
-          jsonb_build_object('invoiceNumber', ?, 'invoiceTotal', ?, 'paidAmount', ?))
-        """, actor.dealershipId(), jobCardId, actor.staffUserId(), optionalText(note, 500),
-        invoice.invoiceNumber(), invoice.invoiceTotal(), invoice.paidAmount());
+          jsonb_build_object('invoiceNumber', ?, 'invoiceTotal', ?, 'paidAmount', ?,
+            'deliveredToName', ?, 'acknowledgementMethod', ?, 'acknowledgementReference', ?))
+        """, actor.dealershipId(), jobCardId, actor.staffUserId(), note,
+        invoice.invoiceNumber(), invoice.invoiceTotal(), invoice.paidAmount(), deliveredToName, method, reference);
     audit(actor, "SERVICE_VEHICLE_DELIVERED", "SERVICE_JOB_CARD", jobCardPublicId.toString(),
-        "Vehicle handed over after quality pass, invoice issue and zero outstanding balance.");
+        "Vehicle handed over after quality pass, invoice issue, zero outstanding balance and recorded customer acknowledgement.");
     return getJobCard(actor, jobCardPublicId);
   }
 
@@ -1659,6 +1709,7 @@ public class ServiceOperationsService {
       List<InvoiceLineView> lines, List<PaymentView> payments) {}
   public record PaymentRequest(
       String idempotencyKey, String paymentMethod, BigDecimal amount, String paymentReference, String note) {}
+  public record DeliveryRequest(String deliveredToName, Boolean customerAcknowledged, String acknowledgementMethod, String acknowledgementReference, String note) {}
   public record PaymentReversalRequest(String reason, String externalReference) {}
   public record PaymentResult(PaymentView payment, InvoiceView invoice, boolean idempotentReplay) {}
 
