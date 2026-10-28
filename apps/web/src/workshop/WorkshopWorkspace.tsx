@@ -303,15 +303,21 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     setSelectedJobCardId(publicId);
     setError('');
     try {
-      const [card, items, currentAssignments] = await Promise.all([
+      const [card, items, currentAssignments, currentEstimates] = await Promise.all([
         request<JobCard>(`/api/v1/admin/workshop/job-cards/${publicId}`, token),
         request<InspectionItem[]>(`/api/v1/admin/workshop/job-cards/${publicId}/inspection`, token),
         request<Assignment[]>(`/api/v1/admin/workshop/job-cards/${publicId}/assignments`, token),
+        request<Estimate[]>(`/api/v1/admin/workshop/job-cards/${publicId}/estimates`, token),
       ]);
       setSelectedJobCard(card);
       setInspectionItems(items);
       setInspectionDrafts(Object.fromEntries(items.map((item) => [item.publicId, { status: item.status, notes: item.notes ?? '' }])));
       setAssignments(currentAssignments);
+      setEstimates(currentEstimates);
+      setQualityDraft({
+        brakesOk: false, lightsOk: false, hornOk: false, noVisibleLeaks: false,
+        roadTestOk: false, toolsRemoved: false, customerConcernResolved: false, notes: '',
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Job card details could not be loaded.');
     }
@@ -346,6 +352,99 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
       await loadJobCards();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Inspection could not be completed.'); }
     finally { setBusyId(''); }
+  }
+
+  function updateEstimateLine(index: number, key: keyof EstimateLineDraft, value: string) {
+    setEstimateLines((current) => current.map((line, lineIndex) =>
+      lineIndex === index ? { ...line, [key]: value } : line));
+  }
+
+  async function createEstimate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedJobCard) return;
+    setSaving(true); setError(''); setMessage('');
+    try {
+      const validLines = estimateLines.filter((line) => line.description.trim() && line.unitPrice.trim());
+      if (validLines.length === 0) throw new Error('Add at least one described line item with a unit price.');
+      const body = {
+        lines: validLines.map((line) => ({
+          lineType: line.lineType,
+          description: line.description.trim(),
+          quantity: Number(line.quantity),
+          unitPrice: Number(line.unitPrice),
+        })),
+        discountAmount: Number(estimateDiscount || 0),
+        customerMessage: estimateMessage.trim() || null,
+      };
+      const created = await request<Estimate>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/estimates`, token, {
+          method: 'POST', body: JSON.stringify(body),
+        });
+      setEstimateLines([{ lineType: 'PART', description: '', quantity: '1', unitPrice: '' }]);
+      setEstimateDiscount('0');
+      setEstimateMessage('');
+      setMessage(`Estimate revision ${created.revision} submitted and awaiting a recorded customer decision.`);
+      await Promise.all([loadJobCards(), openJobCard(selectedJobCard.publicId)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Estimate could not be submitted.');
+    } finally { setSaving(false); }
+  }
+
+  async function recordEstimateDecision(estimate: Estimate) {
+    setBusyId(estimate.publicId); setError(''); setMessage('');
+    try {
+      const saved = await request<Estimate>(
+        `/api/v1/admin/workshop/job-cards/${estimate.jobCardPublicId}/estimates/${estimate.publicId}/decision`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            decision: decisionValue,
+            evidenceMethod,
+            evidenceReference: evidenceReference.trim() || null,
+            note: evidenceNote.trim() || null,
+          }),
+        });
+      setMessage(`Estimate revision ${saved.revision} decision ${prettyStatus(saved.decisions[0]?.decision ?? decisionValue)} recorded.`);
+      setEvidenceReference(''); setEvidenceNote('');
+      await Promise.all([loadJobCards(), openJobCard(estimate.jobCardPublicId)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Estimate decision could not be saved.');
+    } finally { setBusyId(''); }
+  }
+
+  async function startApprovedWork() {
+    if (!selectedJobCard) return;
+    setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
+    try {
+      const updated = await request<JobCard>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/start-work`, token, {
+          method: 'POST', body: JSON.stringify({ note: 'Repair work started after checking estimate approval.' }),
+        });
+      setSelectedJobCard(updated);
+      setMessage(`Work started for ${updated.jobCardCode}.`);
+      await Promise.all([loadJobCards(), openJobCard(updated.publicId)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Work could not be started.');
+    } finally { setBusyId(''); }
+  }
+
+  async function submitQualityCheck() {
+    if (!selectedJobCard) return;
+    setBusyId(selectedJobCard.publicId); setError(''); setMessage('');
+    try {
+      const updated = await request<JobCard>(
+        `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/quality-check`, token, {
+          method: 'POST', body: JSON.stringify({
+            ...qualityDraft, notes: qualityDraft.notes.trim() || null,
+          }),
+        });
+      setSelectedJobCard(updated);
+      setMessage(updated.status === 'READY_FOR_COLLECTION'
+        ? 'Quality check passed. The job is ready for collection, but final handover remains blocked until invoice/payment is recorded.'
+        : 'Quality check failed. Corrective work is required before another quality check.');
+      await Promise.all([loadJobCards(), openJobCard(updated.publicId)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Quality check could not be recorded.');
+    } finally { setBusyId(''); }
   }
 
   async function loadAssignableStaff() {
