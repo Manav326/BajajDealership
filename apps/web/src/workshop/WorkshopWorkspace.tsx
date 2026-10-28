@@ -928,10 +928,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             {(selectedJobCard.status === 'INVOICED' || selectedJobCard.status === 'DELIVERED') && <section className="billing-section">
               <div className="inspection-heading"><div><h3>Invoice and payments</h3><p>Operational invoice snapshot, recorded receipts and outstanding balance.</p></div><span className="studio-count">Billing · step 2</span></div>
               {loadingInvoice && <div className="studio-empty">Loading invoice and payment history…</div>}
-              {!canReadInvoice && <div className="workshop-field-hint">Invoice details are restricted to staff with invoice-read permission.</div>}
+              {!canReadInvoice && <div className="workshop-field-hint">Invoice details are restricted to staff with finance-read permission.</div>}
               {canReadInvoice && !loadingInvoice && !invoice && <div className="studio-empty">No issued invoice is available for this job card. Refresh or contact an authorized service advisor.</div>}
               {invoice && <>
-                <div className="invoice-not-tax-banner"><strong>Operational record only</strong><span>{invoice.documentNotice}</span><small>Invoice {invoice.invoiceNumber} · approved estimate revision {invoice.estimateRevision} · issued {formattedDate(invoice.issuedAt)}</small></div>
+                <div className="invoice-not-tax-banner"><strong>Operational record only</strong><span>Operational service invoice — not a GST tax invoice. GST treatment and statutory tax fields are not implemented here.</span><small>Invoice {invoice.invoiceNumber} · approved estimate revision {invoice.estimateRevision} · issued {formattedDate(invoice.issuedAt)}</small></div>
                 <div className="invoice-parties">
                   <div><span>Customer</span><strong>{invoice.customerName}</strong><small>{invoice.customerPhone || 'No phone recorded'}</small></div>
                   <div><span>Vehicle</span><strong>{invoice.modelName}{invoice.variantName ? ' · ' + invoice.variantName : ''}</strong><small>Chassis {invoice.chassisNumber}</small></div>
@@ -957,20 +957,20 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
                   <div className="billing-payment-fields">
                     <label>Amount (₹)<input required type="number" min="0.01" max={Number(invoice.balanceDue)} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>
                     <label>Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
-                    <label>Payment reference<input maxLength={160} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Optional gateway / bank reference" /></label>
+                    <label>Payment reference<input maxLength={160} required={["UPI", "BANK_TRANSFER", "CARD"].includes(paymentMethod)} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={["UPI", "BANK_TRANSFER", "CARD"].includes(paymentMethod) ? "Required bank / transaction reference" : "Optional reference"} /></label>
                     <label>Receipt note<input maxLength={1000} value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Optional payment note" /></label>
                   </div>
                   <div className="billing-submit-row"><span>If a request times out, retry without changing the details. This screen reuses the same key until a successful response.</span><button type="submit" className="primary-button" disabled={busyId === invoice.publicId || !paymentAmount.trim()}>{busyId === invoice.publicId ? 'Recording…' : 'Record payment and receipt'}</button></div>
                 </form>}
-                {canReadInvoice && invoice.payments.length > 0 && <div className="invoice-payment-history">
-                  <div className="inspection-heading"><div><h3>Receipt history</h3><p>Reversals remain visible and are excluded from the paid balance.</p></div><span className="studio-count">{invoice.payments.length} receipt(s)</span></div>
-                  {invoice.payments.map((payment) => <article className="invoice-payment-row" key={payment.publicId}>
+                {canReadInvoice && invoicePayments.length > 0 && <div className="invoice-payment-history">
+                  <div className="inspection-heading"><div><h3>Receipt history</h3><p>Reversals remain visible and are excluded from the paid balance.</p></div><span className="studio-count">{invoicePayments.length} receipt(s)</span></div>
+                  {invoicePayments.map((payment) => <article className="invoice-payment-row" key={payment.publicId}>
                     <div className="invoice-payment-symbol">{payment.status === 'REVERSED' ? '↶' : '₹'}</div>
                     <div className="invoice-payment-copy"><strong>{payment.receiptNumber} · ₹{Number(payment.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span>{prettyStatus(payment.paymentMethod)} · recorded by {payment.recordedByName} · {formattedDate(payment.recordedAt)}</span>{payment.paymentReference && <small>Reference: {payment.paymentReference}</small>}{payment.note && <small>{payment.note}</small>}{payment.status === 'REVERSED' && <small className="invoice-reversal-note">Reversed by {payment.reversedByName || 'authorized staff'} · {formattedDate(payment.reversedAt)} · {payment.reversalReason}{payment.reversalReference ? ' · ' + payment.reversalReference : ''}</small>}</div>
                     <span className={payment.status === 'REVERSED' ? 'campaign-status status-cancelled' : 'campaign-status status-sent'}>{prettyStatus(payment.status)}</span>
                     {canReversePayment && selectedJobCard.status !== 'DELIVERED' && payment.status === 'RECORDED' && <button type="button" className="text-button danger-link" disabled={busyId === payment.publicId} onClick={() => void reverseInvoicePayment(payment)}>Reverse</button>}
                   </article>)}
-                  {canReversePayment && selectedJobCard.status === 'INVOICED' && invoice.payments.some((payment) => payment.status === 'RECORDED') && <div className="invoice-reversal-form">
+                  {canReversePayment && selectedJobCard.status === 'INVOICED' && invoicePayments.some((payment) => payment.status === 'RECORDED') && <div className="invoice-reversal-form">
                     <label>Reversal reason<input required maxLength={500} value={reversalReason} onChange={(event) => setReversalReason(event.target.value)} placeholder="Required audit reason" /></label>
                     <label>External reversal reference<input maxLength={160} value={reversalReference} onChange={(event) => setReversalReference(event.target.value)} placeholder="Optional reference" /></label>
                     <small>Choose Reverse on the specific receipt above after entering the reason. Reversals after vehicle handover require a separate refund/credit workflow.</small>
