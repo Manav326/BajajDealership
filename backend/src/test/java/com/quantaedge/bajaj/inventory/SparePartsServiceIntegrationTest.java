@@ -256,6 +256,50 @@ class SparePartsServiceIntegrationTest {
 
   @Test
   @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void concurrentRetryOfSameSupplierReceiptAddsStockOnlyOnce() throws Exception {
+    Fixture fixture = createFixture("CONCURRENT-RECEIPT", "IN_PROGRESS");
+    var part = createPart(fixture, "RACE-RECEIPT", "Concurrent receipt part");
+    var supplier = createSupplier(fixture);
+    var request = new SparePartsService.ReceiptRequest(
+        supplier.publicId(), "PO-RACE", "same-receipt-" + UUID.randomUUID(), "Concurrent duplicate submit",
+        List.of(new SparePartsService.ReceiptLineRequest(
+            part.publicId(), new BigDecimal("8.000"), new BigDecimal("11.50"))));
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      Future<SparePartsService.ReceiptView> first = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        return parts.receiveStock(fixture.owner(), request);
+      });
+      Future<SparePartsService.ReceiptView> second = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        return parts.receiveStock(fixture.owner(), request);
+      });
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      var resultOne = first.get(15, TimeUnit.SECONDS);
+      var resultTwo = second.get(15, TimeUnit.SECONDS);
+      assertThat(resultOne.publicId()).isEqualTo(resultTwo.publicId());
+      assertThat(resultOne.receiptNumber()).isEqualTo(resultTwo.receiptNumber());
+    } finally {
+      start.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("8.000");
+    assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+        .filteredOn(movement -> movement.movementType().equals("PURCHASE_RECEIPT"))
+        .hasSize(1);
+    assertThat(parts.listReceipts(fixture.owner(), 0, 100).total()).isEqualTo(1);
+  }
+
+  @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
   void concurrentReservationsOnSameSkuCannotOversellAvailableStock() throws Exception {
     Fixture fixture = createFixture("CONCURRENT", "IN_PROGRESS");
     Fixture extraJob = createAnotherJobCard(fixture, "IN_PROGRESS");
