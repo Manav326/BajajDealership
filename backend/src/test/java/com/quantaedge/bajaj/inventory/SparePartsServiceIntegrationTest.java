@@ -77,6 +77,50 @@ class SparePartsServiceIntegrationTest {
   }
 
   @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void failedMultiLineReceiptRollsBackEarlierSkuChangesAndLedgerRows() {
+    Fixture fixture = createFixture("RECEIPT-ROLLBACK", "IN_PROGRESS");
+    var firstPart = createPart(fixture, "ROLLBACK-FIRST", "First receipt line");
+    var overflowingPart = createPart(fixture, "ROLLBACK-LAST", "Overflowing receipt line");
+    var supplier = createSupplier(fixture);
+    jdbc.update("""
+        update spare_part_balance
+        set quantity_on_hand = ?, quantity_reserved = 0, average_unit_cost = 0, updated_at = now()
+        where dealership_id = ? and part_id = (
+          select id from spare_part where dealership_id = ? and public_id = ?)
+        """, new BigDecimal("999999999.999"), fixture.dealershipId(),
+        fixture.dealershipId(), overflowingPart.publicId());
+
+    String key = "rollback-receipt-" + UUID.randomUUID();
+    var receiptRequest = new SparePartsService.ReceiptRequest(
+        supplier.publicId(), "PO-ROLLBACK", key, "Second line deliberately exceeds supported balance",
+        List.of(
+            new SparePartsService.ReceiptLineRequest(
+                firstPart.publicId(), BigDecimal.ONE, new BigDecimal("10.00")),
+            new SparePartsService.ReceiptLineRequest(
+                overflowingPart.publicId(), BigDecimal.ONE, BigDecimal.ZERO)));
+
+    assertThatThrownBy(() -> parts.receiveStock(fixture.owner(), receiptRequest))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST));
+
+    assertThat(parts.getPart(fixture.owner(), firstPart.publicId()).quantityOnHand()).isEqualByComparingTo("0.000");
+    assertThat(parts.getPart(fixture.owner(), overflowingPart.publicId()).quantityOnHand())
+        .isEqualByComparingTo("999999999.999");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from part_purchase_receipt
+        where dealership_id = ? and idempotency_key = ?
+        """, Integer.class, fixture.dealershipId(), key)).isZero();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from spare_part_stock_movement
+        where dealership_id = ? and part_id = (
+          select id from spare_part where dealership_id = ? and public_id = ?)
+        """, Integer.class, fixture.dealershipId(), fixture.dealershipId(), firstPart.publicId())).isZero();
+    assertThat(parts.listMovements(fixture.owner(), overflowingPart.publicId(), 0, 25).total()).isZero();
+  }
+
+  @Test
   void reservationIssueReturnAndReleaseKeepStockAndHistoryConsistent() {
     Fixture fixture = createFixture("WORKFLOW", "IN_PROGRESS");
     var part = createPart(fixture, "BRAKE-PAD", "Front brake pad set");
