@@ -43,7 +43,7 @@ public class StaffSecurityConfiguration {
               response.getWriter().write("{\"error\":\"forbidden\",\"message\":\"You do not have permission for this action.\"}");
             }))
         .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap", "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
