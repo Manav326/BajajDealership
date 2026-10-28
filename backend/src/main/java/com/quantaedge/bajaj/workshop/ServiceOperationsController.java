@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -126,6 +127,69 @@ public class ServiceOperationsController {
     return workshop.getJobCard(principal, publicId);
   }
 
+  @GetMapping("/job-cards/{publicId}/estimates")
+  @PreAuthorize("hasAuthority('workshop.read')")
+  public List<ServiceOperationsService.EstimateView> estimates(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    return workshop.listEstimates(principal, publicId);
+  }
+
+  @PostMapping("/job-cards/{publicId}/estimates")
+  @PreAuthorize("hasAuthority('workshop.estimate.create')")
+  public ServiceOperationsService.EstimateView createEstimate(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody EstimateRequest request) {
+    List<ServiceOperationsService.EstimateLineInput> lines = request.lines().stream()
+        .map(line -> new ServiceOperationsService.EstimateLineInput(
+            line.lineType(), line.description(), line.quantity(), line.unitPrice()))
+        .toList();
+    return workshop.createEstimate(principal, publicId,
+        new ServiceOperationsService.EstimateRequest(lines, request.discountAmount(), request.customerMessage()));
+  }
+
+  @GetMapping("/job-cards/{publicId}/estimates/{estimatePublicId}")
+  @PreAuthorize("hasAuthority('workshop.read')")
+  public ServiceOperationsService.EstimateView getEstimate(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @PathVariable UUID estimatePublicId) {
+    return workshop.getEstimate(principal, publicId, estimatePublicId);
+  }
+
+  @PostMapping("/job-cards/{publicId}/estimates/{estimatePublicId}/decision")
+  @PreAuthorize("hasAuthority('workshop.approve_estimate')")
+  public ServiceOperationsService.EstimateView estimateDecision(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @PathVariable UUID estimatePublicId,
+      @Valid @RequestBody EstimateDecisionRequest request) {
+    return workshop.recordEstimateDecision(principal, publicId, estimatePublicId,
+        new ServiceOperationsService.EstimateDecisionRequest(
+            request.decision(), request.evidenceMethod(), request.evidenceReference(), request.note()));
+  }
+
+  @PostMapping("/job-cards/{publicId}/start-work")
+  @PreAuthorize("hasAuthority('workshop.jobcard.work')")
+  public ServiceOperationsService.JobCardView startWork(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody(required = false) NoteRequest request) {
+    return workshop.startWork(principal, publicId, request == null ? null : request.note());
+  }
+
+  @PostMapping("/job-cards/{publicId}/quality-check")
+  @PreAuthorize("hasAuthority('workshop.quality_check')")
+  public ServiceOperationsService.JobCardView qualityCheck(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody QualityCheckRequest request) {
+    return workshop.recordQualityCheck(principal, publicId,
+        new ServiceOperationsService.QualityCheckRequest(
+            request.brakesOk(), request.lightsOk(), request.hornOk(), request.noVisibleLeaks(),
+            request.roadTestOk(), request.toolsRemoved(), request.customerConcernResolved(), request.notes()));
+  }
+
   @GetMapping("/job-cards/{publicId}/inspection")
   @PreAuthorize("hasAuthority('workshop.read')")
   public List<ServiceOperationsService.InspectionItemView> inspection(
@@ -185,6 +249,25 @@ public class ServiceOperationsController {
           customerLanguage, source, staffNotes);
     }
   }
+
+  public record EstimateLineRequest(
+      @NotBlank @Pattern(regexp = "PART|LABOUR|OTHER") String lineType,
+      @NotBlank @Size(max = 300) String description,
+      @NotNull @DecimalMin(value = "0.001") @Digits(integer = 9, fraction = 3) BigDecimal quantity,
+      @NotNull @DecimalMin(value = "0.00") @Digits(integer = 12, fraction = 2) BigDecimal unitPrice) {}
+  public record EstimateRequest(
+      @NotNull @Size(min = 1, max = 100) List<@Valid EstimateLineRequest> lines,
+      @DecimalMin(value = "0.00") @Digits(integer = 12, fraction = 2) BigDecimal discountAmount,
+      @Size(max = 2000) String customerMessage) {}
+  public record EstimateDecisionRequest(
+      @NotBlank @Pattern(regexp = "APPROVED|DECLINED|REVISION_REQUESTED") String decision,
+      @NotBlank @Pattern(regexp = "OTP|SIGNED_FORM|IN_PERSON|PHONE_RECORD|WRITTEN_MESSAGE") String evidenceMethod,
+      @Size(max = 160) String evidenceReference,
+      @Size(max = 1000) String note) {}
+  public record QualityCheckRequest(
+      @NotNull Boolean brakesOk, @NotNull Boolean lightsOk, @NotNull Boolean hornOk,
+      @NotNull Boolean noVisibleLeaks, @NotNull Boolean roadTestOk, @NotNull Boolean toolsRemoved,
+      @NotNull Boolean customerConcernResolved, @Size(max = 1500) String notes) {}
 
   public record NoteRequest(@Size(max = 500) String note) {}
   public record CancelRequest(@NotBlank @Size(max = 500) String reason) {}
