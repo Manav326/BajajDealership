@@ -96,7 +96,8 @@ class StaffAccessManagementServiceIntegrationTest {
     assertThatThrownBy(() -> access.changeStatus(owner, UUID.fromString(owner.staffPublicId()),
         "DISABLED", "Self disable attempt"))
         .isInstanceOf(ResponseStatusException.class)
-        .isInstanceOf(ResponseStatusException.class);
+        .extracting(error -> ((ResponseStatusException) error).getStatusCode())
+        .isEqualTo(HttpStatus.CONFLICT);
 
     UUID protectedOwnerId = UUID.randomUUID();
     long secondOwnerId = jdbc.queryForObject("""
