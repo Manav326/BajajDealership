@@ -18,6 +18,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -41,6 +42,25 @@ public class SparePartsController {
       @RequestParam(required = false) @Size(max = 100) String q,
       @RequestParam(required = false) Boolean activeOnly) {
     return parts.listParts(principal, page, pageSize, q, activeOnly);
+  }
+
+  @GetMapping("/parts/low-stock")
+  @PreAuthorize("hasAuthority('parts.read')")
+  public SparePartsService.Page<SparePartsService.LowStockAlertView> lowStock(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "25") @Min(1) @Max(100) int pageSize) {
+    return parts.listLowStockAlerts(principal, page, pageSize);
+  }
+
+  @PutMapping("/parts/{publicId}/reorder-policy")
+  @PreAuthorize("hasAuthority('parts.manage')")
+  public SparePartsService.SparePartView updateReorderPolicy(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody ReorderPolicyRequest request) {
+    return parts.updateReorderPolicy(principal, publicId,
+        new SparePartsService.ReorderPolicyRequest(request.lowStockThreshold(), request.reorderToQuantity()));
   }
 
   @GetMapping("/parts/{publicId}")
@@ -178,6 +198,10 @@ public class SparePartsController {
     return parts.releaseReservation(principal, reservationPublicId,
         new SparePartsService.OperationRequest(request.idempotencyKey(), request.notes()));
   }
+
+  public record ReorderPolicyRequest(
+      @NotNull @DecimalMin(value = "0.00") @Digits(integer = 9, fraction = 3) BigDecimal lowStockThreshold,
+      @NotNull @DecimalMin(value = "0.00") @Digits(integer = 9, fraction = 3) BigDecimal reorderToQuantity) {}
 
   public record PartRequest(
       @NotBlank @Size(max = 60) String skuCode,
