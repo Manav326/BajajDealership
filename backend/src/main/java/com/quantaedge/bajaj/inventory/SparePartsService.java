@@ -704,15 +704,17 @@ public class SparePartsService {
   private List<ReservationLock> queryReservationLock(StaffPrincipal actor, UUID publicId, boolean forUpdate) {
     String lockClause = forUpdate ? " for update " : "";
     return jdbc.query("""
-        select id, public_id, job_card_id, part_id, quantity_reserved, quantity_issued,
-          quantity_returned, unit_cost_snapshot, status
-        from service_job_part_reservation
-        where dealership_id = ? and public_id = ?
-        """ + lockClause,
+        select reservation.id, reservation.public_id, reservation.job_card_id, reservation.part_id,
+          part.public_id as part_public_id, reservation.quantity_reserved, reservation.quantity_issued,
+          reservation.quantity_returned, reservation.unit_cost_snapshot, reservation.status
+        from service_job_part_reservation reservation
+        join spare_part part on part.dealership_id = reservation.dealership_id and part.id = reservation.part_id
+        where reservation.dealership_id = ? and reservation.public_id = ?
+        """ + lockClause.replace("for update", "for update of reservation"),
         (rs, rowNum) -> new ReservationLock(rs.getLong("id"), rs.getObject("public_id", UUID.class),
-            rs.getLong("job_card_id"), rs.getLong("part_id"), rs.getBigDecimal("quantity_reserved"),
-            rs.getBigDecimal("quantity_issued"), rs.getBigDecimal("quantity_returned"),
-            rs.getBigDecimal("unit_cost_snapshot"), rs.getString("status")),
+            rs.getLong("job_card_id"), rs.getLong("part_id"), rs.getObject("part_public_id", UUID.class),
+            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_issued"),
+            rs.getBigDecimal("quantity_returned"), rs.getBigDecimal("unit_cost_snapshot"), rs.getString("status")),
         actor.dealershipId(), publicId);
   }
 
@@ -751,6 +753,12 @@ public class SparePartsService {
         where dealership_id = ? and idempotency_key = ? and reservation_public_id is null
         """, reservationPublicId, actor.dealershipId(), key);
     if (updated != 1) throw conflict("Spare-part operation could not be committed.");
+  }
+
+  private void requireWorkInProgress(JobLock job) {
+    if (!"IN_PROGRESS".equals(job.status())) {
+      throw conflict("Parts can only be issued or returned while the workshop job is in progress.");
+    }
   }
 
   private void insertMovement(
@@ -933,6 +941,6 @@ public class SparePartsService {
       BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal averageUnitCost, boolean active) {}
   private record JobLock(long id, UUID publicId, String jobCardCode, String status) {}
   private record ReservationLock(
-      long id, UUID publicId, long jobCardId, long partId, BigDecimal quantityReserved,
+      long id, UUID publicId, long jobCardId, long partId, UUID partPublicId, BigDecimal quantityReserved,
       BigDecimal quantityIssued, BigDecimal quantityReturned, BigDecimal unitCostSnapshot, String status) {}
 }
