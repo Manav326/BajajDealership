@@ -44,7 +44,7 @@ public class NotificationManagementService {
   private final SecureRandom secureRandom = new SecureRandom();
 
   private static final RowMapper<TemplateView> TEMPLATE_ROW = (rs, rowNum) -> new TemplateView(
-      rs.getObject("public_id", UUID.class), rs.getString("template_family_id"),
+      rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("template_family_id"),
       rs.getString("template_name"), rs.getString("description"), rs.getInt("content_version"),
       readDocument(rs.getString("content_document")), rs.getString("status"),
       rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
@@ -64,7 +64,7 @@ public class NotificationManagementService {
       instant(rs.getTimestamp("cancelled_at")));
 
   private static final RowMapper<CampaignView> CAMPAIGN_VIEW_ROW = (rs, rowNum) -> new CampaignView(
-      rs.getObject("public_id", UUID.class), rs.getString("scope"), rs.getString("title"),
+      rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("scope"), rs.getString("title"),
       rs.getString("summary"), rs.getString("status"), rs.getInt("resolved_recipient_count"),
       instant(rs.getTimestamp("scheduled_at")), instant(rs.getTimestamp("expires_at")),
       instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("dispatched_at")),
@@ -88,7 +88,7 @@ public class NotificationManagementService {
 
   public List<TemplateView> listTemplates(StaffPrincipal actor) {
     return jdbc.query("""
-        select public_id, template_family_id::text, template_name, description,
+        select id, public_id, template_family_id::text, template_name, description,
           content_version, content_document::text as content_document, status, created_at, updated_at
         from notification_template
         where dealership_id = ? and status <> 'ARCHIVED'
@@ -165,7 +165,7 @@ public class NotificationManagementService {
 
   public TemplateView findTemplate(StaffPrincipal actor, UUID publicId) {
     List<TemplateView> rows = jdbc.query("""
-        select public_id, template_family_id::text, template_name, description,
+        select id, public_id, template_family_id::text, template_name, description,
           content_version, content_document::text as content_document, status, created_at, updated_at
         from notification_template
         where dealership_id = ? and public_id = ?
@@ -389,7 +389,7 @@ public class NotificationManagementService {
   public List<CampaignView> listCampaigns(StaffPrincipal actor, int requestedLimit) {
     int limit = Math.max(1, Math.min(requestedLimit, MAX_PAGE_SIZE));
     return jdbc.query("""
-        select public_id, scope, title, summary, status, resolved_recipient_count,
+        select id, public_id, scope, title, summary, status, resolved_recipient_count,
           scheduled_at, expires_at, created_at, dispatched_at, cancelled_at
         from notification_campaign where dealership_id = ?
         order by created_at desc, id desc limit ?
@@ -739,7 +739,7 @@ public class NotificationManagementService {
 
   private TemplateView findTemplateForId(StaffPrincipal actor, Long id) {
     List<TemplateView> rows = jdbc.query("""
-        select public_id, template_family_id::text, template_name, description,
+        select id, public_id, template_family_id::text, template_name, description,
           content_version, content_document::text as content_document, status, created_at, updated_at
         from notification_template where dealership_id = ? and id = ?
         """, TEMPLATE_ROW, actor.dealershipId(), id);
@@ -855,7 +855,7 @@ public class NotificationManagementService {
   }
 
   private CampaignView toView(CampaignRecord campaign) {
-    return new CampaignView(campaign.publicId(), campaign.scope(), campaign.title(), campaign.summary(),
+    return new CampaignView(campaign.id(), campaign.publicId(), campaign.scope(), campaign.title(), campaign.summary(),
         campaign.status(), campaign.resolvedRecipientCount(), campaign.scheduledAt(), campaign.expiresAt(),
         campaign.createdAt(), campaign.dispatchedAt(), campaign.cancelledAt());
   }
@@ -906,7 +906,7 @@ public class NotificationManagementService {
 
   public record TemplateRequest(String templateName, String description, Object contentDocument) {}
   public record TemplateView(
-      UUID publicId, String templateFamilyId, String templateName, String description,
+      long id, UUID publicId, String templateFamilyId, String templateName, String description,
       int contentVersion, JsonNode contentDocument, String status, Instant createdAt, Instant updatedAt) {}
   public record DealershipOption(
       long id, String institutionCode, String displayName, String status,
@@ -929,7 +929,7 @@ public class NotificationManagementService {
       List<RecipientOption> recipients, String message) {}
   public record CampaignResult(CampaignView campaign, boolean idempotentReplay) {}
   public record CampaignView(
-      UUID publicId, String scope, String title, String summary, String status,
+      long id, UUID publicId, String scope, String title, String summary, String status,
       int resolvedRecipientCount, Instant scheduledAt, Instant expiresAt, Instant createdAt,
       Instant dispatchedAt, Instant cancelledAt) {}
   public record InboxItem(
