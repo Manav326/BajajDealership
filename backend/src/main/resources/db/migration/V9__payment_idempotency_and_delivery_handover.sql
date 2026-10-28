@@ -1,22 +1,6 @@
 -- Use dealership-wide idempotency keys so retrying from another staff session cannot duplicate receipts.
-do $
-declare
-  existing_constraint text;
-begin
-  select conname into existing_constraint
-  from pg_constraint
-  where conrelid = 'service_payment'::regclass
-    and contype = 'u'
-    and cardinality(conkey) = 3
-    and pg_get_constraintdef(oid) =
-      'UNIQUE (dealership_id, recorded_by_staff_user_id, idempotency_key)';
+-- Keep the existing staff-scoped unique constraint; the dealership-wide constraint below is stricter.
 
-  if existing_constraint is null then
-    raise exception 'Expected the prior three-column service payment idempotency constraint.';
-  end if;
-
-  execute format('alter table service_payment drop constraint %I', existing_constraint);
-end $;
 alter table service_payment
   add constraint uq_service_payment_idempotency_per_dealership
   unique (dealership_id, idempotency_key);
