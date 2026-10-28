@@ -213,6 +213,48 @@ class SparePartsServiceIntegrationTest {
   }
 
   @Test
+  void lowStockAlertsUseAvailableQuantityAndZeroThresholdDisablesAlert() {
+    Fixture fixture = createFixture("LOW-STOCK", "IN_PROGRESS");
+    var part = createPart(fixture, "LOW-TEST", "Low-stock test part");
+    var supplier = createSupplier(fixture);
+    receive(fixture, part.publicId(), supplier.publicId(), "low-opening-" + UUID.randomUUID(),
+        "10.000", "8.00");
+
+    var configured = parts.updateReorderPolicy(fixture.owner(), part.publicId(),
+        new SparePartsService.ReorderPolicyRequest(
+            new BigDecimal("5.000"), new BigDecimal("12.000")));
+    assertThat(configured.lowStockThreshold()).isEqualByComparingTo("5.000");
+    assertThat(configured.reorderToQuantity()).isEqualByComparingTo("12.000");
+    assertThat(parts.listLowStockAlerts(fixture.owner(), 0, 25).total()).isZero();
+
+    parts.reservePart(fixture.owner(), fixture.jobCardPublicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("6.000"), "low-reserve-" + UUID.randomUUID(),
+            "Reserved stock should count against availability."));
+    var alerts = parts.listLowStockAlerts(fixture.owner(), 0, 25);
+    assertThat(alerts.total()).isEqualTo(1);
+    var alert = alerts.items().getFirst();
+    assertThat(alert.publicId()).isEqualTo(part.publicId());
+    assertThat(alert.quantityOnHand()).isEqualByComparingTo("10.000");
+    assertThat(alert.quantityReserved()).isEqualByComparingTo("6.000");
+    assertThat(alert.quantityAvailable()).isEqualByComparingTo("4.000");
+    assertThat(alert.lowStockThreshold()).isEqualByComparingTo("5.000");
+    assertThat(alert.suggestedOrderQuantity()).isEqualByComparingTo("8.000");
+
+    assertThatThrownBy(() -> parts.updateReorderPolicy(fixture.owner(), part.publicId(),
+        new SparePartsService.ReorderPolicyRequest(
+            new BigDecimal("6.000"), new BigDecimal("5.000"))))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST));
+
+    var disabled = parts.updateReorderPolicy(fixture.owner(), part.publicId(),
+        new SparePartsService.ReorderPolicyRequest(BigDecimal.ZERO, BigDecimal.ZERO));
+    assertThat(disabled.lowStockThreshold()).isEqualByComparingTo("0.000");
+    assertThat(parts.listLowStockAlerts(fixture.owner(), 0, 25).total()).isZero();
+  }
+
+  @Test
   @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
   void concurrentReservationsOnSameSkuCannotOversellAvailableStock() throws Exception {
     Fixture fixture = createFixture("CONCURRENT", "IN_PROGRESS");
