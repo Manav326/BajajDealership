@@ -1,7 +1,5 @@
 [CmdletBinding()]
-param(
-    [switch]$Rebuild
-)
+param([switch]$Rebuild)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -35,79 +33,12 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Docker Compose v2 is required (docker compose).'
 }
 
-# Create a private ignored .env on first run and never use a predictable bootstrap token.
+# Create a private ignored .env and a random one-time first-owner token.
 $rootEnv = Join-Path $repoRoot '.env'
 $generatedBootstrapToken = $false
 $rootEnvContent = if (Test-Path $rootEnv) { Get-Content $rootEnv -Raw } else { '' }
-$tokenMatch = [regex]::Match($rootEnvContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*
-    Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
-    ForEach-Object { $_.IPv4Address.IPAddress } |
-    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' } |
-    Select-Object -First 1
-if (-not $lanIp) { $lanIp = '192.168.31.47' }
-
-$androidBaseUrl = $env:BAJAJ_ANDROID_API_BASE_URL
-if ([string]::IsNullOrWhiteSpace($androidBaseUrl)) {
-    $androidBaseUrl = "http://${lanIp}:8080/"
-}
-$androidEnv = Join-Path $repoRoot 'apps/android/.env'
-if (-not (Test-Path $androidEnv) -or -not [string]::IsNullOrWhiteSpace($env:BAJAJ_ANDROID_API_BASE_URL)) {
-    "EXPO_PUBLIC_API_BASE_URL=$androidBaseUrl" | Set-Content -Path $androidEnv -Encoding ascii
-} else {
-    $configured = Get-Content $androidEnv | Where-Object { $_ -match '^\s*EXPO_PUBLIC_API_BASE_URL\s*=' } | Select-Object -First 1
-    if ($configured) { $androidBaseUrl = ($configured -split '=', 2)[1].Trim().Trim('"').Trim("'") }
-}
-
-Write-Host "Android API  : $androidBaseUrl" -ForegroundColor DarkGray
-Write-Host 'Building and starting PostgreSQL, Spring Boot API, customer web and staff web…' -ForegroundColor Cyan
-Invoke-Compose -ComposeArgs @('config', '--quiet')
-if ($Rebuild) {
-    Invoke-Compose -ComposeArgs @('build', '--no-cache')
-}
-Invoke-Compose -ComposeArgs @('up', '--build', '-d')
-
-$checks = @(
-    @{ Name = 'Backend API'; Uri = 'http://localhost:8080/actuator/health' },
-    @{ Name = 'Customer web'; Uri = 'http://localhost:3000/' },
-    @{ Name = 'Staff web'; Uri = 'http://localhost:3001/' }
-)
-$pending = @()
-$ready = $false
-for ($attempt = 1; $attempt -le 90; $attempt++) {
-    $pending = @()
-    foreach ($check in $checks) {
-        try {
-            $response = Invoke-WebRequest -Uri $check.Uri -TimeoutSec 3 -UseBasicParsing
-            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
-                $pending += $check
-            }
-        } catch {
-            $pending += $check
-        }
-    }
-    if ($pending.Count -eq 0) {
-        $ready = $true
-        break
-    }
-    Start-Sleep -Seconds 2
-}
-
-if (-not $ready) {
-    Write-Host ''
-    Write-Host 'The stack did not become fully healthy. Recent logs follow:' -ForegroundColor Red
-    & docker compose -f (Join-Path $repoRoot 'compose.yaml') logs --tail=100
-    throw "Timed out waiting for: $($pending.Name -join ', ')."
-}
-
-Write-Host ''
-Write-Host 'All local services responded successfully.' -ForegroundColor Green
-Write-Host 'Customer website : http://localhost:3000' -ForegroundColor Green
-Write-Host 'Staff portal     : http://localhost:3001' -ForegroundColor Green
-Write-Host 'Backend API      : http://localhost:8080' -ForegroundColor Green
-Write-Host "Android device   : $androidBaseUrl" -ForegroundColor Green
-Write-Host ''
-Invoke-Compose -ComposeArgs @('ps')
-)
+$tokenMatch = [regex]::Match($rootEnvContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$')
+if (-not $TestPath -and $false) { } # Keep this script compatible with Windows PowerShell and PowerShell 7.
 if (-not (Test-Path $rootEnv) -or -not $tokenMatch.Success -or [string]::IsNullOrWhiteSpace($tokenMatch.Groups[1].Value)) {
     $tokenBytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($tokenBytes)
@@ -123,90 +54,27 @@ CUSTOMER_WEB_PORT=3000
 STAFF_WEB_PORT=3001
 APP_BOOTSTRAP_TOKEN=$newToken
 "@ | Set-Content -Path $rootEnv -Encoding ascii
+    } elseif ($rootEnvContent -match '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=') {
+        $rootEnvContent = $rootEnvContent -replace '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=.*$', "APP_BOOTSTRAP_TOKEN=$newToken"
+        Set-Content -Path $rootEnv -Value $rootEnvContent -Encoding ascii
     } else {
         Add-Content -Path $rootEnv -Value "APP_BOOTSTRAP_TOKEN=$newToken" -Encoding ascii
     }
-    $rootEnvContent = Get-Content $rootEnv -Raw
     $generatedBootstrapToken = $true
 }
+
 if ($generatedBootstrapToken) {
-    $newTokenValue = [regex]::Match($rootEnvContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*
-    Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
-    ForEach-Object { $_.IPv4Address.IPAddress } |
-    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' } |
-    Select-Object -First 1
-if (-not $lanIp) { $lanIp = '192.168.31.47' }
-
-$androidBaseUrl = $env:BAJAJ_ANDROID_API_BASE_URL
-if ([string]::IsNullOrWhiteSpace($androidBaseUrl)) {
-    $androidBaseUrl = "http://${lanIp}:8080/"
-}
-$androidEnv = Join-Path $repoRoot 'apps/android/.env'
-if (-not (Test-Path $androidEnv) -or -not [string]::IsNullOrWhiteSpace($env:BAJAJ_ANDROID_API_BASE_URL)) {
-    "EXPO_PUBLIC_API_BASE_URL=$androidBaseUrl" | Set-Content -Path $androidEnv -Encoding ascii
-} else {
-    $configured = Get-Content $androidEnv | Where-Object { $_ -match '^\s*EXPO_PUBLIC_API_BASE_URL\s*=' } | Select-Object -First 1
-    if ($configured) { $androidBaseUrl = ($configured -split '=', 2)[1].Trim().Trim('"').Trim("'") }
-}
-
-Write-Host "Android API  : $androidBaseUrl" -ForegroundColor DarkGray
-Write-Host 'Building and starting PostgreSQL, Spring Boot API, customer web and staff web…' -ForegroundColor Cyan
-Invoke-Compose -ComposeArgs @('config', '--quiet')
-if ($Rebuild) {
-    Invoke-Compose -ComposeArgs @('build', '--no-cache')
-}
-Invoke-Compose -ComposeArgs @('up', '--build', '-d')
-
-$checks = @(
-    @{ Name = 'Backend API'; Uri = 'http://localhost:8080/actuator/health' },
-    @{ Name = 'Customer web'; Uri = 'http://localhost:3000/' },
-    @{ Name = 'Staff web'; Uri = 'http://localhost:3001/' }
-)
-$pending = @()
-$ready = $false
-for ($attempt = 1; $attempt -le 90; $attempt++) {
-    $pending = @()
-    foreach ($check in $checks) {
-        try {
-            $response = Invoke-WebRequest -Uri $check.Uri -TimeoutSec 3 -UseBasicParsing
-            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
-                $pending += $check
-            }
-        } catch {
-            $pending += $check
-        }
-    }
-    if ($pending.Count -eq 0) {
-        $ready = $true
-        break
-    }
-    Start-Sleep -Seconds 2
-}
-
-if (-not $ready) {
-    Write-Host ''
-    Write-Host 'The stack did not become fully healthy. Recent logs follow:' -ForegroundColor Red
-    & docker compose -f (Join-Path $repoRoot 'compose.yaml') logs --tail=100
-    throw "Timed out waiting for: $($pending.Name -join ', ')."
-}
-
-Write-Host ''
-Write-Host 'All local services responded successfully.' -ForegroundColor Green
-Write-Host 'Customer website : http://localhost:3000' -ForegroundColor Green
-Write-Host 'Staff portal     : http://localhost:3001' -ForegroundColor Green
-Write-Host 'Backend API      : http://localhost:8080' -ForegroundColor Green
-Write-Host "Android device   : $androidBaseUrl" -ForegroundColor Green
-Write-Host ''
-Invoke-Compose -ComposeArgs @('ps')
-).Groups[1].Value.Trim().Trim('"').Trim("'")
+    $tokenContent = Get-Content $rootEnv -Raw
+    $newTokenValue = [regex]::Match($tokenContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$').Groups[1].Value.Trim().Trim('"').Trim("'")
     Write-Host ''
     Write-Host 'One-time initial owner setup token (local only):' -ForegroundColor Yellow
     Write-Host $newTokenValue -ForegroundColor Yellow
-    Write-Host 'Use it for POST /api/v1/system/bootstrap via the X-Bootstrap-Token header. After owner setup, remove APP_BOOTSTRAP_TOKEN from .env and restart the API.' -ForegroundColor DarkYellow
+    Write-Host 'Use it in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap.' -ForegroundColor DarkYellow
+    Write-Host 'After owner setup, remove APP_BOOTSTRAP_TOKEN from .env and restart the API.' -ForegroundColor DarkYellow
     Write-Host ''
 }
 
-# Follow mPAY's physical-device convention but discover the current host LAN IP.
+# Match the mPAY physical-device convention but discover the current host LAN IP.
 $lanIp = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
     Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
     ForEach-Object { $_.IPv4Address.IPAddress } |
@@ -216,22 +84,23 @@ if (-not $lanIp) { $lanIp = '192.168.31.47' }
 
 $androidBaseUrl = $env:BAJAJ_ANDROID_API_BASE_URL
 if ([string]::IsNullOrWhiteSpace($androidBaseUrl)) {
-    $androidBaseUrl = "http://${lanIp}:8080/"
+    $androidBaseUrl = 'http://' + $lanIp + ':8080/'
 }
 $androidEnv = Join-Path $repoRoot 'apps/android/.env'
 if (-not (Test-Path $androidEnv) -or -not [string]::IsNullOrWhiteSpace($env:BAJAJ_ANDROID_API_BASE_URL)) {
     "EXPO_PUBLIC_API_BASE_URL=$androidBaseUrl" | Set-Content -Path $androidEnv -Encoding ascii
 } else {
     $configured = Get-Content $androidEnv | Where-Object { $_ -match '^\s*EXPO_PUBLIC_API_BASE_URL\s*=' } | Select-Object -First 1
-    if ($configured) { $androidBaseUrl = ($configured -split '=', 2)[1].Trim().Trim('"').Trim("'") }
+    if ($configured) {
+        $configuredUrl = ($configured -split '=', 2)[1].Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($configuredUrl)) { $androidBaseUrl = $configuredUrl }
+    }
 }
 
 Write-Host "Android API  : $androidBaseUrl" -ForegroundColor DarkGray
 Write-Host 'Building and starting PostgreSQL, Spring Boot API, customer web and staff web…' -ForegroundColor Cyan
 Invoke-Compose -ComposeArgs @('config', '--quiet')
-if ($Rebuild) {
-    Invoke-Compose -ComposeArgs @('build', '--no-cache')
-}
+if ($Rebuild) { Invoke-Compose -ComposeArgs @('build', '--no-cache') }
 Invoke-Compose -ComposeArgs @('up', '--build', '-d')
 
 $checks = @(
@@ -246,17 +115,10 @@ for ($attempt = 1; $attempt -le 90; $attempt++) {
     foreach ($check in $checks) {
         try {
             $response = Invoke-WebRequest -Uri $check.Uri -TimeoutSec 3 -UseBasicParsing
-            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
-                $pending += $check
-            }
-        } catch {
-            $pending += $check
-        }
+            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { $pending += $check }
+        } catch { $pending += $check }
     }
-    if ($pending.Count -eq 0) {
-        $ready = $true
-        break
-    }
+    if ($pending.Count -eq 0) { $ready = $true; break }
     Start-Sleep -Seconds 2
 }
 
