@@ -1,20 +1,19 @@
 package com.quantaedge.bajaj.customers;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.http.HttpStatus;
 
-/** Dealership-scoped customer operations. The dealership is always taken from the authenticated staff principal. */
+/** Dealership-scoped customer operations. Scope comes only from the authenticated staff principal. */
 @Service
 public class CustomerService {
   private static final RowMapper<CustomerView> CUSTOMER_ROW = (rs, rowNum) -> new CustomerView(
@@ -43,18 +42,18 @@ public class CustomerService {
     String term = normalizeSearch(query);
 
     String where = " where dealership_id = ? ";
-    Object[] filterArguments = new Object[] { principal.dealershipId() };
+    Object[] filterArguments = new Object[] {principal.dealershipId()};
     if (!term.isEmpty()) {
-      where += " and (lower(full_name) like ? escape '\\\\' or phone like ? escape '\\\\' "
-          + "or customer_code ilike ? escape '\\\\' or lower(coalesce(email, '')) like ? escape '\\\\') ";
+      where += " and (lower(full_name) like ? escape '!' or phone like ? escape '!' "
+          + "or customer_code ilike ? escape '!' or lower(coalesce(email, '')) like ? escape '!') ";
       String like = "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
       String phoneLike = "%" + escapeLike(term) + "%";
-      filterArguments = new Object[] { principal.dealershipId(), like, phoneLike, phoneLike, like };
+      filterArguments = new Object[] {principal.dealershipId(), like, phoneLike, phoneLike, like};
     }
 
     Long totalValue = jdbc.queryForObject(
         "select count(*) from customer" + where, Long.class, filterArguments);
-    long total = totalValue == null ? 0 : totalValue;
+    long total = totalValue == null ? 0 : total;
 
     Object[] pageArguments = java.util.Arrays.copyOf(filterArguments, filterArguments.length + 2);
     pageArguments[filterArguments.length] = pageSize;
@@ -114,7 +113,7 @@ public class CustomerService {
           "A duplicate customer record was detected. Retry the operation.", failure);
     }
 
-    audit(principal, "CUSTOMER_CREATED", publicId, "Contact and preference fields created.");
+    audit(principal, "CUSTOMER_CREATED", publicId, "Customer contact and preference fields created.");
     return get(principal, publicId);
   }
 
@@ -165,7 +164,7 @@ public class CustomerService {
         ? (nextConsent ? "CUSTOMER_MARKETING_CONSENT_GRANTED" : "CUSTOMER_MARKETING_CONSENT_WITHDRAWN")
         : "CUSTOMER_UPDATED";
     audit(principal, action, publicId,
-        consentWasProvided ? "Customer fields updated; explicit consent change was recorded when applicable."
+        consentWasProvided ? "Customer fields updated; explicit consent was recorded."
             : "Customer contact and preference fields updated.");
     return get(principal, publicId);
   }
@@ -198,8 +197,7 @@ public class CustomerService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "Preferred language must be hi, en or hinglish.");
     }
-    String notes = request.notes() == null ? null : request.notes().trim();
-    if (notes != null && notes.isEmpty()) notes = null;
+    String notes = clean(request.notes());
     String consentSource = clean(request.consentSource());
     return new NormalizedCustomer(
         fullName, phone, alternatePhone, email, language,
@@ -213,11 +211,13 @@ public class CustomerService {
   }
 
   private static String normalizeSearch(String value) {
-    return value == null ? "" : value.trim().substring(0, Math.min(value.trim().length(), 100));
+    if (value == null) return "";
+    String cleaned = value.trim();
+    return cleaned.substring(0, Math.min(cleaned.length(), 100));
   }
 
   private static String escapeLike(String value) {
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
   }
 
   public record CustomerRequest(
