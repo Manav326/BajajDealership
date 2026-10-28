@@ -31,13 +31,19 @@
 - Delivered: separate SKU catalogue and supplier records; purchase receipts with line-level unit cost; weighted-average cost; on-hand/reserved/available balances; dealership-scoped stock movements with before/after quantities and actor; receipt idempotency/fingerprint; job-card reservation, issue, return and release endpoints; one idempotency namespace for reservation operations; explicit quantity released; responsive web screens for catalogue, supplier receipt, movement history, and job-card parts; route permission-denial tests.
 - Safety semantics: reserve only for approved/in-progress jobs, issue/return only while in progress, reject over-reservation/over-issue/over-return, make retry with the same key/payload replay the original result, reject changed payloads, and separate consumables from individual bike-unit inventory.
 
-## Next business vertical slice: costed parts on estimate revisions
+## Delivered slice: costed part reservation snapshots on estimate revisions
 
-1. Add reservation/issue/return line snapshots to the estimate-building view, including quantity actually used, returned quantity, and the agreed stock cost basis. A reservation is not the same as consumption.
-2. Allow staff to explicitly include consumable parts as priced estimate lines. Create a new revision when the proposed parts/labour mix changes; preserve every previous revision and decision.
-3. Require customer approval of the revised total before continuing work where the change exceeds the previously approved estimate; never silently mutate an approved estimate or issued invoice.
-4. Test race conditions for simultaneous receipts/reservations/issues on one SKU, duplicate operation keys across staff sessions, stock constraints, idempotent retries and rollback on rejected operations.
-5. Add low-stock thresholds and reorder reporting only after the base ledger and estimate linkage are verified. Supplier payables, inventory accounting and tax treatment remain separate follow-on work.
+- An estimate PART line may reference a reservation on that same job card and dealership. The service locks the reservation, verifies the expected quantity and SKU description are still current, then snapshots reserved/issued/returned/released quantities, reservation cost basis and snapshot time.
+- The customer-facing selling price is entered independently; the internal stock-cost snapshot does not set the selling price.
+- A new revision can be submitted while work is approved/in progress; the job pauses in AWAITING_APPROVAL, and the decision resumes the previous active status. Prior revisions and their decisions remain auditable; when a new revision is approved, an older approved revision is marked SUPERSEDED. Issued invoices remain snapshots and are not silently changed.
+- Integration coverage verifies the reservation snapshot, different internal cost vs customer price, approval behavior and resumption of IN_PROGRESS.
+
+## Next business vertical slice: stock-operation hardening and reorder controls
+
+1. Extend concurrency coverage from reservations to same-SKU receipts, issue, return and release, including idempotency keys reused by different staff sessions and transaction rollback after an unavailable-stock race.
+2. Add low-stock thresholds and a reorder queue scoped by dealership/SKU, with notifications kept internal until permissions, budgets and dispatch semantics are defined.
+3. Complete price/cost reconciliation for approved estimates when reserved part quantity changes after a decision; require a new revision rather than mutating an approved estimate or issued invoice.
+4. Defer supplier payables, inventory accounting journals, refunds/credit notes and statutory tax treatment until rules and authorization are agreed.
 
 ## Follow-on finance controls
 
