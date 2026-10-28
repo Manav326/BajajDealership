@@ -3,6 +3,7 @@ package com.quantaedge.bajaj.finance;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,6 +19,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -110,6 +112,79 @@ public class FinanceController {
   public record MoneyChannels(BigDecimal cash,BigDecimal upi,BigDecimal bankTransfer,BigDecimal card,BigDecimal other){}
   public record DailyCloseRequest(@NotNull LocalDate businessDate,@Valid @NotNull MoneyChannels openingBalances,
       @Valid @NotNull MoneyChannels countedClosing,@Size(max=1000) String notes){}
+
+
+  @GetMapping("/tax-profile")
+  @PreAuthorize("hasAuthority('finance.read')")
+  public FinanceOperationsService.TaxProfileView taxProfile(@AuthenticationPrincipal StaffPrincipal actor) {
+    return finance.getTaxProfile(actor);
+  }
+
+  @PutMapping("/tax-profile")
+  @PreAuthorize("hasAuthority('settings.manage')")
+  public FinanceOperationsService.TaxProfileView saveTaxProfile(
+      @AuthenticationPrincipal StaffPrincipal actor, @Valid @RequestBody TaxProfileRequest request) {
+    return finance.saveTaxProfile(actor, new FinanceOperationsService.TaxProfileRequest(
+        request.registrationType(), request.gstin(), request.legalName(), request.tradeName(),
+        request.registeredAddress(), request.stateCode(), request.eInvoiceApplicability(),
+        request.assessedFinancialYear(), request.applicabilityAssessmentNote()));
+  }
+
+  @GetMapping("/tax-readiness")
+  @PreAuthorize("hasAuthority('finance.read')")
+  public FinanceOperationsService.TaxReadinessView taxReadiness(@AuthenticationPrincipal StaffPrincipal actor) {
+    return finance.taxReadiness(actor);
+  }
+
+  @GetMapping("/tax-codes")
+  @PreAuthorize("hasAuthority('finance.read')")
+  public List<FinanceOperationsService.TaxCodeView> taxCodes(@AuthenticationPrincipal StaffPrincipal actor) {
+    return finance.listTaxCodes(actor);
+  }
+
+  @PostMapping("/tax-codes")
+  @PreAuthorize("hasAuthority('settings.manage')")
+  public FinanceOperationsService.TaxCodeView createTaxCode(
+      @AuthenticationPrincipal StaffPrincipal actor, @Valid @RequestBody TaxCodeRequest request) {
+    return finance.createTaxCode(actor, new FinanceOperationsService.TaxCodeRequest(
+        request.code(), request.description(), request.hsnSacCode(), request.supplyType(),
+        request.gstRate(), request.cessRate(), request.effectiveFrom(), request.effectiveTo(),
+        request.sourceReference()));
+  }
+
+  @PostMapping("/tax-codes/{taxCodePublicId}/verify")
+  @PreAuthorize("hasAuthority('settings.manage')")
+  public FinanceOperationsService.TaxCodeView verifyTaxCode(
+      @AuthenticationPrincipal StaffPrincipal actor, @PathVariable UUID taxCodePublicId,
+      @Valid @RequestBody TaxCodeVerificationRequest request) {
+    return finance.verifyTaxCode(actor, taxCodePublicId, request.sourceReference(), request.verificationNote());
+  }
+
+  public record TaxProfileRequest(
+      @NotBlank @Pattern(regexp = "REGULAR|COMPOSITION|SEZ|UNREGISTERED") String registrationType,
+      @Size(max = 15) String gstin,
+      @Size(max = 160) String legalName,
+      @Size(max = 160) String tradeName,
+      @Size(max = 1000) String registeredAddress,
+      @Pattern(regexp = "[0-9]{2}") String stateCode,
+      @Pattern(regexp = "NOT_ASSESSED|APPLICABLE|NOT_APPLICABLE") String eInvoiceApplicability,
+      @Size(max = 9) String assessedFinancialYear,
+      @Size(max = 500) String applicabilityAssessmentNote) {}
+
+  public record TaxCodeRequest(
+      @NotBlank @Size(max = 48) String code,
+      @NotBlank @Size(max = 250) String description,
+      @NotBlank @Pattern(regexp = "[0-9]{4,8}") String hsnSacCode,
+      @NotBlank @Pattern(regexp = "GOODS|SERVICES") String supplyType,
+      @NotNull @DecimalMin("0.00") @DecimalMax("100.00") @Digits(integer = 3, fraction = 2) BigDecimal gstRate,
+      @DecimalMin("0.00") @DecimalMax("100.00") @Digits(integer = 3, fraction = 2) BigDecimal cessRate,
+      @NotNull LocalDate effectiveFrom,
+      LocalDate effectiveTo,
+      @Size(max = 500) String sourceReference) {}
+
+  public record TaxCodeVerificationRequest(
+      @NotBlank @Size(max = 500) String sourceReference,
+      @NotBlank @Size(max = 500) String verificationNote) {}
 
   public record CreateExpenseRequest(
       @NotBlank @Size(max = 120) String idempotencyKey,
