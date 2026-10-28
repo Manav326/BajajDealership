@@ -29,7 +29,7 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width:
 }
 
 function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, startY: number, maxWidth: number, lineHeight: number, maxLines: number) {
-  const words = text.trim().split(/\\s+/).filter(Boolean);
+  const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return startY;
   const lines: string[] = [];
   let line = '';
@@ -101,7 +101,7 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
   const [notice, setNotice] = useState('');
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
-  const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\\n\\n');
+  const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
 
   useEffect(() => {
     const canvas = canvasRef.current;
