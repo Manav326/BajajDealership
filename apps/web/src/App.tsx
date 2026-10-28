@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
@@ -47,6 +47,8 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [activePage, setActivePage] = useState('Overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileNavToggleRef = useRef<HTMLButtonElement | null>(null);
+  const mobileNavRef = useRef<HTMLElement | null>(null);
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -81,20 +83,56 @@ function App() {
 
   useEffect(() => {
     if (!mobileNavOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileNavOpen(false);
-    };
+    const drawer = mobileNavRef.current;
+    if (!drawer) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnDesktopResize = () => {
       if (window.innerWidth > 560) setMobileNavOpen(false);
     };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', closeOnEscape);
+
+    const focusableElements = () => Array.from(drawer.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+
+    // Keep keyboard navigation inside the modal drawer while it is open.
+    (drawer.querySelector<HTMLElement>('.nav-item.active')
+      ?? focusableElements()[0])?.focus();
+
+    const closeOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileNavOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = focusableElements();
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        return;
+      }
+      const active = document.activeElement;
+      const focusOutsideDrawer = !(active instanceof Node) || !drawer.contains(active);
+      if (event.shiftKey && (active === first || focusOutsideDrawer)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || focusOutsideDrawer)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener('keydown', closeOnKeyDown);
     window.addEventListener('resize', closeOnDesktopResize);
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('keydown', closeOnKeyDown);
       window.removeEventListener('resize', closeOnDesktopResize);
+      // Return keyboard focus to the drawer toggle after close.
+      if (mobileNavToggleRef.current?.isConnected) mobileNavToggleRef.current.focus();
     };
   }, [mobileNavOpen]);
 
@@ -166,8 +204,12 @@ function App() {
   return (
     <div className="app-shell">
       <GlobalNotificationHost />
-      {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation menu" onClick={() => setMobileNavOpen(false)} />}
-      <aside id="primary-navigation" className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'}>
+      {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation menu" tabIndex={-1} onClick={() => setMobileNavOpen(false)} />}
+      <aside id="primary-navigation" ref={mobileNavRef}
+        role={mobileNavOpen ? 'dialog' : undefined}
+        aria-modal={mobileNavOpen ? true : undefined}
+        aria-label={mobileNavOpen ? 'Primary navigation menu' : undefined}
+        className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'}>
         <div className="brand-lockup">
           <div className="brand-mark">Q</div>
           <div className="brand-copy">
@@ -203,9 +245,9 @@ function App() {
         </div>
       </aside>
 
-      <main className="main-content">
+      <main className="main-content" aria-hidden={mobileNavOpen ? true : undefined}>
         <header className="topbar">
-          <button type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? '×' : '☰'}</button>
+          <button ref={mobileNavToggleRef} type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? '×' : '☰'}</button>
           <div className="breadcrumbs">Lucky Bajaj Agency <span>/</span> {activePage}</div>
           <div className="topbar-actions">
             <div className={health ? 'connection-status online' : 'connection-status'}>
