@@ -49,6 +49,14 @@ The web application uses a restrained Liquid Glass treatment rather than flat wh
 - New screens should reuse existing component classes and visual tokens instead of introducing unrelated card, border, shadow or button styles. Keep data tables, errors, consent notices and financial status labels readable; glass effects must not reduce legibility or imply a business status.
 - Shared tokens, accessibility rules, browser fallbacks and the release checklist are documented in `docs/LIQUID_GLASS_UI.md`.
 
+## Public preview deployment
+
+A Render Blueprint is prepared at `render.yaml` for the staff portal, customer website, Spring Boot API and PostgreSQL. The frontend clients now accept `VITE_API_BASE_URL`, and the API has an explicit CORS allowlist for the two deployed frontend origins.
+
+**The preview is configured in code but is not live yet.** Connect `Manav326/BajajDealership` to Render using **New → Blueprint** and deploy the root `render.yaml`. The actual public URLs are assigned by Render after resource creation; they cannot be claimed before that deployment exists. Follow `docs/DEPLOY_PREVIEW.md` for the one-time owner bootstrap and safe configuration.
+
+The Blueprint uses free preview resources only. Do not enter production customer or financial data: the free PostgreSQL database expires after 30 days, free API instances can sleep, and notification media on the container filesystem is not durable. Production hosting needs an appropriately sized paid database with backups and durable private media storage.
+
 ## Implementation status
 
 ### Implemented in the current foundation
