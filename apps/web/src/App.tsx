@@ -85,11 +85,16 @@ function App() {
       if (event.key === 'Escape') setMobileNavOpen(false);
     };
     const previousOverflow = document.body.style.overflow;
+    const closeOnDesktopResize = () => {
+      if (window.innerWidth > 560) setMobileNavOpen(false);
+    };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', closeOnDesktopResize);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', closeOnDesktopResize);
     };
   }, [mobileNavOpen]);
 
