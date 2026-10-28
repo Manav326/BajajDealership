@@ -144,6 +144,105 @@ public class ServiceOperationsService {
     this.jdbc = jdbc;
   }
 
+  public List<WorkshopCustomerOption> listCustomerOptions(StaffPrincipal actor, String query) {
+    String term = cleanSearch(query);
+    String where = "";
+    List<Object> args = new ArrayList<>();
+    args.add(actor.dealershipId());
+    if (term != null) {
+      String like = "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
+      String phoneLike = "%" + escapeLike(term) + "%";
+      where = """
+          and (lower(c.full_name) like ? escape '!'
+            or lower(c.customer_code) like ? escape '!'
+            or coalesce(c.phone, '') like ? escape '!'
+            or lower(coalesce(c.email, '')) like ? escape '!')
+          """;
+      args.add(like);
+      args.add(like);
+      args.add(phoneLike);
+      args.add(like);
+    }
+    args.add(50);
+    return jdbc.query("""
+        select c.public_id, c.full_name, c.phone,
+          count(cv.vehicle_unit_id)::int as current_vehicle_count
+        from customer c
+        join customer_vehicle cv on cv.dealership_id = c.dealership_id
+          and cv.customer_id = c.id and cv.ownership_ended_at is null
+        where c.dealership_id = ? and c.status = 'ACTIVE'
+        """ + where + """
+        group by c.id
+        order by lower(c.full_name), c.id
+        limit ?
+        """,
+        (rs, rowNum) -> new WorkshopCustomerOption(
+            rs.getObject("public_id", UUID.class), rs.getString("full_name"),
+            rs.getString("phone"), rs.getInt("current_vehicle_count")),
+        args.toArray());
+  }
+
+  public List<WorkshopVehicleOption> listCustomerVehicles(StaffPrincipal actor, UUID customerPublicId) {
+    List<Long> customerIds = jdbc.query("""
+        select id from customer
+        where dealership_id = ? and public_id = ? and status = 'ACTIVE'
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), customerPublicId);
+    if (customerIds.isEmpty()) throw notFound("Active customer was not found in this dealership.");
+    return jdbc.query("""
+        select vu.public_id, vm.model_name, vm.variant_name, vm.colour_name,
+          vu.chassis_number, vu.engine_number, vu.stock_status
+        from customer_vehicle cv
+        join vehicle_unit vu on vu.dealership_id = cv.dealership_id and vu.id = cv.vehicle_unit_id
+        join vehicle_model vm on vm.dealership_id = vu.dealership_id and vm.id = vu.vehicle_model_id
+        where cv.dealership_id = ? and cv.customer_id = ? and cv.ownership_ended_at is null
+        order by lower(vm.model_name), vu.chassis_number
+        """, (rs, rowNum) -> new WorkshopVehicleOption(
+            rs.getObject("public_id", UUID.class), rs.getString("model_name"),
+            rs.getString("variant_name"), rs.getString("colour_name"),
+            rs.getString("chassis_number"), rs.getString("engine_number"), rs.getString("stock_status")),
+        actor.dealershipId(), customerIds.getFirst());
+  }
+
+  public List<StaffOption> listAssignableStaff(StaffPrincipal actor, String assignmentRole, String query) {
+    String role = assignmentRole == null ? "" : assignmentRole.trim().toUpperCase(Locale.ROOT);
+    if (!List.of("SERVICE_ADVISOR", "TECHNICIAN", "QUALITY_INSPECTOR").contains(role)) {
+      throw badRequest("Choose a supported assignment role.");
+    }
+    String roleFilter = switch (role) {
+      case "TECHNICIAN" -> "('MECHANIC', 'OWNER', 'MANAGER')";
+      case "SERVICE_ADVISOR" -> "('SERVICE_ADVISOR', 'OWNER', 'MANAGER')";
+      case "QUALITY_INSPECTOR" -> "('SERVICE_ADVISOR', 'OWNER', 'MANAGER')";
+      default -> throw badRequest("Choose a supported assignment role.");
+    };
+    String term = cleanSearch(query);
+    String where = "";
+    List<Object> args = new ArrayList<>();
+    args.add(actor.dealershipId());
+    args.add(role);
+    if (term != null) {
+      String like = "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
+      where = " and (lower(u.full_name) like ? escape '!' or lower(coalesce(u.email,'')) like ? escape '!') ";
+      args.add(like);
+      args.add(like);
+    }
+    args.add(50);
+    String sql = """
+        select u.public_id, u.full_name, u.status
+        from staff_user u
+        where u.dealership_id = ? and u.status = 'ACTIVE'
+          and exists (
+            select 1 from staff_user_role ur join role r on r.id = ur.role_id
+            where ur.dealership_id = u.dealership_id and ur.staff_user_id = u.id
+              and r.code in """ + roleFilter + """
+          )
+        """ + where + " order by lower(u.full_name), u.id limit ?";
+    return jdbc.query(sql,
+        (rs, rowNum) -> new StaffOption(
+            rs.getObject("public_id", UUID.class), rs.getString("full_name"),
+            rs.getString("status"), role),
+        args.toArray());
+  }
+
   public Page<AppointmentView> listAppointments(
       StaffPrincipal actor, int requestedPage, int requestedSize, String status, String query) {
     PageWindow window = pageWindow(requestedPage, requestedSize);
@@ -725,6 +824,12 @@ public class ServiceOperationsService {
   private static ResponseStatusException conflict(String message) {
     return new ResponseStatusException(HttpStatus.CONFLICT, message);
   }
+
+  public record WorkshopCustomerOption(UUID publicId, String fullName, String phone, int currentVehicleCount) {}
+  public record WorkshopVehicleOption(
+      UUID publicId, String modelName, String variantName, String colourName,
+      String chassisNumber, String engineNumber, String stockStatus) {}
+  public record StaffOption(UUID publicId, String fullName, String status, String assignmentRole) {}
 
   public record AppointmentRequest(
       UUID customerPublicId,
