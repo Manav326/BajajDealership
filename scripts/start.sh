@@ -52,7 +52,7 @@ if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
   echo "One-time initial owner setup token (local only):"
   sed -n 's/^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*//p' "$ROOT_ENV" | tail -n 1
   echo "Use this in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap."
-  echo "After owner setup, remove APP_BOOTSTRAP_TOKEN from .env and recreate the API with: docker compose up -d --force-recreate api."
+  echo "After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api."
   echo ""
 fi
 
