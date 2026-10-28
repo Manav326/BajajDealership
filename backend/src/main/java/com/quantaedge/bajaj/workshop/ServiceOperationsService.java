@@ -313,6 +313,28 @@ public class ServiceOperationsService {
     String staffNotes = optionalText(request.staffNotes(), 3000);
 
     Ownership ownership = requireCurrentOwnership(actor, request.customerPublicId(), request.vehiclePublicId());
+
+    // Serialize staff and customer-portal bookings on the same physical motorcycle row.
+    List<Long> lockedVehicles = jdbc.query("""
+        select id from vehicle_unit
+        where dealership_id = ? and id = ?
+        for update
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), ownership.vehicleUnitId());
+    if (lockedVehicles.isEmpty()) throw notFound("Vehicle was not found in this dealership.");
+    verifyCurrentOwnershipByIds(actor, ownership.customerId(), ownership.vehicleUnitId());
+
+    Integer overlappingAppointments = jdbc.queryForObject("""
+        select count(*) from service_appointment
+        where dealership_id = ? and vehicle_unit_id = ?
+          and status in ('REQUESTED', 'CONFIRMED')
+          and scheduled_for < (?::timestamptz + (? * interval '1 minute'))
+          and (scheduled_for + (slot_minutes * interval '1 minute')) > ?::timestamptz
+        """, Integer.class, actor.dealershipId(), ownership.vehicleUnitId(),
+        Timestamp.from(request.scheduledFor()), slotMinutes, Timestamp.from(request.scheduledFor()));
+    if (overlappingAppointments != null && overlappingAppointments > 0) {
+      throw conflict("This bike already has an appointment during that time. Choose another slot.");
+    }
+
     String appointmentCode = "APT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
     UUID publicId;
     try {
