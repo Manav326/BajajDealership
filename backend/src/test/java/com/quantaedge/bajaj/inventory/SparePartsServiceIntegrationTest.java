@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import com.quantaedge.bajaj.workshop.ServiceOperationsService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 class SparePartsServiceIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private SparePartsService parts;
+  @Autowired private ServiceOperationsService workshop;
 
   @Test
   void receiptIsIdempotentAndUpdatesWeightedAverageCostAndMovementLedger() {
@@ -108,6 +110,8 @@ class SparePartsServiceIntegrationTest {
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT));
 
+    approveReservationEstimate(fixture, reservation, "Initial part quantity approved.");
+
     String issueKey = "issue-" + UUID.randomUUID();
     var issueRequest = new SparePartsService.QuantityOperationRequest(
         new BigDecimal("4.000"), issueKey, "Issue first batch");
@@ -132,6 +136,7 @@ class SparePartsServiceIntegrationTest {
     assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("7.000");
     assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("2.000");
 
+    approveReservationEstimate(fixture, afterReturn, "Approved updated quantity after the returned unit.");
     var fullyIssued = parts.issuePart(fixture.owner(), reservation.publicId(),
         new SparePartsService.QuantityOperationRequest(
             new BigDecimal("2.000"), "issue-last-" + UUID.randomUUID(), null));
@@ -386,6 +391,21 @@ class SparePartsServiceIntegrationTest {
     return new Fixture(fixture.owner(), fixture.dealershipId(), jobPublicId);
   }
 
+  private ServiceOperationsService.EstimateView approveReservationEstimate(
+      Fixture fixture, SparePartsService.ReservationView reservation, String message) {
+    BigDecimal plannedQuantity = reservation.quantityReserved()
+        .subtract(reservation.quantityReturned()).subtract(reservation.quantityReleased());
+    var estimate = workshop.createEstimate(fixture.owner(), fixture.jobCardPublicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "PART", reservation.skuCode() + " — " + reservation.partName(),
+                plannedQuantity, new BigDecimal("100.00"), reservation.publicId())
+        ), BigDecimal.ZERO, message));
+    return workshop.recordEstimateDecision(fixture.owner(), fixture.jobCardPublicId(), estimate.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "PART-ESTIMATE-" + UUID.randomUUID(), message));
+  }
+
   private SparePartsService.SparePartView createPart(Fixture fixture, String prefix, String name) {
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     return parts.createPart(fixture.owner(), new SparePartsService.PartRequest(
@@ -430,7 +450,11 @@ class SparePartsServiceIntegrationTest {
     StaffPrincipal principal = new StaffPrincipal(
         1, staffId, staffPublicId.toString(), dealershipId, dealershipPublicId.toString(),
         dealershipCode, "Parts Test Owner", Set.of("OWNER"),
-        Set.of("parts.read", "parts.manage", "parts.receive", "parts.reserve", "parts.issue", "parts.return"));
+        Set.of("parts.read", "parts.manage", "parts.receive", "parts.reserve", "parts.issue", "parts.return",
+            "workshop.read", "workshop.appointment.read", "workshop.appointment.manage",
+            "workshop.jobcard.checkin", "workshop.manage", "workshop.estimate.create",
+            "workshop.approve_estimate", "workshop.jobcard.work", "workshop.quality_check",
+            "workshop.jobcard.assign"));
 
     Long customerId = jdbc.queryForObject("""
         insert into customer(dealership_id, customer_code, full_name, phone, status)
