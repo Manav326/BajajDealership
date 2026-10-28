@@ -12,7 +12,7 @@ docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required 
 # Create a private ignored .env and a random one-time first-owner token.
 ROOT_ENV=".env"
 GENERATED_BOOTSTRAP_TOKEN=0
-if ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]]+' "$ROOT_ENV" 2>/dev/null; then
+if [ ! -f "$ROOT_ENV" ] || ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
   if command -v openssl >/dev/null 2>&1; then
     NEW_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
   else
