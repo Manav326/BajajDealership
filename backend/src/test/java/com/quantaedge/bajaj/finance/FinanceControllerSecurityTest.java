@@ -60,6 +60,41 @@ class FinanceControllerSecurityTest {
   }
 
   @Test
+  void financeReadDoesNotGrantTaxProfileChanges() throws Exception {
+    mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/admin/finance/tax-profile")
+            .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"registrationType\":\"UNREGISTERED\",\"eInvoiceApplicability\":\"NOT_ASSESSED\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void financeReadDoesNotGrantTaxCodeCreationOrVerification() throws Exception {
+    mvc.perform(post("/api/v1/admin/finance/tax-codes")
+            .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "code":"TAX-CODE-TEST",
+                  "description":"Security boundary only",
+                  "hsnSacCode":"1234",
+                  "supplyType":"GOODS",
+                  "gstRate":0,
+                  "cessRate":0,
+                  "effectiveFrom":"2026-10-28",
+                  "effectiveTo":null,
+                  "sourceReference":null
+                }
+                """))
+        .andExpect(status().isForbidden());
+    mvc.perform(post("/api/v1/admin/finance/tax-codes/{publicId}/verify", UUID.randomUUID())
+            .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"sourceReference\":\"test\",\"verificationNote\":\"test only\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void financeReadDoesNotGrantExpenseCreation() throws Exception {
     mvc.perform(post("/api/v1/admin/finance/expenses")
             .with(user("finance-reader").authorities(new SimpleGrantedAuthority("finance.read")))

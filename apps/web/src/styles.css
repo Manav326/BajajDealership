@@ -2291,3 +2291,31 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
  .finance-print-target tr { page-break-inside:avoid; }
  @page { size:A4 landscape; margin:10mm; }
 }
+
+
+/* GST profile and HSN/SAC tax-readiness workspace */
+.finance-tax-readiness { display:grid; gap:14px; }
+.finance-tax-readiness-status { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.finance-tax-readiness-status>div { min-width:0; padding:13px; border:1px solid rgba(148,163,184,.22); border-radius:13px; background:rgba(255,255,255,.55); }
+.finance-tax-readiness-status span,.finance-tax-readiness-status strong { display:block; }
+.finance-tax-readiness-status span { color:var(--muted); font-size:10px; margin-bottom:6px; }
+.finance-tax-readiness-status strong { font-size:12px; overflow-wrap:anywhere; }
+.finance-tax-profile-form,.finance-tax-code-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:16px; border:1px solid rgba(148,163,184,.2); border-radius:15px; background:rgba(255,255,255,.45); }
+.finance-tax-profile-form>.finance-section-heading,.finance-tax-code-form>.finance-section-heading { grid-column:1/-1; margin-bottom:0; }
+.finance-tax-profile-form label,.finance-tax-code-form label { min-width:0; display:flex; flex-direction:column; gap:6px; color:#53627a; font-size:10px; font-weight:650; }
+.finance-tax-profile-form input,.finance-tax-profile-form select,.finance-tax-profile-form textarea,.finance-tax-code-form input,.finance-tax-code-form select { width:100%; min-width:0; min-height:40px; border:1px solid rgba(148,163,184,.34); border-radius:10px; padding:9px 10px; background:rgba(255,255,255,.86); color:#17243b; font:inherit; font-weight:450; }
+.finance-tax-profile-form textarea { resize:vertical; }
+.finance-tax-profile-form input:focus,.finance-tax-profile-form select:focus,.finance-tax-profile-form textarea:focus,.finance-tax-code-form input:focus,.finance-tax-code-form select:focus { outline:0; border-color:rgba(249,115,22,.7); box-shadow:0 0 0 3px rgba(249,115,22,.1); }
+.finance-tax-form-footer { display:flex; grid-column:1/-1; align-items:center; justify-content:space-between; gap:14px; padding-top:8px; }
+.finance-tax-form-footer span { color:var(--muted); font-size:10px; line-height:1.6; }
+.finance-tax-source-field { grid-column:span 2; }
+.finance-tax-code-section { display:grid; gap:12px; }
+.finance-tax-warning { border:1px solid rgba(217,119,6,.24); border-radius:13px; padding:13px 15px; background:rgba(255,247,237,.62); color:#92400e; }
+.finance-tax-warning strong { font-size:11px; }
+.finance-tax-warning p { margin:6px 0 0; font-size:10px; line-height:1.7; }
+@media(max-width:950px) { .finance-tax-readiness-status { grid-template-columns:repeat(2,minmax(0,1fr)); } .finance-tax-profile-form,.finance-tax-code-form { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:620px) {
+ .finance-tax-readiness-status,.finance-tax-profile-form,.finance-tax-code-form { grid-template-columns:minmax(0,1fr); }
+ .finance-tax-profile-form>.finance-section-heading,.finance-tax-code-form>.finance-section-heading,.finance-tax-form-footer,.finance-tax-source-field { grid-column:1; }
+ .finance-tax-form-footer { align-items:stretch; flex-direction:column; }
+}

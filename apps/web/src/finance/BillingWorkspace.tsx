@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
 import DailyCloseWorkspace from './DailyCloseWorkspace';
+import TaxReadinessWorkspace from './TaxReadinessWorkspace';
 
 type FinanceSummary = {
   salesInvoiceCount: number; salesInvoicedAmount: number | string; salesCollectedAmount: number | string;
@@ -156,6 +157,7 @@ export default function BillingWorkspace({ token, permissions }: Props) {
       {notice && <div className="finance-alert finance-alert-success" role="status">{notice}</div>}
 
       <DailyCloseWorkspace token={token} permissions={permissions} />
+      <TaxReadinessWorkspace token={token} permissions={permissions} />
 
       <section className="finance-summary-grid" aria-label="Financial summary">
         <article className="finance-glass-card"><span className="finance-card-label">Sales invoiced</span>
