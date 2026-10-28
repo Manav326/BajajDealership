@@ -140,6 +140,160 @@ class WorkshopEstimateAndQualityIntegrationTest {
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
   }
 
+  @Test
+  void invoicePartialPaymentsAreIdempotentAndHandoverRequiresZeroBalanceAndAcknowledgement() {
+    Fixture fixture = createFixture();
+    ServiceOperationsService.JobCardView readyJob = createReadyForInvoice(fixture);
+    var invoice = workshop.createInvoice(fixture.owner(), readyJob.publicId());
+
+    assertThat(invoice.status()).isEqualTo("ISSUED");
+    assertThat(invoice.jobCardStatus()).isEqualTo("INVOICED");
+    assertThat(invoice.documentNotice()).contains("not a GST tax invoice");
+    assertThat(invoice.invoiceTotal()).isEqualByComparingTo("1000.00");
+    assertThat(invoice.balanceDue()).isEqualByComparingTo("1000.00");
+    assertThat(invoice.lines()).hasSize(1);
+
+    var sameInvoice = workshop.createInvoice(fixture.owner(), readyJob.publicId());
+    assertThat(sameInvoice.publicId()).isEqualTo(invoice.publicId());
+    assertThat(jdbc.queryForObject("""
+        select count(*) from service_invoice
+        where dealership_id = ? and job_card_id = (
+          select id from service_job_card where dealership_id = ? and public_id = ?)
+          and status = 'ISSUED'
+        """, Integer.class, fixture.owner().dealershipId(),
+        fixture.owner().dealershipId(), readyJob.publicId())).isEqualTo(1);
+
+    var partial = workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest("pay-1-" + UUID.randomUUID(), "UPI",
+            new BigDecimal("200.00"), "UPI-REF-200", "Part payment"));
+    assertThat(partial.invoice().paidAmount()).isEqualByComparingTo("200.00");
+    assertThat(partial.invoice().balanceDue()).isEqualByComparingTo("800.00");
+    var replay = workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest(partial.payment().receiptNumber().startsWith("never")
+            ? "unreachable" : paymentKeyForReceipt(fixture, invoice, partial), "UPI",
+            new BigDecimal("200.00"), "UPI-REF-200", "Part payment"));
+    assertThat(replay.idempotentReplay()).isTrue();
+    assertThat(replay.payment().publicId()).isEqualTo(partial.payment().publicId());
+    assertThat(replay.invoice().paidAmount()).isEqualByComparingTo("200.00");
+
+    assertThatThrownBy(() -> workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest("overpay-" + UUID.randomUUID(), "CASH",
+            new BigDecimal("800.01"), null, null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+    var reversed = workshop.reversePayment(fixture.owner(), partial.payment().publicId(),
+        new ServiceOperationsService.PaymentReversalRequest("Wrong amount entered", "REV-REF-1"));
+    assertThat(reversed.payment().status()).isEqualTo("REVERSED");
+    assertThat(reversed.invoice().paidAmount()).isEqualByComparingTo("0.00");
+    assertThat(reversed.invoice().balanceDue()).isEqualByComparingTo("1000.00");
+    assertThat(reversed.payment().reversalReason()).isEqualTo("Wrong amount entered");
+
+    var newPartial = workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest("pay-2-" + UUID.randomUUID(), "CASH",
+            new BigDecimal("400.00"), null, "Cash part payment"));
+    assertThat(newPartial.invoice().balanceDue()).isEqualByComparingTo("600.00");
+    assertThatThrownBy(() -> workshop.deliverVehicle(fixture.owner(), readyJob.publicId(),
+        new ServiceOperationsService.DeliveryRequest(
+            "Estimate Test Customer", true, "IN_PERSON", null, "Customer received vehicle.")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+    var finalPayment = workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest("pay-3-" + UUID.randomUUID(), "CARD",
+            new BigDecimal("600.00"), "CARD-REF-3", "Balance settlement"));
+    assertThat(finalPayment.invoice().balanceDue()).isEqualByComparingTo("0.00");
+
+    assertThatThrownBy(() -> workshop.deliverVehicle(fixture.owner(), readyJob.publicId(),
+        new ServiceOperationsService.DeliveryRequest(
+            "Estimate Test Customer", false, "IN_PERSON", null, "Customer acknowledgement missing.")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
+
+    var delivered = workshop.deliverVehicle(fixture.owner(), readyJob.publicId(),
+        new ServiceOperationsService.DeliveryRequest(
+            "Estimate Test Customer", true, "SIGNED_FORM", "HANDOVER-FORM-77", "Vehicle handed over."));
+    assertThat(delivered.status()).isEqualTo("DELIVERED");
+    assertThat(delivered.deliveredAt()).isNotNull();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from service_delivery_handover
+        where dealership_id = ? and job_card_id = (
+          select id from service_job_card where dealership_id = ? and public_id = ?)
+          and customer_acknowledged = true and acknowledgement_method = 'SIGNED_FORM'
+        """, Integer.class, fixture.owner().dealershipId(), fixture.owner().dealershipId(), readyJob.publicId()))
+        .isEqualTo(1);
+
+    var repeatedDelivery = workshop.deliverVehicle(fixture.owner(), readyJob.publicId(),
+        new ServiceOperationsService.DeliveryRequest(
+            "Estimate Test Customer", true, "SIGNED_FORM", "HANDOVER-FORM-77", "Retry."));
+    assertThat(repeatedDelivery.status()).isEqualTo("DELIVERED");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from service_delivery_handover
+        where dealership_id = ? and job_card_id = (
+          select id from service_job_card where dealership_id = ? and public_id = ?)
+        """, Integer.class, fixture.owner().dealershipId(), fixture.owner().dealershipId(), readyJob.publicId()))
+        .isEqualTo(1);
+
+    assertThatThrownBy(() -> workshop.reversePayment(fixture.owner(), finalPayment.payment().publicId(),
+        new ServiceOperationsService.PaymentReversalRequest("Attempt post-handover reversal", "REV-AFTER")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  @Test
+  void paymentIdempotencyKeyIsDealershipWideAndRejectsChangedRequestPayload() {
+    Fixture fixture = createFixture();
+    ServiceOperationsService.JobCardView readyJob = createReadyForInvoice(fixture);
+    var invoice = workshop.createInvoice(fixture.owner(), readyJob.publicId());
+    String key = "dealership-wide-" + UUID.randomUUID();
+
+    var first = workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest(key, "UPI", new BigDecimal("100.00"), "UPI-100", null));
+
+    assertThatThrownBy(() -> workshop.recordPayment(fixture.owner(), invoice.publicId(),
+        new ServiceOperationsService.PaymentRequest(key, "UPI", new BigDecimal("101.00"), "UPI-100", null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+    var otherDealership = createFixture();
+    assertThatThrownBy(() -> workshop.getInvoice(otherDealership.owner(), invoice.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    assertThat(workshop.getInvoice(fixture.owner(), invoice.publicId()).payments())
+        .extracting(ServiceOperationsService.PaymentView::publicId)
+        .containsExactly(first.payment().publicId());
+  }
+
+  private String paymentKeyForReceipt(
+      Fixture fixture, ServiceOperationsService.InvoiceView invoice, ServiceOperationsService.PaymentResult result) {
+    return jdbc.queryForObject("""
+        select idempotency_key from service_payment
+        where dealership_id = ? and public_id = ?
+        """, String.class, fixture.owner().dealershipId(), result.payment().publicId());
+  }
+
+  private ServiceOperationsService.JobCardView createReadyForInvoice(Fixture fixture) {
+    var job = createInspectedJobCard(fixture);
+    var estimate = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "LABOUR", "Workshop labour", BigDecimal.ONE, new BigDecimal("1000.00"))
+        ), BigDecimal.ZERO, "Operational service estimate." ));
+    workshop.recordEstimateDecision(fixture.owner(), job.publicId(), estimate.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "ESTIMATE-SIGN-" + UUID.randomUUID(), "Approved by customer."));
+    UUID mechanic = createMechanic(fixture);
+    workshop.assignStaff(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.AssignmentRequest(mechanic, "TECHNICIAN", "Assigned technician."));
+    workshop.startWork(fixture.owner(), job.publicId(), "Repair started.");
+    workshop.assignStaff(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.AssignmentRequest(
+            UUID.fromString(fixture.owner().staffPublicId()), "QUALITY_INSPECTOR", "Assigned for QA."));
+    return workshop.recordQualityCheck(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.QualityCheckRequest(
+            true, true, true, true, true, true, true, "Passed."));
+  }
+
   private ServiceOperationsService.JobCardView createInspectedJobCard(Fixture fixture) {
     var appointment = workshop.createAppointment(fixture.owner(),
         new ServiceOperationsService.AppointmentRequest(
