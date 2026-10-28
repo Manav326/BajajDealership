@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import com.quantaedge.bajaj.inventory.SparePartsService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +26,7 @@ class WorkshopEstimateAndQualityIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private ServiceOperationsService workshop;
   @Autowired private BillingOperationsService billing;
+  @Autowired private SparePartsService parts;
 
   @Test
   void estimateNeedsEvidenceAndApprovalAndAssignedStaffBeforeQualityGate() {
@@ -292,6 +294,93 @@ class WorkshopEstimateAndQualityIntegrationTest {
             true, true, true, true, true, true, true, "Passed."));
   }
 
+  @Test
+  void partReservationSnapshotsAreFrozenOnEstimateRevisionAndApprovalResumesWork() {
+    Fixture fixture = createFixture();
+    var job = createInspectedJobCard(fixture);
+    var initial = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "LABOUR", "Initial labour", BigDecimal.ONE, new BigDecimal("500.00"))
+        ), BigDecimal.ZERO, "Initial estimate before part reservation."));
+
+    workshop.recordEstimateDecision(fixture.owner(), job.publicId(), initial.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "INITIAL-" + UUID.randomUUID(), "Initial estimate approved."));
+    UUID mechanic = createMechanic(fixture);
+    workshop.assignStaff(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.AssignmentRequest(mechanic, "TECHNICIAN", "Assigned to begin repair."));
+    assertThat(workshop.startWork(fixture.owner(), job.publicId(), "Start initial work.").status())
+        .isEqualTo("IN_PROGRESS");
+
+    String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    var part = parts.createPart(fixture.owner(), new SparePartsService.PartRequest(
+        "FILTER-" + suffix, "Oil filter " + suffix, "Test consumable", "EACH"));
+    var supplier = parts.createSupplier(fixture.owner(), new SparePartsService.SupplierRequest(
+        "SUP-" + suffix, "Parts supplier " + suffix, "Supplier contact",
+        "9196" + suffix.substring(0, 6), "supplier-" + suffix.toLowerCase() + "@example.test",
+        null, null));
+    parts.receiveStock(fixture.owner(), new SparePartsService.ReceiptRequest(
+        supplier.publicId(), "PO-" + suffix, "receipt-" + UUID.randomUUID(), "Received for revision test",
+        List.of(new SparePartsService.ReceiptLineRequest(
+            part.publicId(), new BigDecimal("10.000"), new BigDecimal("20.00")))));
+
+    var reservation = parts.reservePart(fixture.owner(), job.publicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("3.000"), "reserve-" + UUID.randomUUID(), "Planned for repair"));
+    parts.issuePart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            new BigDecimal("2.000"), "issue-" + UUID.randomUUID(), "Issued two filters to technician"));
+    var afterReturn = parts.returnPart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            new BigDecimal("0.500"), "return-" + UUID.randomUUID(), "Returned one half unit in the test ledger"));
+
+    assertThat(afterReturn.quantityReserved()).isEqualByComparingTo("3.000");
+    assertThat(afterReturn.quantityIssued()).isEqualByComparingTo("2.000");
+    assertThat(afterReturn.quantityReturned()).isEqualByComparingTo("0.500");
+    assertThat(afterReturn.quantityReleased()).isEqualByComparingTo("0.000");
+
+    var revision = workshop.createEstimate(fixture.owner(), job.publicId(),
+        new ServiceOperationsService.EstimateRequest(List.of(
+            new ServiceOperationsService.EstimateLineInput(
+                "PART", part.skuCode() + " — " + part.partName(),
+                new BigDecimal("2.500"), new BigDecimal("100.00"), reservation.publicId()),
+            new ServiceOperationsService.EstimateLineInput(
+                "LABOUR", "Additional replacement labour", BigDecimal.ONE, new BigDecimal("150.00"))
+        ), BigDecimal.ZERO, "Revision includes the reserved part line and additional labour."));
+
+    assertThat(revision.revision()).isEqualTo(2);
+    assertThat(revision.status()).isEqualTo("AWAITING_CUSTOMER");
+    assertThat(workshop.getJobCard(fixture.owner(), job.publicId()).status()).isEqualTo("AWAITING_APPROVAL");
+    var partLine = revision.lines().stream()
+        .filter(line -> line.sourceReservationPublicId() != null)
+        .findFirst().orElseThrow();
+    assertThat(partLine.sourceReservationPublicId()).isEqualTo(reservation.publicId());
+    assertThat(partLine.sourceReservationCode()).isEqualTo(reservation.reservationCode());
+    assertThat(partLine.quantity()).isEqualByComparingTo("2.500");
+    assertThat(partLine.sourceQuantityReserved()).isEqualByComparingTo("3.000");
+    assertThat(partLine.sourceQuantityIssued()).isEqualByComparingTo("2.000");
+    assertThat(partLine.sourceQuantityReturned()).isEqualByComparingTo("0.500");
+    assertThat(partLine.sourceQuantityReleased()).isEqualByComparingTo("0.000");
+    assertThat(partLine.sourceUnitCostSnapshot()).isEqualByComparingTo("20.00");
+    assertThat(partLine.sourceSnapshotAt()).isNotNull();
+    assertThat(partLine.unitPrice()).isEqualByComparingTo("100.00");
+    assertThat(partLine.lineTotal()).isEqualByComparingTo("250.00");
+
+    // Reservation stock cost is a snapshot, not the customer-facing unit price.
+    assertThat(partLine.sourceUnitCostSnapshot()).isNotEqualByComparingTo(partLine.unitPrice());
+    var approvedRevision = workshop.recordEstimateDecision(fixture.owner(), job.publicId(), revision.publicId(),
+        new ServiceOperationsService.EstimateDecisionRequest(
+            "APPROVED", "SIGNED_FORM", "REVISION-" + UUID.randomUUID(), "Revised estimate approved."));
+    assertThat(approvedRevision.status()).isEqualTo("APPROVED");
+    assertThat(workshop.getJobCard(fixture.owner(), job.publicId()).status()).isEqualTo("IN_PROGRESS");
+    assertThat(workshop.listEstimates(fixture.owner(), job.publicId()))
+        .filteredOn(estimate -> estimate.publicId().equals(initial.publicId()))
+        .singleElement()
+        .extracting(ServiceOperationsService.EstimateView::status)
+        .isEqualTo("SUPERSEDED");
+  }
+
   private ServiceOperationsService.JobCardView createInspectedJobCard(Fixture fixture) {
     var appointment = workshop.createAppointment(fixture.owner(),
         new ServiceOperationsService.AppointmentRequest(
@@ -343,7 +432,8 @@ class WorkshopEstimateAndQualityIntegrationTest {
             "workshop.read", "workshop.appointment.read", "workshop.appointment.manage",
             "workshop.jobcard.checkin", "workshop.manage", "workshop.estimate.create",
             "workshop.approve_estimate", "workshop.jobcard.work", "workshop.quality_check",
-            "workshop.jobcard.assign"));
+            "workshop.jobcard.assign", "parts.read", "parts.manage", "parts.receive",
+            "parts.reserve", "parts.issue", "parts.return"));
 
     Long customerId = jdbc.queryForObject("""
         insert into customer(dealership_id, customer_code, full_name, phone, status)
