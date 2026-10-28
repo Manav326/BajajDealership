@@ -8,6 +8,42 @@ command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exi
 docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
 
+# Generate a random first-owner setup token in the ignored local .env.
+GENERATED_BOOTSTRAP_TOKEN=0
+ROOT_ENV=".env"
+ROOT_ENV_EXISTS=0
+[ -f "$ROOT_ENV" ] && ROOT_ENV_EXISTS=1
+if ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*[^[:space:]]+' "$ROOT_ENV" 2>/dev/null; then
+  if command -v openssl >/dev/null 2>&1; then
+    NEW_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+  else
+    NEW_BOOTSTRAP_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \\n')"
+  fi
+  if [ "$ROOT_ENV_EXISTS" -eq 0 ]; then
+    cat > "$ROOT_ENV" <<EOF
+POSTGRES_DB=bajaj_dealership
+POSTGRES_USER=bajaj_app
+POSTGRES_PASSWORD=bajaj_local_only
+POSTGRES_PORT=5432
+API_PORT=8080
+CUSTOMER_WEB_PORT=3000
+STAFF_WEB_PORT=3001
+APP_BOOTSTRAP_TOKEN=$NEW_BOOTSTRAP_TOKEN
+EOF
+  else
+    printf '\\nAPP_BOOTSTRAP_TOKEN=%s\\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
+  fi
+  GENERATED_BOOTSTRAP_TOKEN=1
+fi
+if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
+  echo ""
+  echo "One-time initial owner setup token (local only):"
+  sed -n 's/^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*//p' "$ROOT_ENV" | tail -n 1
+  echo "Use this in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap."
+  echo "After owner setup, remove APP_BOOTSTRAP_TOKEN from .env and restart the API."
+  echo ""
+fi
+
 LAN_IP=""
 if command -v ip >/dev/null 2>&1; then
   LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
