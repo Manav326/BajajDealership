@@ -77,6 +77,33 @@ type SaleAddOnDraft = {
 const createIdempotencyKey = () => globalThis.crypto?.randomUUID?.()
   ?? `qe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+type SaleInvoiceLine = {
+  lineNumber: number; lineType: string; description: string; quantity: number;
+  unitPrice: number; discountAmount: number; lineTotal: number;
+};
+type SaleInvoice = {
+  publicId: string; invoiceNumber: string; bookingPublicId: string; bookingCode: string; bookingStatus: string;
+  customerPublicId: string; customerCode: string; customerName: string; customerPhone: string | null;
+  vehiclePublicId: string; modelCode: string; modelName: string; variantName: string | null; colourName: string | null;
+  chassisNumber: string; engineNumber: string; status: string; invoiceTotal: number; paidAmount: number;
+  balanceDue: number; documentNotice: string; customerMessage: string | null; createdByName: string;
+  issuedByName: string | null; createdAt: string; issuedAt: string | null; cancelledAt: string | null;
+  cancellationReason: string | null; lines: SaleInvoiceLine[];
+};
+type SalePayment = {
+  publicId: string; receiptNumber: string; paymentMethod: string; amount: number; paymentReference: string | null;
+  note: string | null; status: string; recordedByName: string; recordedAt: string;
+  reversalReason: string | null; reversalReference: string | null; reversedByName: string | null; reversedAt: string | null;
+};
+type SaleHandover = {
+  publicId: string; bookingPublicId: string; bookingCode: string; invoicePublicId: string; invoiceNumber: string;
+  deliveredToName: string; customerAcknowledged: boolean; acknowledgementMethod: string;
+  acknowledgementReference: string | null; note: string | null; deliveredAt: string; deliveredByName: string;
+  customerName: string; chassisNumber: string; engineNumber: string; stockStatus: string; invoiceTotal: number;
+};
+type SaleAddOnDraft = {
+  lineType: 'ACCESSORY' | 'OTHER'; description: string; quantity: string; unitPrice: string; discountAmount: string;
+};
 type EnquiryDetail = { enquiry: Enquiry; activities: Activity[]; testRides: TestRide[]; bookings: Booking[] };
 type EnquiryForm = {
   customerPublicId: string; interestedModelPublicId: string; leadSource: string; contactPreference: string;
@@ -105,6 +132,14 @@ function titleCase(value: string | null | undefined) {
 function statusClass(value: string) {
   return 'sales-status status-' + value.toLowerCase().replaceAll('_', '-');
 }
+function money(value: number | null | undefined) {
+  return '₹' + Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function newSaleKey() {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `sale-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 
 export default function SalesWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canRead = staff.permissions.includes('sales.read');
@@ -138,6 +173,34 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
   const [bookingNote, setBookingNote] = useState('');
   const [rideCancelReason, setRideCancelReason] = useState('');
   const [bookingCancelReason, setBookingCancelReason] = useState('');
+  const canReadSaleFinance = staff.permissions.includes('finance.read');
+  const canIssueSaleInvoice = staff.permissions.includes('finance.invoice');
+  const canRecordSalePayment = staff.permissions.includes('finance.payment');
+  const canDeliverSale = staff.permissions.includes('sales.deliver');
+  const [saleBooking, setSaleBooking] = useState<Booking | null>(null);
+  const [saleInvoice, setSaleInvoice] = useState<SaleInvoice | null>(null);
+  const [salePayments, setSalePayments] = useState<SalePayment[]>([]);
+  const [saleLoading, setSaleLoading] = useState(false);
+  const [saleBusy, setSaleBusy] = useState('');
+  const [saleVehiclePrice, setSaleVehiclePrice] = useState('');
+  const [saleVehicleDiscount, setSaleVehicleDiscount] = useState('0');
+  const [saleCustomerMessage, setSaleCustomerMessage] = useState('');
+  const [saleAddOns, setSaleAddOns] = useState<SaleAddOnDraft[]>([]);
+  const [saleInvoiceKey, setSaleInvoiceKey] = useState(newSaleKey);
+  const [salePaymentAmount, setSalePaymentAmount] = useState('');
+  const [salePaymentMethod, setSalePaymentMethod] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER'>('UPI');
+  const [salePaymentReference, setSalePaymentReference] = useState('');
+  const [salePaymentNote, setSalePaymentNote] = useState('');
+  const [salePaymentKey, setSalePaymentKey] = useState(newSaleKey);
+  const [saleReversalReason, setSaleReversalReason] = useState('');
+  const [saleReversalReference, setSaleReversalReference] = useState('');
+  const [saleReceiverName, setSaleReceiverName] = useState('');
+  const [saleAcknowledged, setSaleAcknowledged] = useState(false);
+  const [saleAcknowledgementMethod, setSaleAcknowledgementMethod] =
+    useState<'IN_PERSON' | 'SIGNED_FORM' | 'OTP_REFERENCE' | 'WRITTEN_MESSAGE'>('IN_PERSON');
+  const [saleAcknowledgementReference, setSaleAcknowledgementReference] = useState('');
+  const [saleHandoverNote, setSaleHandoverNote] = useState('');
+
   const [selectedSaleBookingId, setSelectedSaleBookingId] = useState('');
   const [saleInvoice, setSaleInvoice] = useState<SalesInvoice | null>(null);
   const [salePayments, setSalePayments] = useState<SalesPayment[]>([]);
@@ -222,6 +285,248 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
       setBookingVehicleId((current) => current || availableUnits[0]?.publicId || '');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Enquiry details could not be loaded.');
+    }
+  }
+
+  async function refreshSaleTransaction(booking: Booking, invoiceId?: string) {
+    const invoice = invoiceId
+      ? await apiFetch<SaleInvoice>('/api/v1/admin/sales/invoices/' + invoiceId, token)
+      : await apiFetch<SaleInvoice>('/api/v1/admin/sales/bookings/' + booking.publicId + '/invoice', token);
+    setSaleInvoice(invoice);
+    if (canReadSaleFinance) {
+      const payments = await apiFetch<SalePayment[]>(
+        '/api/v1/admin/sales/invoices/' + invoice.publicId + '/payments', token);
+      setSalePayments(payments ?? []);
+    } else {
+      setSalePayments([]);
+    }
+    if (!saleReceiverName.trim()) setSaleReceiverName(booking.customerName);
+    return invoice;
+  }
+
+  async function openSaleTransaction(booking: Booking) {
+    setSaleBooking(booking);
+    setSaleInvoice(null);
+    setSalePayments([]);
+    setSaleError('');
+    setSaleLoading(true);
+    setSaleVehiclePrice('');
+    setSaleVehicleDiscount('0');
+    setSaleCustomerMessage('');
+    setSaleAddOns([]);
+    setSaleInvoiceKey(newSaleKey());
+    setSaleReceiverName(booking.customerName);
+    setSaleAcknowledged(false);
+    setSaleHandoverNote('');
+    try {
+      await refreshSaleTransaction(booking);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Sales invoice could not be loaded.';
+      if (message.toLowerCase().includes('no sales invoice has been created')) {
+        setSaleInvoice(null);
+        setSalePayments([]);
+      } else {
+        setSaleError(message);
+      }
+    } finally {
+      setSaleLoading(false);
+    }
+  }
+
+  const [saleError, setSaleError] = useState('');
+
+  async function createSaleInvoice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!saleBooking) return;
+    const price = Number(saleVehiclePrice);
+    const discount = Number(saleVehicleDiscount || 0);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(discount) || discount < 0 || discount > price) {
+      setSaleError('Enter a positive vehicle price and a discount no greater than that price.');
+      return;
+    }
+    const addOns = saleAddOns.map((line) => {
+      if (!line.description.trim()) throw new Error('Describe every accessory or other charge.');
+      const quantity = Number(line.quantity);
+      const unitPrice = Number(line.unitPrice);
+      const discountAmount = Number(line.discountAmount || 0);
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0
+          || !Number.isFinite(discountAmount) || discountAmount < 0 || discountAmount > quantity * unitPrice) {
+        throw new Error('Check the quantity, unit price and discount for each add-on line.');
+      }
+      return {
+        lineType: line.lineType, description: line.description.trim(), quantity, unitPrice, discountAmount,
+      };
+    });
+    setSaleBusy('invoice'); setSaleError(''); setError(''); setSuccess('');
+    try {
+      const draft = await apiFetch<SaleInvoice>(
+        '/api/v1/admin/sales/bookings/' + saleBooking.publicId + '/invoice', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            idempotencyKey: saleInvoiceKey,
+            vehiclePrice: price,
+            vehicleDiscount: discount,
+            customerMessage: saleCustomerMessage.trim() || null,
+            addOns,
+          }),
+        });
+      setSaleInvoice(draft);
+      setSaleInvoiceKey(newSaleKey());
+      setSuccess('Draft sales invoice ' + draft.invoiceNumber + ' saved. Verify pricing before issuing.');
+      if (canReadSaleFinance) {
+        const payments = await apiFetch<SalePayment[]>(
+          '/api/v1/admin/sales/invoices/' + draft.publicId + '/payments', token);
+        setSalePayments(payments ?? []);
+      }
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Sales invoice could not be created.');
+      // Retain idempotency key after an uncertain outcome so retry cannot make a duplicate draft.
+    } finally {
+      setSaleBusy('');
+    }
+  }
+
+  async function issueSaleInvoice() {
+    if (!saleInvoice) return;
+    setSaleBusy('invoice'); setSaleError(''); setSuccess('');
+    try {
+      const issued = await apiFetch<SaleInvoice>(
+        '/api/v1/admin/sales/invoices/' + saleInvoice.publicId + '/issue', token, { method: 'POST' });
+      setSaleInvoice(issued);
+      setSuccess('Sales invoice ' + issued.invoiceNumber + ' issued. This document is not a GST tax invoice.');
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Sales invoice could not be issued.');
+    } finally {
+      setSaleBusy('');
+    }
+  }
+
+  async function cancelSaleInvoice() {
+    if (!saleInvoice) return;
+    const reason = window.prompt('Why is this sales invoice being cancelled?')?.trim();
+    if (!reason) {
+      setSaleError('A cancellation reason is required.');
+      return;
+    }
+    setSaleBusy('invoice'); setSaleError(''); setSuccess('');
+    try {
+      const cancelled = await apiFetch<SaleInvoice>(
+        '/api/v1/admin/sales/invoices/' + saleInvoice.publicId + '/cancel', token, {
+          method: 'POST', body: JSON.stringify({ reason }),
+        });
+      setSaleInvoice(cancelled);
+      setSalePayments([]);
+      setSaleSuccessMessage('Sales invoice cancelled. You can prepare a replacement invoice for this still-active booking.');
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Sales invoice could not be cancelled.');
+    } finally {
+      setSaleBusy('');
+    }
+  }
+
+  function setSaleSuccessMessage(value: string) {
+    setSuccess(value);
+  }
+
+  async function recordSalePayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!saleInvoice) return;
+    const amount = Number(salePaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setSaleError('Enter a positive payment amount.');
+      return;
+    }
+    if (['UPI', 'BANK_TRANSFER', 'CARD'].includes(salePaymentMethod) && !salePaymentReference.trim()) {
+      setSaleError('A transaction reference is required for UPI, bank-transfer or card entries.');
+      return;
+    }
+    setSaleBusy('payment'); setSaleError(''); setSuccess('');
+    try {
+      const payment = await apiFetch<SalePayment>(
+        '/api/v1/admin/sales/invoices/' + saleInvoice.publicId + '/payments', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            idempotencyKey: salePaymentKey, paymentMethod: salePaymentMethod, amount,
+            paymentReference: salePaymentReference.trim() || null, note: salePaymentNote.trim() || null,
+          }),
+        });
+      const updated = await apiFetch<SaleInvoice>(
+        '/api/v1/admin/sales/invoices/' + saleInvoice.publicId, token);
+      const payments = canReadSaleFinance ? await apiFetch<SalePayment[]>(
+        '/api/v1/admin/sales/invoices/' + saleInvoice.publicId + '/payments', token) : [];
+      setSaleInvoice(updated);
+      setSalePayments(payments ?? []);
+      setSalePaymentAmount('');
+      setSalePaymentReference('');
+      setSalePaymentNote('');
+      setSalePaymentKey(newSaleKey());
+      setSuccess('Receipt ' + payment.receiptNumber + ' recorded/recovered. Outstanding balance: ' + money(updated.balanceDue) + '.');
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Sales payment could not be recorded.');
+      // Retain the idempotency key after an unknown network outcome.
+    } finally {
+      setSaleBusy('');
+    }
+  }
+
+  async function reverseSalePayment(payment: SalePayment) {
+    const reason = saleReversalReason.trim();
+    if (!reason) {
+      setSaleError('Enter a reversal reason before reversing a receipt.');
+      return;
+    }
+    setSaleBusy(payment.publicId); setSaleError(''); setSuccess('');
+    try {
+      const reversed = await apiFetch<SalePayment>(
+        '/api/v1/admin/sales/payments/' + payment.publicId + '/reverse', token, {
+          method: 'POST',
+          body: JSON.stringify({ reason, externalReference: saleReversalReference.trim() || null }),
+        });
+      await refreshSaleTransaction(saleBooking!, saleInvoice?.publicId);
+      setSaleReversalReason('');
+      setSaleReversalReference('');
+      setSuccess('Receipt ' + reversed.receiptNumber + ' reversed. Reason remains in the audit ledger.');
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Sales receipt could not be reversed.');
+    } finally {
+      setSaleBusy('');
+    }
+  }
+
+  async function deliverSale(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!saleBooking || !saleInvoice) return;
+    if (Number(saleInvoice.balanceDue) !== 0) {
+      setSaleError('The sales invoice must be fully settled before delivery.');
+      return;
+    }
+    if (!saleAcknowledged) {
+      setSaleError('Record customer acknowledgement before completing delivery.');
+      return;
+    }
+    setSaleBusy('delivery'); setSaleError(''); setSuccess('');
+    try {
+      const handover = await apiFetch<SaleHandover>(
+        '/api/v1/admin/sales/bookings/' + saleBooking.publicId + '/deliver', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            deliveredToName: saleReceiverName.trim(),
+            customerAcknowledged: saleAcknowledged,
+            acknowledgementMethod: saleAcknowledgementMethod,
+            acknowledgementReference: saleAcknowledgementReference.trim() || null,
+            note: saleHandoverNote.trim() || null,
+          }),
+        });
+      setSuccess('Bike delivered to ' + handover.deliveredToName + '. Unit is now SOLD and the customer ownership link has been recorded.');
+      const refreshedBooking = await apiFetch<Booking>(
+        '/api/v1/admin/sales/bookings/' + saleBooking.publicId, token);
+      setSaleBooking(refreshedBooking);
+      await refreshSaleTransaction(refreshedBooking, saleInvoice.publicId);
+      await Promise.all([refresh(), openEnquiry(refreshedBooking.enquiryPublicId)]);
+    } catch (cause) {
+      setSaleError(cause instanceof Error ? cause.message : 'Vehicle delivery could not be completed.');
+    } finally {
+      setSaleBusy('');
     }
   }
 
@@ -525,6 +830,8 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
               {detail.bookings.map((booking) => <article className="sales-ride-row" key={booking.publicId}>
                 <div className="sales-record-symbol">▤</div><div className="sales-record-copy"><strong>{booking.bookingCode} · {booking.modelName}{booking.variantName ? ' · ' + booking.variantName : ''}</strong><span>{booking.chassisNumber} · {booking.engineNumber}</span><small>{dateLabel(booking.createdAt)} · {booking.notes || 'No booking note'}</small>{booking.cancellationReason && <small className="sales-warning-text">{booking.cancellationReason}</small>}</div><span className={statusClass(booking.status)}>{titleCase(booking.status)}</span>
                 {canManage && booking.status === 'ACTIVE' && <button type="button" className="text-button danger-link" disabled={busyId === booking.publicId || !bookingCancelReason.trim()} onClick={() => void cancelBooking(booking)}>Cancel booking</button>}
+                {(booking.status === 'ACTIVE' || booking.status === 'CONVERTED_TO_SALE') && (canManage || canReadSaleFinance || canDeliverSale)
+                  && <button type="button" className="subtle-action" onClick={() => void openSaleTransaction(booking)}>{booking.status === 'CONVERTED_TO_SALE' ? 'View completed sale' : 'Sales invoice / delivery'}</button>}
               </article>)}
               {canManage && detail.bookings.some((booking) => booking.status === 'ACTIVE') && <div className="sales-inline-form"><label>Cancellation reason<input maxLength={500} value={bookingCancelReason} onChange={(event) => setBookingCancelReason(event.target.value)} placeholder="Required to release reserved stock" /></label></div>}
             </section>}
@@ -538,6 +845,100 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
           </>}
         </section>
       </div>}
+
+      {saleBooking && <section className="sales-sale-workspace">
+        <div className="sales-sale-heading">
+          <div><div className="eyebrow">BOOKING TO DELIVERY</div><h2>Sales invoice & vehicle delivery</h2>
+            <p>{saleBooking.bookingCode} · {saleBooking.customerName} · {saleBooking.modelName}{saleBooking.variantName ? ' · ' + saleBooking.variantName : ''}</p>
+            <small>{saleBooking.chassisNumber} · {saleBooking.engineNumber}</small>
+          </div>
+          <button type="button" className="secondary-button" onClick={() => { setSaleBooking(null); setSaleInvoice(null); setSalePayments([]); setSaleError(''); }}>Close</button>
+        </div>
+        {saleError && <div className="notice notice-error" role="alert">{saleError}</div>}
+        {saleLoading ? <div className="studio-empty">Loading sales transaction…</div> : <>
+          {!saleInvoice && saleBooking.status === 'ACTIVE' && canManage && <form className="sales-sale-form" onSubmit={createSaleInvoice}>
+            <div className="sales-section-heading"><div><h3>Prepare vehicle sale invoice</h3><p>Enter the agreed selling price and discount. Prices remain separate from the dealership's purchase cost.</p></div><span className="sales-counter">Draft</span></div>
+            <div className="sales-sale-fields">
+              <label>Agreed vehicle price (₹)<input required type="number" min="0.01" step="0.01" value={saleVehiclePrice} onChange={(event) => setSaleVehiclePrice(event.target.value)} placeholder="Enter agreed price" /></label>
+              <label>Vehicle discount (₹)<input required type="number" min="0" step="0.01" value={saleVehicleDiscount} onChange={(event) => setSaleVehicleDiscount(event.target.value)} /></label>
+              <label className="sales-sale-wide">Customer-facing note<textarea rows={2} maxLength={2000} value={saleCustomerMessage} onChange={(event) => setSaleCustomerMessage(event.target.value)} placeholder="Optional sale note (not tax terms)" /></label>
+            </div>
+            <div className="sales-sale-addons">
+              <div className="sales-section-heading"><div><h3>Accessories / other agreed charges</h3><p>Optional line items; each line is saved into the invoice snapshot.</p></div><button type="button" className="secondary-button" disabled={saleAddOns.length >= 50} onClick={() => setSaleAddOns((current) => [...current, { lineType: 'ACCESSORY', description: '', quantity: '1', unitPrice: '', discountAmount: '0' }])}>+ Add line</button></div>
+              {saleAddOns.map((line, index) => <div className="sales-sale-addon-row" key={index}>
+                <label>Type<select value={line.lineType} onChange={(event) => setSaleAddOns((current) => current.map((item, i) => i === index ? { ...item, lineType: event.target.value as SaleAddOnDraft['lineType'] } : item))}><option value="ACCESSORY">Accessory</option><option value="OTHER">Other</option></select></label>
+                <label className="sales-sale-addon-description">Description<input required maxLength={300} value={line.description} onChange={(event) => setSaleAddOns((current) => current.map((item, i) => i === index ? { ...item, description: event.target.value } : item))} /></label>
+                <label>Qty<input type="number" required min="0.001" step="0.001" value={line.quantity} onChange={(event) => setSaleAddOns((current) => current.map((item, i) => i === index ? { ...item, quantity: event.target.value } : item))} /></label>
+                <label>Unit price (₹)<input type="number" required min="0" step="0.01" value={line.unitPrice} onChange={(event) => setSaleAddOns((current) => current.map((item, i) => i === index ? { ...item, unitPrice: event.target.value } : item))} /></label>
+                <label>Discount (₹)<input type="number" min="0" step="0.01" value={line.discountAmount} onChange={(event) => setSaleAddOns((current) => current.map((item, i) => i === index ? { ...item, discountAmount: event.target.value } : item))} /></label>
+                <button type="button" className="text-button danger-link" onClick={() => setSaleAddOns((current) => current.filter((_, i) => i !== index))}>Remove</button>
+              </div>)}
+            </div>
+            <div className="sales-sale-disclaimer"><strong>Operational invoice only</strong><span>This workflow is not a GST tax invoice and does not apply statutory tax treatment. Use the dealership's approved tax process until GST/e-invoicing integration is implemented.</span></div>
+            <div className="sales-form-actions"><button type="submit" className="primary-button" disabled={saleBusy === 'invoice' || !saleVehiclePrice.trim()}>{saleBusy === 'invoice' ? 'Saving draft…' : 'Create draft invoice'}</button></div>
+          </form>}
+
+          {saleInvoice && <div className="sales-sale-invoice-card">
+            <div className="sales-sale-invoice-top">
+              <div><div className="eyebrow">SALES INVOICE</div><h3>{saleInvoice.invoiceNumber}</h3><span>{saleInvoice.modelName}{saleInvoice.variantName ? ' · ' + saleInvoice.variantName : ''} · chassis {saleInvoice.chassisNumber}</span><small>Created {dateLabel(saleInvoice.createdAt)}{saleInvoice.issuedAt ? ' · Issued ' + dateLabel(saleInvoice.issuedAt) : ''}</small></div>
+              <div className="sales-sale-invoice-status"><span className={statusClass(saleInvoice.status)}>{titleCase(saleInvoice.status)}</span><strong>{money(saleInvoice.invoiceTotal)}</strong></div>
+            </div>
+            <div className="sales-sale-warning"><strong>Not a GST tax invoice</strong><span>{saleInvoice.documentNotice}</span></div>
+            <div className="sales-sale-lines">{saleInvoice.lines.map((line) => <div className="sales-sale-line" key={line.lineNumber}>
+              <div><strong>{line.description}</strong><small>{titleCase(line.lineType)} · {line.quantity} × {money(line.unitPrice)}{line.discountAmount > 0 ? ' · discount ' + money(line.discountAmount) : ''}</small></div><strong>{money(line.lineTotal)}</strong>
+            </div>)}</div>
+            {saleInvoice.customerMessage && <p className="sales-sale-customer-message">{saleInvoice.customerMessage}</p>}
+            <div className="sales-sale-totals">
+              <div><span>Invoice total</span><strong>{money(saleInvoice.invoiceTotal)}</strong></div>
+              <div><span>Payments recorded</span><strong>{money(saleInvoice.paidAmount)}</strong></div>
+              <div className={saleInvoice.balanceDue > 0 ? 'sales-sale-balance due' : 'sales-sale-balance settled'}><span>Balance due</span><strong>{money(saleInvoice.balanceDue)}</strong></div>
+            </div>
+            {saleInvoice.status === 'DRAFT' && <div className="sales-sale-actions">
+              {canIssueSaleInvoice && <button type="button" className="primary-button" disabled={saleBusy === 'invoice'} onClick={() => void issueSaleInvoice()}>{saleBusy === 'invoice' ? 'Issuing…' : 'Issue invoice'}</button>}
+              {canIssueSaleInvoice && saleBooking.status === 'ACTIVE' && <button type="button" className="text-button danger-link" disabled={saleBusy === 'invoice'} onClick={() => void cancelSaleInvoice()}>Cancel draft / invoice</button>}
+              {!canIssueSaleInvoice && <small>Your role can prepare the draft but cannot issue an invoice. Ask finance staff to issue it.</small>}
+            </div>}
+            {saleInvoice.status === 'ISSUED' && saleBooking.status === 'ACTIVE' && canRecordSalePayment && saleInvoice.balanceDue > 0 && <form className="sales-sale-form sales-sale-payment-form" onSubmit={recordSalePayment}>
+              <div className="sales-section-heading"><div><h3>Record payment</h3><p>Partial receipts are supported. Recording here is not gateway verification.</p></div><span className="sales-counter">Collection</span></div>
+              <div className="sales-sale-fields">
+                <label>Amount (₹)<input required type="number" min="0.01" max={saleInvoice.balanceDue} step="0.01" value={salePaymentAmount} onChange={(event) => setSalePaymentAmount(event.target.value)} /></label>
+                <label>Method<select value={salePaymentMethod} onChange={(event) => setSalePaymentMethod(event.target.value as typeof salePaymentMethod)}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
+                <label>Payment reference<input required={['UPI', 'BANK_TRANSFER', 'CARD'].includes(salePaymentMethod)} maxLength={160} value={salePaymentReference} onChange={(event) => setSalePaymentReference(event.target.value)} placeholder={['UPI', 'BANK_TRANSFER', 'CARD'].includes(salePaymentMethod) ? 'Required transaction reference' : 'Optional reference'} /></label>
+                <label>Receipt note<input maxLength={1000} value={salePaymentNote} onChange={(event) => setSalePaymentNote(event.target.value)} placeholder="Optional note" /></label>
+              </div>
+              <div className="sales-form-actions"><small>If the response times out, retry without changing the fields. The same idempotency key is reused.</small><button type="submit" className="primary-button" disabled={saleBusy === 'payment' || !salePaymentAmount.trim()}>{saleBusy === 'payment' ? 'Recording…' : 'Record payment'}</button></div>
+            </form>}
+            {canReadSaleFinance && salePayments.length > 0 && <section className="sales-sale-payment-history">
+              <div className="sales-section-heading"><div><h3>Receipt history</h3><p>Reversals remain in history and are excluded from paid balance.</p></div><span className="sales-counter">{salePayments.length} receipt(s)</span></div>
+              {salePayments.map((payment) => <article className="sales-sale-payment" key={payment.publicId}>
+                <div className="sales-record-symbol">{payment.status === 'REVERSED' ? '↶' : '₹'}</div>
+                <div className="sales-record-copy"><strong>{payment.receiptNumber} · {money(payment.amount)}</strong><span>{titleCase(payment.paymentMethod)} · {payment.recordedByName} · {dateLabel(payment.recordedAt)}</span>{payment.paymentReference && <small>Reference: {payment.paymentReference}</small>}{payment.note && <small>{payment.note}</small>}{payment.status === 'REVERSED' && <small className="sales-warning-text">Reversed by {payment.reversedByName || 'staff'} · {dateLabel(payment.reversedAt)} · {payment.reversalReason}{payment.reversalReference ? ' · ' + payment.reversalReference : ''}</small>}</div>
+                <span className={statusClass(payment.status)}>{titleCase(payment.status)}</span>
+                {payment.status === 'RECORDED' && saleBooking.status === 'ACTIVE' && canRecordSalePayment && <button type="button" className="text-button danger-link" disabled={saleBusy === payment.publicId} onClick={() => void reverseSalePayment(payment)}>Reverse</button>}
+              </article>)}
+              {saleBooking.status === 'ACTIVE' && salePayments.some((payment) => payment.status === 'RECORDED') && canRecordSalePayment && <div className="sales-sale-reversal-fields">
+                <label>Reason for reversal<input required maxLength={500} value={saleReversalReason} onChange={(event) => setSaleReversalReason(event.target.value)} placeholder="Required before selecting Reverse" /></label>
+                <label>External reversal reference<input maxLength={160} value={saleReversalReference} onChange={(event) => setSaleReversalReference(event.target.value)} placeholder="Optional reference" /></label>
+              </div>}
+            </section>}
+            {saleInvoice.status === 'CANCELLED' && saleBooking.status === 'ACTIVE' && canManage && <div className="sales-inline-warning">This invoice was cancelled. You can create a replacement invoice for this active booking.</div>}
+          </div>}
+
+          {saleInvoice?.status === 'ISSUED' && saleBooking.status === 'ACTIVE' && saleInvoice.balanceDue === 0 && canDeliverSale && <form className="sales-sale-form sales-sale-delivery-form" onSubmit={deliverSale}>
+            <div className="sales-section-heading"><div><h3>Deliver vehicle</h3><p>Available only after the issued sales invoice is fully paid and customer acknowledgement is recorded.</p></div><span className="sales-counter">Final step</span></div>
+            <div className="sales-sale-fields">
+              <label>Person receiving the bike<input required maxLength={160} value={saleReceiverName} onChange={(event) => setSaleReceiverName(event.target.value)} /></label>
+              <label>Acknowledgement method<select value={saleAcknowledgementMethod} onChange={(event) => setSaleAcknowledgementMethod(event.target.value as typeof saleAcknowledgementMethod)}><option value="IN_PERSON">In person</option><option value="SIGNED_FORM">Signed form</option><option value="OTP_REFERENCE">OTP reference</option><option value="WRITTEN_MESSAGE">Written message</option></select></label>
+              <label>Evidence reference<input required={saleAcknowledgementMethod === 'SIGNED_FORM' || saleAcknowledgementMethod === 'OTP_REFERENCE'} maxLength={160} value={saleAcknowledgementReference} onChange={(event) => setSaleAcknowledgementReference(event.target.value)} placeholder="Required for signed-form / OTP reference" /></label>
+              <label>Delivery note<input maxLength={1000} value={saleHandoverNote} onChange={(event) => setSaleHandoverNote(event.target.value)} placeholder="Optional handover note" /></label>
+            </div>
+            <label className="sales-sale-ack"><input type="checkbox" checked={saleAcknowledged} onChange={(event) => setSaleAcknowledged(event.target.checked)} /> Customer acknowledgement received. I have checked the receiver and the selected evidence method.</label>
+            <div className="sales-form-actions"><small>Delivery marks this chassis SOLD and links the bike to the purchasing customer. No tax invoice or payment gateway verification is implied.</small><button type="submit" className="primary-button" disabled={saleBusy === 'delivery' || !saleAcknowledged || !saleReceiverName.trim()}>{saleBusy === 'delivery' ? 'Delivering…' : 'Complete vehicle delivery'}</button></div>
+          </form>}
+          {saleBooking.status === 'CONVERTED_TO_SALE' && <div className="sales-sale-complete"><strong>Sale completed</strong><span>The booking has been converted, the vehicle is SOLD and the customer ownership history was recorded.</span></div>}
+          {saleBooking.status === 'ACTIVE' && saleInvoice?.status === 'ISSUED' && saleInvoice.balanceDue > 0 && <div className="sales-sale-balance-note">Delivery is blocked until the outstanding balance of {money(saleInvoice.balanceDue)} is fully recorded against the issued invoice.</div>}
+        </>}
+      </section>}
 
       {activeTab === 'bookings' && <section className="sales-list-panel sales-bookings-panel">
         <div className="sales-section-heading"><div><h2>Bike bookings</h2><p>Active bookings hold one specific vehicle unit. Cancelling releases that unit and records a movement.</p></div><span className="sales-counter">{bookings.length} records</span></div>
@@ -555,7 +956,7 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
               <td><strong>{booking.modelName}{booking.variantName ? ' · ' + booking.variantName : ''}</strong><small>{booking.chassisNumber} · {booking.engineNumber}</small></td>
               <td><span className={statusClass(booking.status)}>{titleCase(booking.status)}</span></td>
               <td>{dateLabel(booking.createdAt)}</td>
-              <td><button type="button" className="text-button" onClick={() => { setActiveTab('enquiries'); void openEnquiry(booking.enquiryPublicId); }}>Open enquiry</button></td>
+              <td className="sales-booking-actions"><button type="button" className="text-button" onClick={() => { setActiveTab('enquiries'); void openEnquiry(booking.enquiryPublicId); }}>Open enquiry</button>{(booking.status === 'ACTIVE' || booking.status === 'CONVERTED_TO_SALE') && (canManage || canReadSaleFinance || canDeliverSale) && <button type="button" className="text-button" onClick={() => void openSaleTransaction(booking)}>{booking.status === 'CONVERTED_TO_SALE' ? 'View sale' : 'Sale / invoice'}</button>}</td>
             </tr>)}
           </tbody></table></div>}
       </section>}
