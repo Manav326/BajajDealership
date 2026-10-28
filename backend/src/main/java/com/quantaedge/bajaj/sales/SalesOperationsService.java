@@ -113,7 +113,8 @@ public class SalesOperationsService {
           values (?, ?, ?, ?, ?, ?, 'NEW', ?, ?, ?, ?)
           returning public_id
           """, UUID.class, actor.dealershipId(), code, customerId, modelId, assigneeId,
-          actor.staffUserId(), leadSource, contactPreference, nextFollowUpAt, note);
+          actor.staffUserId(), leadSource, contactPreference,
+          nextFollowUpAt == null ? null : Timestamp.from(nextFollowUpAt), note);
     } catch (DuplicateKeyException duplicate) {
       throw conflict("A sales enquiry with this code already exists. Retry the operation.");
     }
