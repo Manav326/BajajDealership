@@ -112,6 +112,13 @@ public class SalesTransactionController {
             request.acknowledgementMethod(), request.acknowledgementReference(), request.note()));
   }
 
+  @GetMapping("/bookings/{bookingPublicId}/handover")
+  @PreAuthorize("hasAnyAuthority('finance.read','sales.read','sales.deliver')")
+  public SalesTransactionService.SaleHandoverView handover(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID bookingPublicId) {
+    return transactions.getHandoverForBooking(principal, bookingPublicId);
+  }
+
   public record SaleInvoiceLineRequest(
       @NotBlank @Pattern(regexp = "ACCESSORY|OTHER") String lineType,
       @NotBlank @Size(max = 300) String description,
