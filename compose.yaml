@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: bajaj-dealership-postgres
+    environment:
+      POSTGRES_DB: bajaj_dealership
+      POSTGRES_USER: bajaj_app
+      POSTGRES_PASSWORD: bajaj_local_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - bajaj_dealership_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bajaj_app -d bajaj_dealership"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  bajaj_dealership_data:
