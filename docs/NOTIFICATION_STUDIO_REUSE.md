@@ -21,6 +21,7 @@ This repository adapts the content patterns and design workflow; it does **not**
 - Local Logo & Graphics editor composes the graphic and uploads a raster image. It is not an AI logo generator and must not upload arbitrary executable SVG/HTML.
 - Immutable template versions; edits create new versions rather than overwriting historical content.
 - Server-resolved customers/staff audience, marketing-consent filter, selected-only audience, exclusions, recipient preview, expiring hashed preview proof and request fingerprint.
+- Persisted approval by staff with the `notification.approve` permission, exact-preview proof, audience-set revalidation and audit history before send/schedule. Send is rejected until the campaign reaches `APPROVED`.
 - Send/schedule/cancel endpoints, idempotency key, scheduled-dispatch worker, campaign history and audit events.
 - Durable in-app recipient rows and delivery-attempt records; staff inbox endpoints support paging, unread count, read/unread and dismiss.
 - Route-level permissions for read, create, send and approve. Client-side permission-aware controls supplement server enforcement.
@@ -33,7 +34,8 @@ This repository adapts the content patterns and design workflow; it does **not**
 - `PUT /api/v1/admin/notifications/templates/{publicId}` — creates a new immutable version
 - `GET /api/v1/admin/notifications/recipients?kind=CUSTOMER|STAFF&query=...`
 - `POST /api/v1/admin/notifications/preview`
-- `POST /api/v1/admin/notifications/send`
+- `POST /api/v1/admin/notifications/campaigns/{publicId}/approve` — requires `notification.approve` and the unexpired preview token.
+- `POST /api/v1/admin/notifications/send` — requires persisted `APPROVED` status.
 - `GET /api/v1/admin/notifications/campaigns`
 - `POST /api/v1/admin/notifications/campaigns/{publicId}/cancel`
 - `GET /api/v1/admin/notifications/inbox`
@@ -52,7 +54,7 @@ The supported content block set and URL rules are enforced by the backend valida
 - Android push requires a configured Firebase service identity, device-registration lifecycle, minimal push payload, delivery worker and provider-confirmed status before it is enabled.
 - SMS/WhatsApp Business/email require provider credentials, recipient consent, required template approval, budgets and opt-out processing.
 - Retriable delivery channels must be separate attempts linked to the durable inbox; a provider failure must never delete an inbox record.
-- Scheduled campaigns re-resolve eligibility at dispatch time. Expired previews cannot be sent. A preview change requires a fresh server-generated proof. A send idempotency key must not create duplicate recipients.
+- Send and scheduling require an explicit persisted approval. Approval rechecks the current server-resolved recipient set against the preview snapshot; an audience change or expired preview requires a fresh preview. Scheduled campaigns re-resolve eligibility at dispatch time. A send idempotency key must not create duplicate recipients.
 - No real customer messages are sent in CI.
 
 ## Remaining work before production use
