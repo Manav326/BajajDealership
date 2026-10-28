@@ -2145,3 +2145,33 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .sales-sale-invoice-status { align-items:flex-start; }
   .sales-sale-ack { line-height:1.7; }
 }
+
+/* Team & Access — keep staff administration aligned with the shared liquid-glass system. */
+.staff-heading-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.staff-heading-actions .primary-button { white-space:nowrap; }
+.staff-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-top:18px; }
+.staff-form-wide { grid-column:1 / -1; }
+.staff-invite-form label,.staff-access-form label { display:flex; flex-direction:column; align-items:stretch; gap:7px; color:var(--text-primary,#24324b); font-size:10px; font-weight:750; min-width:0; }
+.staff-invite-form input:not([type="checkbox"]),.staff-access-form input:not([type="checkbox"]) { width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--glass-border,#dfe7ef); border-radius:9px; padding:11px 12px; color:var(--text-primary,#24324b); background:var(--glass-surface-strong,rgba(255,255,255,.82)); font:inherit; }
+.staff-invite-form input:focus-visible,.staff-access-form input:focus-visible { outline:2px solid var(--accent,#f28c28); outline-offset:2px; }
+.staff-permission-heading { margin:20px 0 10px; }
+.staff-role-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:9px; margin:10px 0 15px; }
+.staff-role-option { display:flex !important; flex-direction:row !important; align-items:flex-start !important; gap:10px !important; min-width:0; padding:12px; border:1px solid var(--glass-border,rgba(209,220,233,.8)); border-radius:11px; background:var(--glass-surface,rgba(255,255,255,.58)); cursor:pointer; }
+.staff-role-option input[type="checkbox"] { width:15px; height:15px; margin:2px 0 0; accent-color:var(--accent,#ef8424); flex:0 0 auto; }
+.staff-role-option span { display:flex; flex-direction:column; min-width:0; gap:4px; }
+.staff-role-option strong { color:var(--text-primary,#24324b); font-size:10px; }
+.staff-role-option small { color:var(--text-muted,#7b8798); font-size:9px; line-height:1.5; }
+.staff-access-form { display:flex; flex-direction:column; align-items:flex-start; gap:10px; margin-top:20px; padding-top:18px; border-top:1px solid var(--glass-separator,rgba(205,216,229,.68)); }
+.staff-access-form .staff-role-options { width:100%; }
+.staff-record-id,.staff-contact-secondary { color:var(--text-muted,#7f8a9b); font-size:9px; line-height:1.6; overflow-wrap:anywhere; }
+.staff-token-card,.staff-invite-form { margin-bottom:18px; padding:20px; }
+.staff-invite-form .sales-form-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:14px; }
+.staff-invite-form .sales-form-actions span { color:var(--text-muted,#7f8a9b); font-size:9px; line-height:1.6; }
+.auth-mode-toggle { display:block; margin:14px auto 0; text-align:center; color:var(--accent,#d96d13); font-size:10px; }
+@media (max-width:560px) {
+  .staff-heading-actions { width:100%; justify-content:space-between; }
+  .staff-heading-actions .date-chip { flex:1 1 auto; }
+  .staff-invite-form,.staff-token-card { padding:14px; }
+  .staff-role-options { grid-template-columns:minmax(0,1fr); }
+  .staff-form-wide { grid-column:auto; }
+}
