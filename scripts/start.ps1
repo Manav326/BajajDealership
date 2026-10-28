@@ -69,7 +69,7 @@ if ($generatedBootstrapToken) {
     Write-Host 'One-time initial owner setup token (local only):' -ForegroundColor Yellow
     Write-Host $newTokenValue -ForegroundColor Yellow
     Write-Host 'Use it in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap.' -ForegroundColor DarkYellow
-    Write-Host 'After owner setup, remove APP_BOOTSTRAP_TOKEN from .env and recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
+    Write-Host 'After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
     Write-Host ''
 }
 
