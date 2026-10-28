@@ -399,11 +399,10 @@ public class FinanceAdjustmentService {
 
   private BigDecimal creditNoteReservation(long dealershipId, String source, long invoiceId) {
     String field = "SALES".equals(source) ? "sales_invoice_id" : "service_invoice_id";
-    BigDecimal sum = jdbc.queryForObject("""
-        select coalesce(sum(amount),0) from finance_invoice_adjustment
-        where dealership_id=? and source_type=? and adjustment_type='CREDIT_NOTE'
-          and """ + field + """ = ? and status in ('PENDING_APPROVAL','APPROVED','PAID')
-        """, BigDecimal.class, dealershipId, source, invoiceId);
+    String sql = "select coalesce(sum(amount),0) from finance_invoice_adjustment "
+        + "where dealership_id=? and source_type=? and adjustment_type='CREDIT_NOTE' and "
+        + field + " = ? and status in ('PENDING_APPROVAL','APPROVED','PAID')";
+    BigDecimal sum = jdbc.queryForObject(sql, BigDecimal.class, dealershipId, source, invoiceId);
     return zero(sum);
   }
 
@@ -463,12 +462,11 @@ public class FinanceAdjustmentService {
     String invoiceField = "SALES".equals(source) ? "sales_invoice_id" : "service_invoice_id";
     long invoiceId = "SALES".equals(source) ? salesInvoiceId : serviceInvoiceId;
     long paymentId = "SALES".equals(source) ? salesPaymentId : servicePaymentId;
-    return zero(jdbc.queryForObject("""
-        select coalesce(sum(amount),0) from finance_invoice_adjustment
-        where dealership_id=? and adjustment_type='REFUND' and source_type=?
-          and """ + invoiceField + """ = ? and """ + paymentField + """ = ?
-          and status in ('PENDING_APPROVAL','APPROVED','PAID')
-        """, BigDecimal.class, dealershipId, source, invoiceId, paymentId));
+    String sql = "select coalesce(sum(amount),0) from finance_invoice_adjustment "
+        + "where dealership_id=? and adjustment_type='REFUND' and source_type=? and "
+        + invoiceField + " = ? and " + paymentField + " = ? "
+        + "and status in ('PENDING_APPROVAL','APPROVED','PAID')";
+    return zero(jdbc.queryForObject(sql, BigDecimal.class, dealershipId, source, invoiceId, paymentId));
   }
 
   private void validateIssuedSourceInvoice(StaffPrincipal actor, String source, Long salesId, Long serviceId) {
