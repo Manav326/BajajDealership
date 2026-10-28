@@ -755,3 +755,14 @@ h1,h2,h3,p { margin-top: 0; }
   .assignment-form { grid-template-columns: minmax(0,1fr); }
   .assignment-form .assignment-staff-select { grid-column: auto; }
 }
+
+.workshop-customer-search { display: flex; align-items: center; gap: 7px; margin: 2px 0 7px; }
+.workshop-customer-search input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; color: #35445c; font: inherit; font-size: 10px; outline: 0; }
+.workshop-customer-search input:focus { border-color: #f59a56; box-shadow: 0 0 0 3px #f9731613; }
+.workshop-customer-search .secondary-button { padding: 9px 10px; background: #fff; color: #536078; border: 1px solid #e0e6ef; box-shadow: none; font-size: 8px; white-space: nowrap; }
+.workshop-customer-search .text-button { white-space: nowrap; }
+@media (max-width: 560px) {
+  .workshop-customer-search { flex-wrap: wrap; }
+  .workshop-customer-search input { flex-basis: 100%; }
+  .workshop-customer-search .secondary-button { flex: 1; }
+}
