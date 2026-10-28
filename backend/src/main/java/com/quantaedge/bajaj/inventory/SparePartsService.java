@@ -59,7 +59,7 @@ public class SparePartsService {
     args.add(window.offset());
     List<SparePartView> items = jdbc.query("""
         select p.public_id, p.sku_code, p.part_name, p.description, p.unit_of_measure, p.active,
-          b.quantity_on_hand, b.quantity_reserved, b.average_unit_cost, p.created_at, p.updated_at
+          b.quantity_on_hand, b.quantity_reserved, b.average_unit_cost, b.low_stock_threshold, b.reorder_to_quantity, p.created_at, p.updated_at
         from spare_part p
         join spare_part_balance b on b.dealership_id = p.dealership_id and b.part_id = p.id
         """ + where + " order by lower(p.part_name), p.id limit ? offset ?",
@@ -67,7 +67,8 @@ public class SparePartsService {
             rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
             rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
             rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"),
-            rs.getBigDecimal("average_unit_cost"), rs.getTimestamp("created_at").toInstant(),
+            rs.getBigDecimal("average_unit_cost"), rs.getBigDecimal("low_stock_threshold"),
+            rs.getBigDecimal("reorder_to_quantity"), rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()), args.toArray());
     return new Page<>(items, window.page(), window.size(), total);
   }
@@ -75,7 +76,7 @@ public class SparePartsService {
   public SparePartView getPart(StaffPrincipal actor, UUID publicId) {
     List<SparePartView> rows = jdbc.query("""
         select p.public_id, p.sku_code, p.part_name, p.description, p.unit_of_measure, p.active,
-          b.quantity_on_hand, b.quantity_reserved, b.average_unit_cost, p.created_at, p.updated_at
+          b.quantity_on_hand, b.quantity_reserved, b.average_unit_cost, b.low_stock_threshold, b.reorder_to_quantity, p.created_at, p.updated_at
         from spare_part p
         join spare_part_balance b on b.dealership_id = p.dealership_id and b.part_id = p.id
         where p.dealership_id = ? and p.public_id = ?
@@ -83,7 +84,8 @@ public class SparePartsService {
             rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
             rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
             rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"),
-            rs.getBigDecimal("average_unit_cost"), rs.getTimestamp("created_at").toInstant(),
+            rs.getBigDecimal("average_unit_cost"), rs.getBigDecimal("low_stock_threshold"),
+            rs.getBigDecimal("reorder_to_quantity"), rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()), actor.dealershipId(), publicId);
     if (rows.isEmpty()) throw notFound("Spare part was not found in this dealership.");
     return rows.getFirst();
@@ -826,9 +828,11 @@ public class SparePartsService {
 
   private static SparePartView partView(
       UUID publicId, String sku, String name, String description, String unit, boolean active,
-      BigDecimal onHand, BigDecimal reserved, BigDecimal averageCost, Instant createdAt, Instant updatedAt) {
+      BigDecimal onHand, BigDecimal reserved, BigDecimal averageCost,
+      BigDecimal lowStockThreshold, BigDecimal reorderToQuantity, Instant createdAt, Instant updatedAt) {
     return new SparePartView(publicId, sku, name, description, unit, active, onHand, reserved,
-        onHand.subtract(reserved).max(BigDecimal.ZERO), averageCost, createdAt, updatedAt);
+        onHand.subtract(reserved).max(BigDecimal.ZERO), averageCost,
+        lowStockThreshold, reorderToQuantity, createdAt, updatedAt);
   }
 
   private static BigDecimal weightedAverage(
@@ -948,7 +952,8 @@ public class SparePartsService {
   public record SparePartView(
       UUID publicId, String skuCode, String partName, String description, String unitOfMeasure,
       boolean active, BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable,
-      BigDecimal averageUnitCost, Instant createdAt, Instant updatedAt) {}
+      BigDecimal averageUnitCost, BigDecimal lowStockThreshold, BigDecimal reorderToQuantity,
+      Instant createdAt, Instant updatedAt) {}
   public record SupplierView(
       UUID publicId, String supplierCode, String supplierName, String contactName, String phone,
       String email, String address, String notes, boolean active, Instant createdAt, Instant updatedAt) {}
