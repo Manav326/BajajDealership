@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
+import SparePartsWorkspace from './inventory/SparePartsWorkspace';
 import WorkshopWorkspace from './workshop/WorkshopWorkspace';
 import NotificationStudio from './notifications/NotificationStudio';
 import NotificationInbox from './notifications/NotificationInbox';
@@ -206,6 +207,8 @@ function App() {
             <NotificationStudio staff={staff} />
           ) : activePage === 'Bike inventory' ? (
             <VehicleInventoryWorkspace token={token} staff={staff} />
+          ) : activePage === 'Spare parts' ? (
+            <SparePartsWorkspace token={token} staff={staff} />
           ) : activePage === 'Workshop' ? (
             <WorkshopWorkspace token={token} staff={staff} />
           ) : activePage === 'Overview' ? (
