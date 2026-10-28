@@ -3,6 +3,7 @@ import { apiFetch } from './apiClient';
 import { notifyUser } from './GlobalNotificationHost';
 import LogoGraphicsLab, { type UploadedNotificationMedia } from './LogoGraphicsLab';
 import RichNotificationRenderer from './RichNotificationRenderer';
+import type { StaffSummary } from '../auth/StaffLogin';
 
 type Block = Record<string, unknown> & { type: string };
 type DocumentV1 = { version: 1; blocks: Block[] };
@@ -124,7 +125,10 @@ const editableFields: Record<string, string[]> = {
   footer: ['text'],
 };
 
-export default function NotificationStudio() {
+export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
+  const canCreate = staff.permissions.includes('notification.create');
+  const canSend = staff.permissions.includes('notification.send');
+  const canApprove = staff.permissions.includes('notification.approve');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [options, setOptions] = useState<Options | null>(null);
@@ -156,7 +160,7 @@ export default function NotificationStudio() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'editor' | 'campaigns'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'campaigns'>(() => canCreate ? 'editor' : 'campaigns');
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -488,7 +492,7 @@ export default function NotificationStudio() {
       {message && <div className="notice notice-success" role="status">{message}</div>}
 
       <div className="studio-tabs" role="tablist" aria-label="Notification Studio sections">
-        <button type="button" className={activeTab === 'editor' ? 'studio-tab active' : 'studio-tab'} onClick={() => setActiveTab('editor')}>Design & send</button>
+        {canCreate && <button type="button" className={activeTab === 'editor' ? 'studio-tab active' : 'studio-tab'} onClick={() => setActiveTab('editor')}>Design & send</button>}
         <button type="button" className={activeTab === 'campaigns' ? 'studio-tab active' : 'studio-tab'} onClick={() => { setActiveTab('campaigns'); void refreshCampaigns(); }}>Campaign history <span>{campaigns.length}</span></button>
       </div>
 
@@ -501,7 +505,7 @@ export default function NotificationStudio() {
                 <article className="campaign-row" key={campaign.publicId}>
                   <div className="campaign-symbol">✳</div>
                   <div className="campaign-main"><strong>{campaign.title}</strong><p>{campaign.summary}</p><div className="campaign-meta"><span>{campaign.scope}</span><span>{campaign.resolvedRecipientCount} recipients</span><span>Created {humanDate(campaign.createdAt)}</span>{campaign.scheduledAt && <span>Scheduled {humanDate(campaign.scheduledAt)}</span>}</div></div>
-                  <div className="campaign-actions"><span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>{['PREVIEWED','SCHEDULED','QUEUED'].includes(campaign.status) && <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}</div>
+                  <div className="campaign-actions"><span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>{canApprove && ['PREVIEWED','SCHEDULED','QUEUED'].includes(campaign.status) && <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}</div>
                 </article>
               ))}
             </div>
@@ -624,8 +628,8 @@ export default function NotificationStudio() {
                 <p>Only an unexpired server-issued preview can be accepted.</p>
                 <label>Schedule for later <span className="optional-label">Optional</span><input type="datetime-local" value={scheduleValue} onChange={(event) => setScheduleValue(event.target.value)} /></label>
                 <label>Expiry time <span className="optional-label">Optional</span><input type="datetime-local" value={expiryValue} onChange={(event) => setExpiryValue(event.target.value)} /></label>
-                <button type="submit" className="send-button" disabled={sending || saving || !preview || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
-                <div className="send-channel-note"><strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
+                <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
+                <div className="send-channel-note">{!canSend && <><strong>Send permission required:</strong> Your role can prepare previews but cannot send or schedule notifications yet. </>}<strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
               </form>
             </section>
             <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign creation uses one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
