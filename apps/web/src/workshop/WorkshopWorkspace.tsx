@@ -642,7 +642,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
             })}
             {canManageInspection && selectedJobCard.status === 'INSPECTING' && <div className="inspection-complete-row"><span>All seven checklist items must have a result before the estimate step can begin.</span><button type="button" className="primary-button" disabled={busyId === selectedJobCard.publicId || selectedJobCard.pendingInspectionCount > 0} onClick={() => void completeInspection()}>{busyId === selectedJobCard.publicId ? 'Completing…' : 'Complete inspection'}</button></div>}
             {selectedJobCard.status === 'ESTIMATE_PENDING' && canCreateEstimate && <section className="estimate-create-section">
-              <div className="inspection-heading"><div><h3>Create service estimate</h3><p>This creates a new immutable revision. The customer decision must be recorded before work can start.</p></div><span className="studio-count">`Revision ${estimates.length + 1}`</span></div>
+              <div className="inspection-heading"><div><h3>Create service estimate</h3><p>This creates a new immutable revision. The customer decision must be recorded before work can start.</p></div><span className="studio-count">Revision {estimates.length + 1}</span></div>
               <form className="estimate-form" onSubmit={createEstimate}>
                 {estimateLines.map((line, index) => <div className="estimate-line-edit-row" key={index}>
                   <label>Type<select value={line.lineType} onChange={(event) => updateEstimateLine(index, 'lineType', event.target.value as EstimateLineDraft['lineType'])}><option value="PART">Part</option><option value="LABOUR">Labour</option><option value="OTHER">Other</option></select></label>
