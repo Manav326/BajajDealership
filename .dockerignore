@@ -1,0 +1,13 @@
+.git
+.git/**
+**/node_modules
+**/dist
+**/target
+**/.expo
+**/.gradle
+**/build
+**/coverage
+**/.DS_Store
+**/npm-debug.log*
+**/.env
+.env
