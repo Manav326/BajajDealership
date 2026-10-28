@@ -115,6 +115,14 @@ function prettyStatus(value: string) {
   return value.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
 
+function quantity(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
+}
+
+function money(value: number | null | undefined) {
+  return `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function WorkshopWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canReadAppointments = staff.permissions.includes('workshop.appointment.read');
   const canManageAppointments = staff.permissions.includes('workshop.appointment.manage');
