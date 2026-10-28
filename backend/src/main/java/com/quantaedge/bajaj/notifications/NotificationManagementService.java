@@ -234,7 +234,7 @@ public class NotificationManagementService {
     String title = requiredText(request.title(), "Notification title", 120);
     String summary = requiredText(request.summary(), "Notification summary", 300);
     JsonNode document = validateDocument(request.contentDocument());
-    JsonNode filter = normalizeAudienceFilter(scope, request.audienceFilter());
+    JsonNode filter = normalizeAudienceFilter(scope, mapper.valueToTree(request.audienceFilter()));
     Long templateId = null;
     Integer templateVersion = null;
     if (request.templatePublicId() != null) {
