@@ -135,6 +135,13 @@ class SparePartsServiceIntegrationTest {
     assertThat(afterReturn.quantityReturned()).isEqualByComparingTo("1.000");
     assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("7.000");
     assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("2.000");
+    assertThatThrownBy(() -> parts.issuePart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            BigDecimal.ONE, "stale-issue-" + UUID.randomUUID(), "Must wait for revised approval.")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("7.000");
 
     approveReservationEstimate(fixture, afterReturn, "Approved updated quantity after the returned unit.");
     var fullyIssued = parts.issuePart(fixture.owner(), reservation.publicId(),
