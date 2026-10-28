@@ -182,7 +182,7 @@ function App() {
           {activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
           ) : activePage === 'Notification Studio' ? (
-            <NotificationStudio />
+            <NotificationStudio staff={staff} />
           ) : activePage === 'Bike inventory' ? (
             <VehicleInventoryWorkspace token={token} staff={staff} />
           ) : activePage === 'Overview' ? (
