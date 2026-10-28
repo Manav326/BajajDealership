@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from './apiClient';
+import { apiFetch, apiRequestUrl } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
 import SparePartsWorkspace from './inventory/SparePartsWorkspace';
@@ -154,7 +154,7 @@ function App() {
   useEffect(() => {
     if (!token || !staff) return;
     const controller = new AbortController();
-    fetch('/api/v1/system/health', { signal: controller.signal })
+    fetch(apiRequestUrl('/api/v1/system/health'), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error('API is not ready');
         return response.json() as Promise<ApiHealth>;

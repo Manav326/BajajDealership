@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { StaffSummary } from '../auth/StaffLogin';
+import { apiRequestUrl } from '../apiClient';
 
 type Appointment = {
   publicId: string; appointmentCode: string; customerPublicId: string; customerName: string; customerPhone: string | null;
@@ -93,7 +94,7 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
   headers.set('Accept', 'application/json');
   headers.set('Authorization', `Bearer ${token}`);
   if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(apiRequestUrl(path), { ...init, headers });
   const payload = await response.json().catch(() => ({})) as T & { message?: string; detail?: string; error?: string };
   if (!response.ok) throw new Error(payload.message ?? payload.detail ?? payload.error ?? `Request failed (${response.status}).`);
   return payload as T;

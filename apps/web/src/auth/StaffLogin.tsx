@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { apiRequestUrl } from '../apiClient';
 
 type StaffSummary = {
   staffPublicId: string;
@@ -39,7 +40,7 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
     setActivationMessage('');
     setBusy(true);
     try {
-      const response = await fetch('/api/v1/auth/staff/login', {
+      const response = await fetch(apiRequestUrl('/api/v1/auth/staff/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ dealershipCode, login, password }),
@@ -71,7 +72,7 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
     }
     setBusy(true);
     try {
-      const response = await fetch('/api/v1/auth/staff/activate', {
+      const response = await fetch(apiRequestUrl('/api/v1/auth/staff/activate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ activationToken: activationToken.trim(), password }),
