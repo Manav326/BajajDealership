@@ -899,9 +899,9 @@ public class ServiceOperationsService {
 
     String next = passed ? "READY_FOR_COLLECTION" : "IN_PROGRESS";
     int changed = jdbc.update("""
-        update service_job_card set status = ?, updated_at = now()
+        update service_job_card set status = ?, completed_at = case when ? = 'READY_FOR_COLLECTION' then coalesce(completed_at, now()) else completed_at end, updated_at = now()
         where dealership_id = ? and id = ? and status = 'IN_PROGRESS'
-        """, next, actor.dealershipId(), jobCardId);
+        """, next, next, actor.dealershipId(), jobCardId);
     if (changed != 1) throw conflict("Job-card status changed while recording the quality check.");
     jdbc.update("""
         insert into service_job_transition(
