@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
+import NotificationStudio from './notifications/NotificationStudio';
+import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 
 type ApiHealth = {
@@ -123,6 +125,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <GlobalNotificationHost />
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark">Q</div>
@@ -178,6 +181,8 @@ function App() {
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
           {activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
+          ) : activePage === 'Notification Studio' ? (
+            <NotificationStudio />
           ) : activePage === 'Bike inventory' ? (
             <VehicleInventoryWorkspace token={token} staff={staff} />
           ) : activePage === 'Overview' ? (
