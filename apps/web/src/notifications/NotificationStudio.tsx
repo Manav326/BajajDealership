@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { apiFetch } from './apiClient';
-import GlobalNotificationHost, { notifyUser } from './GlobalNotificationHost';
+import { notifyUser } from './GlobalNotificationHost';
 import LogoGraphicsLab, { type UploadedNotificationMedia } from './LogoGraphicsLab';
 import RichNotificationRenderer from './RichNotificationRenderer';
 
@@ -472,7 +472,6 @@ export default function NotificationStudio() {
 
   return (
     <section className="notification-studio">
-      <GlobalNotificationHost />
       <div className="studio-heading">
         <div>
           <div className="eyebrow">DEALERSHIP CUSTOMER ENGAGEMENT</div>
