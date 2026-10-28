@@ -1,0 +1,346 @@
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import styles from './SocialMediaArtworkStudio.module.css';
+
+type ArtworkFormat = {
+  id: string;
+  label: string;
+  channel: string;
+  width: number;
+  height: number;
+  note: string;
+};
+
+const formats: ArtworkFormat[] = [
+  { id: 'facebook-feed', label: 'Facebook Feed · Landscape', channel: 'Facebook Feed', width: 1200, height: 630, note: 'Landscape promotional artwork for a Facebook Page post.' },
+  { id: 'square-feed', label: 'Square Feed Post', channel: 'Facebook / Instagram Feed', width: 1080, height: 1080, note: 'A square creative for feed placements.' },
+  { id: 'instagram-portrait', label: 'Instagram Feed · Portrait', channel: 'Instagram Feed', width: 1080, height: 1350, note: 'A portrait feed creative with room for readable copy.' },
+  { id: 'story-status', label: 'Story / Status · Vertical', channel: 'Instagram Story / WhatsApp Status export', width: 1080, height: 1920, note: 'Exports artwork for manual sharing. Direct WhatsApp Status publishing is not provided by this tool.' },
+];
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, startY: number, maxWidth: number, lineHeight: number, maxLines: number) {
+  const words = text.trim().split(/\\s+/).filter(Boolean);
+  if (!words.length) return startY;
+  const lines: string[] = [];
+  let line = '';
+  let truncated = false;
+
+  for (let index = 0; index < words.length; index += 1) {
+    const candidate = line ? line + ' ' + words[index] : words[index];
+    if (ctx.measureText(candidate).width <= maxWidth || !line) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = words[index];
+      if (lines.length >= maxLines) {
+        truncated = true;
+        line = lines[maxLines - 1];
+        break;
+      }
+    }
+    if (index === words.length - 1) lines.push(line);
+  }
+
+  if (lines.length === 0 && line) lines.push(line);
+  if (truncated && lines.length >= maxLines) {
+    let last = lines[maxLines - 1] || line;
+    while (last.length > 1 && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+    lines[maxLines - 1] = last.trimEnd() + '…';
+  } else if (lines.length > maxLines) {
+    lines.length = maxLines;
+  }
+  lines.slice(0, maxLines).forEach((item, index) => ctx.fillText(item, x, startY + index * lineHeight));
+  return startY + Math.min(lines.length, maxLines) * lineHeight;
+}
+
+function drawPhotoCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number, radius: number) {
+  if (width < 10 || height < 10) return;
+  const imageRatio = image.width / image.height;
+  const targetRatio = width / height;
+  let sourceX = 0;
+  let sourceY = 0;
+  let sourceWidth = image.width;
+  let sourceHeight = image.height;
+  if (imageRatio > targetRatio) {
+    sourceWidth = image.height * targetRatio;
+    sourceX = (image.width - sourceWidth) / 2;
+  } else {
+    sourceHeight = image.width / targetRatio;
+    sourceY = (image.height - sourceHeight) / 2;
+  }
+  ctx.save();
+  roundedRect(ctx, x, y, width, height, radius);
+  ctx.clip();
+  ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+  ctx.restore();
+}
+
+export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [formatId, setFormatId] = useState(formats[0].id);
+  const [brandName, setBrandName] = useState('Lucky Bajaj Agency');
+  const [headline, setHeadline] = useState('Your Next Ride Starts Here');
+  const [message, setMessage] = useState('Discover dependable service, genuine parts and friendly support from our team.');
+  const [callToAction, setCallToAction] = useState('Visit us today');
+  const [caption, setCaption] = useState('Your journey matters to us. Visit Lucky Bajaj Agency for trusted service and support.');
+  const [hashtags, setHashtags] = useState('#LuckyBajaj #Bajaj #RideWithConfidence');
+  const [primary, setPrimary] = useState('#15213a');
+  const [accent, setAccent] = useState('#f97316');
+  const [photoSource, setPhotoSource] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
+  const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\\n\\n');
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+
+    let cancelled = false;
+    const render = (photo?: HTMLImageElement) => {
+      if (cancelled) return;
+      const width = selectedFormat.width;
+      const height = selectedFormat.height;
+      canvas.width = width;
+      canvas.height = height;
+      const scale = Math.min(width / 1080, height / 1080);
+      const ratio = width / height;
+      const landscape = ratio >= 1.4;
+
+      const background = ctx.createLinearGradient(0, 0, width, height);
+      background.addColorStop(0, primary);
+      background.addColorStop(0.68, '#172740');
+      background.addColorStop(1, '#0b1220');
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.save();
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(width * 0.94, height * 0.09, Math.min(width, height) * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.1;
+      ctx.beginPath();
+      ctx.arc(width * 0.04, height * 0.96, Math.min(width, height) * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      const margin = width * 0.075;
+      const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075));
+      const brandY = height * (landscape ? 0.18 : 0.105);
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(margin + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
+      ctx.fillText('LB', margin + markSize * 0.42, brandY - markSize * 0.18);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035)) + 'px Arial, sans-serif';
+      ctx.fillText(brandName.trim() || 'Your Dealership', margin + markSize * 1.05, brandY);
+
+      const titleFontSize = Math.max(32, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066)));
+      const titleLineHeight = titleFontSize * 1.12;
+      const titleX = margin;
+      const titleY = height * (landscape ? 0.43 : 0.245);
+      const titleMaxWidth = width * (landscape ? 0.52 : 0.85);
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.font = '800 ' + titleFontSize + 'px Arial, sans-serif';
+      const titleEnd = wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3);
+
+      const messageFontSize = Math.max(19, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027)));
+      const messageLineHeight = messageFontSize * 1.45;
+      const messageY = titleEnd + messageLineHeight * 0.15;
+      ctx.fillStyle = '#e4eaf3';
+      ctx.font = '400 ' + messageFontSize + 'px Arial, sans-serif';
+      const messageEnd = wrapText(ctx, message, titleX, messageY, titleMaxWidth, messageLineHeight, landscape ? 2 : 3);
+
+      const ctaY = height * (landscape ? 0.81 : 0.855);
+      const buttonHeight = Math.max(42, Math.min(height * 0.085, 72 * scale));
+      const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale));
+      const buttonX = landscape ? margin : (width - buttonWidth) / 2;
+      const buttonTop = Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.075);
+      ctx.fillStyle = accent;
+      roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 ' + Math.round(Math.max(17, messageFontSize * 0.84)) + 'px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(callToAction.trim() || 'Learn more', buttonX + buttonWidth / 2, buttonTop + buttonHeight / 2, buttonWidth - 24 * scale);
+      ctx.textBaseline = 'alphabetic';
+
+      if (photo) {
+        if (landscape) {
+          const photoX = width * 0.65;
+          const photoY = height * 0.22;
+          const photoW = width * 0.28;
+          const photoH = height * 0.55;
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 0.12;
+          roundedRect(ctx, photoX - 8 * scale, photoY - 8 * scale, photoW + 16 * scale, photoH + 16 * scale, 28 * scale);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          drawPhotoCover(ctx, photo, photoX, photoY, photoW, photoH, 22 * scale);
+        } else {
+          const photoTop = messageEnd + messageLineHeight * 0.2;
+          const photoY = Math.min(photoTop, buttonTop - height * 0.08 - height * 0.2);
+          const photoH = Math.max(0, Math.min(height * 0.23, buttonTop - photoY - height * 0.07));
+          if (photoH > height * 0.06) {
+            const photoX = margin;
+            const photoW = width - margin * 2;
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.12;
+            roundedRect(ctx, photoX - 6 * scale, photoY - 6 * scale, photoW + 12 * scale, photoH + 12 * scale, 28 * scale);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            drawPhotoCover(ctx, photo, photoX, photoY, photoW, photoH, 22 * scale);
+          }
+        }
+      }
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.textAlign = landscape ? 'left' : 'center';
+      ctx.font = '600 ' + Math.max(13, Math.round(17 * scale)) + 'px Arial, sans-serif';
+      ctx.fillText('SERVICE YOU CAN TRUST', landscape ? margin : width / 2, height * 0.965);
+      ctx.textAlign = 'left';
+    };
+
+    if (photoSource) {
+      const image = new Image();
+      image.onload = () => render(image);
+      image.onerror = () => render();
+      image.src = photoSource;
+    } else {
+      render();
+    }
+    return () => { cancelled = true; };
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource]);
+
+  function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    setError('');
+    setNotice('');
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Choose an image file.');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError('Choose an image smaller than 8 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setPhotoSource(reader.result);
+      else setError('The image could not be read.');
+    };
+    reader.onerror = () => setError('The image could not be read.');
+    reader.readAsDataURL(file);
+  }
+
+  function downloadArtwork() {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      setError('The artwork preview is not ready yet.');
+      return;
+    }
+    setError('');
+    setNotice('');
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setError('PNG export failed. Try again.');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'lucky-bajaj-' + selectedFormat.id + '.png';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice('Artwork downloaded as a PNG. This does not publish it to a social account.');
+    }, 'image/png');
+  }
+
+  async function copyCaption() {
+    setError('');
+    setNotice('');
+    try {
+      await navigator.clipboard.writeText(fullCaption);
+      setNotice('Caption and hashtags copied.');
+    } catch {
+      setError('Clipboard access was blocked. Select and copy the caption manually.');
+    }
+  }
+
+  return (
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="social-artwork-title">
+      <section className={styles.studio}>
+        <header className={styles.header}>
+          <div>
+            <span className={styles.eyebrow}>LUCKY BAJAJ AGENCY · CAMPAIGN DESIGN</span>
+            <h2 id="social-artwork-title">Social Media Artwork Studio</h2>
+            <p>Create a channel-sized artwork and caption. Publishing integrations are a separate next phase.</p>
+          </div>
+          <button type="button" className={styles.close} onClick={onClose} aria-label="Close social media artwork studio">×</button>
+        </header>
+        <div className={styles.content}>
+          <aside className={styles.controls}>
+            <label>Artwork format
+              <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
+                {formats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}
+              </select>
+            </label>
+            <p className={styles.formatNote}>{selectedFormat.note} <strong>{selectedFormat.width} × {selectedFormat.height}</strong></p>
+            <label>Dealership / brand<input maxLength={80} value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
+            <label>Headline<textarea rows={3} maxLength={140} value={headline} onChange={(event) => setHeadline(event.target.value)} /></label>
+            <label>Supporting message<textarea rows={4} maxLength={240} value={message} onChange={(event) => setMessage(event.target.value)} /></label>
+            <label>Call to action<input maxLength={45} value={callToAction} onChange={(event) => setCallToAction(event.target.value)} /></label>
+            <label>Caption<textarea rows={3} maxLength={700} value={caption} onChange={(event) => setCaption(event.target.value)} /></label>
+            <label>Hashtags<input maxLength={220} value={hashtags} onChange={(event) => setHashtags(event.target.value)} /></label>
+            <label>Optional campaign photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePhotoUpload} /></label>
+            {photoSource && <button className={styles.textButton} type="button" onClick={() => setPhotoSource(null)}>Remove photo</button>}
+            <div className={styles.colors}>
+              <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
+              <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
+            </div>
+            <p className={styles.privacy}>Artwork and the selected photo are composed in this browser. This phase does not upload them or connect social accounts.</p>
+          </aside>
+          <main className={styles.previewColumn}>
+            <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
+            <div className={styles.previewFrame} style={{ aspectRatio: selectedFormat.width + ' / ' + selectedFormat.height }}>
+              <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={'Preview of ' + headline} />
+            </div>
+            <label className={styles.captionPreview}>Caption preview<textarea readOnly rows={4} value={fullCaption} /></label>
+            {error && <div className={styles.error} role="alert">{error}</div>}
+            {notice && <div className={styles.notice} role="status">{notice}</div>}
+            <div className={styles.actions}>
+              <button type="button" className={styles.secondary} onClick={() => void copyCaption()}>Copy caption</button>
+              <button type="button" className={styles.primary} onClick={downloadArtwork}>Download PNG</button>
+            </div>
+            <p className={styles.note}>Facebook and Instagram publishing, and WhatsApp Business messaging, will be enabled only after official account authorization and provider delivery verification. WhatsApp Status currently uses manual export/share.</p>
+          </main>
+        </div>
+      </section>
+    </div>
+  );
+}
