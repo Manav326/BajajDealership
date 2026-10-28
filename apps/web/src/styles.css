@@ -859,3 +859,72 @@ h1,h2,h3,p { margin-top: 0; }
   .campaign-approval-banner { align-items: stretch; flex-direction: column; }
   .campaign-approval-banner > .primary-button { width: 100%; justify-content: center; }
 }
+
+
+/* Workshop operational billing, receipts and handover */
+.billing-section { border-top: 1px solid #edf0f5; margin-top: 20px; padding-top: 5px; min-width: 0; }
+.billing-action-row { display: flex; align-items: center; justify-content: space-between; gap: 13px; border: 1px solid #d5ecdf; background: #f5fcf8; border-radius: 9px; padding: 12px; }
+.billing-action-row > span { color: #638474; font-size: 8px; line-height: 1.65; max-width: 330px; }
+.billing-action-row .primary-button { box-shadow: none; font-size: 9px; white-space: nowrap; }
+.invoice-not-tax-banner { display: flex; flex-direction: column; gap: 5px; border: 1px solid #f1ddc5; background: #fff9f1; border-radius: 9px; padding: 11px 12px; margin-bottom: 12px; }
+.invoice-not-tax-banner strong { color: #965d21; font-size: 9px; font-weight: 800; }
+.invoice-not-tax-banner span { color: #9d825f; font-size: 8px; line-height: 1.6; }
+.invoice-not-tax-banner small { color: #aa967c; font-size: 7px; line-height: 1.5; }
+.invoice-parties { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.invoice-parties > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 10px; border: 1px solid #e8edf4; border-radius: 8px; background: #fbfcfe; }
+.invoice-parties span { color: #8995a7; font-size: 7px; font-weight: 700; }
+.invoice-parties strong { color: #43516a; font-size: 9px; overflow-wrap: anywhere; }
+.invoice-parties small { color: #8995a7; font-size: 7px; overflow-wrap: anywhere; }
+.invoice-line-list { border: 1px solid #e7ecf3; border-radius: 9px; padding: 0 11px; }
+.invoice-line-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #edf0f5; }
+.invoice-line-row:last-child { border-bottom: 0; }
+.invoice-line-row > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.invoice-line-row > div strong { color: #44536a; font-size: 8px; overflow-wrap: anywhere; }
+.invoice-line-row > div small { color: #8c97a7; font-size: 7px; line-height: 1.5; }
+.invoice-line-row > strong { flex-shrink: 0; color: #44536a; font-size: 8px; white-space: nowrap; }
+.invoice-totals { display: grid; gap: 0; margin-top: 10px; border: 1px solid #e7ecf3; border-radius: 9px; overflow: hidden; }
+.invoice-totals > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #edf0f5; }
+.invoice-totals > div:last-child { border-bottom: 0; }
+.invoice-totals span { color: #8390a2; font-size: 8px; }
+.invoice-totals strong { color: #46556c; font-size: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.invoice-totals .invoice-total-row { background: #f7f9fc; }
+.invoice-totals .invoice-total-row span,.invoice-totals .invoice-total-row strong { color: #26364e; font-size: 9px; font-weight: 800; }
+.invoice-totals .invoice-balance-row { background: #fff8f1; }
+.invoice-totals .invoice-balance-row.due span,.invoice-totals .invoice-balance-row.due strong { color: #a65b18; font-weight: 800; }
+.invoice-totals .invoice-balance-row.settled { background: #f2fcf6; }
+.invoice-totals .invoice-balance-row.settled span,.invoice-totals .invoice-balance-row.settled strong { color: #18774e; font-weight: 800; }
+.billing-payment-form,.billing-handover-form { margin-top: 16px; padding: 12px; border: 1px solid #e2e9f1; border-radius: 10px; background: #fbfcfe; }
+.billing-payment-form .inspection-heading,.billing-handover-form .inspection-heading { margin-top: 0; }
+.billing-payment-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.billing-payment-fields label,.invoice-reversal-form label { display: grid; gap: 5px; min-width: 0; color: #637087; font-size: 8px; font-weight: 800; }
+.billing-payment-fields input,.billing-payment-fields select,.invoice-reversal-form input { width: 100%; min-width: 0; padding: 9px; border: 1px solid #e0e6ef; border-radius: 7px; background: #fff; color: #3d4c64; font: inherit; font-size: 9px; outline: 0; }
+.billing-payment-fields input:focus,.billing-payment-fields select:focus,.invoice-reversal-form input:focus { border-color: #f59a56; box-shadow: 0 0 0 3px #f9731613; }
+.billing-submit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; padding-top: 11px; border-top: 1px solid #e9edf3; }
+.billing-submit-row > span { max-width: 250px; color: #8995a7; font-size: 7px; line-height: 1.6; }
+.billing-submit-row .primary-button { box-shadow: none; padding: 9px 11px; font-size: 8px; white-space: nowrap; }
+.billing-submit-row .primary-button:disabled { opacity: .45; cursor: not-allowed; }
+.invoice-payment-history { margin-top: 16px; }
+.invoice-payment-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 9px; padding: 10px 0; border-top: 1px solid #edf0f5; }
+.invoice-payment-symbol { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: #e8f9f0; color: #18784e; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+.invoice-payment-row:has(.status-cancelled) .invoice-payment-symbol { color: #9c4646; background: #fff0ef; }
+.invoice-payment-copy { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.invoice-payment-copy > strong { color: #36455e; font-size: 8px; overflow-wrap: anywhere; }
+.invoice-payment-copy > span,.invoice-payment-copy > small { color: #8b96a7; font-size: 7px; line-height: 1.5; overflow-wrap: anywhere; }
+.invoice-payment-copy > .invoice-reversal-note { color: #ac4c4c; }
+.invoice-payment-row > .campaign-status { font-size: 7px; }
+.invoice-payment-row > .text-button { align-self: center; font-size: 8px; }
+.invoice-reversal-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 8px; padding: 10px; background: #fff8f7; border: 1px solid #f1dddd; border-radius: 8px; }
+.invoice-reversal-form small { grid-column: 1 / -1; color: #a57676; font-size: 7px; line-height: 1.6; }
+.delivery-acknowledgement { display: flex; align-items: flex-start; gap: 8px; margin-top: 11px; color: #557262; font-size: 8px; line-height: 1.6; }
+.delivery-acknowledgement input { width: 14px; height: 14px; margin: 0; accent-color: #168458; flex-shrink: 0; }
+@media (max-width: 560px) {
+  .billing-action-row { align-items: stretch; flex-direction: column; }
+  .billing-action-row > span { max-width: none; }
+  .billing-action-row .primary-button { justify-content: center; white-space: normal; }
+  .invoice-parties,.billing-payment-fields,.invoice-reversal-form { grid-template-columns: minmax(0,1fr); }
+  .invoice-reversal-form small { grid-column: auto; }
+  .billing-submit-row { align-items: stretch; flex-direction: column; }
+  .billing-submit-row > span { max-width: none; }
+  .billing-submit-row .primary-button { justify-content: center; white-space: normal; }
+  .invoice-payment-row > .campaign-status { margin-left: auto; }
+}
