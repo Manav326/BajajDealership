@@ -38,11 +38,11 @@ $rootEnv = Join-Path $repoRoot '.env'
 $generatedBootstrapToken = $false
 $rootEnvContent = if (Test-Path $rootEnv) { Get-Content $rootEnv -Raw } else { '' }
 $tokenMatch = [regex]::Match($rootEnvContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$')
-if (-not $TestPath -and $false) { } # Keep this script compatible with Windows PowerShell and PowerShell 7.
 if (-not (Test-Path $rootEnv) -or -not $tokenMatch.Success -or [string]::IsNullOrWhiteSpace($tokenMatch.Groups[1].Value)) {
     $tokenBytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($tokenBytes)
-    $newToken = [Convert]::ToHexString($tokenBytes).ToLowerInvariant()
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($tokenBytes) } finally { $rng.Dispose() }
+    $newToken = [BitConverter]::ToString($tokenBytes).Replace('-', '').ToLowerInvariant()
     if (-not (Test-Path $rootEnv)) {
         @"
 POSTGRES_DB=bajaj_dealership
