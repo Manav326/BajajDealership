@@ -38,7 +38,7 @@ public class SalesTransactionService {
   public SaleInvoiceView createDraftInvoice(StaffPrincipal actor, UUID bookingPublicId, SaleInvoiceRequest request) {
     if (request == null) throw badRequest("Sales invoice details are required.");
     String key = required(request.idempotencyKey(), "Idempotency key", 120);
-    BigDecimal vehiclePrice = normalizeMoney(request.vehiclePrice(), "Vehicle price", true);
+    BigDecimal vehiclePrice = normalizeMoney(request.vehiclePrice(), "Vehicle price", false);
     BigDecimal vehicleDiscount = normalizeMoney(request.vehicleDiscount() == null ? BigDecimal.ZERO : request.vehicleDiscount(),
         "Vehicle discount", true);
     if (vehicleDiscount.compareTo(vehiclePrice) > 0) throw badRequest("Vehicle discount cannot exceed the vehicle price.");
@@ -59,7 +59,7 @@ public class SalesTransactionService {
     }
 
     SaleContext context = lockSaleContext(actor, bookingPublicId);
-    requireReservableBooking(context);
+    requireReservableBooking(actor, context);
     List<Map<String, Object>> existingInvoices = jdbc.queryForList("""
         select public_id, request_fingerprint
         from vehicle_sale_invoice
@@ -547,8 +547,7 @@ public class SalesTransactionService {
       throw conflict("This sales-payment idempotency key was used for a different request.");
     }
     SalePaymentView payment = getPayment(actor, (UUID) prior.get("public_id"));
-    SaleInvoiceView invoice = getInvoice(actor, invoicePublicId);
-    if (!paymentBelongsToInvoice(actor, payment.publicId(), invoice.publicId())) {
+    if (!paymentBelongsToInvoice(actor, payment.publicId(), invoicePublicId)) {
       throw conflict("The prior receipt is not associated with this sales invoice.");
     }
     return payment;
@@ -603,10 +602,10 @@ public class SalesTransactionService {
     return rows.getFirst();
   }
 
-  private void requireReservableBooking(SaleContext context) {
+  private void requireReservableBooking(StaffPrincipal actor, SaleContext context) {
     if (!"ACTIVE".equals(context.bookingStatus())) throw conflict("Only an active booking can be invoiced.");
     if (!"RESERVED".equals(context.stockStatus())) throw conflict("The bike is no longer reserved by this booking.");
-    if (hasCurrentOwner(context.dealershipId(), context.vehicleUnitId())) {
+    if (hasCurrentOwner(actor.dealershipId(), context.vehicleUnitId())) {
       throw conflict("The reserved bike already has a current customer owner; invoice creation is blocked.");
     }
   }
@@ -822,6 +821,5 @@ public class SalesTransactionService {
       String customerName, String customerPhone, UUID vehiclePublicId, String stockStatus,
       String chassisNumber, String engineNumber, String modelCode, String modelName,
       String variantName, String colourName, String enquiryStatus) {
-    long dealershipId() { return 0; }
   }
 }
