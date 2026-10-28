@@ -7,6 +7,7 @@ import WorkshopWorkspace from './workshop/WorkshopWorkspace';
 import SalesWorkspace from './sales/SalesWorkspace';
 import NotificationStudio from './notifications/NotificationStudio';
 import NotificationInbox from './notifications/NotificationInbox';
+import SocialMediaArtworkStudio from './notifications/SocialMediaArtworkStudio';
 import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 import StaffDirectoryWorkspace from './staff/StaffDirectoryWorkspace';
@@ -30,6 +31,7 @@ const navigation = [
   { label: 'Billing & expenses', group: 'Business control', icon: '₹', permission: 'finance.read' },
   { label: 'Team & access', group: 'Business control', icon: '♙', permission: 'staff.read' },
   { label: 'Notification Studio', group: 'Engagement', icon: '✳', permission: 'notification.read' },
+  { label: 'Social Media Studio', group: 'Engagement', icon: '▧', permission: 'notification.read' },
   { label: 'Reports', group: 'Engagement', icon: '▥', permission: 'report.read' },
 ];
 
@@ -41,6 +43,7 @@ const descriptions: Record<string, string> = {
   'Billing & expenses': 'Operational invoices, receipts, collections, expenses and daily reconciliation.',
   'Team & access': 'Staff accounts, role permissions, assignments and accountable change history.',
   'Notification Studio': 'Design rich Hindi/English messages, preview eligible customers, schedule campaigns and review delivery.',
+  'Social Media Studio': 'Create channel-sized dealership artwork and captions; external publishing integrations are being added in phases.',
   Reports: 'Sales, workshop, collections, expenses and stock reports based on saved transactions.',
 };
 
@@ -55,6 +58,7 @@ const pageRoutes: Record<string, string> = {
   'Billing & expenses': 'billing',
   'Team & access': 'team',
   'Notification Studio': 'notification-studio',
+  'Social Media Studio': 'social-media-studio',
   Reports: 'reports',
 };
 
@@ -331,7 +335,9 @@ function App() {
 
         <div className="page-wrap">
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
-          {activePage === 'Customers' ? (
+          {activePage === 'Social Media Studio' ? (
+            <SocialMediaArtworkStudio onClose={() => navigateToPage('Notification Studio')} />
+          ) : activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
           ) : activePage === 'Sales pipeline' ? (
             <SalesWorkspace token={token} staff={staff} />
