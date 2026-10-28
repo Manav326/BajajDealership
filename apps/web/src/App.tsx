@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
 import NotificationStudio from './notifications/NotificationStudio';
+import NotificationInbox from './notifications/NotificationInbox';
 import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 
@@ -45,6 +46,9 @@ function App() {
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+  const [showInbox, setShowInbox] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const updateUnreadCount = useCallback((count: number) => setUnreadCount(count), []);
 
   useEffect(() => {
     if (!token) {
@@ -70,6 +74,18 @@ function App() {
       });
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !staff || !staff.permissions.includes('notification.read')) {
+      setUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<{ unreadCount: number }>('/api/v1/admin/notifications/inbox?page=0&pageSize=1', token)
+      .then((result) => { if (!cancelled) setUnreadCount(result.unreadCount ?? 0); })
+      .catch(() => { if (!cancelled) setUnreadCount(0); });
+    return () => { cancelled = true; };
+  }, [token, staff]);
 
   useEffect(() => {
     if (!token || !staff) return;
@@ -170,8 +186,12 @@ function App() {
               <span className="status-dot" />
               {health ? 'API connected' : healthError ? 'API unavailable' : 'Connecting'}
             </div>
-            <button className="icon-button" aria-label="Open Notification Studio" title="Open Notification Studio"
-              type="button" onClick={() => setActivePage('Notification Studio')}>♧</button>
+            {staff.permissions.includes('notification.read') && <div className="inbox-control">
+              <button className="icon-button inbox-trigger" aria-label={unreadCount ? `Open inbox, ${unreadCount} unread` : 'Open notification inbox'}
+                aria-expanded={showInbox} title="Notification inbox" type="button"
+                onClick={() => setShowInbox((open) => !open)}>♧{unreadCount > 0 && <span className="inbox-trigger-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}</button>
+              {showInbox && <NotificationInbox onClose={() => setShowInbox(false)} onUnreadCountChange={updateUnreadCount} />}
+            </div>}
             <div className="user-avatar" title={staff.fullName}>{initials || 'ST'}</div>
             <button className="logout-button" type="button" onClick={() => void logout()}>Sign out</button>
           </div>
