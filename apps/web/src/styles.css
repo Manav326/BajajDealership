@@ -1848,7 +1848,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 
 /* Mobile Liquid Glass navigation drawer */
 .mobile-nav-toggle,.mobile-nav-backdrop,.mobile-drawer-close { display: none; }
-@media (max-width: 560px) {
+@media (max-width: 820px) {
   .app-shell { min-width: 320px; }
   .sidebar {
     position: fixed;
