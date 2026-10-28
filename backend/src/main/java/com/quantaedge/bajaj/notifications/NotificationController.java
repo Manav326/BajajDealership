@@ -39,9 +39,8 @@ public class NotificationController {
 
   @GetMapping("/templates")
   @PreAuthorize("hasAuthority('notification.read')")
-  public List<NotificationManagementService.TemplateView> templates(
-      @AuthenticationPrincipal StaffPrincipal principal) {
-    return notifications.listTemplates(principal);
+  public TemplateList templates(@AuthenticationPrincipal StaffPrincipal principal) {
+    return new TemplateList(notifications.listTemplates(principal));
   }
 
   @PostMapping("/templates")
@@ -63,11 +62,11 @@ public class NotificationController {
 
   @GetMapping("/recipients")
   @PreAuthorize("hasAuthority('notification.create')")
-  public List<NotificationManagementService.RecipientOption> recipients(
+  public RecipientList recipients(
       @AuthenticationPrincipal StaffPrincipal principal,
       @RequestParam String kind,
       @RequestParam(required = false) @Size(max = 100) String query) {
-    return notifications.searchRecipients(principal, kind, query);
+    return new RecipientList(notifications.searchRecipients(principal, kind, query));
   }
 
   @PostMapping("/preview")
@@ -88,10 +87,10 @@ public class NotificationController {
 
   @GetMapping("/campaigns")
   @PreAuthorize("hasAuthority('notification.read')")
-  public List<NotificationManagementService.CampaignView> campaigns(
+  public CampaignList campaigns(
       @AuthenticationPrincipal StaffPrincipal principal,
       @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit) {
-    return notifications.listCampaigns(principal, limit);
+    return new CampaignList(notifications.listCampaigns(principal, limit));
   }
 
   @PostMapping("/campaigns/{publicId}/cancel")
@@ -173,5 +172,8 @@ public class NotificationController {
     }
   }
 
+  public record TemplateList(List<NotificationManagementService.TemplateView> templates) {}
+  public record RecipientList(List<NotificationManagementService.RecipientOption> recipients) {}
+  public record CampaignList(List<NotificationManagementService.CampaignView> campaigns) {}
   public record MarkReadResult(int updatedCount) {}
 }
