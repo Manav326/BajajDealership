@@ -48,6 +48,19 @@ class SparePartsControllerSecurityTest {
   }
 
   @Test
+  void partsReadDoesNotGrantReorderPolicyMutationPermission() throws Exception {
+    mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                "/api/v1/admin/parts/{publicId}/reorder-policy", UUID.randomUUID())
+            .with(user("parts-reader")
+                .authorities(new SimpleGrantedAuthority("parts.read")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"lowStockThreshold":5.000,"reorderToQuantity":12.000}
+                """))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void partsReadDoesNotGrantStockReceiptPermission() throws Exception {
     mvc.perform(post("/api/v1/admin/part-receipts")
             .with(user("parts-reader")
