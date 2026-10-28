@@ -116,7 +116,7 @@ public class SalesTransactionService {
   public SaleInvoiceView issueInvoice(StaffPrincipal actor, UUID invoicePublicId) {
     SaleContext reference = requireInvoiceSaleContext(actor, invoicePublicId, false);
     SaleContext context = lockSaleContext(actor, reference.bookingPublicId());
-    requireReservableBooking(context);
+    requireReservableBooking(actor, context);
     List<Map<String, Object>> rows = jdbc.queryForList("""
         select id, status, invoice_number, invoice_total
         from vehicle_sale_invoice
