@@ -369,7 +369,7 @@ public class BillingOperationsService {
             rs.getString("job_card_code"), rs.getBigDecimal("amount")), actor.dealershipId(), paymentId);
     return new PaymentView(
         (UUID) row.get("public_id"), String.valueOf(row.get("receipt_number")),
-        String.valueOf(row.get("payment_method"), (BigDecimal) row.get("amount"),
+        String.valueOf(row.get("payment_method")), (BigDecimal) row.get("amount"),
         (String) row.get("payment_reference"), (String) row.get("note"), String.valueOf(row.get("status")),
         String.valueOf(row.get("recorded_by_name")), ((Timestamp) row.get("recorded_at")).toInstant(),
         (String) row.get("reversed_by_name"), instantOrNull((Timestamp) row.get("reversed_at")), allocations);
@@ -536,8 +536,8 @@ public class BillingOperationsService {
         (UUID) row.get("public_id"), (UUID) row.get("job_card_public_id"), String.valueOf(row.get("job_card_code")),
         (UUID) row.get("invoice_public_id"), String.valueOf(row.get("invoice_number")),
         (UUID) row.get("customer_public_id"), String.valueOf(row.get("customer_name")),
-        String.valueOf(row.get("delivered_to_name"), (Boolean) row.get("customer_acknowledged"),
-        String.valueOf(row.get("acknowledgement_method"), (String) row.get("acknowledgement_reference"),
+        String.valueOf(row.get("delivered_to_name")), (Boolean) row.get("customer_acknowledged"),
+        String.valueOf(row.get("acknowledgement_method")), (String) row.get("acknowledgement_reference"),
         (String) row.get("note"), String.valueOf(row.get("delivered_by_name")),
         ((Timestamp) row.get("delivered_at")).toInstant());
   }
