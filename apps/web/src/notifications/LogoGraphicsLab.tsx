@@ -1,264 +1,139 @@
-
-
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { apiFetch } from './apiClient';
 import styles from './LogoGraphicsLab.module.css';
 
-type Surface = 'admin' | 'hrms' | 'institution';
-type LogoMark = 'book' | 'spark' | 'shield' | 'leaf' | 'orbit' | 'star';
-type LogoLayout = 'horizontal' | 'stacked' | 'icon';
-type LogoStyle = 'clean' | 'friendly' | 'classic' | 'geometric';
-type Palette = { name: string; primary: string; secondary: string; ink: string; background: string };
-type LogoAsset = { assetId: string; contentType: string; byteLength: number; width: number; height: number };
+export type UploadedNotificationMedia = {
+  assetId: string;
+  mimeType: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  altText: string;
+  mediaUrl: string;
+  createdAt: string;
+};
 
-const PALETTES: Palette[] = [
-  { name: 'QuantaEdge Orange', primary: '#F97316', secondary: '#FDBA74', ink: '#18243A', background: '#FFFFFF' },
-  { name: 'Midnight & Gold', primary: '#D6A84F', secondary: '#F3DEAA', ink: '#202A42', background: '#FFFFFF' },
-  { name: 'Forest', primary: '#187A59', secondary: '#91D2B1', ink: '#16372E', background: '#FFFFFF' },
-  { name: 'Ocean', primary: '#2878B8', secondary: '#91C5EA', ink: '#16314B', background: '#FFFFFF' },
-  { name: 'Violet', primary: '#7656C8', secondary: '#C3B0F5', ink: '#302653', background: '#FFFFFF' },
-  { name: 'Monochrome', primary: '#253247', secondary: '#AAB4C2', ink: '#253247', background: '#FFFFFF' }
+type Props = {
+  onUseAsset: (asset: UploadedNotificationMedia) => void;
+  onClose: () => void;
+};
+
+const symbols = [
+  { id: 'spark', label: 'Spark', glyph: '✦' },
+  { id: 'shield', label: 'Shield', glyph: '⬟' },
+  { id: 'gear', label: 'Gear', glyph: '⚙' },
+  { id: 'star', label: 'Star', glyph: '★' },
+  { id: 'wheel', label: 'Wheel', glyph: '◉' },
 ];
 
-const MARKS: Array<{ value: LogoMark; label: string; glyph: string }> = [
-  { value: 'book', label: 'Open book', glyph: '▤' },
-  { value: 'spark', label: 'Spark', glyph: '✦' },
-  { value: 'shield', label: 'Shield', glyph: '⬟' },
-  { value: 'leaf', label: 'Leaf', glyph: '❧' },
-  { value: 'orbit', label: 'Orbit', glyph: '◉' },
-  { value: 'star', label: 'Star', glyph: '★' }
-];
-
-function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number) {
-  const r = Math.min(radius, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
-}
-
-function drawMark(ctx: CanvasRenderingContext2D, mark: LogoMark, x: number, y: number, size: number,
-  primary: string, secondary: string, style: LogoStyle, variant: number) {
-  ctx.save();
-  ctx.translate(x, y);
-  const scale = size / 200;
-  ctx.scale(scale, scale);
-  const grad = ctx.createLinearGradient(-70, -75, 75, 78);
-  grad.addColorStop(0, primary); grad.addColorStop(1, secondary);
-  if (style === 'friendly') {
-    ctx.fillStyle = secondary; ctx.beginPath(); ctx.arc(0, 0, 91, 0, Math.PI * 2); ctx.fill();
-  } else if (style === 'classic') {
-    ctx.strokeStyle = primary; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(0, 0, 91, 0, Math.PI * 2); ctx.stroke();
-  } else if (style === 'geometric') {
-    ctx.fillStyle = primary; ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const a = Math.PI / 3 * i - Math.PI / 2;
-      const px = Math.cos(a) * 94, py = Math.sin(a) * 94;
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath(); ctx.fill();
-  }
-  ctx.fillStyle = style === 'friendly' ? primary : grad;
-  ctx.strokeStyle = style === 'friendly' ? primary : grad;
-  ctx.lineWidth = 11; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  if (mark === 'book') {
-    ctx.beginPath();
-    ctx.moveTo(-66, -46); ctx.quadraticCurveTo(-26, -60, -5, -33); ctx.lineTo(-5, 58);
-    ctx.quadraticCurveTo(-31, 32, -66, 44); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(66, -46); ctx.quadraticCurveTo(26, -60, 5, -33); ctx.lineTo(5, 58);
-    ctx.quadraticCurveTo(31, 32, 66, 44); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = secondary; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(0, -29); ctx.lineTo(0, 61); ctx.stroke();
-    ctx.strokeStyle = primary; ctx.lineWidth = 5;
-    [-20, 0, 20].forEach(offset => { ctx.beginPath(); ctx.moveTo(-53, offset - 18); ctx.lineTo(-22, offset - 18); ctx.stroke(); ctx.beginPath(); ctx.moveTo(22, offset - 18); ctx.lineTo(53, offset - 18); ctx.stroke(); });
-  } else if (mark === 'spark' || mark === 'star') {
-    const points = mark === 'star' ? 5 : 8;
-    const outer = mark === 'star' ? 78 : 83, inner = mark === 'star' ? 34 : 17;
-    ctx.beginPath();
-    for (let i = 0; i < points * 2; i++) {
-      const a = Math.PI * i / points - Math.PI / 2 + variant * .15;
-      const radius = i % 2 === 0 ? outer : inner;
-      const px = Math.cos(a) * radius, py = Math.sin(a) * radius;
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath(); ctx.fill();
-    if (mark === 'spark') {
-      ctx.fillStyle = secondary; ctx.beginPath(); ctx.arc(45, -48, 12, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = primary; ctx.beginPath(); ctx.arc(-52, 42, 8, 0, Math.PI * 2); ctx.fill();
-    }
-  } else if (mark === 'shield') {
-    ctx.beginPath(); ctx.moveTo(0, -82); ctx.lineTo(66, -56); ctx.lineTo(57, 26);
-    ctx.quadraticCurveTo(38, 66, 0, 84); ctx.quadraticCurveTo(-38, 66, -57, 26);
-    ctx.lineTo(-66, -56); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = secondary; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(-27, 0); ctx.lineTo(-6, 23); ctx.lineTo(33, -25); ctx.stroke();
-  } else if (mark === 'leaf') {
-    ctx.beginPath(); ctx.moveTo(-5, 80); ctx.bezierCurveTo(-88, 44, -75, -42, 70, -78);
-    ctx.bezierCurveTo(77, 5, 44, 63, -5, 80); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = secondary; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(-49, 48); ctx.quadraticCurveTo(4, 5, 58, -58); ctx.stroke();
-  } else if (mark === 'orbit') {
-    ctx.beginPath(); ctx.arc(0, 0, 42, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = primary; ctx.lineWidth = 12; ctx.beginPath(); ctx.ellipse(0, 0, 81, 35, -.6 + variant * .2, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = secondary; ctx.beginPath(); ctx.arc(61, -46, 14, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawLogo(canvas: HTMLCanvasElement, options: {
-  name: string; tagline: string; mark: LogoMark; layout: LogoLayout; style: LogoStyle;
-  palette: Palette; transparent: boolean; background: string; variant: number;
-}) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const width = 1200, height = 700;
-  canvas.width = width; canvas.height = height;
-  ctx.clearRect(0, 0, width, height);
-  if (!options.transparent) {
-    ctx.fillStyle = options.background;
-    roundedRect(ctx, 0, 0, width, height, 38); ctx.fill();
-  }
-  const cleanName = options.name.trim().slice(0, 60) || 'Your Brand';
-  const tag = options.tagline.trim().slice(0, 90);
-  const { palette, mark, layout, style, variant } = options;
-  const horizontal = layout === 'horizontal';
-  const iconOnly = layout === 'icon';
-  const mx = horizontal ? 245 : 600;
-  const my = horizontal ? 350 : (iconOnly ? 350 : 245);
-  const markSize = iconOnly ? 270 : 205;
-  drawMark(ctx, mark, mx, my, markSize, variant % 2 ? palette.secondary : palette.primary, variant % 2 ? palette.primary : palette.secondary, style, variant);
-  if (!iconOnly) {
-    ctx.fillStyle = palette.ink;
-    ctx.textAlign = horizontal ? 'left' : 'center';
-    ctx.textBaseline = 'middle';
-    const nameX = horizontal ? 400 : 600;
-    const nameY = horizontal ? (tag ? 330 : 354) : 455;
-    const maxNameWidth = horizontal ? 700 : 930;
-    let fontSize = style === 'classic' ? 72 : style === 'friendly' ? 80 : 76;
-    ctx.font = (style === 'classic' ? '700 ' : '800 ') + fontSize + 'px ' + (style === 'classic' ? 'Georgia, serif' : 'Arial, Helvetica, sans-serif');
-    while (ctx.measureText(cleanName).width > maxNameWidth && fontSize > 32) {
-      fontSize -= 2;
-      ctx.font = (style === 'classic' ? '700 ' : '800 ') + fontSize + 'px ' + (style === 'classic' ? 'Georgia, serif' : 'Arial, Helvetica, sans-serif');
-    }
-    ctx.fillText(cleanName, nameX, nameY, maxNameWidth);
-    if (tag) {
-      ctx.font = '500 28px Arial, Helvetica, sans-serif';
-      ctx.fillStyle = palette.ink;
-      ctx.globalAlpha = .76;
-      ctx.fillText(tag, nameX, horizontal ? 400 : 512, maxNameWidth);
-      ctx.globalAlpha = 1;
-    }
-    if (style === 'geometric') {
-      ctx.fillStyle = palette.primary;
-      roundedRect(ctx, horizontal ? 401 : 500, horizontal ? 444 : 550, horizontal ? 130 : 200, 8, 4);
-      ctx.fill();
-    }
-  }
-}
-
-export default function LogoGraphicsLab({ surface, onUseInNotification }: {
-  surface: Surface; onUseInNotification: (assetId: string, fileName: string) => void;
-}) {
-  const canvases = useRef<Array<HTMLCanvasElement | null>>([]);
-  const [name, setName] = useState(surface === 'hrms' ? 'HRMS' : surface === 'institution' ? 'Your Institution' : 'QuantaEdge');
-  const [tagline, setTagline] = useState('Learn • Grow • Achieve');
-  const [mark, setMark] = useState<LogoMark>('book');
-  const [layout, setLayout] = useState<LogoLayout>('horizontal');
-  const [style, setStyle] = useState<LogoStyle>('clean');
-  const [paletteIndex, setPaletteIndex] = useState(0);
-  const [background, setBackground] = useState('#FFFFFF');
-  const [transparent, setTransparent] = useState(true);
-  const [variantSeed, setVariantSeed] = useState(0);
-  const [selectedVariant, setSelectedVariant] = useState(0);
+export default function LogoGraphicsLab({ onUseAsset, onClose }: Props) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [brandName, setBrandName] = useState('Lucky Bajaj');
+  const [tagline, setTagline] = useState('Service you can trust.');
+  const [primary, setPrimary] = useState('#15213a');
+  const [accent, setAccent] = useState('#f97316');
+  const [surface, setSurface] = useState('#ffffff');
+  const [symbol, setSymbol] = useState('spark');
+  const [layout, setLayout] = useState<'horizontal' | 'stacked'>('horizontal');
+  const [transparent, setTransparent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const prefix = surface === 'hrms' ? '/api/v1/hrms/notifications'
-    : surface === 'institution' ? '/api/v1/institution/notifications'
-    : '/api/v1/admin/notifications';
-  const palette = PALETTES[paletteIndex] ?? PALETTES[0];
+  const selectedSymbol = symbols.find((item) => item.id === symbol) ?? symbols[0];
 
-  const drawAll = useCallback(() => {
-    canvases.current.forEach((canvas, variant) => {
-      if (!canvas) return;
-      drawLogo(canvas, { name, tagline, mark, layout, style, palette, transparent, background,
-        variant: variantSeed + variant });
-    });
-  }, [name, tagline, mark, layout, style, palette, transparent, background, variantSeed]);
-
-  useEffect(() => { drawAll(); }, [drawAll]);
-
-  const download = useCallback((variant: number) => {
-    const canvas = canvases.current[variant];
-    if (!canvas) return;
-    canvas.toBlob(blob => {
-      if (!blob) { setError('Logo export failed in this browser.'); return; }
-      const url = URL.createObjectURL(blob);
-      const anchor = window.document.createElement('a');
-      anchor.href = url;
-      anchor.download = (name.trim().replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'brand-logo') + '-concept-' + (variant + 1) + '.png';
-      anchor.click();
-      URL.revokeObjectURL(url);
-    }, 'image/png');
-  }, [name]);
-
-  const useInNotification = useCallback(async () => {
-    const canvas = canvases.current[selectedVariant];
-    if (!canvas) return;
-    setBusy(true); setError(''); setMessage('');
+  async function exportAndUse() {
+    if (!svgRef.current) return;
+    setBusy(true);
+    setError('');
+    let objectUrl = '';
     try {
-      const blob = await new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob(value => value ? resolve(value) : reject(new Error('The selected logo could not be exported.')), 'image/png'));
-      const safeName = (name.trim().replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'brand-logo');
-      const form = new FormData();
-      form.append('file', new File([blob], safeName + '-logo.png', { type: 'image/png' }));
-      const response = await apiFetch(prefix + '/media', { method: 'POST', body: form });
-      const data = await response.json().catch(() => ({})) as { assetId?: string; ready?: boolean; message?: string };
-      if (!response.ok || !data.assetId || !data.ready) throw new Error(data.message || 'Logo asset could not be saved.');
-      onUseInNotification(data.assetId, safeName + '-logo.png');
-      setMessage('Logo generated, stored in the authorized media library and added to the notification design.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Logo asset could not be saved.');
-    } finally { setBusy(false); }
-  }, [selectedVariant, name, prefix, onUseInNotification]);
+      const svgText = new XMLSerializer().serializeToString(svgRef.current);
+      const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+      objectUrl = URL.createObjectURL(svgBlob);
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = objectUrl;
+      await image.decode();
 
-  return <div className={styles.lab}>
-    <header className={styles.labHeader}>
-      <div><p className={styles.eyebrow}>LOGO & GRAPHICS LAB</p><h2>Create a reusable brand mark</h2><p>Build editable logo concepts from vector shapes, typography and your chosen palette. Export clean PNG assets for notification designs.</p></div>
-      <button type="button" className={styles.generateButton} onClick={() => { setVariantSeed(v => v + 1); setSelectedVariant(0); setError(''); }}>Generate new variations ↻</button>
-    </header>
-    <div className={styles.labLayout}>
-      <section className={styles.controls}>
-        <h3>Brand brief</h3>
-        <label>Brand name<input value={name} maxLength={60} onChange={event => setName(event.target.value)} placeholder="Your brand name"/></label>
-        <label>Tagline <span>Optional</span><input value={tagline} maxLength={90} onChange={event => setTagline(event.target.value)} placeholder="A short phrase"/></label>
-        <label>Logo mark<select value={mark} onChange={event => setMark(event.target.value as LogoMark)}>{MARKS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label>Layout<select value={layout} onChange={event => setLayout(event.target.value as LogoLayout)}><option value="horizontal">Icon + wordmark</option><option value="stacked">Stacked brand</option><option value="icon">Icon only</option></select></label>
-        <label>Visual style<select value={style} onChange={event => setStyle(event.target.value as LogoStyle)}><option value="clean">Clean & modern</option><option value="friendly">Friendly & rounded</option><option value="classic">Classic & formal</option><option value="geometric">Geometric & bold</option></select></label>
-        <div className={styles.paletteLabel}>Colour palette</div>
-        <div className={styles.paletteGrid}>{PALETTES.map((item,index)=><button type="button" key={item.name} className={paletteIndex===index?styles.paletteActive:styles.palette} onClick={()=>setPaletteIndex(index)} aria-pressed={paletteIndex===index}>
-          <span><i style={{background:item.primary}}/><i style={{background:item.secondary}}/><i style={{background:item.ink}}/></span><strong>{item.name}</strong>
-        </button>)}</div>
-        <label>Preview background<select value={transparent?'transparent':background} onChange={event=>{setTransparent(event.target.value==='transparent');if(event.target.value!=='transparent')setBackground(event.target.value);}}>
-          <option value="transparent">Transparent</option><option value="#FFFFFF">White</option><option value="#F3F5F8">Soft grey</option><option value="#18243A">Midnight</option>
-        </select></label>
-        <p className={styles.note}>These are editable, locally rendered design concepts—not claims of AI-generated artwork. Prompt-to-image generation can be enabled later when a secure image-generation provider is configured.</p>
-      </section>
-      <section className={styles.concepts}>
-        <div className={styles.conceptsHeading}><h3>Choose a concept</h3><span>1200 × 700 px · PNG export</span></div>
-        <div className={styles.conceptGrid}>{[0,1,2,3].map(index=><article key={index} className={selectedVariant===index?styles.conceptSelected:styles.concept}>
-          <button type="button" className={styles.conceptPick} onClick={()=>setSelectedVariant(index)} aria-pressed={selectedVariant===index} aria-label={'Select logo concept '+(index+1)}>
-            <span className={styles.conceptNumber}>CONCEPT {String(index+1).padStart(2,'0')}</span>
-            <canvas ref={element=>{canvases.current[index]=element;}} className={styles.logoCanvas} aria-label={'Preview of logo concept '+(index+1)}/>
-            {selectedVariant===index?<span className={styles.selectedTag}>Selected</span>:null}
-          </button>
-          <div className={styles.conceptActions}><button type="button" onClick={()=>download(index)}>Download PNG</button><button type="button" onClick={()=>setSelectedVariant(index)}>Edit this</button></div>
-        </article>)}</div>
-        <div className={styles.useRow}><div><strong>Selected concept</strong><span>{name.trim()||'Your brand'} · {MARKS.find(item=>item.value===mark)?.label} · {layout}</span></div>
-          <button type="button" className={styles.generateButton} disabled={busy} onClick={()=>void useInNotification()}>{busy?'Saving media…':'Use in notification ↗'}</button>
+      const canvas = document.createElement('canvas');
+      canvas.width = layout === 'horizontal' ? 1200 : 900;
+      canvas.height = layout === 'horizontal' ? 420 : 900;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Image export is not available in this browser.');
+      if (!transparent) {
+        context.fillStyle = surface;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const png = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('The PNG could not be generated.')), 'image/png');
+      });
+
+      const formData = new FormData();
+      formData.append('file', png, 'lucky-bajaj-notification-graphic.png');
+      const response = await apiFetch('/api/v1/admin/notifications/media', { method: 'POST', body: formData });
+      const payload = await response.json() as UploadedNotificationMedia | { message?: string; detail?: string };
+      if (!response.ok) {
+        throw new Error(('message' in payload && payload.message) || ('detail' in payload && payload.detail) || 'The graphic could not be uploaded.');
+      }
+      onUseAsset(payload as UploadedNotificationMedia);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to export this graphic.');
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="graphics-title">
+      <section className={styles.lab}>
+        <header className={styles.header}>
+          <div><span className={styles.eyebrow}>QUANTAEDGE · NOTIFICATION DESIGN</span><h2 id="graphics-title">Logo & Graphics Studio</h2><p>Create an editable graphic for this campaign. Artwork is locally composed, not AI-generated.</p></div>
+          <button type="button" className={styles.close} onClick={onClose} aria-label="Close graphics studio">×</button>
+        </header>
+        <div className={styles.body}>
+          <div className={styles.controls}>
+            <label>Brand or campaign title<input maxLength={80} value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
+            <label>Tagline<input maxLength={120} value={tagline} onChange={(event) => setTagline(event.target.value)} /></label>
+            <div className={styles.label}>Symbol</div>
+            <div className={styles.symbols}>{symbols.map((item) => <button key={item.id} type="button" className={symbol === item.id ? styles.symbolActive : styles.symbolButton} onClick={() => setSymbol(item.id)}><span>{item.glyph}</span><small>{item.label}</small></button>)}</div>
+            <div className={styles.label}>Layout</div>
+            <div className={styles.segmented}><button type="button" className={layout === 'horizontal' ? styles.segmentActive : ''} onClick={() => setLayout('horizontal')}>Horizontal</button><button type="button" className={layout === 'stacked' ? styles.segmentActive : ''} onClick={() => setLayout('stacked')}>Stacked</button></div>
+            <div className={styles.colors}>
+              <label>Primary colour<input type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
+              <label>Accent colour<input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
+              <label>Background<input type="color" value={surface} onChange={(event) => setSurface(event.target.value)} /></label>
+            </div>
+            <label className={styles.checkbox}><input type="checkbox" checked={transparent} onChange={(event) => setTransparent(event.target.checked)} /> Transparent background</label>
+          </div>
+          <div className={styles.previewArea}>
+            <div className={styles.previewToolbar}><span>LIVE PREVIEW</span><small>{layout === 'horizontal' ? '1200 × 420' : '900 × 900'} PNG export</small></div>
+            <div className={styles.artwork} style={{ background: transparent ? 'repeating-conic-gradient(#e8edf4 0% 25%,#fff 0% 50%) 50% / 18px 18px' : surface }}>
+              <svg ref={svgRef} viewBox={layout === 'horizontal' ? '0 0 1200 420' : '0 0 900 900'} width="100%" role="img" aria-label={brandName || 'Notification graphic'} xmlns="http://www.w3.org/2000/svg">
+                {layout === 'horizontal' ? <>
+                  <circle cx="200" cy="210" r="105" fill={accent} opacity=".13" />
+                  <circle cx="200" cy="210" r="78" fill={primary} />
+                  <text x="200" y="235" fontSize="74" fontWeight="800" fill={surface} textAnchor="middle">{selectedSymbol.glyph}</text>
+                  <text x="340" y="195" fontSize="62" fontFamily="Arial, sans-serif" fontWeight="800" fill={primary}>{brandName || 'Campaign title'}</text>
+                  <rect x="342" y="222" width="96" height="7" rx="4" fill={accent} />
+                  <text x="340" y="274" fontSize="28" fontFamily="Arial, sans-serif" fill={primary} opacity=".75">{tagline}</text>
+                </> : <>
+                  <circle cx="450" cy="275" r="142" fill={accent} opacity=".13" />
+                  <circle cx="450" cy="275" r="106" fill={primary} />
+                  <text x="450" y="310" fontSize="100" fontWeight="800" fill={surface} textAnchor="middle">{selectedSymbol.glyph}</text>
+                  <text x="450" y="500" fontSize="52" fontFamily="Arial, sans-serif" fontWeight="800" textAnchor="middle" fill={primary}>{brandName || 'Campaign title'}</text>
+                  <rect x="370" y="530" width="160" height="8" rx="4" fill={accent} />
+                  <text x="450" y="594" fontSize="27" fontFamily="Arial, sans-serif" textAnchor="middle" fill={primary} opacity=".75">{tagline}</text>
+                </>}
+              </svg>
+            </div>
+            {error && <div className={styles.error} role="alert">{error}</div>}
+            <div className={styles.note}>Images are checked for type, size and dimensions before being stored privately for this dealership.</div>
+          </div>
         </div>
-        {error?<div className={styles.error} role="alert">{error}</div>:null}
-        {message?<div className={styles.success} role="status">{message}</div>:null}
+        <footer className={styles.footer}><button type="button" className={styles.secondary} onClick={onClose}>Cancel</button><button type="button" className={styles.primary} disabled={busy || !brandName.trim()} onClick={() => void exportAndUse()}>{busy ? 'Exporting & uploading…' : 'Use in notification'}</button></footer>
       </section>
     </div>
-  </div>;
+  );
 }
