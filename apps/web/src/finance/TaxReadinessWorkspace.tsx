@@ -21,7 +21,6 @@ const moneyRate=(value:number|string)=>Number(value).toLocaleString('en-IN',{max
 const dateLabel=(value:string|null|undefined)=>value?new Intl.DateTimeFormat('en-IN',{dateStyle:'medium'}).format(new Date(value)):'—';
 
 export default function TaxReadinessWorkspace({token,permissions}:Props) {
-  const [profile,setProfile]=useState<Profile|null>(null);
   const [readiness,setReadiness]=useState<Readiness|null>(null);
   const [codes,setCodes]=useState<TaxCode[]>([]);
   const [loading,setLoading]=useState(true);
@@ -44,7 +43,7 @@ export default function TaxReadinessWorkspace({token,permissions}:Props) {
         apiFetch<Readiness>('/api/v1/admin/finance/tax-readiness',token),
         apiFetch<TaxCode[]>('/api/v1/admin/finance/tax-codes',token)
       ]);
-      setProfile(p);setReadiness(r);setCodes(c);
+      setReadiness(r);setCodes(c);
       setProfileForm({
         registrationType:(p.registrationType??'') as RegistrationType,gstin:p.gstin??'',legalName:p.legalName??'',
         tradeName:p.tradeName??'',registeredAddress:p.registeredAddress??'',stateCode:p.stateCode??'',
