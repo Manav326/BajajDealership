@@ -48,11 +48,12 @@ This repository contains the implementation roadmap and application code for a d
 - PostgreSQL migrations for dealership identity, roles/permissions, audit events, customers, vehicle inventory, notification records and dealership-boundary constraints.
 - Notification rich-document validator, versioned templates, server-resolved audience preview, preview proof, idempotent send requests, scheduled campaign dispatch, durable in-app recipient/inbox records, read/unread/archive operations, campaign audit and private PNG/JPEG media upload.
 - Notification Studio web interface adapted from the QuantaEdge rich-notification contract: content blocks, previews, audience selection, consent-filtered marketing audience, template library, campaign history, inbox and a locally editable Logo & Graphics tool.
-- Automated tests for PostgreSQL migrations, authentication, customer isolation/consent, vehicle stock lifecycle and notification contracts.
+- Workshop intake slice: appointment queue/create/confirm/cancel, vehicle check-in with one job card per appointment, seven-item inspection checklist, estimate revisions with recorded customer-decision evidence, technician assignment, work start and assigned-inspector quality checks. Failed quality checks leave the job in progress; passed checks stop at ready-for-collection until billing/payment exists.
+- Automated tests for PostgreSQL migrations, authentication, customer isolation/consent, vehicle stock lifecycle, notification contracts, appointment/check-in idempotency, estimate revision/approval rules and quality gates.
 
 ### Not yet complete — do not treat as production-ready
 - Sales pipeline and end-to-end booking/invoice/delivery transaction workflow.
-- Workshop appointment/job-card lifecycle, mechanic work tracking, estimates/approvals, quality checks and service handover.
+- Workshop is only partially complete: appointment/check-in, checklist, estimate revision/decision and work/quality gates exist. Estimate tax treatment, customer-facing approval channels, richer mechanic work entries, parts integration, invoice/payment linkage and final service handover are still pending.
 - Spare-parts purchasing and job-card stock movement integration.
 - Complete operational finance, refunds, payment reconciliation, GST-specific configuration and invoice integrations.
 - Fully implemented customer website and React Native Android app.
