@@ -26,6 +26,12 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
   }
 
   @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    // Customer routes have their own account/session type and must never be parsed as staff sessions.
+    return request.getServletPath().startsWith("/api/v1/customer/");
+  }
+
+  @Override
   protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
     String authorization = request.getHeader("Authorization");
