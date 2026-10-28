@@ -1,20 +1,83 @@
+name: bajaj-dealership
+
 services:
   postgres:
     image: postgres:17
-    container_name: bajaj-dealership-postgres
     environment:
-      POSTGRES_DB: bajaj_dealership
-      POSTGRES_USER: bajaj_app
-      POSTGRES_PASSWORD: bajaj_local_only
+      POSTGRES_DB: ${POSTGRES_DB:-bajaj_dealership}
+      POSTGRES_USER: ${POSTGRES_USER:-bajaj_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bajaj_local_only}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - bajaj_dealership_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bajaj_app -d bajaj_dealership"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bajaj_app} -d ${POSTGRES_DB:-bajaj_dealership}"]
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      PORT: "8080"
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-bajaj_dealership}
+      DB_USERNAME: ${POSTGRES_USER:-bajaj_app}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-bajaj_local_only}
+      APP_VERSION: ${APP_VERSION:-local}
+      APP_BOOTSTRAP_TOKEN: ${APP_BOOTSTRAP_TOKEN:-local-owner-bootstrap-change-me}
+      APP_NOTIFICATION_MEDIA_DIR: /app/var/private-notification-media
+      NOTIFICATION_DISPATCH_INTERVAL_MS: ${NOTIFICATION_DISPATCH_INTERVAL_MS:-15000}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - bajaj_dealership_media:/app/var/private-notification-media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 45s
+    restart: unless-stopped
+
+  customer-web:
+    build:
+      context: .
+      dockerfile: apps/customer-web/Dockerfile
+    ports:
+      - "${CUSTOMER_WEB_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  staff-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "${STAFF_WEB_PORT:-3001}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
 volumes:
   bajaj_dealership_data:
+  bajaj_dealership_media:
