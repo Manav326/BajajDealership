@@ -2319,3 +2319,71 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
  .finance-tax-profile-form>.finance-section-heading,.finance-tax-code-form>.finance-section-heading,.finance-tax-form-footer,.finance-tax-source-field { grid-column:1; }
  .finance-tax-form-footer { align-items:stretch; flex-direction:column; }
 }
+
+
+/* Functional text readability floor — keep decorative artwork labels intentionally small. */
+.app-shell {
+  --qe-readable-meta: 10px;
+  --qe-readable-control: 11px;
+}
+.app-shell .campaign-meta span,
+.app-shell .campaign-status,
+.app-shell .inbox-item-copy small,
+.app-shell .inbox-popover-footer,
+.app-shell .appointment-meta span,
+.app-shell .appointment-created,
+.app-shell .job-card-list-main small,
+.app-shell .job-detail-summary span,
+.app-shell .inspection-item-copy small,
+.app-shell .active-assignment span,
+.app-shell .active-assignment small,
+.app-shell .estimate-history-heading > div:first-child > span,
+.app-shell .estimate-line-history-row small,
+.app-shell .estimate-breakdown span,
+.app-shell .estimate-decision-history small,
+.app-shell .invoice-not-tax-banner small,
+.app-shell .invoice-parties span,
+.app-shell .invoice-parties small,
+.app-shell .invoice-line-row > div small,
+.app-shell .billing-submit-row > span,
+.app-shell .invoice-payment-copy > span,
+.app-shell .invoice-payment-copy > small,
+.app-shell .invoice-reversal-form small,
+.app-shell .spare-parts-table td small,
+.app-shell .spare-supplier-copy small,
+.app-shell .spare-idempotency-note,
+.app-shell .spare-movement-main span,
+.app-shell .spare-movement-main small,
+.app-shell .spare-movement-quantities span,
+.app-shell .spare-movement-quantities small,
+.app-shell .spare-selected-job > div small,
+.app-shell .spare-reservation-heading > div small,
+.app-shell .spare-reservation-quantities span,
+.app-shell .spare-low-stock-main span,
+.app-shell .spare-low-stock-main small,
+.app-shell .spare-low-stock-order span,
+.app-shell .staff-record-id,
+.app-shell .staff-contact-secondary {
+  font-size: var(--qe-readable-meta);
+  line-height: 1.5;
+}
+.app-shell .spare-parts-table th { font-size: 9px; }
+.app-shell .supplier-select-label,
+.app-shell .spare-reservation-actions label,
+.app-shell .spare-reservation-actions .subtle-action,
+.app-shell .spare-reservation-actions .text-button,
+.app-shell .spare-low-stock-row > .text-button,
+.app-shell .spare-policy-fields label,
+.app-shell .spare-policy-fields .primary-button {
+  font-size: var(--qe-readable-control);
+}
+.app-shell .spare-reservation-actions input,
+.app-shell .spare-policy-fields input {
+  font-size: var(--qe-readable-control);
+}
+.app-shell .workshop-tabs button,
+.app-shell .sales-tabs button,
+.app-shell .spare-parts-tab,
+.app-shell .inventory-tab {
+  font-size: 10px;
+}
