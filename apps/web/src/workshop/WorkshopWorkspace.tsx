@@ -940,6 +940,10 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
                   {canReadParts && line.lineType === 'PART' && <label className="estimate-description">Link job-card reservation
                     <select value={line.reservationPublicId} onChange={(event) => selectPartReservation(index, event.target.value)}>
                       <option value="">Manual part line (no stock link)</option>
+                      {line.reservationPublicId && !partReservations.some((reservation) =>
+                        reservation.publicId === line.reservationPublicId
+                        && reservation.quantityReserved - reservation.quantityReturned - reservation.quantityReleased > 0
+                        && reservation.status !== 'CANCELLED') && <option value={line.reservationPublicId}>Previously linked reservation needs reconciliation</option>}
                       {partReservations.filter((reservation) =>
                         reservation.quantityReserved - reservation.quantityReturned - reservation.quantityReleased > 0
                         && reservation.status !== 'CANCELLED').map((reservation) =>
