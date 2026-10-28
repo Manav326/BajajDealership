@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Lucky Bajaj",
+    "slug": "lucky-bajaj-customer",
+    "scheme": "luckybajaj",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.quantaedge.luckybajaj",
+      "versionCode": 1
+    },
+    "extra": {
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  }
+}
