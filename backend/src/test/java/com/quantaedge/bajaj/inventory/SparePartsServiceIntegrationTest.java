@@ -376,6 +376,110 @@ class SparePartsServiceIntegrationTest {
 
   @Test
   @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void concurrentReturnsAndReleasesCannotDoubleIncreaseOrReleaseStock() throws Exception {
+    Fixture fixture = createFixture("CONCURRENT-RETURN", "IN_PROGRESS");
+    var part = createPart(fixture, "RETURN-RACE", "Concurrent return part");
+    var supplier = createSupplier(fixture);
+    receive(fixture, part.publicId(), supplier.publicId(), "return-race-opening-" + UUID.randomUUID(),
+        "10.000", "14.00");
+    var reservation = parts.reservePart(fixture.owner(), fixture.jobCardPublicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("6.000"), "return-race-reserve-" + UUID.randomUUID(), null));
+    approveReservationEstimate(fixture, reservation, "Approved before issue/return concurrency test.");
+    parts.issuePart(fixture.owner(), reservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            new BigDecimal("4.000"), "return-race-issue-" + UUID.randomUUID(), "Issue four units"));
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CountDownLatch returnsReady = new CountDownLatch(2);
+      CountDownLatch returnsStart = new CountDownLatch(1);
+      Future<Object> firstReturn = pool.submit(() -> {
+        returnsReady.countDown();
+        if (!returnsStart.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Return start barrier timed out.");
+        try {
+          return parts.returnPart(fixture.owner(), reservation.publicId(),
+              new SparePartsService.QuantityOperationRequest(
+                  new BigDecimal("3.000"), "return-race-a-" + UUID.randomUUID(), "Concurrent return A"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      Future<Object> secondReturn = pool.submit(() -> {
+        returnsReady.countDown();
+        if (!returnsStart.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Return start barrier timed out.");
+        try {
+          return parts.returnPart(fixture.owner(), reservation.publicId(),
+              new SparePartsService.QuantityOperationRequest(
+                  new BigDecimal("3.000"), "return-race-b-" + UUID.randomUUID(), "Concurrent return B"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      assertThat(returnsReady.await(10, TimeUnit.SECONDS)).isTrue();
+      returnsStart.countDown();
+      Object returnA = firstReturn.get(15, TimeUnit.SECONDS);
+      Object returnB = secondReturn.get(15, TimeUnit.SECONDS);
+      assertThat(List.of(returnA, returnB).stream()
+          .filter(SparePartsService.ReservationView.class::isInstance).count()).isEqualTo(1);
+      assertThat(List.of(returnA, returnB).stream().filter(HttpStatus.CONFLICT::equals).count()).isEqualTo(1);
+
+      var afterReturnRace = parts.getReservation(fixture.owner(), reservation.publicId());
+      assertThat(afterReturnRace.quantityReturned()).isEqualByComparingTo("3.000");
+      assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityOnHand()).isEqualByComparingTo("9.000");
+      assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+          .filteredOn(movement -> movement.movementType().equals("RETURNED_FROM_JOB"))
+          .hasSize(1);
+
+      CountDownLatch releasesReady = new CountDownLatch(2);
+      CountDownLatch releasesStart = new CountDownLatch(1);
+      Future<Object> firstRelease = pool.submit(() -> {
+        releasesReady.countDown();
+        if (!releasesStart.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Release start barrier timed out.");
+        try {
+          return parts.releaseReservation(fixture.owner(), reservation.publicId(),
+              new SparePartsService.OperationRequest("release-race-a-" + UUID.randomUUID(), "Concurrent release A"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      Future<Object> secondRelease = pool.submit(() -> {
+        releasesReady.countDown();
+        if (!releasesStart.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Release start barrier timed out.");
+        try {
+          return parts.releaseReservation(fixture.owner(), reservation.publicId(),
+              new SparePartsService.OperationRequest("release-race-b-" + UUID.randomUUID(), "Concurrent release B"));
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      assertThat(releasesReady.await(10, TimeUnit.SECONDS)).isTrue();
+      releasesStart.countDown();
+      Object releaseA = firstRelease.get(15, TimeUnit.SECONDS);
+      Object releaseB = secondRelease.get(15, TimeUnit.SECONDS);
+      assertThat(List.of(releaseA, releaseB).stream()
+          .filter(SparePartsService.ReservationView.class::isInstance).count()).isEqualTo(1);
+      assertThat(List.of(releaseA, releaseB).stream().filter(HttpStatus.CONFLICT::equals).count()).isEqualTo(1);
+
+      var afterReleaseRace = parts.getReservation(fixture.owner(), reservation.publicId());
+      assertThat(afterReleaseRace.quantityReleased()).isEqualByComparingTo("2.000");
+      assertThat(afterReleaseRace.quantityRemainingToIssue()).isEqualByComparingTo("0.000");
+      assertThat(afterReleaseRace.status()).isEqualTo("PARTIALLY_CANCELLED");
+      assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("0.000");
+      var movements = parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items();
+      assertThat(movements).filteredOn(movement -> movement.movementType().equals("RESERVATION_RELEASED"))
+          .hasSize(1);
+      assertThat(movements).extracting(SparePartsService.StockMovementView::movementType)
+          .contains("PURCHASE_RECEIPT", "RESERVATION_CREATED", "ISSUED_TO_JOB",
+              "RETURNED_FROM_JOB", "RESERVATION_RELEASED");
+    } finally {
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
   void concurrentReservationsOnSameSkuCannotOversellAvailableStock() throws Exception {
     Fixture fixture = createFixture("CONCURRENT", "IN_PROGRESS");
     Fixture extraJob = createAnotherJobCard(fixture, "IN_PROGRESS");
