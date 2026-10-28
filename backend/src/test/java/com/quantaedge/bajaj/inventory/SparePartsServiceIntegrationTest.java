@@ -8,6 +8,12 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.springframework.transaction.annotation.Propagation;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -204,6 +210,94 @@ class SparePartsServiceIntegrationTest {
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  @Test
+  @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void concurrentReservationsOnSameSkuCannotOversellAvailableStock() throws Exception {
+    Fixture fixture = createFixture("CONCURRENT", "IN_PROGRESS");
+    Fixture extraJob = createAnotherJobCard(fixture, "IN_PROGRESS");
+    var part = createPart(fixture, "CONCURRENT-PART", "Concurrent reservation part");
+    var supplier = createSupplier(fixture);
+    receive(fixture, part.publicId(), supplier.publicId(), "concurrent-opening-" + UUID.randomUUID(),
+        "10.000", "15.00");
+
+    String keyA = "concurrent-reserve-a-" + UUID.randomUUID();
+    String keyB = "concurrent-reserve-b-" + UUID.randomUUID();
+    var requestA = new SparePartsService.ReservationRequest(
+        part.publicId(), new BigDecimal("7.000"), keyA, "Concurrent reservation A");
+    var requestB = new SparePartsService.ReservationRequest(
+        part.publicId(), new BigDecimal("7.000"), keyB, "Concurrent reservation B");
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      Future<Object> a = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        try {
+          return parts.reservePart(fixture.owner(), fixture.jobCardPublicId(), requestA);
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      Future<Object> b = pool.submit(() -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Start barrier timed out.");
+        try {
+          return parts.reservePart(fixture.owner(), extraJob.jobCardPublicId(), requestB);
+        } catch (ResponseStatusException conflict) {
+          return conflict.getStatusCode();
+        }
+      });
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      Object resultA = a.get(15, TimeUnit.SECONDS);
+      Object resultB = b.get(15, TimeUnit.SECONDS);
+      long successes = List.of(resultA, resultB).stream()
+          .filter(SparePartsService.ReservationView.class::isInstance).count();
+      long conflicts = List.of(resultA, resultB).stream()
+          .filter(HttpStatus.CONFLICT::equals).count();
+      assertThat(successes).isEqualTo(1);
+      assertThat(conflicts).isEqualTo(1);
+    } finally {
+      start.countDown();
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+
+    var balance = parts.getPart(fixture.owner(), part.publicId());
+    assertThat(balance.quantityOnHand()).isEqualByComparingTo("10.000");
+    assertThat(balance.quantityReserved()).isEqualByComparingTo("7.000");
+    assertThat(balance.quantityAvailable()).isEqualByComparingTo("3.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from service_job_part_reservation
+        where dealership_id = ? and part_id = (
+          select id from spare_part where dealership_id = ? and public_id = ?)
+        """, Integer.class, fixture.dealershipId(), fixture.dealershipId(), part.publicId())).isEqualTo(1);
+    assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
+        .filteredOn(movement -> movement.movementType().equals("RESERVATION_CREATED"))
+        .hasSize(1);
+  }
+
+  private Fixture createAnotherJobCard(Fixture fixture, String jobStatus) {
+    var row = jdbc.queryForMap("""
+        select customer_id, vehicle_unit_id from service_job_card
+        where dealership_id = ? and public_id = ?
+        """, fixture.dealershipId(), fixture.jobCardPublicId());
+    String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    UUID jobPublicId = jdbc.queryForObject("""
+        insert into service_job_card(
+          dealership_id, job_card_code, customer_id, vehicle_unit_id, status,
+          customer_concern, checked_in_by_staff_user_id)
+        values (?, ?, ?, ?, ?, 'Concurrent parts reservation test', ?)
+        returning public_id
+        """, UUID.class, fixture.dealershipId(), "JC-" + unique,
+        ((Number) row.get("customer_id")).longValue(),
+        ((Number) row.get("vehicle_unit_id")).longValue(),
+        jobStatus, fixture.owner().staffUserId());
+    return new Fixture(fixture.owner(), fixture.dealershipId(), jobPublicId);
   }
 
   private SparePartsService.SparePartView createPart(Fixture fixture, String prefix, String name) {
