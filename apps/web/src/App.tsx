@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
+import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 
 type ApiHealth = {
@@ -177,6 +178,8 @@ function App() {
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
           {activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
+          ) : activePage === 'Bike inventory' ? (
+            <VehicleInventoryWorkspace token={token} staff={staff} />
           ) : activePage === 'Overview' ? (
             <>
               <section className="welcome-row">
