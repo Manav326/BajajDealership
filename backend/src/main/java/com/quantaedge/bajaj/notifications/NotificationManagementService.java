@@ -425,7 +425,7 @@ public class NotificationManagementService {
           update notification_campaign
           set idempotency_key = ?, status = 'SCHEDULED', scheduled_at = ?, expires_at = ?,
               preview_consumed_at = now(), updated_at = now()
-          where id = ? and dealership_id = ? and status = 'PREVIEWED'
+          where id = ? and dealership_id = ? and status = 'APPROVED'
           """, idempotencyKey, Timestamp.from(scheduledAt),
           expiresAt == null ? null : Timestamp.from(expiresAt), campaign.id(), actor.dealershipId());
       audit(actor, "CAMPAIGN_SCHEDULED", campaign.id(), null,
@@ -442,7 +442,7 @@ public class NotificationManagementService {
     jdbc.update("""
         update notification_campaign
         set idempotency_key = ?, preview_consumed_at = now(), expires_at = ?, updated_at = now()
-        where id = ? and dealership_id = ? and status = 'PREVIEWED'
+        where id = ? and dealership_id = ? and status = 'APPROVED'
         """, idempotencyKey, expiresAt == null ? null : Timestamp.from(expiresAt),
         campaign.id(), actor.dealershipId());
     dispatchRecipients(actor.dealershipId(), campaign, currentAudience);
