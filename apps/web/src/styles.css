@@ -2014,3 +2014,25 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
     border: 1px solid ButtonText;
   }
 }
+
+
+/* Customer portal invitation — one-time token handling */
+.portal-invitation-card { margin: 0 0 18px; }
+.portal-invitation-card .form-card-heading { align-items: flex-start; margin-bottom: 15px; }
+.portal-invitation-card .form-card-heading .text-button { flex-shrink: 0; }
+.portal-invitation-warning { display: flex; flex-direction: column; gap: 5px; padding: 11px 13px; margin-bottom: 13px; border: 1px solid rgba(239,205,165,.75); border-radius: 10px; background: linear-gradient(145deg,rgba(255,249,239,.84),rgba(255,239,218,.58)); }
+.portal-invitation-warning strong { color: #98591e; font-size: 9px; font-weight: 850; }
+.portal-invitation-warning span { color: #967f60; font-size: 8px; line-height: 1.7; }
+.portal-token-label { display: grid; gap: 7px; color: #5d6b82; font-size: 9px; font-weight: 850; }
+.portal-token-label input { width: 100%; min-width: 0; padding: 12px; border: 1px solid rgba(167,183,204,.75); border-radius: 9px; color: #273750; background: rgba(255,255,255,.88); font-family: "SFMono-Regular",Consolas,monospace; font-size: 10px; overflow-wrap: anywhere; }
+.portal-token-label input:focus { outline: 3px solid rgba(249,115,22,.2); border-color: #f59a56; }
+.portal-invitation-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.portal-invitation-actions .secondary-button { box-shadow: none; font-size: 9px; }
+.portal-invitation-actions > span { color: #8995a7; font-size: 8px; line-height: 1.6; }
+.portal-invite-button { color: #ad5c1f; font-weight: 800; white-space: nowrap; }
+@media (max-width: 560px) {
+  .portal-invitation-card { padding: 16px; }
+  .portal-invitation-card .form-card-heading { flex-direction: column; }
+  .portal-invitation-actions { align-items: stretch; flex-direction: column; }
+  .portal-invitation-actions .secondary-button { align-self: flex-start; }
+}
