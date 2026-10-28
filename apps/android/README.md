@@ -17,7 +17,7 @@
 
 ## API address
 
-The default development address follows the physical-device LAN convention used by mPAY:
+The default build address is the deployed Lucky Bajaj API. The same environment variable follows mPAY's convention so local device builds can override it:
 
 `http://192.168.31.47:8080/`
 
@@ -68,7 +68,7 @@ Open [GitHub Actions — CI](https://github.com/Manav326/BajajDealership/actions
 
 Web files are static build artifacts, not live public website URLs. Deploy them to HTTPS hosting to make them available on the internet. The APK is a debug build, not a Play Store-signed release. Artifacts are retained for 14 days.
 
-The workflow variable `BAJAJ_API_BASE_URL` can override the default Android API URL. Configure it under **Repository → Settings → Secrets and variables → Actions → Variables**. Set it to the actual Bajaj API address before creating a device-test build.
+The workflow variable `BAJAJ_API_BASE_URL` can override the deployed API default. Configure it under **Repository → Settings → Secrets and variables → Actions → Variables** only for a different target (LAN, emulator, or staging). With no override, the APK uses `https://lucky-bajaj-api.onrender.com/`.
 
 ## Not yet enabled
 
