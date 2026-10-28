@@ -78,13 +78,13 @@ The existence of a screen, table or API is not evidence that its whole business 
 
 ## Build outputs and where to find them
 
-Every CI run on `main` (and pull requests targeting `main`) validates the backend and builds the two React websites plus the Android debug APK. Open **GitHub → Actions → CI → select the run → Artifacts** to download:
+Every CI run on `main` (and pull requests targeting `main`) validates the backend and builds the two React websites plus the Android debug APK. Open [GitHub Actions → CI](https://github.com/Manav326/BajajDealership/actions/workflows/ci.yml), select a successful run, then use the **build summary** at the bottom of the run page (or the Artifacts section) to download:
 
 - `staff-portal-web-<commit>` — compiled staff/admin website in `dist/`.
 - `customer-portal-web-<commit>` — compiled customer website in `dist/`.
 - `lucky-bajaj-android-debug-apk-<commit>` — installable Android debug APK.
 
-Artifacts are retained for 14 days. The web artifacts are not hosted URLs; deploy their contents to the selected HTTPS hosting provider to make them public. The Android artifact is a debug APK, not a Play Store-signed release. CI configures its API URL for the Android emulator host bridge (`10.0.2.2:8080)); to use a real backend, build with `EXPO_PUBLIC_API_BASE_URL` set to the reachable API's HTTPS base URL and rebuild.
+Artifacts are retained for 14 days. The web artifacts are static files, not hosted URLs; deploy their contents to HTTPS hosting to make them public. The Android artifact is a debug APK, not a Play Store-signed release. Android defaults to the mPAY-style physical-device LAN address `http://192.168.31.47:8080/`; that address must serve the BajajDealership API, not mPAY's own service. Override it with the Actions repository variable `BAJAJ_API_BASE_URL` (or `EXPO_PUBLIC_API_BASE_URL` for local builds). For an Android emulator, use `http://10.0.2.2:8080/`; production must use the deployed Bajaj API's HTTPS URL.
 
 ## Local development
 
