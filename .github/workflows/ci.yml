@@ -44,7 +44,7 @@ jobs:
         run: mvn -B -f backend/pom.xml test
 
   web:
-    name: React web build
+    name: React web builds (staff and customer portal)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -56,6 +56,12 @@ jobs:
       - name: Install dependencies
         working-directory: apps/web
         run: npm install
-      - name: Typecheck and build
+      - name: Typecheck and build staff portal
         working-directory: apps/web
+        run: npm run build
+      - name: Install customer portal dependencies
+        working-directory: apps/customer-web
+        run: npm install
+      - name: Typecheck and build customer portal
+        working-directory: apps/customer-web
         run: npm run build
