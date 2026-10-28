@@ -2,7 +2,7 @@
 
 **Product:** Lucky Bajaj Agency  
 **Software provider:** QuantaEdge  
-**Status:** shared visual system applied to the React web shell, sign-in, notification studio/inbox, workshop, sales and spare-parts surfaces.
+**Status:** shared visual system applied to the React web shell, sign-in, customer workspace, bike inventory, notification studio/inbox, workshop, sales and spare-parts surfaces.
 
 ## Visual intent
 
@@ -52,6 +52,7 @@ For any future UI change, run the React production build and manually verify at 
 
 - desktop and phone-width layouts;
 - sign-in and staff shell navigation;
+- customer records and bike inventory tables/forms;
 - notification studio, approval state and inbox popover;
 - sales pipeline list, enquiry detail and forms;
 - workshop appointment/job-card/estimate/billing steps;
