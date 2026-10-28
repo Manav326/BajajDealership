@@ -129,6 +129,35 @@ class NotificationManagementServiceIntegrationTest {
         .containsExactly("Consented Customer");
   }
 
+  @Test
+  void selectedAudienceIncludesOnlyServerEligibleSelectedRecipients() {
+    StaffPrincipal owner = createOwner();
+    String suffixA = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    String suffixB = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    Long customerA = jdbc.queryForObject("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Selected Customer', '9110000001', 'ACTIVE') returning id
+        """, Long.class, owner.dealershipId(), "CUS-" + suffixA);
+    jdbc.update("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Unselected Customer', '9110000002', 'ACTIVE')
+        """, owner.dealershipId(), "CUS-" + suffixB);
+
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "CUSTOMER", "Selected customer update", "Only one person",
+            Map.of("recipientTypes", List.of("CUSTOMER"), "marketingOnly", false,
+                "selectionMode", "SELECTED",
+                "selectedRecipients", List.of(Map.of("kind", "CUSTOMER", "id", customerA)),
+                "excludedRecipients", List.of()),
+            CONTENT, null, null));
+
+    assertThat(preview.recipientCount()).isEqualTo(1);
+    assertThat(preview.recipients())
+        .extracting(NotificationManagementService.RecipientOption::recipientName)
+        .containsExactly("Selected Customer");
+  }
+
   private StaffPrincipal createOwner() {
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     String code = "NOTIF-" + unique;
