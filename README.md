@@ -257,7 +257,7 @@ git pull origin main
 sh ./scripts/start.sh
 ```
 
-The script validates the Compose configuration, builds the Spring Boot API and both React websites, starts PostgreSQL, waits for the API and websites to respond, and prints the service status. The first run generates a private ignored `.env` with local settings and a random one-time owner bootstrap token. Keep that token private and remove `APP_BOOTSTRAP_TOKEN` from `.env` after initial owner setup.
+The script validates the Compose configuration, builds the Spring Boot API and both React websites, starts PostgreSQL, waits for the API and websites to respond, and prints the service status. The first run generates a private ignored `.env` with local settings and a random one-time owner bootstrap token. Keep that token private. After initial owner setup, set `APP_BOOTSTRAP_TOKEN=` (leave the key present but blank) in `.env` and recreate the API with `docker compose up -d --force-recreate api`; the startup script will not re-enable bootstrap while the key is explicitly blank.
 
 ### Local URLs
 
@@ -300,7 +300,7 @@ The Android app itself is not a Docker service. It runs in an emulator/device; C
 
 ### Initial owner bootstrap
 
-Owner bootstrap is disabled unless `APP_BOOTSTRAP_TOKEN` is configured. Generate a strong, temporary secret and configure it only in the backend environment. Call `POST /api/v1/system/bootstrap` over HTTPS with that secret in `X-Bootstrap-Token` to create the dealership and initial owner. The bootstrap route permits only the first owner for a dealership. Remove the bootstrap secret after setup and never commit real secrets to the repository.
+The local startup script generates a random temporary `APP_BOOTSTRAP_TOKEN` in the ignored root `.env` on first run and prints it once. For local setup, call `POST http://localhost:8080/api/v1/system/bootstrap` with the token in the `X-Bootstrap-Token` header and the owner JSON below. The bootstrap route permits only the first owner for a dealership. After setup, set `APP_BOOTSTRAP_TOKEN=` in `.env` and run `docker compose up -d --force-recreate api` to disable it. Production setup must use HTTPS and a separately managed secret. Never commit real secrets.
 
 Example request body (replace the values with the authorised owner's details):
 
