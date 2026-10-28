@@ -167,7 +167,7 @@ class SalesTransactionServiceIntegrationTest {
     var issued = transactions.issueInvoice(fixture.owner(), invoice.publicId());
     assertThatThrownBy(() -> transactions.recordPayment(fixture.owner(), issued.publicId(),
         new SalesTransactionService.SalePaymentRequest(
-            "excess-" + UUID.randomUUID(), "CASH", new BigDecimal("15001.00"), null, null)))
+            "excess-" + UUID.randomUUID(), "CASH", new BigDecimal("16401.00"), null, null)))
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.CONFLICT));
