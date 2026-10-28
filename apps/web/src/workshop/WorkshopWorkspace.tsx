@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { StaffSummary } from '../auth/StaffLogin';
 import { apiRequestUrl } from '../apiClient';
+import { printFinanceDocument } from '../finance/printFinanceDocument';
 
 type Appointment = {
   publicId: string; appointmentCode: string; customerPublicId: string; customerName: string; customerPhone: string | null;
@@ -1032,7 +1033,19 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
               {!canReadInvoice && <div className="workshop-field-hint">Invoice details are restricted to staff with finance-read permission.</div>}
               {canReadInvoice && !loadingInvoice && !invoice && <div className="studio-empty">No issued invoice is available for this job card. Refresh or contact an authorized service advisor.</div>}
               {invoice && <>
-                <div className="invoice-not-tax-banner"><strong>Operational record only</strong><span>Operational service invoice — not a GST tax invoice. GST treatment and statutory tax fields are not implemented here.</span><small>Invoice {invoice.invoiceNumber} · approved estimate revision {invoice.estimateRevision} · issued {formattedDate(invoice.issuedAt)}</small></div>
+                <div className="finance-document-actions"><button type="button" className="finance-small-button finance-small-button-muted" onClick={() => printFinanceDocument({
+ title:'Workshop operational invoice',documentNumber:invoice.invoiceNumber,subtitle:invoice.customerName+' · job card '+invoice.jobCardCode,
+ fields:[
+ {label:'Customer',value:invoice.customerName},{label:'Phone',value:invoice.customerPhone||'Not recorded'},
+ {label:'Vehicle',value:invoice.modelName+(invoice.variantName?' · '+invoice.variantName:'')},{label:'Chassis',value:invoice.chassisNumber},
+ {label:'Job card',value:invoice.jobCardCode},{label:'Invoice status',value:prettyStatus(invoice.status)},
+ {label:'Issue date',value:formattedDate(invoice.issuedAt)},
+ {label:'Invoice total',value:'₹'+Number(invoice.invoiceTotal).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})},
+ {label:'Payments recorded',value:'₹'+Number(invoice.paidAmount).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})},
+ {label:'Balance due',value:'₹'+Number(invoice.balanceDue).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}],
+ lines:invoice.lines.map(line=>({description:line.description,detail:prettyStatus(line.lineType)+' · '+line.quantity+' × ₹'+Number(line.unitPrice).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),amount:'₹'+Number(line.lineTotal).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})})),
+ note:'Operational workshop invoice only — not a GST tax invoice. No statutory tax calculation is represented.'
+ })}>Print / Save PDF</button></div><div className="invoice-not-tax-banner"><strong>Operational record only</strong><span>Operational service invoice — not a GST tax invoice. GST treatment and statutory tax fields are not implemented here.</span><small>Invoice {invoice.invoiceNumber} · approved estimate revision {invoice.estimateRevision} · issued {formattedDate(invoice.issuedAt)}</small></div>
                 <div className="invoice-parties">
                   <div><span>Customer</span><strong>{invoice.customerName}</strong><small>{invoice.customerPhone || 'No phone recorded'}</small></div>
                   <div><span>Vehicle</span><strong>{invoice.modelName}{invoice.variantName ? ' · ' + invoice.variantName : ''}</strong><small>Chassis {invoice.chassisNumber}</small></div>
@@ -1069,6 +1082,16 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
                     <div className="invoice-payment-symbol">{payment.status === 'REVERSED' ? '↶' : '₹'}</div>
                     <div className="invoice-payment-copy"><strong>{payment.receiptNumber} · ₹{Number(payment.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span>{prettyStatus(payment.paymentMethod)} · recorded by {payment.recordedByName} · {formattedDate(payment.recordedAt)}</span>{payment.paymentReference && <small>Reference: {payment.paymentReference}</small>}{payment.note && <small>{payment.note}</small>}{payment.status === 'REVERSED' && <small className="invoice-reversal-note">Reversed by {payment.reversedByName || 'authorized staff'} · {formattedDate(payment.reversedAt)} · {payment.reversalReason}{payment.reversalReference ? ' · ' + payment.reversalReference : ''}</small>}</div>
                     <span className={payment.status === 'REVERSED' ? 'campaign-status status-cancelled' : 'campaign-status status-sent'}>{prettyStatus(payment.status)}</span>
+                    <button type="button" className="finance-small-button finance-small-button-muted" onClick={() => printFinanceDocument({
+ title:'Workshop payment receipt',documentNumber:payment.receiptNumber,subtitle:invoice.customerName+' · invoice '+invoice.invoiceNumber,
+ fields:[
+ {label:'Customer',value:invoice.customerName},{label:'Invoice number',value:invoice.invoiceNumber},{label:'Job card',value:invoice.jobCardCode},
+ {label:'Amount received',value:'₹'+Number(payment.amount).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})},
+ {label:'Payment method',value:prettyStatus(payment.paymentMethod)},{label:'Reference',value:payment.paymentReference||'Not recorded'},
+ {label:'Recorded on',value:formattedDate(payment.recordedAt)},{label:'Recorded by',value:payment.recordedByName},
+ {label:'Status',value:prettyStatus(payment.status)},{label:'Reversal reason',value:payment.reversalReason||'—'}],
+ note:'Manual operational payment record. This receipt does not independently verify bank, UPI or card settlement.'
+ })}>Print receipt / PDF</button>
                     {canReversePayment && selectedJobCard.status !== 'DELIVERED' && payment.status === 'RECORDED' && <button type="button" className="text-button danger-link" disabled={busyId === payment.publicId} onClick={() => void reverseInvoicePayment(payment)}>Reverse</button>}
                   </article>)}
                   {canReversePayment && selectedJobCard.status === 'INVOICED' && invoicePayments.some((payment) => payment.status === 'RECORDED') && <div className="invoice-reversal-form">

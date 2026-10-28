@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
+import { printFinanceDocument } from '../finance/printFinanceDocument';
 import type { StaffSummary } from '../auth/StaffLogin';
 
 type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
@@ -833,7 +834,17 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
               <div><div className="eyebrow">SALES INVOICE</div><h3>{saleInvoice.invoiceNumber}</h3><span>{saleInvoice.modelName}{saleInvoice.variantName ? ' · ' + saleInvoice.variantName : ''} · chassis {saleInvoice.chassisNumber}</span><small>Created {dateLabel(saleInvoice.createdAt)}{saleInvoice.issuedAt ? ' · Issued ' + dateLabel(saleInvoice.issuedAt) : ''}</small></div>
               <div className="sales-sale-invoice-status"><span className={statusClass(saleInvoice.status)}>{titleCase(saleInvoice.status)}</span><strong>{money(saleInvoice.invoiceTotal)}</strong></div>
             </div>
-            <div className="sales-sale-warning"><strong>Not a GST tax invoice</strong><span>{saleInvoice.documentNotice}</span></div>
+            <div className="finance-document-actions"><button type="button" className="finance-small-button finance-small-button-muted" onClick={() => printFinanceDocument({
+ title:'Sales operational invoice',documentNumber:saleInvoice.invoiceNumber,subtitle:saleInvoice.customerName+' · '+saleInvoice.modelName,
+ fields:[
+ {label:'Customer',value:saleInvoice.customerName},{label:'Phone',value:saleInvoice.customerPhone||'Not recorded'},
+ {label:'Vehicle',value:saleInvoice.modelName+(saleInvoice.variantName?' · '+saleInvoice.variantName:'')},
+ {label:'Chassis',value:saleInvoice.chassisNumber},{label:'Status',value:titleCase(saleInvoice.status)},
+ {label:'Issue date',value:dateLabel(saleInvoice.issuedAt)},{label:'Invoice total',value:money(saleInvoice.invoiceTotal)},
+ {label:'Payments recorded',value:money(saleInvoice.paidAmount)},{label:'Balance due',value:money(saleInvoice.balanceDue)}],
+ lines:saleInvoice.lines.map(line=>({description:line.description,detail:titleCase(line.lineType)+' · '+line.quantity+' × '+money(line.unitPrice),amount:money(line.lineTotal)})),
+ note:'Operational record only — not a GST tax invoice. No statutory tax calculation is represented.'
+ })}>Print / Save PDF</button></div><div className="sales-sale-warning"><strong>Not a GST tax invoice</strong><span>{saleInvoice.documentNotice}</span></div>
             <div className="sales-sale-lines">{saleInvoice.lines.map((line) => <div className="sales-sale-line" key={line.lineNumber}>
               <div><strong>{line.description}</strong><small>{titleCase(line.lineType)} · {line.quantity} × {money(line.unitPrice)}{line.discountAmount > 0 ? ' · discount ' + money(line.discountAmount) : ''}</small></div><strong>{money(line.lineTotal)}</strong>
             </div>)}</div>
@@ -864,6 +875,16 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
                 <div className="sales-record-symbol">{payment.status === 'REVERSED' ? '↶' : '₹'}</div>
                 <div className="sales-record-copy"><strong>{payment.receiptNumber} · {money(payment.amount)}</strong><span>{titleCase(payment.paymentMethod)} · {payment.recordedByName} · {dateLabel(payment.recordedAt)}</span>{payment.paymentReference && <small>Reference: {payment.paymentReference}</small>}{payment.note && <small>{payment.note}</small>}{payment.status === 'REVERSED' && <small className="sales-warning-text">Reversed by {payment.reversedByName || 'staff'} · {dateLabel(payment.reversedAt)} · {payment.reversalReason}{payment.reversalReference ? ' · ' + payment.reversalReference : ''}</small>}</div>
                 <span className={statusClass(payment.status)}>{titleCase(payment.status)}</span>
+                <button type="button" className="finance-small-button finance-small-button-muted" onClick={() => printFinanceDocument({
+ title:'Sales payment receipt',documentNumber:payment.receiptNumber,subtitle:saleInvoice.customerName+' · invoice '+saleInvoice.invoiceNumber,
+ fields:[
+ {label:'Customer',value:saleInvoice.customerName},{label:'Invoice number',value:saleInvoice.invoiceNumber},
+ {label:'Amount received',value:money(payment.amount)},{label:'Payment method',value:titleCase(payment.paymentMethod)},
+ {label:'Reference',value:payment.paymentReference||'Not recorded'},{label:'Recorded on',value:dateLabel(payment.recordedAt)},
+ {label:'Recorded by',value:payment.recordedByName},{label:'Status',value:titleCase(payment.status)},
+ {label:'Reversal reason',value:payment.reversalReason||'—'}],
+ note:'Manual operational payment record. This receipt does not independently verify bank, UPI or card settlement.'
+ })}>Print receipt / PDF</button>
                 {payment.status === 'RECORDED' && saleBooking.status === 'ACTIVE' && canRecordSalePayment && <button type="button" className="text-button danger-link" disabled={saleBusy === payment.publicId} onClick={() => void reverseSalePayment(payment)}>Reverse</button>}
               </article>)}
               {saleBooking.status === 'ACTIVE' && salePayments.some((payment) => payment.status === 'RECORDED') && canRecordSalePayment && <div className="sales-sale-reversal-fields">
