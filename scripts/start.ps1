@@ -37,8 +37,7 @@ if ($LASTEXITCODE -ne 0) {
 $rootEnv = Join-Path $repoRoot '.env'
 $generatedBootstrapToken = $false
 $rootEnvContent = if (Test-Path $rootEnv) { Get-Content $rootEnv -Raw } else { '' }
-$tokenMatch = [regex]::Match($rootEnvContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$')
-if (-not (Test-Path $rootEnv) -or -not ($rootEnvContent -match '(?m)^\\s*APP_BOOTSTRAP_TOKEN\\s*=')) {
+if (-not (Test-Path $rootEnv) -or -not ($rootEnvContent -match '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=')) {
     $tokenBytes = New-Object byte[] 32
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($tokenBytes) } finally { $rng.Dispose() }
