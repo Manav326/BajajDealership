@@ -1787,3 +1787,60 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .campaign-row { padding: 11px 8px; }
   .appointment-row:hover,.invoice-payment-row:hover,.spare-movement-row:hover { background: transparent; }
 }
+
+
+/* Accessibility overrides: glass is optional; readable controls and focus are not. */
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar,.topbar,.agency-switcher,.connection-status,.icon-button,.live-badge,
+  .metric-card,.surface-card,.workshop-queue-card,.workshop-job-detail,.workshop-tabs,
+  .spare-parts-panel,.spare-parts-tabs,.sales-form-card,.sales-list-panel,.sales-detail-panel,
+  .sales-history-card,.sales-tabs,.notification-studio .studio-panel,
+  .notification-studio .studio-preview-panel,.notification-studio .studio-campaigns,
+  .studio-tabs,.auth-card,.inbox-popover,.template-save-form,.scope-choice,
+  .recipient-search-panel,.content-block-editor,.preview-summary,.rich-preview-frame,
+  .job-detail-summary > div,.job-detail-concern,.active-assignment,.estimate-line-edit-row,
+  .invoice-line-list,.invoice-totals,.sales-action-card,.sales-enquiry-card,.spare-reservation-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgba(255,255,255,.97);
+    border-color: rgba(148,163,184,.42);
+  }
+  .sidebar {
+    background-color: #172743;
+    background-image: linear-gradient(155deg,#172743,#243955);
+  }
+  .topbar { background: #f7f9fc; }
+  .auth-screen {
+    background: #edf2f8;
+    background-image: none;
+  }
+}
+@media (forced-colors: active) {
+  button:focus-visible,a:focus-visible,[role="tab"]:focus-visible,
+  input:focus-visible,select:focus-visible,textarea:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 3px;
+  }
+  .campaign-status,.sales-status,.status-requested,.status-confirmed,.status-cancelled,
+  .status-checked_in,.status-inspecting,.status-in_progress,.status-estimate_pending,
+  .status-awaiting_approval,.status-approved,.status-quality_check,.status-ready_for_collection,
+  .status-delivered,.status-open {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .primary-button,.auth-submit,.send-button {
+    border: 1px solid ButtonText;
+    forced-color-adjust: auto;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .auth-card,.studio-panel,.studio-preview-panel,.studio-campaigns,.inbox-popover,
+  .metric-card,.surface-card,.workshop-queue-card,.workshop-job-detail,.spare-parts-panel,
+  .sales-form-card,.sales-list-panel,.sales-detail-panel,.sales-history-card {
+    background: #fff;
+  }
+  .auth-screen {
+    background: #edf2f8;
+  }
+}
