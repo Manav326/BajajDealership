@@ -23,6 +23,17 @@ type InspectionItem = {
 type EstimateLine = {
   lineNumber: number; lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string;
   quantity: number; unitPrice: number; lineTotal: number;
+  sourceReservationPublicId: string | null; sourceReservationCode: string | null;
+  sourceQuantityReserved: number | null; sourceQuantityIssued: number | null;
+  sourceQuantityReturned: number | null; sourceQuantityReleased: number | null;
+  sourceUnitCostSnapshot: number | null; sourceSnapshotAt: string | null;
+};
+type PartReservationOption = {
+  publicId: string; reservationCode: string; jobCardPublicId: string; jobCardCode: string;
+  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantityReserved: number; quantityIssued: number; quantityReturned: number; quantityReleased: number;
+  quantityRemainingToIssue: number; unitCostSnapshot: number; status: string;
+  notes: string | null; reservedByName: string; createdAt: string; updatedAt: string;
 };
 type EstimateDecision = {
   decision: string; evidenceMethod: string; evidenceReference: string | null; note: string | null;
@@ -56,7 +67,7 @@ type Invoice = {
   createdByName: string; issuedByName: string | null; createdAt: string; issuedAt: string | null;
   lines: InvoiceLine[];
 };
-type EstimateLineDraft = { lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string; quantity: string; unitPrice: string };
+type EstimateLineDraft = { lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string; quantity: string; unitPrice: string; reservationPublicId: string };
 type QualityDraft = {
   brakesOk: boolean; lightsOk: boolean; hornOk: boolean; noVisibleLeaks: boolean;
   roadTestOk: boolean; toolsRemoved: boolean; customerConcernResolved: boolean; notes: string;
@@ -114,6 +125,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const canApproveEstimate = staff.permissions.includes('workshop.approve_estimate');
   const canStartWork = staff.permissions.includes('workshop.jobcard.work');
   const canQualityCheck = staff.permissions.includes('workshop.quality_check');
+  const canReadParts = staff.permissions.includes('parts.read');
   const canReadInvoice = staff.permissions.includes('finance.read');
   const canIssueInvoice = staff.permissions.includes('finance.invoice');
   const canRecordPayment = staff.permissions.includes('finance.payment');
@@ -160,8 +172,9 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const [inspectionDrafts, setInspectionDrafts] = useState<Record<string, { status: InspectionItem['status']; notes: string }>>({});
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [estimates, setEstimates] = useState<Estimate[]>([]);
+  const [partReservations, setPartReservations] = useState<PartReservationOption[]>([]);
   const [estimateLines, setEstimateLines] = useState<EstimateLineDraft[]>([
-    { lineType: 'PART', description: '', quantity: '1', unitPrice: '' },
+    { lineType: 'PART', description: '', quantity: '1', unitPrice: '', reservationPublicId: '' },
   ]);
   const [estimateDiscount, setEstimateDiscount] = useState('0');
   const [estimateMessage, setEstimateMessage] = useState('');
@@ -362,6 +375,21 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
     return current;
   }
 
+  async function loadPartReservations(jobCardPublicId: string) {
+    if (!canReadParts) {
+      setPartReservations([]);
+      return;
+    }
+    try {
+      const result = await request<PartReservationOption[]>(
+        `/api/v1/admin/job-cards/${jobCardPublicId}/part-reservations`, token);
+      setPartReservations(result ?? []);
+    } catch (cause) {
+      setPartReservations([]);
+      setError(cause instanceof Error ? cause.message : 'Part reservation snapshots could not be loaded.');
+    }
+  }
+
   async function openJobCard(publicId: string) {
     setSelectedJobCardId(publicId);
     setInvoice(null);
@@ -378,6 +406,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
       setInspectionDrafts(Object.fromEntries(items.map((item) => [item.publicId, { status: item.status, notes: item.notes ?? '' }])));
       setAssignments(currentAssignments);
       setEstimates(currentEstimates);
+      await loadPartReservations(publicId);
       setQualityDraft({
         brakesOk: false, lightsOk: false, hornOk: false, noVisibleLeaks: false,
         roadTestOk: false, toolsRemoved: false, customerConcernResolved: false, notes: '',
@@ -434,8 +463,29 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   }
 
   function updateEstimateLine(index: number, key: keyof EstimateLineDraft, value: string) {
-    setEstimateLines((current) => current.map((line, lineIndex) =>
-      lineIndex === index ? { ...line, [key]: value } : line));
+    setEstimateLines((current) => current.map((line, lineIndex) => {
+      if (lineIndex !== index) return line;
+      if (key === 'lineType' && value !== 'PART') {
+        return { ...line, lineType: value as EstimateLineDraft['lineType'], reservationPublicId: '' };
+      }
+      return { ...line, [key]: value };
+    }));
+  }
+
+  function selectPartReservation(index: number, publicId: string) {
+    const reservation = partReservations.find((item) => item.publicId === publicId);
+    if (!reservation) {
+      updateEstimateLine(index, 'reservationPublicId', '');
+      return;
+    }
+    const estimatedQuantity = reservation.quantityReserved - reservation.quantityReturned - reservation.quantityReleased;
+    setEstimateLines((current) => current.map((line, lineIndex) => lineIndex === index ? {
+      ...line,
+      lineType: 'PART',
+      reservationPublicId: reservation.publicId,
+      description: `${reservation.skuCode} — ${reservation.partName}`,
+      quantity: estimatedQuantity.toFixed(3),
+    } : line));
   }
 
   async function createEstimate(event: FormEvent<HTMLFormElement>) {
@@ -451,6 +501,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
           description: line.description.trim(),
           quantity: Number(line.quantity),
           unitPrice: Number(line.unitPrice),
+          reservationPublicId: line.reservationPublicId || null,
         })),
         discountAmount: Number(estimateDiscount || 0),
         customerMessage: estimateMessage.trim() || null,
@@ -459,7 +510,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
         `/api/v1/admin/workshop/job-cards/${selectedJobCard.publicId}/estimates`, token, {
           method: 'POST', body: JSON.stringify(body),
         });
-      setEstimateLines([{ lineType: 'PART', description: '', quantity: '1', unitPrice: '' }]);
+      setEstimateLines([{ lineType: 'PART', description: '', quantity: '1', unitPrice: '', reservationPublicId: '' }]);
       setEstimateDiscount('0');
       setEstimateMessage('');
       setMessage(`Estimate revision ${created.revision} submitted and awaiting a recorded customer decision.`);
@@ -860,7 +911,7 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
                   {estimateLines.length > 1 && <button type="button" className="text-button danger-link" onClick={() => setEstimateLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>Remove</button>}
                 </div>)}
                 <button type="button" className="secondary-button estimate-add-line" disabled={estimateLines.length >= 100}
-                  onClick={() => setEstimateLines((current) => [...current, { lineType: 'PART', description: '', quantity: '1', unitPrice: '' }])}>+ Add line item</button>
+                  onClick={() => setEstimateLines((current) => [...current, { lineType: 'PART', description: '', quantity: '1', unitPrice: '', reservationPublicId: '' }])}>+ Add line item</button>
                 <div className="estimate-footer-fields">
                   <label>Discount (₹)<input type="number" min="0" step="0.01" value={estimateDiscount} onChange={(event) => setEstimateDiscount(event.target.value)} /></label>
                   <label>Message to customer<textarea rows={2} maxLength={2000} value={estimateMessage} onChange={(event) => setEstimateMessage(event.target.value)} placeholder="Clarify what the estimate includes." /></label>
