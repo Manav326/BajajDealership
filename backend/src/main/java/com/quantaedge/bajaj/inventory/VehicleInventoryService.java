@@ -170,7 +170,7 @@ public class VehicleInventoryService {
         select count(*) from vehicle_unit vu join vehicle_model vm
           on vm.dealership_id = vu.dealership_id and vm.id = vu.vehicle_model_id
         """ + where, Long.class, args.toArray());
-    long total = totalValue == null ? 0 : total;
+    long total = totalValue == null ? 0 : totalValue;
     args.add(window.size()); args.add(window.offset());
     List<VehicleUnitView> items = jdbc.query("""
         select vu.public_id, vm.public_id as model_public_id, vm.model_code, vm.model_name,
