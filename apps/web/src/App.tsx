@@ -131,8 +131,10 @@ function App() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', closeOnKeyDown);
       window.removeEventListener('resize', closeOnDesktopResize);
-      // Return keyboard focus to the drawer toggle after close.
-      if (mobileNavToggleRef.current?.isConnected) mobileNavToggleRef.current.focus();
+      // Return focus to the visible toggle after a user closes the mobile drawer.
+      if (window.innerWidth <= 560 && mobileNavToggleRef.current?.isConnected) {
+        mobileNavToggleRef.current.focus();
+      }
     };
   }, [mobileNavOpen]);
 
