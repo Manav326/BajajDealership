@@ -1871,10 +1871,17 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
     backdrop-filter: blur(30px) saturate(150%);
     -webkit-backdrop-filter: blur(30px) saturate(150%);
     transform: translateX(-110%);
-    transition: transform .24s cubic-bezier(.2,.75,.25,1);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform .24s cubic-bezier(.2,.75,.25,1),visibility 0s linear .24s;
     will-change: transform;
   }
-  .sidebar.mobile-open { transform: translateX(0); }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform .24s cubic-bezier(.2,.75,.25,1),visibility 0s;
+  }
   .brand-lockup { justify-content: flex-start; padding: 0 8px 23px; }
   .mobile-drawer-close {
     display: grid;
@@ -1949,7 +1956,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .page-wrap { padding: 19px 12px 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sidebar { transition: none !important; }
+  .sidebar,.sidebar.mobile-open { transition: none !important; }
   .mobile-nav-backdrop { animation: none !important; }
 }
 @keyframes glass-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
@@ -1989,5 +1996,21 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
     color: SelectedItemText;
     border: 1px solid Highlight;
     box-shadow: none;
+  }
+}
+
+
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-drawer-close {
+    background: #243955;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+@media (forced-colors: active) {
+  .mobile-drawer-close {
+    color: ButtonText;
+    background: ButtonFace;
+    border: 1px solid ButtonText;
   }
 }
