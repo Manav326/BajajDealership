@@ -32,7 +32,7 @@ function dateLabel(value: string | null | undefined) {
 
 function titleCase(value: string) {
   return value.replaceAll('_', ' ').toLowerCase()
-    .replace(/(^|\\s)\\S/g, (letter) => letter.toUpperCase());
+    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
 
 export default function StaffDirectoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
