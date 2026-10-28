@@ -157,6 +157,20 @@ class SparePartsServiceIntegrationTest {
     assertThat(parts.listMovements(fixture.owner(), part.publicId(), 0, 100).items())
         .extracting(SparePartsService.StockMovementView::movementType)
         .contains("PURCHASE_RECEIPT", "RESERVATION_CREATED", "ISSUED_TO_JOB", "RETURNED_FROM_JOB", "RESERVATION_RELEASED");
+    var partialReservation = parts.reservePart(fixture.owner(), fixture.jobCardPublicId(),
+        new SparePartsService.ReservationRequest(
+            part.publicId(), new BigDecimal("3.000"), "partial-reserve-" + UUID.randomUUID(), null));
+    parts.issuePart(fixture.owner(), partialReservation.publicId(),
+        new SparePartsService.QuantityOperationRequest(
+            new BigDecimal("1.000"), "partial-issue-" + UUID.randomUUID(), null));
+    var partiallyReleased = parts.releaseReservation(fixture.owner(), partialReservation.publicId(),
+        new SparePartsService.OperationRequest("partial-release-" + UUID.randomUUID(), "Only one unit was needed."));
+    assertThat(partiallyReleased.status()).isEqualTo("PARTIALLY_CANCELLED");
+    assertThat(partiallyReleased.quantityReserved()).isEqualByComparingTo("3.000");
+    assertThat(partiallyReleased.quantityIssued()).isEqualByComparingTo("1.000");
+    assertThat(partiallyReleased.quantityReleased()).isEqualByComparingTo("2.000");
+    assertThat(partiallyReleased.quantityRemainingToIssue()).isEqualByComparingTo("0.000");
+    assertThat(parts.getPart(fixture.owner(), part.publicId()).quantityReserved()).isEqualByComparingTo("0.000");
   }
 
   @Test
@@ -180,12 +194,16 @@ class SparePartsServiceIntegrationTest {
             .isEqualTo(HttpStatus.NOT_FOUND));
 
     Fixture closed = createFixture("CLOSED", "READY_FOR_COLLECTION");
+    var closedPart = createPart(closed, "CLOSED-PART", "Part for closed job");
+    var closedSupplier = createSupplier(closed);
+    receive(closed, closedPart.publicId(), closedSupplier.publicId(),
+        "closed-opening-" + UUID.randomUUID(), "2.000", "5.00");
     assertThatThrownBy(() -> parts.reservePart(closed.owner(), closed.jobCardPublicId(),
         new SparePartsService.ReservationRequest(
-            part.publicId(), BigDecimal.ONE, "closed-job-" + UUID.randomUUID(), null)))
+            closedPart.publicId(), BigDecimal.ONE, "closed-job-" + UUID.randomUUID(), null)))
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-            .isIn(HttpStatus.NOT_FOUND, HttpStatus.CONFLICT));
+            .isEqualTo(HttpStatus.CONFLICT));
   }
 
   private SparePartsService.SparePartView createPart(Fixture fixture, String prefix, String name) {
