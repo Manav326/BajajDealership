@@ -455,7 +455,7 @@ public class SparePartsService {
     if (!Set.of("OPEN", "PARTIALLY_ISSUED").contains(locked.status())) {
       throw conflict("Only an open reservation with unissued quantity can be issued.");
     }
-    BigDecimal remaining = locked.quantityReserved().subtract(locked.quantityIssued());
+    BigDecimal remaining = locked.quantityReserved().subtract(locked.quantityIssued()).subtract(locked.quantityReleased());
     if (quantity.compareTo(remaining) > 0) {
       throw conflict("The reservation has only " + remaining.toPlainString() + " unit(s) left to issue.");
     }
@@ -550,7 +550,8 @@ public class SparePartsService {
     if (!Set.of("APPROVED", "IN_PROGRESS").contains(job.status())) {
       throw conflict("Unused reservations can only be released before workshop closure.");
     }
-    BigDecimal remaining = locked.quantityReserved().subtract(locked.quantityIssued());
+    BigDecimal remaining = locked.quantityReserved()
+        .subtract(locked.quantityIssued()).subtract(locked.quantityReleased());
     if (remaining.signum() <= 0 || !Set.of("OPEN", "PARTIALLY_ISSUED").contains(locked.status())) {
       throw conflict("This reservation has no unissued quantity to release.");
     }
@@ -564,10 +565,12 @@ public class SparePartsService {
         where dealership_id = ? and part_id = ?
         """, newReserved, actor.dealershipId(), part.id());
     String nextStatus = locked.quantityIssued().signum() == 0 ? "CANCELLED" : "PARTIALLY_CANCELLED";
+    BigDecimal releasedTotal = locked.quantityReleased().add(remaining).setScale(3, RoundingMode.HALF_UP);
     jdbc.update("""
-        update service_job_part_reservation set status = ?, updated_at = now()
+        update service_job_part_reservation
+        set quantity_released = ?, status = ?, updated_at = now()
         where dealership_id = ? and id = ?
-        """, nextStatus, actor.dealershipId(), locked.id());
+        """, releasedTotal, nextStatus, actor.dealershipId(), locked.id());
     insertMovement(actor, part.id(), "RESERVATION_RELEASED", BigDecimal.ZERO, remaining.negate(),
         part.quantityOnHand(), newReserved, locked.unitCostSnapshot(), "JOB_PART_RESERVATION",
         reservationPublicId.toString(), "RELEASE:" + UUID.randomUUID(), fingerprint);
@@ -583,7 +586,7 @@ public class SparePartsService {
         select reservation.public_id, reservation.reservation_code, job.public_id as job_public_id,
           job.job_card_code, part.public_id as part_public_id, part.sku_code, part.part_name,
           part.unit_of_measure, reservation.quantity_reserved, reservation.quantity_issued,
-          reservation.quantity_returned, reservation.unit_cost_snapshot, reservation.status,
+          reservation.quantity_returned, reservation.quantity_released, reservation.unit_cost_snapshot, reservation.status,
           reservation.notes, staff.full_name as reserved_by_name, reservation.created_at, reservation.updated_at
         from service_job_part_reservation reservation
         join service_job_card job on job.dealership_id = reservation.dealership_id and job.id = reservation.job_card_id
@@ -594,12 +597,13 @@ public class SparePartsService {
         """, (rs, rowNum) -> {
       BigDecimal reserved = rs.getBigDecimal("quantity_reserved");
       BigDecimal issued = rs.getBigDecimal("quantity_issued");
+      BigDecimal released = rs.getBigDecimal("quantity_released");
       return new ReservationView(
           rs.getObject("public_id", UUID.class), rs.getString("reservation_code"),
           rs.getObject("job_public_id", UUID.class), rs.getString("job_card_code"),
           rs.getObject("part_public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
-          rs.getString("unit_of_measure"), reserved, issued, rs.getBigDecimal("quantity_returned"),
-          reserved.subtract(issued).max(BigDecimal.ZERO), rs.getBigDecimal("unit_cost_snapshot"),
+          rs.getString("unit_of_measure"), reserved, issued, rs.getBigDecimal("quantity_returned"), released,
+          reserved.subtract(issued).subtract(released).max(BigDecimal.ZERO), rs.getBigDecimal("unit_cost_snapshot"),
           rs.getString("status"), rs.getString("notes"), rs.getString("reserved_by_name"),
           rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
     }, actor.dealershipId(), reservationPublicId);
@@ -706,7 +710,7 @@ public class SparePartsService {
     return jdbc.query("""
         select reservation.id, reservation.public_id, reservation.job_card_id, reservation.part_id,
           part.public_id as part_public_id, reservation.quantity_reserved, reservation.quantity_issued,
-          reservation.quantity_returned, reservation.unit_cost_snapshot, reservation.status
+          reservation.quantity_returned, reservation.quantity_released, reservation.unit_cost_snapshot, reservation.status
         from service_job_part_reservation reservation
         join spare_part part on part.dealership_id = reservation.dealership_id and part.id = reservation.part_id
         where reservation.dealership_id = ? and reservation.public_id = ?
@@ -714,7 +718,8 @@ public class SparePartsService {
         (rs, rowNum) -> new ReservationLock(rs.getLong("id"), rs.getObject("public_id", UUID.class),
             rs.getLong("job_card_id"), rs.getLong("part_id"), rs.getObject("part_public_id", UUID.class),
             rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_issued"),
-            rs.getBigDecimal("quantity_returned"), rs.getBigDecimal("unit_cost_snapshot"), rs.getString("status")),
+            rs.getBigDecimal("quantity_returned"), rs.getBigDecimal("quantity_released"),
+            rs.getBigDecimal("unit_cost_snapshot"), rs.getString("status")),
         actor.dealershipId(), publicId);
   }
 
@@ -925,7 +930,7 @@ public class SparePartsService {
   public record ReservationView(
       UUID publicId, String reservationCode, UUID jobCardPublicId, String jobCardCode,
       UUID partPublicId, String skuCode, String partName, String unitOfMeasure,
-      BigDecimal quantityReserved, BigDecimal quantityIssued, BigDecimal quantityReturned,
+      BigDecimal quantityReserved, BigDecimal quantityIssued, BigDecimal quantityReturned, BigDecimal quantityReleased,
       BigDecimal quantityRemainingToIssue, BigDecimal unitCostSnapshot, String status, String notes,
       String reservedByName, Instant createdAt, Instant updatedAt) {}
   public record StockMovementView(
@@ -942,5 +947,6 @@ public class SparePartsService {
   private record JobLock(long id, UUID publicId, String jobCardCode, String status) {}
   private record ReservationLock(
       long id, UUID publicId, long jobCardId, long partId, UUID partPublicId, BigDecimal quantityReserved,
-      BigDecimal quantityIssued, BigDecimal quantityReturned, BigDecimal unitCostSnapshot, String status) {}
+      BigDecimal quantityIssued, BigDecimal quantityReturned, BigDecimal quantityReleased,
+      BigDecimal unitCostSnapshot, String status) {}
 }
