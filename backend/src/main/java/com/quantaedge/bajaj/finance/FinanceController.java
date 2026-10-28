@@ -92,7 +92,12 @@ public class FinanceController {
   public FinanceOperationsService.DailyCloseView closeDailyFinance(
       @AuthenticationPrincipal StaffPrincipal actor,@Valid @RequestBody DailyCloseRequest request) {
     return finance.closeBusinessDay(actor,new FinanceOperationsService.DailyCloseRequest(
-      request.businessDate(),request.openingBalances(),request.countedClosing(),request.notes()));
+      request.businessDate(),
+      new FinanceOperationsService.MoneyChannels(request.openingBalances().cash(),request.openingBalances().upi(),
+          request.openingBalances().bankTransfer(),request.openingBalances().card(),request.openingBalances().other()),
+      new FinanceOperationsService.MoneyChannels(request.countedClosing().cash(),request.countedClosing().upi(),
+          request.countedClosing().bankTransfer(),request.countedClosing().card(),request.countedClosing().other()),
+      request.notes()));
   }
 
   @GetMapping("/reports/daily")
