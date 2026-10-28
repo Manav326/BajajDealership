@@ -35,6 +35,27 @@ type Estimate = {
   submittedAt: string | null; decidedAt: string | null; createdAt: string;
   lines: EstimateLine[]; decisions: EstimateDecision[];
 };
+type InvoiceLine = {
+  lineNumber: number; sourceEstimateLineNumber: number; lineType: string; description: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type Payment = {
+  publicId: string; receiptNumber: string; paymentMethod: string; amount: number;
+  paymentReference: string | null; note: string | null; status: 'RECORDED' | 'REVERSED';
+  recordedByName: string; recordedAt: string; reversalReason: string | null;
+  reversalReference: string | null; reversedAt: string | null; reversedByName: string | null;
+};
+type Invoice = {
+  publicId: string; invoiceNumber: string; jobCardPublicId: string; jobCardCode: string;
+  estimatePublicId: string; estimateRevision: number; status: string; jobCardStatus: string;
+  customerName: string; customerPhone: string | null; modelName: string;
+  variantName: string | null; colourName: string | null; chassisNumber: string; engineNumber: string;
+  partsSubtotal: number; labourSubtotal: number; otherSubtotal: number; discountAmount: number;
+  invoiceTotal: number; paidAmount: number; balanceDue: number; documentNotice: string;
+  createdByName: string; issuedByName: string | null; createdAt: string; issuedAt: string | null;
+  cancelledAt: string | null; lines: InvoiceLine[]; payments: Payment[];
+};
+type PaymentResult = { payment: Payment; invoice: Invoice; idempotentReplay: boolean };
 type EstimateLineDraft = { lineType: 'PART' | 'LABOUR' | 'OTHER'; description: string; quantity: string; unitPrice: string };
 type QualityDraft = {
   brakesOk: boolean; lightsOk: boolean; hornOk: boolean; noVisibleLeaks: boolean;
@@ -93,6 +114,11 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const canApproveEstimate = staff.permissions.includes('workshop.approve_estimate');
   const canStartWork = staff.permissions.includes('workshop.jobcard.work');
   const canQualityCheck = staff.permissions.includes('workshop.quality_check');
+  const canReadInvoice = staff.permissions.includes('billing.invoice.read');
+  const canIssueInvoice = staff.permissions.includes('billing.invoice.issue');
+  const canRecordPayment = staff.permissions.includes('billing.payment.record');
+  const canReversePayment = staff.permissions.includes('billing.payment.reverse');
+  const canDeliverVehicle = staff.permissions.includes('workshop.jobcard.deliver');
 
   const [activeTab, setActiveTab] = useState<'appointments' | 'jobCards'>('appointments');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -152,6 +178,21 @@ export default function WorkshopWorkspace({ token, staff }: { token: string; sta
   const [staffSearchInput, setStaffSearchInput] = useState('');
   const [selectedStaff, setSelectedStaff] = useState('');
   const [assignmentNote, setAssignmentNote] = useState('');
+  const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER'>('UPI');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() =>
+    globalThis.crypto?.randomUUID?.() ?? `qe-pay-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const [reversalReason, setReversalReason] = useState('');
+  const [reversalReference, setReversalReference] = useState('');
+  const [deliveredToName, setDeliveredToName] = useState('');
+  const [deliveryAcknowledged, setDeliveryAcknowledged] = useState(false);
+  const [deliveryMethod, setDeliveryMethod] = useState<'IN_PERSON' | 'SIGNED_FORM' | 'OTP_REFERENCE' | 'WRITTEN_MESSAGE'>('IN_PERSON');
+  const [deliveryReference, setDeliveryReference] = useState('');
+  const [deliveryNote, setDeliveryNote] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
