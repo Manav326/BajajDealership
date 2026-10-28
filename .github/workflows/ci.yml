@@ -154,10 +154,10 @@ jobs:
   android:
     name: Build Lucky Bajaj Android APK
     runs-on: ubuntu-latest
-    # Match mPAY's local phone-over-Wi-Fi API configuration by default.
-    # Override the GitHub Actions repository variable BAJAJ_API_BASE_URL for another target.
+    # Build the APK against the deployed Bajaj API by default.
+    # Set BAJAJ_API_BASE_URL for LAN/emulator or staging builds.
     env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'http://192.168.31.47:8080/' }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
