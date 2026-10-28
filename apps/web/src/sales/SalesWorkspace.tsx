@@ -60,9 +60,6 @@ function localDateTime(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
 }
-function money(value: number | null | undefined) {
-  return '₹' + Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 function dateLabel(value: string | null | undefined) {
   if (!value) return 'Not set';
   const parsed = new Date(value);
