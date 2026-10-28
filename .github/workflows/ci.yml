@@ -87,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       EXPO_PUBLIC_API_BASE_URL: http://10.0.2.2:8080
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
