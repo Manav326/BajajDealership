@@ -118,3 +118,10 @@
   .assetGrid { grid-template-columns:1fr 1fr; }
   .layerGrid { grid-template-columns:1fr; }
 }
+
+.layerToggle[data-selected="true"] { border-color:#ef9b55; background:#fff4ea; box-shadow:inset 0 0 0 1px rgba(249,115,22,.08); }
+.transformControls { display:grid; gap:10px; padding-top:10px; border-top:1px solid #e2e8f0; }
+.rangeControl { display:grid !important; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:6px 12px !important; color:#40516b !important; font-size:10px !important; }
+.rangeControl > span { color:#b45309; font-variant-numeric:tabular-nums; font-weight:850; }
+.rangeControl input[type="range"] { grid-column:1 / -1; width:100%; height:20px; margin:0; padding:0; border:0; background:transparent; accent-color:#ea6b19; cursor:pointer; }
+.rangeControl input[type="range"]:focus-visible { outline:2px solid rgba(249,115,22,.45); outline-offset:3px; border-radius:6px; }
