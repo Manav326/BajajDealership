@@ -5,7 +5,7 @@
 .heading p,.configured p,.unconfigured p { margin:0; color:#63728a; font-size:11px; line-height:1.6; }
 .configured,.unconfigured { border:1px solid #b8e2d0; background:#edfbf4; padding:11px 13px; border-radius:10px; }
 .configured strong,.unconfigured strong { color:#176544; font-size:11px; }
-.configured small,.unconfigured small { display:block; margin-top:5px; color:#386b57; font-size:10px; line-height:1.5; }
+.configured small,.unconfigured small { display:block; margin-top:5px; color:#386b57; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
 .unconfigured { background:#fff8ed; border-color:#f2d6ad; }.unconfigured strong { color:#8b5417; }.unconfigured small { color:#825f36; }
 .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .card { min-width:0; display:grid; align-content:start; gap:11px; padding:14px; background:rgba(255,255,255,.88); border:1px solid #dce5f0; border-radius:13px; }
