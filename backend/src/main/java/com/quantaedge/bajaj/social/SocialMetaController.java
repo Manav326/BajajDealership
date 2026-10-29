@@ -1,6 +1,10 @@
 package com.quantaedge.bajaj.social;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import jakarta.validation.Valid;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,10 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class SocialMetaController {
   private final SocialMetaService meta;
-
-  public SocialMetaController(SocialMetaService meta) {
-    this.meta = meta;
-  }
+  private final SocialMetaPublishingService publishing;
+  public SocialMetaController(SocialMetaService meta,SocialMetaPublishingService publishing){this.meta=meta;this.publishing=publishing;}
 
   @GetMapping("/api/v1/admin/social/meta/status")
   @PreAuthorize("hasAuthority('social_media.read')")
@@ -32,6 +34,13 @@ public class SocialMetaController {
   public SocialMetaService.ConnectResponse connect(@AuthenticationPrincipal StaffPrincipal principal) {
     return meta.beginAuthorization(principal);
   }
+
+  @PostMapping("/api/v1/admin/social/meta/publish")
+  @PreAuthorize("hasAuthority('social_media.publish')")
+  public SocialMetaPublishingService.PublishView publish(@AuthenticationPrincipal StaffPrincipal principal,@Valid @RequestBody SocialMetaPublishingService.PublishRequest request){return publishing.publish(principal,request);}
+  @GetMapping("/api/v1/admin/social/meta/publishes/{publicId}")
+  @PreAuthorize("hasAuthority('social_media.read')")
+  public SocialMetaPublishingService.PublishView publishStatus(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return publishing.status(principal,publicId);}
 
   /** Meta redirects here with a one-time state. The frontend callback URL is server-configured. */
   @GetMapping("/api/v1/social/meta/callback")

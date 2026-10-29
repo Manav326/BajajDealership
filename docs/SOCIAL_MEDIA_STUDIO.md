@@ -50,7 +50,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 ## Delivery phases
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
-- **Phase 2 — Meta publishing:** finish E2E validation of the new account-connection foundation, then implement Facebook Page photo/text posts, Instagram feed publishing through media containers, provider-confirmed results, destination management and revocation/disconnect.
+- **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires durable object storage.
 - **Phase 3 — WhatsApp:** Cloud API setup, approved templates, media support, consent/opt-out, message status webhooks and explicit channel approval.
 - **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
 

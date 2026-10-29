@@ -104,7 +104,8 @@ type ArtworkDraft = {
 };
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
-type MetaStatus = { configured: boolean; code: string; message: string; destinations: MetaDestination[] };
+type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; destinations: MetaDestination[] };
+type MetaPublishJob = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; externalPostId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; publishedAt: string | null };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -223,8 +224,14 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaConnecting, setMetaConnecting] = useState(false);
   const [metaError, setMetaError] = useState('');
+  const [publishDestinationId, setPublishDestinationId] = useState('');
+  const [publishingBusy, setPublishingBusy] = useState(false);
+  const [publishJob, setPublishJob] = useState<MetaPublishJob | null>(null);
+  const [pendingPublishAssetId, setPendingPublishAssetId] = useState<string | null>(null);
+  const [publishIdempotencyKey, setPublishIdempotencyKey] = useState(() => newDraftId());
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
+  const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
 
   useEffect(() => {
@@ -253,6 +260,13 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
 
     return () => { disposed = true; };
   }, []);
+
+  useEffect(() => {
+    const active = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
+    if (!active.some((destination) => destination.publicId === publishDestinationId)) {
+      setPublishDestinationId(active[0]?.publicId ?? '');
+    }
+  }, [metaStatus, publishDestinationId]);
 
   useEffect(() => {
     let disposed = false;
@@ -417,6 +431,49 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
     reader.readAsDataURL(file);
   }
 
+
+  async function publishArtwork(){
+    const destination=activeMetaDestinations.find(item=>item.publicId===publishDestinationId);
+    if(!metaStatus?.publishingReady){setMetaError('Publishing is not configured yet. Configure public media URL and signing key first.');return;}
+    if(!destination){setMetaError('Choose an active Facebook Page or Instagram professional account.');return;}
+    if(publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'){setMetaError('This request is processing or uncertain. Refresh its status before attempting another post.');return;}
+    if(!window.confirm('Publish this artwork and caption to '+destination.displayName+'? This creates a public social post.'))return;
+    setPublishingBusy(true);setMetaError('');setError('');setNotice('');
+    try{
+      let assetId=pendingPublishAssetId;
+      if(!assetId){
+        const canvas=canvasRef.current;if(!canvas)throw new Error('Artwork preview is not ready.');
+        const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(v=>v?resolve(v):reject(new Error('JPEG artwork could not be prepared.')),'image/jpeg',0.92));
+        const data=new FormData();data.append('file',blob,'lucky-bajaj-campaign.jpg');
+        const upload=await apiFetch('/api/v1/admin/social/media',{method:'POST',body:data});
+        const stored=await upload.json().catch(()=>({})) as {assetId?:string;message?:string;detail?:string};
+        if(!upload.ok||!stored.assetId)throw new Error(stored.message??stored.detail??'Artwork upload failed.');
+        assetId=stored.assetId;setPendingPublishAssetId(assetId);
+      }
+      const response=await apiFetch('/api/v1/admin/social/meta/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({destinationPublicId:destination.publicId,assetId,caption:fullCaption.slice(0,2200),idempotencyKey:publishIdempotencyKey})});
+      const result=await response.json().catch(()=>({})) as MetaPublishJob&{message?:string;detail?:string};
+      if(!response.ok||!result.publicId)throw new Error(result.message??result.detail??'Publish request could not be confirmed.');
+      setPublishJob(result);
+      if(result.status==='PUBLISHED'){setNotice('Published to '+destination.displayName+'. Provider post ID: '+(result.externalPostId??'recorded')+'.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
+      else if(result.status==='PROCESSING'){setNotice('Meta accepted the Instagram container. Publication will complete after provider readiness checks.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
+      else if(result.status==='FAILED'){setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+'). Check account permissions.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
+      else setMetaError('Provider outcome is uncertain. The system will not automatically repost; refresh job status before acting.');
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish request could not be confirmed.');}
+    finally{setPublishingBusy(false);}
+  }
+  async function refreshPublishJob(){
+    if(!publishJob)return;setMetaError('');
+    try{
+      const response=await apiFetch('/api/v1/admin/social/meta/publishes/'+publishJob.publicId,{cache:'no-store'});
+      const result=await response.json().catch(()=>({})) as MetaPublishJob&{message?:string};
+      if(!response.ok||!result.publicId)throw new Error(result.message??'Publish status could not be refreshed.');
+      setPublishJob(result);
+      if(result.status==='PUBLISHED')setNotice('Published to '+result.destinationName+'. Provider post ID: '+(result.externalPostId??'recorded')+'.');
+      else if(result.status==='FAILED')setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+').');
+      else if(result.status==='UNKNOWN')setMetaError('The provider result is uncertain. Do not repost until reconciled.');
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish status could not be refreshed.');}
+  }
 
   async function connectMeta() {
     setMetaConnecting(true);
@@ -661,7 +718,7 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
               ))}
             </div>
           ) : null}
-          <p className={styles.metaFootnote}>Connecting an account does not publish content. Publishing stays unavailable until each destination is authorized and the provider-backed publishing flow is released.</p>
+          <p className={styles.metaFootnote}>{metaStatus?.publishingReady ? 'Direct publishing is configured. Each post needs confirmation and a provider-backed result.' : 'Publishing needs a public HTTPS media URL and asset-signing key. Connecting an account alone never publishes content.'}</p>
         </section>
         <div className={styles.content}>
           <aside className={styles.controls}>
@@ -708,6 +765,23 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
               <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={'Preview of ' + headline} />
             </div>
             <label className={styles.captionPreview}>Caption preview<textarea readOnly rows={4} value={fullCaption} /></label>
+
+            <section className={styles.publishPanel} aria-label="Publish campaign artwork">
+              <div className={styles.publishPanelHeading}><strong>Publish to social media</strong><span>{metaStatus?.publishingReady?'API ready':'Not configured'}</span></div>
+              <label>Destination
+                <select value={publishDestinationId} onChange={(event)=>setPublishDestinationId(event.target.value)} disabled={!activeMetaDestinations.length||publishingBusy}>
+                  {activeMetaDestinations.length===0&&<option value="">Connect a Facebook Page or Instagram account first</option>}
+                  {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
+                </select>
+              </label>
+              <button type="button" className={styles.publishButton} disabled={!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':'Publish now'}</button>
+              {publishJob&&<div className={styles.publishResult}>
+                <div><strong>Latest publish job</strong><span className={publishJob.status==='PUBLISHED'?styles.connectedState:publishJob.status==='FAILED'?styles.disconnectedState:styles.publishPendingState}>{publishJob.status}</span></div>
+                <p>{publishJob.destinationName}{publishJob.externalPostId?' · Post ID '+publishJob.externalPostId:''}{publishJob.errorCode?' · '+publishJob.errorCode:''}</p>
+                {(publishJob.status==='PROCESSING'||publishJob.status==='UNKNOWN')&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishJob()}>Refresh publish status</button>}
+              </div>}
+              <p className={styles.note}>Publishing creates a real post. Final confirmation is required; uncertain outcomes are not automatically retried.</p>
+            </section>
             {error && <div className={styles.error} role="alert">{error}</div>}
             {notice && <div className={styles.notice} role="status">{notice}</div>}
             <div className={styles.actions}>

@@ -53,6 +53,8 @@ public class SocialMetaService {
   private final String redirectUri;
   private final String completionUrl;
   private final String tokenEncryptionKeyBase64;
+  private final String socialMediaPublicBaseUrl;
+  private final String socialMediaAssetSigningKeyBase64;
   private final SecureRandom secureRandom = new SecureRandom();
   private final HttpClient httpClient = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(10))
@@ -67,7 +69,9 @@ public class SocialMetaService {
       @Value("${app.social.meta.graph-api-version:}") String graphApiVersion,
       @Value("${app.social.meta.redirect-uri:}") String redirectUri,
       @Value("${app.social.meta.completion-url:}") String completionUrl,
-      @Value("${app.social.meta.token-encryption-key-base64:}") String tokenEncryptionKeyBase64) {
+      @Value("${app.social.meta.token-encryption-key-base64:}") String tokenEncryptionKeyBase64,
+      @Value("${app.social.media.public-base-url:}") String socialMediaPublicBaseUrl,
+      @Value("${app.social.media.asset-signing-key-base64:}") String socialMediaAssetSigningKeyBase64) {
     this.jdbc = jdbc;
     this.mapper = mapper;
     this.enabled = enabled;
@@ -77,6 +81,8 @@ public class SocialMetaService {
     this.redirectUri = clean(redirectUri);
     this.completionUrl = clean(completionUrl);
     this.tokenEncryptionKeyBase64 = clean(tokenEncryptionKeyBase64);
+    this.socialMediaPublicBaseUrl = clean(socialMediaPublicBaseUrl);
+    this.socialMediaAssetSigningKeyBase64 = clean(socialMediaAssetSigningKeyBase64);
   }
 
   public StatusView status(StaffPrincipal actor) {
@@ -91,10 +97,11 @@ public class SocialMetaService {
         actor.dealershipId());
 
     boolean configured = isConfigured();
-    return new StatusView(configured, configured ? "READY" : "CONFIGURATION_REQUIRED",
-        configured
-            ? "Meta account connection is available. Authorize a Page or professional Instagram account before publishing."
-            : "Meta account connection is not configured on the server. External publishing remains disabled.",
+    boolean publishingReady = configured && isAssetPublishingConfigured();
+    return new StatusView(configured, publishingReady, configured ? "READY" : "CONFIGURATION_REQUIRED",
+        !configured ? "Meta account connection is not configured on the server. External publishing remains disabled."
+            : publishingReady ? "Meta is configured. Connected destinations can publish after staff confirmation."
+            : "Meta connection is configured, but direct publishing still needs public media URL and signing key settings.",
         destinations);
   }
 
@@ -167,6 +174,18 @@ public class SocialMetaService {
     }
   }
 
+  boolean isMetaConfigured() { return isConfigured(); }
+  private boolean isAssetPublishingConfigured() {
+    if (!isSafePublicBaseUrl(socialMediaPublicBaseUrl)) return false;
+    try { return Base64.getDecoder().decode(socialMediaAssetSigningKeyBase64).length == 32; }
+    catch (IllegalArgumentException badKey) { return false; }
+  }
+  private static boolean isSafePublicBaseUrl(String value) {
+    try { URI uri=URI.create(value);
+      boolean secure="https".equalsIgnoreCase(uri.getScheme())||("http".equalsIgnoreCase(uri.getScheme())&&("localhost".equalsIgnoreCase(uri.getHost())||"127.0.0.1".equalsIgnoreCase(uri.getHost())));
+      return secure&&uri.isAbsolute()&&uri.getHost()!=null&&(uri.getPath()==null||uri.getPath().isBlank()||"/".equals(uri.getPath()))&&uri.getQuery()==null&&uri.getFragment()==null;
+    }catch(IllegalArgumentException e){return false;}
+  }
   private boolean isConfigured() {
     return enabled && !appId.isBlank() && !appSecret.isBlank()
         && graphApiVersion.matches("v[0-9]+\\.[0-9]+")
@@ -317,7 +336,7 @@ public class SocialMetaService {
     return id;
   }
 
-  private JsonNode graphGet(String resource, Map<String, String> query) {
+  JsonNode graphGet(String resource, Map<String, String> query) {
     URI uri = UriComponentsBuilder
         .fromUriString("https://graph.facebook.com/" + graphApiVersion + "/" + resource)
         .queryParams(toQueryParams(query))
@@ -348,6 +367,21 @@ public class SocialMetaService {
     }
   }
 
+  JsonNode graphPost(String resource,Map<String,String> form){
+    URI uri=URI.create("https://graph.facebook.com/"+graphApiVersion+"/"+resource);
+    String body=form.entrySet().stream().map(e->java.net.URLEncoder.encode(e.getKey(),StandardCharsets.UTF_8)+"="+java.net.URLEncoder.encode(e.getValue(),StandardCharsets.UTF_8)).collect(java.util.stream.Collectors.joining("&"));
+    HttpRequest req=HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Accept","application/json").header("Content-Type","application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(body,StandardCharsets.UTF_8)).build();
+    try{HttpResponse<String> res=httpClient.send(req,HttpResponse.BodyHandlers.ofString());if(res.statusCode()<200||res.statusCode()>=300)throw new MetaProviderException("meta_http_"+res.statusCode());JsonNode json=mapper.readTree(res.body());if(json==null)throw new MetaProviderException("meta_empty_response");if(json.has("error"))throw new MetaProviderException("meta_api_"+safeCode(json.path("error").path("code").asText("provider_error")));return json;}
+    catch(JsonProcessingException e){throw new MetaProviderException("meta_invalid_json");}catch(IOException e){throw new MetaProviderException("meta_network_error");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new MetaProviderException("meta_request_interrupted");}
+  }
+  String decryptTokenForPublishing(String encrypted){
+    try{byte[] combined=Base64.getUrlDecoder().decode(encrypted);if(combined.length<=12)throw new IllegalArgumentException("bad token");
+      byte[] nonce=java.util.Arrays.copyOfRange(combined,0,12),cipherText=java.util.Arrays.copyOfRange(combined,12,combined.length);
+      Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,new SecretKeySpec(Base64.getDecoder().decode(tokenEncryptionKeyBase64),"AES"),new GCMParameterSpec(128,nonce));
+      cipher.updateAAD(TOKEN_AAD.getBytes(StandardCharsets.UTF_8));return new String(cipher.doFinal(cipherText),StandardCharsets.UTF_8);
+    }catch(GeneralSecurityException|IllegalArgumentException e){throw new IllegalStateException("Meta token decryption failed.");}
+  }
+
   private static org.springframework.util.LinkedMultiValueMap<String, String> toQueryParams(Map<String, String> query) {
     org.springframework.util.LinkedMultiValueMap<String, String> result = new org.springframework.util.LinkedMultiValueMap<>();
     query.forEach(result::add);
@@ -372,7 +406,7 @@ public class SocialMetaService {
     }
   }
 
-  private void audit(long dealershipId, Long staffUserId, Long connectionId, Long destinationId,
+  void audit(long dealershipId, Long staffUserId, Long connectionId, Long destinationId,
       String action, Map<String, Object> details) {
     String json;
     try {
@@ -428,7 +462,7 @@ public class SocialMetaService {
     return value == null ? "" : value.trim();
   }
 
-  public record StatusView(boolean configured, String code, String message, List<DestinationView> destinations) {}
+  public record StatusView(boolean configured, boolean publishingReady, String code, String message, List<DestinationView> destinations) {}
   public record DestinationView(UUID publicId, String type, String displayName, String username, String status) {}
   public record ConnectResponse(String authorizationUrl, Instant stateExpiresAt) {}
   private record OAuthAttempt(long dealershipId, long staffUserId) {}
