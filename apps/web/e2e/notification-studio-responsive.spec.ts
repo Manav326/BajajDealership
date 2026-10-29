@@ -164,7 +164,7 @@ async function mockApi(page: Page) {
       return json({ items: galleryImages });
     }
     if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'POST') {
-      galleryUploadContentType = request.headers()['content-type'] ?? '';
+      galleryUploadContentType = route.request().headers()['content-type'] ?? '';
       galleryImages = [{
         publicId: 'e2e-catalogue-image-1',
         modelCode: 'BAJAJ_PULSAR_NS200',
