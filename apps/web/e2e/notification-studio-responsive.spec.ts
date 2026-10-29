@@ -307,7 +307,7 @@ test('recipient/audience controls stay locked while a send request is processing
   await page.getByRole('button', { name: 'Preview audience', exact: true }).click();
   await expect(page.locator('.preview-result')).toBeVisible();
   await page.getByRole('button', { name: 'Approve campaign', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Send in-app notification', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Send in-app notification/ })).toBeEnabled();
 
   let releaseSend!: () => void;
   const sendGate = new Promise<void>((resolve) => { releaseSend = resolve; });
@@ -324,7 +324,7 @@ test('recipient/audience controls stay locked while a send request is processing
   });
 
   try {
-    await page.getByRole('button', { name: 'Send in-app notification', exact: true }).click();
+    await page.getByRole('button', { name: /Send in-app notification/ }).click();
     await sendStarted;
     await expect(page.locator('.scope-choice')).toHaveCount(3);
     await expect(page.locator('.scope-choice').first()).toBeDisabled();
