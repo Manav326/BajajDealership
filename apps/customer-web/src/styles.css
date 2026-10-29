@@ -916,6 +916,7 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   z-index: 100;
   box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
 }
+.bajaj-showroom #top,
 .bajaj-showroom #collection,
 .bajaj-showroom #experience,
 .bajaj-showroom #offers {
@@ -1065,6 +1066,10 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
 @media (max-width: 720px) {
   .bajaj-showroom { padding-top: 70px; }
   .bajaj-showroom .showroom-nav { height: 70px; }
+  .bajaj-showroom #top,
+  .bajaj-showroom #collection,
+  .bajaj-showroom #experience,
+  .bajaj-showroom #offers { scroll-margin-top: 82px; }
   .bajaj-showroom .showroom-links { top: 70px; }
   .portal-auth-screen .portal-brand { padding-block: 18px; }
 }
@@ -1277,7 +1282,7 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
     padding: 24px 18px;
   }
   .showroom-footer--composed > .showroom-brand { grid-column: 1; }
-  .showroom-footer--composed > p { grid-column: 1 / -1; max-width: none; font-size: 11px; }
+  .showroom-footer--composed > p { grid-column: 1 / -1; max-width: none; font-size: 11px; order: 0; flex-basis: auto; }
   .showroom-footer--composed .showroom-footer-links { grid-column: 1 / -1; justify-content: flex-start; gap: 8px 22px; }
   .showroom-footer--composed .quantaedge-attribution { grid-column: 1; grid-row: auto; }
   .showroom-footer--composed .showroom-footer-signin { grid-column: 2; grid-row: auto; align-self: end; }
