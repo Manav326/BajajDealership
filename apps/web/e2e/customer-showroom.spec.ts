@@ -144,6 +144,9 @@ async function mockShowroomApi(
       }
       return json(journey.requests);
     }
+    if (url.pathname === '/api/v1/customer/addresses' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/purchase-history/motorcycles' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/profile/photo' && method === 'GET') return route.fulfill({ status: 404, body: 'No profile photo' });
     if (url.pathname === '/api/v1/customer/parts' && method === 'GET') return json([]);
     if (url.pathname === '/api/v1/customer/parts/orders' && method === 'GET') return json([]);
     if (url.pathname === '/api/v1/customer/parts/filters' && method === 'GET') {
@@ -218,6 +221,11 @@ type CustomerRetailE2EState = {
   quoteAcceptance: boolean | null;
   cancellationRequested: boolean;
   currentOrder: Record<string, unknown> | null;
+  profileSavePayload: Record<string, unknown> | null;
+  photoUploaded: boolean;
+  photoUploadContentType: string;
+  addressPayloads: Array<Record<string, unknown>>;
+  currentAddresses: Array<Record<string, unknown>>;
 };
 
 async function mockSignedInCustomerPortal(
@@ -229,7 +237,31 @@ async function mockSignedInCustomerPortal(
     quoteAcceptance: null,
     cancellationRequested: false,
     currentOrder: initialOrder ? { ...initialOrder } : null,
+    profileSavePayload: null,
+    photoUploaded: false,
+    photoUploadContentType: '',
+    addressPayloads: [],
+    currentAddresses: [],
   };
+  let currentProfile: Record<string, unknown> = {
+    publicId: 'customer-public-e2e-1',
+    customerCode: 'CUS-E2E-001',
+    fullName: 'Manav Test Customer',
+    phone: '9000000001',
+    alternatePhone: null,
+    email: null,
+    preferredLanguage: 'en',
+    profilePhotoAvailable: false,
+    dealershipCode: 'LBA',
+    dealershipName: 'Lucky Bajaj Agency',
+  };
+  const purchases = [{
+    publicId: 'sale-handover-e2e-1', invoiceNumber: 'SALE-E2E-001',
+    modelName: 'Pulsar NS200', variantName: 'Standard', colourName: 'Black', modelYear: 2026,
+    invoiceTotal: 145000, paidAmount: 145000, creditedAmount: 0, balanceDue: 0,
+    invoiceIssuedAt: '2026-09-15T10:00:00Z', deliveredAt: '2026-09-16T10:00:00Z',
+    deliveredToName: 'Manav Test Customer',
+  }];
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_customer_portal_token', 'synthetic-customer-token');
   });
@@ -243,18 +275,62 @@ async function mockSignedInCustomerPortal(
       body: JSON.stringify(payload),
     });
 
-    if (path === '/api/v1/customer/auth/me') {
-      return json({
-        publicId: 'customer-public-e2e-1',
-        customerCode: 'CUS-E2E-001',
-        fullName: 'Manav Test Customer',
-        phone: '9000000001',
-        email: null,
-        preferredLanguage: 'en',
-        dealershipCode: 'LBA',
-        dealershipName: 'Lucky Bajaj Agency',
+    if (path === '/api/v1/customer/auth/me') return json(currentProfile);
+    if (path === '/api/v1/customer/profile' && method === 'PUT') {
+      state.profileSavePayload = request.postDataJSON() as Record<string, unknown>;
+      currentProfile = { ...currentProfile, ...state.profileSavePayload };
+      return json(currentProfile);
+    }
+    if (path === '/api/v1/customer/profile/photo' && method === 'GET') {
+      if (!state.photoUploaded) return route.fulfill({ status: 404, body: 'No profile photo' });
+      return route.fulfill({
+        status: 200, contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64'),
       });
     }
+    if (path === '/api/v1/customer/profile/photo' && method === 'POST') {
+      state.photoUploaded = true;
+      state.photoUploadContentType = request.headers()['content-type'] ?? '';
+      currentProfile = { ...currentProfile, profilePhotoAvailable: true };
+      return json({ saved: true, contentType: 'image/png', sizeBytes: 68 });
+    }
+    if (path === '/api/v1/customer/profile/photo' && method === 'DELETE') {
+      state.photoUploaded = false;
+      currentProfile = { ...currentProfile, profilePhotoAvailable: false };
+      return json({ success: true, message: 'Profile photo removed.' });
+    }
+    if (path === '/api/v1/customer/addresses' && method === 'GET') return json(state.currentAddresses);
+    if (path === '/api/v1/customer/addresses' && method === 'POST') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      state.addressPayloads.push(payload);
+      const saved = {
+        publicId: `address-e2e-${state.addressPayloads.length}`, ...payload,
+        createdAt: '2026-10-29T08:00:00Z', updatedAt: '2026-10-29T08:00:00Z',
+      };
+      if (payload.isDefaultDelivery) state.currentAddresses = state.currentAddresses.map((address) => ({ ...address, isDefaultDelivery: false }));
+      if (state.currentAddresses.length === 0 && payload.isDefaultDelivery !== true) saved.isDefaultDelivery = true;
+      state.currentAddresses.push(saved);
+      return json(saved, 201);
+    }
+    if (/^\/api\/v1\/customer\/addresses\/[^/]+$/.test(path) && method === 'PUT') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      state.addressPayloads.push(payload);
+      state.currentAddresses = state.currentAddresses.map((address) => address.publicId === path.split('/').at(-1)
+        ? { ...address, ...payload, updatedAt: '2026-10-29T08:10:00Z' } : address);
+      if (payload.isDefaultDelivery) state.currentAddresses = state.currentAddresses.map((address) => ({
+        ...address, isDefaultDelivery: address.publicId === path.split('/').at(-1),
+      }));
+      return json(state.currentAddresses.find((address) => address.publicId === path.split('/').at(-1)));
+    }
+    if (/^\/api\/v1\/customer\/addresses\/[^/]+$/.test(path) && method === 'DELETE') {
+      const id = path.split('/').at(-1);
+      state.currentAddresses = state.currentAddresses.filter((address) => address.publicId !== id);
+      if (!state.currentAddresses.some((address) => address.isDefaultDelivery) && state.currentAddresses.length) {
+        state.currentAddresses[0] = { ...state.currentAddresses[0], isDefaultDelivery: true };
+      }
+      return json(state.currentAddresses);
+    }
+    if (path === '/api/v1/customer/purchase-history/motorcycles' && method === 'GET') return json(purchases);
     if (path === '/api/v1/customer/vehicles'
       || path === '/api/v1/customer/service-history'
       || path === '/api/v1/customer/appointments'
@@ -1022,4 +1098,75 @@ test('signed-in customer explores the shared Bajaj catalogue and sends an enquir
   });
   expect(typeof submittedPayload?.idempotencyKey).toBe('string');
   await expect(page.getByText('SR-PORTAL-0001')).toBeVisible();
+});
+
+
+test('customer profile entry point, private photo, saved addresses and purchase history stay connected', async ({ page }) => {
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture({ status: 'FULFILLED', paymentStatus: 'PAID_ON_DELIVERY' }));
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+
+  // The avatar/name control in the sticky portal header is a direct, discoverable entry point.
+  await page.getByRole('button', { name: 'Open My profile' }).click();
+  await expect(page.getByRole('heading', { name: 'My profile', exact: true })).toBeVisible();
+  await page.getByLabel('Full name *').fill('Manav Updated');
+  await page.getByLabel('Alternate number').fill('9000000011');
+  await page.getByLabel('Email address').fill('manav-updated@example.test');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toContainText('Profile saved.');
+  expect(state.profileSavePayload).toMatchObject({
+    fullName: 'Manav Updated',
+    alternatePhone: '9000000011',
+    email: 'manav-updated@example.test',
+  });
+  await expect(page.locator('.customer-profile-trigger-copy')).toContainText('Manav Updated');
+
+  const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64');
+  await page.locator('input[type="file"][accept="image/jpeg,image/png,image/webp"]').setInputFiles({
+    name: 'customer-profile.png', mimeType: 'image/png', buffer: photo,
+  });
+  await expect(page.locator('.profile-large-avatar img')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove photo' })).toBeVisible();
+  expect(state.photoUploadContentType).toContain('multipart/form-data');
+  expect(state.photoUploadContentType).not.toContain('application/json');
+
+  await page.getByRole('button', { name: /Add address/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Add a saved address' })).toBeVisible();
+  await page.getByLabel('Address label *').selectOption('HOME');
+  await page.getByLabel('Recipient name *').fill('Manav Updated');
+  await page.getByLabel('Contact mobile *').fill('9000000011');
+  await page.getByLabel('Address line 1 *').fill('12 Example Street');
+  await page.getByLabel('Address line 2').fill('Floor 2');
+  await page.getByLabel('Landmark').fill('Near the post office');
+  await page.getByLabel('Locality / area').fill('Station Road');
+  await page.getByLabel('City / town *').fill('Bettiah');
+  await page.getByLabel('District').fill('West Champaran');
+  await page.getByLabel('State *').fill('Bihar');
+  await page.getByLabel('PIN / postal code *').fill('845438');
+  await page.getByRole('checkbox', { name: 'Use as my default delivery address' }).check();
+  await page.getByRole('button', { name: 'Add address', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Address saved in your address book.');
+  await expect(page.locator('.profile-address-card')).toContainText('Default delivery');
+  expect(state.addressPayloads[0]).toMatchObject({
+    label: 'HOME', addressLine1: '12 Example Street', city: 'Bettiah',
+    state: 'Bihar', postalCode: '845438', isDefaultDelivery: true,
+  });
+
+  // Purchases are a different, direct tab; they are not lost when editable contact data changes.
+  await page.getByRole('button', { name: 'Purchases', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Purchase history', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Motorcycles purchased' })).toBeVisible();
+  await expect(page.getByText('SALE-E2E-001', { exact: false })).toBeVisible();
+  await expect(page.getByText('RPO-E2E-001', { exact: false })).toBeVisible();
+  await expect(page.getByText('Front brake pad', { exact: false })).toBeVisible();
+
+  // The saved default is preselected at checkout, but the customer may still type a one-off address.
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Add to cart' }).click();
+  await page.getByLabel('Fulfillment method').selectOption('DELIVERY');
+  await expect(page.getByLabel('Use a saved address')).toHaveValue('address-e2e-1');
+  await expect(page.getByLabel('Delivery address *')).toHaveValue(/12 Example Street/);
+  await page.getByRole('button', { name: 'Request delivery quote' }).click();
+  await expect(page.getByRole('status')).toContainText('Delivery request RPO-E2E-NEW saved.');
+  expect(String(state.checkoutPayload?.deliveryAddress)).toContain('12 Example Street');
 });
