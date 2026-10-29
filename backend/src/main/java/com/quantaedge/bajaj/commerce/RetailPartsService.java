@@ -111,6 +111,14 @@ public class RetailPartsService {
     return getRetailSetting(actor, partPublicId);
   }
 
+  /** Reload the saved retail listing inside the caller's dealership scope. */
+  private AdminPartView getRetailSetting(StaffPrincipal actor, UUID partPublicId) {
+    return listRetailSettings(actor).stream()
+        .filter(part -> part.publicId().equals(partPublicId))
+        .findFirst()
+        .orElseThrow(() -> notFound("Spare-part SKU was not found in this dealership."));
+  }
+
   public List<RetailPartView> listCustomerCatalogue(CustomerPrincipal actor) {
     return jdbc.query("""
         select part.public_id, part.sku_code, part.part_name,
