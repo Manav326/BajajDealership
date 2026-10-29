@@ -33,6 +33,10 @@ class BajajMotorcycleCatalogueControllerIntegrationTest {
 
   @BeforeEach
   void seedTestDealershipAndCatalogueLinkage() {
+    // Make public-dealership resolution deterministic for this synthetic test only.
+    // The enclosing test transaction rolls this change back after each test.
+    jdbc.update("update dealership set status = 'SUSPENDED' where status = 'ACTIVE'");
+
     String code = "CAT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
     Long dealershipId = jdbc.queryForObject(
         "insert into dealership(code, name) values (?, ?) returning id",
