@@ -581,7 +581,7 @@ test('staff can open a customer profile and view the saved delivery address and 
     }
     if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'GET') return json(customer);
     if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'PUT') {
-      savedCustomerUpdate = request.postDataJSON() as Record<string, unknown>;
+      savedCustomerUpdate = route.request().postDataJSON() as Record<string, unknown>;
       customer = { ...customer, ...savedCustomerUpdate, updatedAt: '2026-10-29T11:15:00Z' };
       customerNotes = typeof savedCustomerUpdate.notes === 'string' ? savedCustomerUpdate.notes : '';
       return json(customer);
