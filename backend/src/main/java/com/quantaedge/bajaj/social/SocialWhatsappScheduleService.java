@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -129,6 +130,7 @@ public class SocialWhatsappScheduleService {
     return ids.stream().map(id -> view(actor.dealershipId(), id)).toList();
   }
 
+  @Transactional
   public ScheduledMessageView cancel(StaffPrincipal actor, UUID publicId) {
     List<ScheduledRow> rows = jdbc.query("""
         select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,

@@ -18,6 +18,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -43,6 +46,7 @@ public class SocialMediaWorkflowService {
     this.publishing = publishing;
   }
 
+  @Transactional
   public PublishRequestView requestApproval(StaffPrincipal actor, PublishRequest request) {
     if (request == null || request.destinationPublicId() == null || request.assetId() == null) {
       throw badRequest("Choose an active destination and campaign artwork.");
@@ -65,20 +69,28 @@ public class SocialMediaWorkflowService {
     }
 
     UUID publicId = UUID.randomUUID();
-    Long id = jdbc.queryForObject("""
+    int inserted = jdbc.update("""
         insert into social_media_publish_request(
           public_id,dealership_id,destination_id,asset_id,created_by_staff_user_id,caption,
           idempotency_key,request_fingerprint,scheduled_at,status)
-        values (?,?,?,?,?,?,?,?,?,'PENDING_APPROVAL') returning id
-        """, Long.class, publicId, actor.dealershipId(), destination.id(), findAssetId(actor.dealershipId(), request.assetId()),
+        values (?,?,?,?,?,?,?,?,?,'PENDING_APPROVAL')
+        on conflict(dealership_id,idempotency_key) do nothing
+        """, publicId, actor.dealershipId(), destination.id(), findAssetId(actor.dealershipId(), request.assetId()),
         actor.staffUserId(), caption, key, fingerprint, timestamp(scheduledAt));
-    if (id == null) throw new IllegalStateException("Publish approval request could not be recorded.");
-    approvalEvent(actor.dealershipId(), id, actor.staffUserId(), "REQUESTED",
-        Map.of("destinationType", destination.type(), "scheduled", scheduledAt != null));
-    meta.audit(actor.dealershipId(), actor.staffUserId(), null, destination.id(),
-        "SOCIAL_PUBLISH_APPROVAL_REQUESTED",
-        Map.of("requestPublicId", publicId.toString(), "scheduled", scheduledAt != null));
-    return findView(actor.dealershipId(), publicId);
+    RequestRow created = findByKey(actor.dealershipId(), key);
+    if (created == null) throw new IllegalStateException("Publish approval request could not be recorded.");
+    if (!created.fingerprint().equals(fingerprint)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "This idempotency key was already used for different artwork, destination or schedule.");
+    }
+    if (inserted == 1) {
+      approvalEvent(actor.dealershipId(), created.id(), actor.staffUserId(), "REQUESTED",
+          Map.of("destinationType", destination.type(), "scheduled", scheduledAt != null));
+      meta.audit(actor.dealershipId(), actor.staffUserId(), null, destination.id(),
+          "SOCIAL_PUBLISH_APPROVAL_REQUESTED",
+          Map.of("requestPublicId", created.publicId().toString(), "scheduled", scheduledAt != null));
+    }
+    return findView(actor.dealershipId(), created.publicId());
   }
 
   public List<PublishRequestView> list(StaffPrincipal actor, int requestedLimit) {
@@ -98,6 +110,7 @@ public class SocialMediaWorkflowService {
         """, (rs, n) -> viewFromResult(rs), actor.dealershipId(), limit);
   }
 
+  @Transactional
   public PublishRequestView approve(StaffPrincipal actor, UUID publicId, DecisionRequest decision) {
     RequestRow row = load(actor.dealershipId(), publicId);
     if (!"PENDING_APPROVAL".equals(row.status())) throw conflict("Only requests awaiting approval can be approved.");
@@ -116,10 +129,15 @@ public class SocialMediaWorkflowService {
         Map.of("scheduled", scheduled, "note", optionalNote(decision)));
     meta.audit(actor.dealershipId(), actor.staffUserId(), null, row.destinationId(),
         "SOCIAL_PUBLISH_APPROVED", Map.of("requestPublicId", publicId.toString(), "scheduled", scheduled));
-    if (!scheduled) dispatch(publicId);
+    if (!scheduled) {
+      TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+        @Override public void afterCommit() { dispatch(publicId); }
+      });
+    }
     return findView(actor.dealershipId(), publicId);
   }
 
+  @Transactional
   public PublishRequestView reject(StaffPrincipal actor, UUID publicId, DecisionRequest decision) {
     RequestRow row = load(actor.dealershipId(), publicId);
     int updated = jdbc.update("""
@@ -134,6 +152,7 @@ public class SocialMediaWorkflowService {
     return findView(actor.dealershipId(), publicId);
   }
 
+  @Transactional
   public PublishRequestView cancel(StaffPrincipal actor, UUID publicId) {
     RequestRow row = load(actor.dealershipId(), publicId);
     int updated = jdbc.update("""
