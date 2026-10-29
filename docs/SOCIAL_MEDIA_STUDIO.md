@@ -27,7 +27,7 @@ The backend now has a disabled-by-default Meta OAuth connection foundation: a 10
 
 Publish through official Meta APIs only. First supported vertical slice should target Facebook Page posts and eligible Instagram professional-account feed publishing. Account linking must use an authenticated OAuth state/CSRF flow; the server stores encrypted credentials, maps provider account IDs to the authenticated dealership, and checks destination permissions. Access tokens never reach the browser or logs. Publishing results are only successful after provider confirmation and must persist the external post ID and status.
 
-Media delivery is a deployment concern: Meta must be able to fetch media from an accessible URL. The publishing path serves assets from the existing API through short-lived HMAC-signed URLs; the underlying objects can now be stored on local disk for development or in a private AWS S3-compatible bucket for multi-instance durability. Set `SOCIAL_MEDIA_STORAGE_BACKEND=s3`, the bucket and region, and either workload/IAM credentials or deployment-only access-key secrets. For non-AWS S3-compatible services, set `SOCIAL_MEDIA_S3_ENDPOINT` and verify path-style settings for that provider. Keep the bucket private; the API remains the signed access gate. Existing bare local-disk asset keys remain readable, but existing local objects must be migrated to shared storage before switching a deployment that already has assets.
+Media delivery is a deployment concern: Meta must be able to fetch media from an accessible URL. The publishing path serves assets from the existing API through short-lived HMAC-signed URLs. By default, image bytes are stored in the existing PostgreSQL database, so storage is shared across API instances and no separate paid object-storage service is required. This uses database capacity, so keep campaign images small and maintain normal database backup/retention. Filesystem mode remains for local development only because hosted free web-service filesystems can be ephemeral. Existing bare local-disk asset keys remain readable in filesystem mode.
 
 ### WhatsApp Business messaging
 
@@ -52,7 +52,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 ## Delivery phases
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
-- **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires durable object storage.
+- **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires a persistent existing PostgreSQL database for campaign-image bytes.
 - **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work for this single-dealership deployment is authorized-provider E2E testing, plus review of bulk/audience controls and an explicit preview/approval workflow if those features are approved for scope. Owner/Manager can configure or disconnect the Meta connection; staff assigned the `SOCIAL_MEDIA_COORDINATOR` role can publish and send approved WhatsApp templates but cannot change the connected Meta account.
 - **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
 
@@ -70,8 +70,8 @@ Keep provider secrets out of source control and browser responses. Production se
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
 - [x] Add Facebook Page photo posts and Instagram feed media-container publishing with expiring signed media URLs, idempotent jobs and status polling (live Meta E2E still pending).
 - [x] Add dealership-scoped Meta disconnect: attempt provider permission revocation, disable local destinations and clear locally stored token ciphertext; report when Meta does not confirm remote revocation.
-- [x] Add configurable filesystem/S3-compatible object storage behind the signed media route; preserve reading legacy local storage keys.
-- [ ] Provision production shared storage and validate put/read/delete, signed-URL fetching and multi-instance access with the selected provider.
+- [x] Add filesystem/database storage behind the signed media route; PostgreSQL is the default shared store and filesystem mode remains for local development.
+- [ ] Confirm the existing production PostgreSQL database is persistent and has sufficient capacity; validate image put/read/delete and signed-URL fetching.
 - [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [x] Keep one centrally configured WhatsApp Business connection for the Lucky Bajaj dealership; provider credentials remain backend-only.
