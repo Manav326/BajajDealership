@@ -20,8 +20,10 @@ public class SocialMetaPublishingService {
  private final JdbcTemplate jdbc;private final SocialMetaService meta;private final SocialMediaAssetService assets;
  public SocialMetaPublishingService(JdbcTemplate jdbc,SocialMetaService meta,SocialMediaAssetService assets){this.jdbc=jdbc;this.meta=meta;this.assets=assets;}
  public PublishView publish(StaffPrincipal actor,PublishRequest req){
-  if(!meta.isMetaConfigured())throw unavailable("Meta OAuth is not configured.");
-  if(!assets.isConfigured())throw unavailable("Public artwork hosting is not configured.");
+  List<String> missingMeta=meta.missingConnectionSettings();
+  if(!missingMeta.isEmpty())throw unavailable("Meta OAuth is not configured. Set or correct: "+String.join(", ",missingMeta)+".");
+  List<String> missingAssets=assets.missingConfigurationKeys();
+  if(!missingAssets.isEmpty())throw unavailable("Public artwork hosting is not configured. Set or correct: "+String.join(", ",missingAssets)+".");
   String caption=req.caption()==null?"":req.caption().trim(),key=req.idempotencyKey()==null?"":req.idempotencyKey().trim();
   if(key.length()<8||key.length()>120)throw badRequest("A valid idempotency key is required.");
   Destination d=findDestination(actor.dealershipId(),req.destinationPublicId());SocialMediaAssetService.PreparedAsset asset=assets.prepare(actor.dealershipId(),req.assetId());
