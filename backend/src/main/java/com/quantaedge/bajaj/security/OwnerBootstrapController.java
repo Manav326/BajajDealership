@@ -143,6 +143,12 @@ public class OwnerBootstrapController {
             select 1 from vehicle_model existing
             where existing.dealership_id = ? and existing.model_code = catalogue.model_code)
         """, dealershipId, dealershipId);
+    jdbc.update("""
+        insert into bajaj_catalogue_dealership_model(dealership_id, model_code, is_published)
+        select ?, c.model_code, true from bajaj_catalogue_model c
+        where c.active = true and c.manufacturer = 'BAJAJ'
+        on conflict (dealership_id, model_code) do nothing
+        """, dealershipId);
   }
 
   public record BootstrapRequest(
