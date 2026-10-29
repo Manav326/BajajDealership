@@ -31,7 +31,7 @@ Media delivery is a deployment concern: Meta may need to fetch media from an acc
 
 ### WhatsApp Business messaging
 
-The next slice adds dealership-scoped customer consent records, Meta-approved template discovery, sequential body-placeholder validation, optional image headers, idempotent single-recipient sends, signed delivery webhooks and inbound opt-out handling. Every send rechecks that the saved opt-in matches the customer's current E.164 phone. Dynamic text headers and button-bearing templates remain unavailable until their parameter workflows are implemented. Provider acceptance is distinct from sent/delivered/read/failed status. WhatsApp Status stays on manual export/share.
+The implementation now includes dealership-scoped customer consent records, Meta-approved template discovery, sequential body-placeholder validation, optional image headers, idempotent single-recipient sends, signed delivery webhooks and inbound opt-out handling. Each send rechecks that the saved opt-in matches the customer's current E.164 phone. Dynamic text headers and button-bearing templates are rejected until their parameter workflows are implemented. Provider acceptance is distinct from sent/delivered/read/failed status. WhatsApp Status stays on manual export/share. Live provider end-to-end validation still requires an authorized test WABA and a consented internal recipient.
 
 The initial deployment mapping binds one WhatsApp phone ID and WABA to one configured dealership code. Before supporting multiple independently configured dealerships in one API deployment, replace it with per-dealership encrypted WABA connections.
 
@@ -53,7 +53,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
 - **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires durable object storage.
-- **Phase 3 — WhatsApp:** Cloud API setup, approved templates, media support, consent/opt-out, message status webhooks and explicit channel approval.
+- **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work is authorized-provider E2E testing, multi-account WABA management, bulk/audience controls and an explicit preview/approval workflow.
 - **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
 
 ## Configuration and release gates
@@ -66,9 +66,10 @@ Keep provider secrets out of source control and browser responses. Production se
 - [x] Work branch created: feature/issue-9-social-media-studio.
 - [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
 - [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
-- [ ] Confirm web typecheck/build and full CI on the latest revision.
+- [ ] Confirm web typecheck/build and full CI on the current main-synced revision.
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
-- [ ] Implement and test Facebook Page / Instagram feed publishing, external media hosting, provider status reconciliation and destination disconnect.
-- [ ] Finish WhatsApp Cloud API implementation and validate with an authorized test WABA and consented internal recipient; no live message is sent by CI.
+- [x] Add Facebook Page photo posts and Instagram feed media-container publishing with expiring signed media URLs, idempotent jobs and status polling (live Meta E2E still pending).
+- [ ] Complete authorized-account E2E tests, destination disconnect/revocation and production durable object storage.
+- [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [ ] Expand the initial single-dealership environment mapping into per-dealership encrypted WABA connections before multi-account deployment.
 - [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.
