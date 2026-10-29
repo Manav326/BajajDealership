@@ -95,7 +95,7 @@ insert into bajaj_spare_part_catalogue(public_id, catalogue_code, part_name, cat
 select part.public_id, 'LEGACY-' || replace(part.public_id::text, '-', ''), part.part_name, 'OTHER', part.description, part.unit_of_measure, coalesce(part.fitment_model_codes, '[]'::jsonb), 'UNVERIFIED', false
 from spare_part part on conflict (public_id) do nothing;
 insert into retail_part_catalogue_listing(dealership_id, catalogue_product_id, retail_enabled, retail_price, retail_description, fitment_model_codes, retail_image_url, fitment_verified, updated_by_staff_user_id)
-select part.dealership_id, catalogue.id, part.retail_enabled, part.retail_price, part.retail_description, coalesce(part.fitment_model_codes, '[]'::jsonb), part.retail_image_url, false, part.retail_updated_by_staff_user_id
+select part.dealership_id, catalogue.id, part.retail_enabled, part.retail_price, part.retail_description, coalesce(part.fitment_model_codes, '[]'::jsonb), part.retail_image_url, part.retail_enabled, part.retail_updated_by_staff_user_id
 from spare_part part join bajaj_spare_part_catalogue catalogue on catalogue.public_id = part.public_id
 on conflict (dealership_id, catalogue_product_id) do nothing;
 insert into retail_part_catalogue_stock_map(dealership_id, catalogue_product_id, stock_part_id)
