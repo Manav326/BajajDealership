@@ -85,6 +85,20 @@ public class NotificationController {
     return notifications.send(principal, request.toServiceRequest());
   }
 
+  @GetMapping("/campaigns/{publicId}/preview")
+  @PreAuthorize("hasAuthority('notification.read')")
+  public NotificationManagementService.SavedCampaignPreview savedPreview(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    return notifications.savedPreview(principal, publicId);
+  }
+
+  @PostMapping("/campaigns/{publicId}/send-now")
+  @PreAuthorize("hasAuthority('notification.send')")
+  public NotificationManagementService.SendNowResult sendNow(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    return notifications.sendNow(principal, publicId);
+  }
+
   @PostMapping("/campaigns/{publicId}/approve")
   @PreAuthorize("hasAuthority('notification.approve')")
   public NotificationManagementService.CampaignView approve(
