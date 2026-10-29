@@ -143,6 +143,59 @@ class NotificationManagementServiceIntegrationTest {
   }
 
   @Test
+  void savedPreviewRendersExactPersistedCampaignAndAudienceSummary() {
+    StaffPrincipal owner = createOwner();
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Saved design", "The saved content must be inspectable",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            Map.of("version", 1, "blocks", List.of(
+                Map.of("type", "hero", "title", "Exact saved headline", "subtitle", "Saved subtitle"))),
+            null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        preview.campaignPublicId(), preview.previewToken(), "preview-" + UUID.randomUUID(),
+        java.time.Instant.now().plusSeconds(3600), null));
+
+    var saved = notifications.savedPreview(owner, preview.campaignPublicId());
+    assertThat(saved.campaign().status()).isEqualTo("SCHEDULED");
+    assertThat(saved.contentDocument().path("blocks").get(0).path("title").asText())
+        .isEqualTo("Exact saved headline");
+    assertThat(saved.previewedRecipientCount()).isEqualTo(1);
+    assertThat(saved.recipientCounts()).containsEntry("STAFF", 1);
+    assertThat(saved.approvedAt()).isNotNull();
+  }
+
+  @Test
+  void sendNowDispatchesScheduledCampaignOnceAndPreservesApprovedContent() {
+    StaffPrincipal owner = createOwner();
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Send now notice", "Scheduled content must dispatch once",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    var scheduled = notifications.send(owner, new NotificationManagementService.SendRequest(
+        preview.campaignPublicId(), preview.previewToken(), "scheduled-" + UUID.randomUUID(),
+        java.time.Instant.now().plusSeconds(3600), null));
+    assertThat(scheduled.campaign().status()).isEqualTo("SCHEDULED");
+
+    var sent = notifications.sendNow(owner, preview.campaignPublicId());
+    assertThat(sent.campaign().status()).isEqualTo("SENT");
+    assertThat(sent.alreadySent()).isFalse();
+
+    var replay = notifications.sendNow(owner, preview.campaignPublicId());
+    assertThat(replay.campaign().status()).isEqualTo("SENT");
+    assertThat(replay.alreadySent()).isTrue();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isEqualTo(1);
+    assertThat(notifications.savedPreview(owner, preview.campaignPublicId())
+        .contentDocument().path("blocks").get(0).path("title").asText()).isEqualTo("Service update");
+  }
+
+  @Test
   void marketingAudienceIncludesOnlyCustomersWithRecordedConsent() {
     StaffPrincipal owner = createOwner();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();

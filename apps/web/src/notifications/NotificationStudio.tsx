@@ -20,7 +20,16 @@ type Campaign = {
   id: number; publicId: string; scope: string; title: string; summary: string; status: string;
   resolvedRecipientCount: number; scheduledAt: string | null; expiresAt: string | null;
   createdAt: string; dispatchedAt: string | null; cancelledAt: string | null;
+  dispatchAttemptCount: number; lastDispatchAttemptAt: string | null;
+  nextDispatchAttemptAt: string | null; lastDispatchError: string | null;
 };
+type SavedCampaignPreview = {
+  campaign: Campaign; contentDocument: DocumentV1; audienceStage: string;
+  audienceResolvedAt: string | null; previewedRecipientCount: number;
+  recipientCounts: Record<string, number>; previewExpiresAt: string | null;
+  previewConsumedAt: string | null; approvedAt: string | null;
+};
+type SendNowResult = { campaign: Campaign; alreadySent: boolean };
 type Preview = {
   valid: boolean; campaignPublicId: string; previewToken: string; expiresAt: string; recipientCount: number;
   recipientCounts: Record<string, number>; recipients: Recipient[]; message: string;
@@ -161,6 +170,10 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [savedPreview, setSavedPreview] = useState<SavedCampaignPreview | null>(null);
+  const [savedPreviewLoading, setSavedPreviewLoading] = useState(false);
+  const [confirmSendNow, setConfirmSendNow] = useState(false);
+  const [sendingNowPublicId, setSendingNowPublicId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'editor' | 'campaigns'>(() => canCreate ? 'editor' : 'campaigns');
@@ -473,6 +486,44 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
   }, []);
 
+  async function previewSavedCampaign(publicId: string) {
+    setSavedPreviewLoading(true);
+    setSavedPreview(null);
+    setConfirmSendNow(false);
+    setError('');
+    try {
+      const result = await getJson<SavedCampaignPreview>(`/api/v1/admin/notifications/campaigns/${publicId}/preview`);
+      setSavedPreview(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The saved notification preview could not be loaded.');
+    } finally {
+      setSavedPreviewLoading(false);
+    }
+  }
+
+  async function sendScheduledNow() {
+    if (!savedPreview) return;
+    const campaign = savedPreview.campaign;
+    setSendingNowPublicId(campaign.publicId);
+    setError('');
+    setMessage('');
+    try {
+      const result = await sendJson<SendNowResult>(
+        `/api/v1/admin/notifications/campaigns/${campaign.publicId}/send-now`, 'POST', {});
+      setCampaigns((current) => current.map((item) =>
+        item.publicId === result.campaign.publicId ? result.campaign : item));
+      setSavedPreview((current) => current ? { ...current, campaign: result.campaign } : current);
+      setConfirmSendNow(false);
+      notifyUser(result.alreadySent ? 'This campaign was already sent; no duplicate was created.' : 'Scheduled notification sent to the in-app inbox.', 'success');
+      setMessage(result.alreadySent ? 'This notification was already sent.' : 'The scheduled notification was sent now.');
+      await refreshCampaigns();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The notification could not be sent now.');
+    } finally {
+      setSendingNowPublicId('');
+    }
+  }
+
   async function cancelCampaign(publicId: string) {
     setError('');
     try {
@@ -551,12 +602,42 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <article className="campaign-row" key={campaign.publicId}>
                   <div className="campaign-symbol">✳</div>
                   <div className="campaign-main"><strong>{campaign.title}</strong><p>{campaign.summary}</p><div className="campaign-meta"><span>{campaign.scope}</span><span>{campaign.resolvedRecipientCount} recipients</span><span>Created {humanDate(campaign.createdAt)}</span>{campaign.scheduledAt && <span>Scheduled {humanDate(campaign.scheduledAt)}</span>}</div></div>
-                  <div className="campaign-actions"><span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>{canApprove && ['PREVIEWED','APPROVED','SCHEDULED','QUEUED'].includes(campaign.status) && <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}</div>
+                  <div className="campaign-actions">
+                    <span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>
+                    <button type="button" className="text-button" onClick={() => void previewSavedCampaign(campaign.publicId)}>Preview exact content</button>
+                    {canSend && (campaign.status === 'SCHEDULED' || (campaign.status === 'FAILED' && !!campaign.lastDispatchError && !!campaign.scheduledAt)) &&
+                      <button type="button" className="text-button campaign-send-now" onClick={() => void previewSavedCampaign(campaign.publicId)}>
+                        {campaign.status === 'FAILED' ? 'Review retry' : 'Send now'} ↗
+                      </button>}
+                    {canApprove && ['PREVIEWED','APPROVED','SCHEDULED','QUEUED'].includes(campaign.status) &&
+                      <button type="button" className="text-button danger-link" onClick={() => void cancelCampaign(campaign.publicId)}>Cancel</button>}
+                  </div>
                 </article>
               ))}
             </div>
           )}
           <div className="studio-honesty-note"><strong>Delivery distinction:</strong> SENT means in-app inbox records were persisted. Android push, SMS, WhatsApp and email are not reported as sent until their providers are configured and confirm their own delivery states.</div>
+          {savedPreviewLoading && <div className="saved-campaign-overlay" role="dialog" aria-modal="true" aria-label="Loading saved notification preview"><div className="saved-campaign-dialog"><p>Loading the exact saved notification…</p></div></div>}
+          {savedPreview && <div className="saved-campaign-overlay" role="dialog" aria-modal="true" aria-labelledby="saved-campaign-title" onMouseDown={(event) => { if (event.target === event.currentTarget && !sendingNowPublicId) { setSavedPreview(null); setConfirmSendNow(false); } }}>
+            <section className="saved-campaign-dialog">
+              <header className="saved-campaign-header"><div><span className="saved-campaign-eyebrow">PERSISTED CAMPAIGN / {savedPreview.campaign.scope}</span><h2 id="saved-campaign-title">{savedPreview.campaign.title}</h2><p>{savedPreview.campaign.summary}</p></div><button type="button" className="saved-campaign-close" disabled={!!sendingNowPublicId} onClick={() => { setSavedPreview(null); setConfirmSendNow(false); }} aria-label="Close notification preview">×</button></header>
+              <div className="saved-campaign-meta">
+                <span className={`campaign-status status-${savedPreview.campaign.status.toLowerCase()}`}>{savedPreview.campaign.status.replaceAll('_', ' ')}</span>
+                <span>{savedPreview.previewedRecipientCount} recipients in saved snapshot</span>
+                {savedPreview.campaign.scheduledAt && <span>Scheduled: {humanDate(savedPreview.campaign.scheduledAt)}</span>}
+                {savedPreview.campaign.expiresAt && <span>Expires: {humanDate(savedPreview.campaign.expiresAt)}</span>}
+                {savedPreview.approvedAt && <span>Approved: {humanDate(savedPreview.approvedAt)}</span>}
+              </div>
+              <div className="saved-campaign-counts">{Object.entries(savedPreview.recipientCounts).map(([kind, count]) => <div key={kind}><small>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</small><strong>{count}</strong></div>)}</div>
+              <div className="saved-campaign-content-preview"><div className="saved-campaign-preview-label">EXACT SAVED CONTENT</div><RichNotificationRenderer document={savedPreview.contentDocument} surface="admin" mode="mobile" /></div>
+              {savedPreview.campaign.lastDispatchError && <div className="saved-campaign-error"><strong>Last dispatch issue</strong><span>{savedPreview.campaign.lastDispatchError}</span>{savedPreview.campaign.dispatchAttemptCount > 0 && <small>{savedPreview.campaign.dispatchAttemptCount} dispatch attempt(s)</small>}</div>}
+              {confirmSendNow ? <div className="saved-campaign-confirm" role="alertdialog" aria-label="Confirm send now"><strong>Send this exact approved notification now?</strong><p>The saved content above will be dispatched to the currently eligible recipients. This cannot be recalled once it appears in their inbox.</p><div><button type="button" className="text-button" disabled={!!sendingNowPublicId} onClick={() => setConfirmSendNow(false)}>Go back</button><button type="button" className="showroom-send-confirm" disabled={!!sendingNowPublicId} onClick={() => void sendScheduledNow()}>{sendingNowPublicId ? 'Sending…' : 'Confirm send now'}</button></div></div> : <footer className="saved-campaign-actions">
+                <button type="button" className="secondary-button" onClick={() => { setSavedPreview(null); setConfirmSendNow(false); }}>Close preview</button>
+                {canSend && (savedPreview.campaign.status === 'SCHEDULED' || (savedPreview.campaign.status === 'FAILED' && !!savedPreview.campaign.lastDispatchError && !!savedPreview.campaign.scheduledAt)) &&
+                  <button type="button" className="showroom-send-confirm" onClick={() => setConfirmSendNow(true)}>{savedPreview.campaign.status === 'FAILED' ? 'Retry failed dispatch' : 'Send now'} ↗</button>}
+              </footer>}
+            </section>
+          </div>}
         </div>
       ) : (
         <div className="studio-layout">
