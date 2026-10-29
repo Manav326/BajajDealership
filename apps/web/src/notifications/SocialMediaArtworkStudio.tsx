@@ -1264,21 +1264,16 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setError('This browser does not support video export. Try the latest Chrome, Edge or Safari.');
       return;
     }
-    const availableSeconds = Math.floor(track.durationSeconds - Math.min(musicClipStart, track.durationSeconds));
-    const duration = Math.min(MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration), availableSeconds);
-    if (duration < MUSIC_CLIP_MIN_SECONDS) {
-      setError('This track does not have a full 20-second selection from the chosen start. Move the start marker earlier.');
-      return;
-    }
 
     setVideoExporting(true);
     setError('');
     setNotice('Preparing a vertical Story video with your selected music. Keep this tab open until export finishes.');
     let audioContext: AudioContext | null = null;
+    let audioSource: AudioBufferSourceNode | null = null;
     let outputStream: MediaStream | null = null;
-    let renderAudio: HTMLAudioElement | null = null;
     let frameId = 0;
     let recorder: MediaRecorder | null = null;
+    let videoBlobPromise: Promise<Blob> | null = null;
 
     try {
       const outputCanvas = document.createElement('canvas');
@@ -1287,29 +1282,29 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       const outputContext = outputCanvas.getContext('2d');
       if (!outputContext) throw new Error('The Story video canvas could not be created.');
 
-      renderAudio = new Audio();
-      renderAudio.preload = 'auto';
-      await new Promise<void>((resolve, reject) => {
-        if (!renderAudio) return reject(new Error('The audio player could not be created.'));
-        renderAudio.onloadedmetadata = () => resolve();
-        renderAudio.onerror = () => reject(new Error('The stored music file could not be decoded for video export.'));
-        renderAudio.src = musicPreviewUrl;
-        renderAudio.load();
-      });
-      const selectionStart = Math.max(0, Math.min(musicClipStart, Math.max(0, track.durationSeconds - duration)));
-      renderAudio.currentTime = selectionStart;
-
+      // Resume the Web Audio context directly from the user's click before any file decode awaits.
       audioContext = new AudioContext();
-      const source = audioContext.createMediaElementSource(renderAudio);
+      await audioContext.resume();
+      const sourceBytes = await track.fileData.arrayBuffer();
+      const decodedAudio = await audioContext.decodeAudioData(sourceBytes);
+      const requestedDuration = Math.min(MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration));
+      const duration = Math.min(requestedDuration, Math.floor(decodedAudio.duration));
+      if (duration < MUSIC_CLIP_MIN_SECONDS) {
+        throw new Error('The audio file has less than 20 seconds of usable audio. Choose a longer track.');
+      }
+      const selectionStart = Math.max(0, Math.min(musicClipStart, Math.max(0, decodedAudio.duration - duration)));
+
       const gain = audioContext.createGain();
       const audioDestination = audioContext.createMediaStreamDestination();
+      audioSource = audioContext.createBufferSource();
+      audioSource.buffer = decodedAudio;
       const volume = Math.max(0, Math.min(1, musicVolume / 100));
-      const audioStartAt = audioContext.currentTime;
+      const audioStartAt = audioContext.currentTime + 0.12;
       gain.gain.setValueAtTime(0, audioStartAt);
       gain.gain.linearRampToValueAtTime(volume, audioStartAt + Math.min(0.6, duration / 4));
       gain.gain.setValueAtTime(volume, audioStartAt + Math.max(0.6, duration - 0.8));
       gain.gain.linearRampToValueAtTime(0, audioStartAt + duration);
-      source.connect(gain);
+      audioSource.connect(gain);
       gain.connect(audioDestination);
 
       const videoStream = outputCanvas.captureStream(30);
@@ -1326,10 +1321,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       ];
       const supportedMime = mimeCandidates.find((mime) => MediaRecorder.isTypeSupported(mime));
       recorder = supportedMime
-        ? new MediaRecorder(outputStream, { mimeType: supportedMime, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 })
+        ? new MediaRecorder(outputStream, { mimeType: supportedMime, videoBitsPerSecond: 2_500_000, audioBitsPerSecond: 128_000 })
         : new MediaRecorder(outputStream);
 
-      const videoBlobPromise = new Promise<Blob>((resolve, reject) => {
+      videoBlobPromise = new Promise<Blob>((resolve, reject) => {
         if (!recorder) return reject(new Error('The video recorder could not be created.'));
         const chunks: BlobPart[] = [];
         recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
@@ -1346,7 +1341,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         outputContext.scale(zoom, zoom);
         outputContext.drawImage(sourceCanvas, -540, -960, 1080, 1920);
         outputContext.restore();
-        // Gentle floating light flecks give the otherwise static campaign art a story-style motion layer.
+
+        // Gentle floating light flecks give the campaign image the motion feel of a social Story.
         for (let index = 0; index < 16; index += 1) {
           const phase = (elapsedSeconds * (18 + (index % 5) * 3) + index * 127) % 1920;
           const x = (index * 193 + Math.sin(elapsedSeconds * 0.55 + index) * 44 + 1080) % 1080;
@@ -1360,8 +1356,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       };
 
       recorder.start(250);
-      await audioContext.resume();
-      await renderAudio.play();
+      audioSource.start(audioStartAt, selectionStart, duration);
       const startTimestamp = performance.now();
       await new Promise<void>((resolve) => {
         const draw = (now: number) => {
@@ -1375,7 +1370,6 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         };
         frameId = window.requestAnimationFrame(draw);
       });
-      renderAudio.pause();
       if (recorder.state !== 'inactive') recorder.stop();
       const videoBlob = await videoBlobPromise;
       if (!videoBlob.size) throw new Error('Video export produced an empty file. Try again.');
@@ -1386,7 +1380,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       anchor.href = url;
       anchor.download = 'lucky-bajaj-story-' + duration + 's.' + extension;
       anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setNotice('Story video exported (' + duration + ' seconds, ' + extension.toUpperCase() + '). Add the downloaded video to WhatsApp Status, Facebook Story or Instagram Story/Reels; this export does not publish automatically.');
     } catch (cause) {
       if (recorder && recorder.state !== 'inactive') {
@@ -1395,13 +1389,13 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setError(cause instanceof Error ? cause.message : 'The Story video could not be exported.');
     } finally {
       if (frameId) window.cancelAnimationFrame(frameId);
-      renderAudio?.pause();
+      try { audioSource?.stop(); } catch { /* The scheduled source may have already ended. */ }
       outputStream?.getTracks().forEach((trackItem) => trackItem.stop());
       if (audioContext && audioContext.state !== 'closed') {
         try { await audioContext.close(); } catch { /* The browser may already have closed the audio context. */ }
       }
-      setVideoExporting(false);
     }
+    setVideoExporting(false);
   }
 
   return (
