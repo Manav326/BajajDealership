@@ -963,6 +963,16 @@ public class CustomerPortalService {
     return value.length() <= maximum ? value : value.substring(0, maximum);
   }
 
+  private static String optional(String value, int maximum) {
+    if (value == null) return null;
+    String cleaned = value.trim();
+    if (cleaned.isEmpty()) return null;
+    if (cleaned.length() > maximum || cleaned.chars().anyMatch(Character::isISOControl)) {
+      throw badRequest("Optional text is invalid.");
+    }
+    return cleaned;
+  }
+
   private static String required(String value, String label, int maximum) {
     if (value == null) throw badRequest(label + " is required.");
     String cleaned = value.trim();
