@@ -205,6 +205,11 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }, 0);
   }, [scope, marketingOnly, options, recipientTypes]);
 
+  // The picker must never offer recipients outside the active campaign audience.
+  const availableSearchKinds: Array<'CUSTOMER' | 'STAFF'> = scope === 'CUSTOMER'
+    ? ['CUSTOMER']
+    : scope === 'STAFF' ? ['STAFF'] : recipientTypes;
+
   function changeScope(next: 'CUSTOMER' | 'STAFF' | 'DEALERSHIP') {
     setScope(next);
     if (next === 'CUSTOMER') { setRecipientTypes(['CUSTOMER']); setMarketingOnly(false); setSearchKind('CUSTOMER'); }
@@ -225,6 +230,8 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     // Keep manual selections compatible with the groups still included in this campaign.
     setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
     setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
+    if (updated.length > 0 && !updated.includes(searchKind)) setSearchKind(updated[0]);
+    setRecipientResults([]);
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
     if (type === 'STAFF' && !recipientTypes.includes('CUSTOMER')) setMarketingOnly(false);
     setPreview(null);
@@ -660,7 +667,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
                 </div>
                 <form className="recipient-search-form" onSubmit={searchRecipients}>
-                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); setRecipientResults([]); }}><option value="CUSTOMER">Customers</option><option value="STAFF">Staff</option></select></div>
+                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); setRecipientResults([]); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
                   <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
                   <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search people'}</button>
                 </form>
