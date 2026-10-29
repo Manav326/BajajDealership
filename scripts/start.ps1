@@ -80,7 +80,8 @@ if ($generatedBootstrapToken) {
     $tokenLine = Get-Content $rootEnv |
         Where-Object { $_ -match '^\s*APP_BOOTSTRAP_TOKEN\s*=' } |
         Select-Object -First 1
-    $newTokenValue = ($tokenLine -split '=', 2)[1].Trim()
+    $tokenParts = $tokenLine -split '='
+    $newTokenValue = $tokenParts[1]
     Write-Host ''
     Write-Host 'One-time FIRST OWNER setup token (paste into the Owner setup screen at http://localhost:3001):' -ForegroundColor Yellow
     Write-Host $newTokenValue -ForegroundColor Yellow
