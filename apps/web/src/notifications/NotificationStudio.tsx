@@ -728,8 +728,8 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <span>{savedPreview.previewedRecipientCount} recipients in saved snapshot</span>
                 <span>{savedPreview.currentEligibleRecipientCount} currently eligible · checked {humanDate(savedPreview.eligibilityCheckedAt)}</span>
                 <span>Original audience stage: {savedPreview.audienceStage}</span>
-                {savedPreview.audienceResolvedAt && <span>Snapshot resolved: {humanDate(savedPreview.audienceResolvedAt)}</span>
-                {savedPreview.campaign.scheduledAt && <span>Scheduled: {humanDate(savedPreview.campaign.scheduledAt)}</span>
+                {savedPreview.audienceResolvedAt && <span>Snapshot resolved: {humanDate(savedPreview.audienceResolvedAt)}</span>}
+                {savedPreview.campaign.scheduledAt && <span>Scheduled: {humanDate(savedPreview.campaign.scheduledAt)}</span>}
                 {savedPreview.campaign.expiresAt && <span>Expires: {humanDate(savedPreview.campaign.expiresAt)}</span>}
                 {savedPreview.approvedAt && <span>Approved: {humanDate(savedPreview.approvedAt)}</span>}
               </div>
