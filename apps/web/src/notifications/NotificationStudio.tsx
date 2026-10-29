@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormE
 import { apiFetch } from './apiClient';
 import { notifyUser } from './GlobalNotificationHost';
 import LogoGraphicsLab, { type UploadedNotificationMedia } from './LogoGraphicsLab';
+import SocialMediaArtworkStudio from './SocialMediaArtworkStudio';
 import RichNotificationRenderer from './RichNotificationRenderer';
 import type { StaffSummary } from '../auth/StaffLogin';
 
@@ -154,6 +155,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [scheduleValue, setScheduleValue] = useState('');
   const [expiryValue, setExpiryValue] = useState('');
   const [showGraphics, setShowGraphics] = useState(false);
+  const [showSocialArtwork, setShowSocialArtwork] = useState(false);
   const [addBlockType, setAddBlockType] = useState('richText');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -527,6 +529,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         </div>
         <div className="studio-heading-actions">
           <span className="studio-security-note"><span /> In-app delivery · dealership scoped</span>
+          {staff.permissions.includes('social_media.read') && <button className="secondary-button" type="button" onClick={() => setShowSocialArtwork(true)}>Create social artwork</button>}
           <button className="secondary-button" type="button" onClick={() => void loadWorkspace()}>↻ Refresh</button>
         </div>
       </div>
@@ -686,6 +689,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       )}
 
       {showGraphics && <LogoGraphicsLab onUseAsset={addLogoAsset} onClose={() => setShowGraphics(false)} />}
+      {showSocialArtwork && <SocialMediaArtworkStudio onClose={() => setShowSocialArtwork(false)} canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} canReadWhatsapp={staff.permissions.includes('social_media.whatsapp.read')} canManageWhatsapp={staff.permissions.includes('social_media.whatsapp.manage')} canSendWhatsapp={staff.permissions.includes('social_media.whatsapp.send')} />}
     </section>
   );
 }

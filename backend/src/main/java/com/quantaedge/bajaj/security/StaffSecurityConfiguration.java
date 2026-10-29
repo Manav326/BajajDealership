@@ -70,6 +70,10 @@ public class StaffSecurityConfiguration {
             // The original request is still authorized normally before any error dispatch.
             .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/social/meta/callback").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/social/media/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/social/whatsapp/webhook").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/v1/social/whatsapp/webhook").permitAll()
             // Fallback for bootstrap if the dedicated chain is bypassed by a servlet-path customization.
             // Keep the scope to these two setup endpoints; all dealership business APIs stay authenticated.
             .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap").permitAll()
