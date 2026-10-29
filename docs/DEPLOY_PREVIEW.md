@@ -71,3 +71,24 @@ This Blueprint intentionally uses free-tier resources to provide a low-cost prev
 - Public website URLs do not make authenticated pages or private API records public; API permission and dealership-isolation checks still apply.
 
 References: [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render free-tier limitations](https://render.com/docs/free), and [Render static sites](https://render.com/docs/static-sites).
+
+## Read-only deployed-preview smoke check
+
+The current execution environment cannot resolve the three Render hostnames, so it cannot establish whether those services are healthy. Run this from a workstation or CI runner that can reach the preview:
+
+```bash
+node scripts/smoke-test-preview.mjs
+```
+
+It performs only GET requests and does not log in, mutate records, send notifications/social posts or move money. It checks API health, both static-site HTML shells, at least ten published Bajaj models, source/date consistency for displayed prices and promotions, Google sign-in configuration, exact CORS origins, and unauthenticated customer/staff-data denial. It exits non-zero for any failed check and prints missing configuration explicitly.
+
+Optional host overrides for an environment with different assigned URLs:
+
+```bash
+PREVIEW_API_URL=https://api.example.test \
+PREVIEW_CUSTOMER_URL=https://customer.example.test \
+PREVIEW_STAFF_URL=https://staff.example.test \
+node scripts/smoke-test-preview.mjs
+```
+
+A passing result is not production approval. Continue to keep real customer/financial data out of the free preview and inspect the target database's `flyway_schema_history` before applying the renamed showroom migration sequence.
