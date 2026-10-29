@@ -105,7 +105,9 @@ class NotificationControllerSecurityTest {
             .with(user("notification-creator")
                 .authorities(new SimpleGrantedAuthority("notification.create")))
             .contentType(MediaType.APPLICATION_JSON)
-            .content("""{"previewToken":"preview-token"}"""))
+            .content("""
+                {"previewToken":"preview-token"}
+                """))
         .andExpect(status().isForbidden());
 
     mvc.perform(post("/api/v1/admin/notifications/campaigns/{publicId}/cancel", campaignId)
@@ -122,7 +124,9 @@ class NotificationControllerSecurityTest {
             .with(user("notification-sender")
                 .authorities(new SimpleGrantedAuthority("notification.send")))
             .contentType(MediaType.APPLICATION_JSON)
-            .content("""{"previewToken":"preview-token"}"""))
+            .content("""
+                {"previewToken":"preview-token"}
+                """))
         .andExpect(status().isForbidden());
 
     mvc.perform(post("/api/v1/admin/notifications/campaigns/{publicId}/cancel", campaignId)
