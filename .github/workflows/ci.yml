@@ -292,3 +292,28 @@ jobs:
             ghcr.io/manav326/bajajdealership-staff-web:sha-${{ github.sha }}
           cache-from: type=gha,scope=bajaj-staff-web
           cache-to: type=gha,mode=max,scope=bajaj-staff-web
+
+      - name: Pull the published GHCR images back from the registry
+        run: docker compose -f compose.yaml pull api customer-web staff-web
+      - name: Smoke-test the pulled GHCR images without building
+        shell: bash
+        run: |
+          docker compose -f compose.yaml up --no-build -d || {
+            docker compose -f compose.yaml logs --tail=100
+            exit 1
+          }
+          for attempt in $(seq 1 120); do
+            if curl -fsS http://localhost:8080/actuator/health >/dev/null && \
+              curl -fsS http://localhost:3000/ >/dev/null && \
+              curl -fsS http://localhost:3001/ >/dev/null; then
+              echo 'Published GHCR images started successfully without a local build.'
+              docker compose -f compose.yaml ps
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f compose.yaml logs --tail=150
+          exit 1
+      - name: Clean up pulled-image smoke-test stack
+        if: always()
+        run: docker compose -f compose.yaml down --volumes --remove-orphans
