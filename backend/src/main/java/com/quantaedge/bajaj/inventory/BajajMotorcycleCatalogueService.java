@@ -17,6 +17,7 @@ public class BajajMotorcycleCatalogueService {
         c.displacement_cc, c.max_power_ps, c.max_torque_nm, c.ex_showroom_price,
         c.price_region, c.price_verified_on, c.official_source_url, c.image_url, c.image_source_url,
         c.terrain_note, c.feature_tags,
+        coalesce(uploaded.image_url, c.image_url) as effective_image_url,
         coalesce(stock.inventory_model_count, 0) as inventory_model_count,
         coalesce(stock.available_count, 0) as available_count,
         coalesce(stock.expected_count, 0) as expected_count
@@ -30,6 +31,13 @@ public class BajajMotorcycleCatalogueService {
           on vu.dealership_id = vm.dealership_id and vu.vehicle_model_id = vm.id
         where vm.dealership_id = ? and upper(vm.model_code) = c.model_code
       ) stock on true
+      left join lateral (
+        select concat('/api/v1/public/motorcycles/', c.model_code, '/images/', i.public_id,
+          '?dealershipCode=', coalesce(?, '')) as image_url
+        from bajaj_motorcycle_image i
+        where i.dealership_id = ? and i.model_code = c.model_code and i.is_primary = true
+        order by i.sort_order, i.id desc limit 1
+      ) uploaded on true
       where c.published = true
         and (? = '' or c.family = ?)
         and (? = '' or lower(c.display_name) like ? escape '!' or lower(c.short_description) like ? escape '!')
@@ -73,9 +81,9 @@ public class BajajMotorcycleCatalogueService {
           rs.getBigDecimal("displacement_cc"), rs.getBigDecimal("max_power_ps"),
           rs.getBigDecimal("max_torque_nm"), rs.getBigDecimal("ex_showroom_price"),
           rs.getString("price_region"), rs.getDate("price_verified_on").toLocalDate().toString(),
-          rs.getString("official_source_url"), rs.getString("image_url"), rs.getString("image_source_url"),
+          rs.getString("official_source_url"), rs.getString("effective_image_url"), rs.getString("image_source_url"),
           rs.getString("terrain_note"), features, available, expected, inventoryModels > 0, availability);
-    }, dealershipId, family, family, term, like, like);
+    }, dealershipId, dealer == null ? null : dealer.code(), dealershipId, family, family, term, like, like);
 
     return new CatalogueResponse(
         dealer == null ? null : dealer.code(),
