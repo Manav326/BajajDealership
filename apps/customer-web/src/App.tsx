@@ -32,8 +32,20 @@ type NotificationPage = {
   items: CustomerNotification[]; page: number; pageSize: number; total: number; unreadCount: number;
 };
 
+type CustomerSalesRequest = {
+  publicId: string; requestCode: string; requestType: 'TEST_RIDE' | 'PURCHASE';
+  modelCode: string; modelName: string; preferredAt: string | null; notes: string | null;
+  status: 'REQUESTED' | 'CONVERTED' | 'CANCELLED'; createdAt: string; updatedAt: string;
+  convertedEnquiryPublicId: string | null; customerPublicId: string; customerCode: string;
+  customerName: string; customerPhone: string | null; customerEmail: string | null;
+};
+
+type PendingShowroomIntent = {
+  action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
+};
+
 type AuthMode = 'login' | 'activate';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications';
+type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests';
 
 const SESSION_KEY = 'qe_customer_portal_token';
 
@@ -104,6 +116,7 @@ export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [history, setHistory] = useState<ServiceHistory[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [salesRequests, setSalesRequests] = useState<CustomerSalesRequest[]>([]);
   const [notificationPage, setNotificationPage] = useState<NotificationPage>({
     items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0,
   });
@@ -122,6 +135,7 @@ export default function App() {
     setVehicles([]);
     setHistory([]);
     setAppointments([]);
+    setSalesRequests([]);
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
   }, []);
@@ -130,17 +144,19 @@ export default function App() {
     setLoadingData(true);
     setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
         api<Appointment[]>('/api/v1/customer/appointments', sessionToken),
         api<NotificationPage>('/api/v1/customer/notifications?page=0&pageSize=50', sessionToken),
+        api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken),
       ]);
       setCustomer(profile);
       setVehicles(ownedVehicles);
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
+      setSalesRequests(customerRequests);
       setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
@@ -156,6 +172,51 @@ export default function App() {
       setLoadingData(false);
     }
   }, [clearSession]);
+
+  async function resumePendingShowroomIntent(sessionToken: string): Promise<boolean | null> {
+    const raw = window.sessionStorage.getItem('qe_bajaj_pending_intent');
+    if (!raw) return null;
+    let intent: PendingShowroomIntent;
+    try {
+      const parsed = JSON.parse(raw) as Partial<PendingShowroomIntent>;
+      if ((parsed.action !== 'TEST_RIDE' && parsed.action !== 'PURCHASE')
+        || typeof parsed.modelCode !== 'string' || typeof parsed.modelName !== 'string'
+        || typeof parsed.idempotencyKey !== 'string') {
+        throw new Error('The saved showroom selection is incomplete. Please select the Bajaj model again.');
+      }
+      intent = parsed as PendingShowroomIntent;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The saved showroom selection could not be read.');
+      setTab('requests');
+      return false;
+    }
+    try {
+      await api<CustomerSalesRequest>('/api/v1/customer/sales-requests', sessionToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestType: intent.action,
+          modelCode: intent.modelCode,
+          preferredAt: null,
+          notes: 'Request started from the public Bajaj showroom.',
+          idempotencyKey: intent.idempotencyKey,
+        }),
+      });
+      window.sessionStorage.removeItem('qe_bajaj_pending_intent');
+      const current = await api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken);
+      setSalesRequests(current);
+      setTab('requests');
+      setSuccess(intent.action === 'TEST_RIDE'
+        ? `Your test-ride request for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm the bike and time.`
+        : `Your purchase enquiry for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm availability and the next steps.`);
+      return true;
+    } catch (cause) {
+      setTab('requests');
+      setError(cause instanceof Error
+        ? `${cause.message} Your selected bike is saved; retry the request from this screen.`
+        : 'The request could not be submitted. Your selected bike remains saved.');
+      return false;
+    }
+  }
 
   useEffect(() => {
     if (!token) {
@@ -193,7 +254,8 @@ export default function App() {
       setToken(session.accessToken);
       setCustomer(session.customer);
       setLoginForm((current) => ({ ...current, password: '' }));
-      setSuccess('You are signed in securely.');
+      const resumed = await resumePendingShowroomIntent(session.accessToken);
+      if (resumed === null) setSuccess('You are signed in securely.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
     } finally { setSaving(false); }
@@ -219,10 +281,27 @@ export default function App() {
       setToken(session.accessToken);
       setCustomer(session.customer);
       setActivationForm({ activationToken: '', password: '', confirmPassword: '' });
-      setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
+      const resumed = await resumePendingShowroomIntent(session.accessToken);
+      if (resumed === null) setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
     } finally { setSaving(false); }
+  }
+
+  async function cancelCustomerSalesRequest(request: CustomerSalesRequest) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<CustomerSalesRequest>(`/api/v1/customer/sales-requests/${request.publicId}/cancel`, token, { method: 'POST' });
+      const refreshed = await api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', token);
+      setSalesRequests(refreshed);
+      setSuccess(`Request ${request.requestCode} was cancelled.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The request could not be cancelled.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function updateNotification(item: CustomerNotification, action: 'read' | 'unread' | 'dismiss') {
@@ -363,7 +442,8 @@ export default function App() {
         if (bike && action) {
           sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
             action, modelCode: bike.modelCode, modelName: bike.modelName,
-            inventoryModelPublicId: bike.inventoryModelPublicId, selectedAt: new Date().toISOString(),
+            selectedAt: new Date().toISOString(),
+            idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `qe-sales-${Date.now()}-${Math.random().toString(16).slice(2)}`,
           }));
           setSuccess(`${bike.modelName} selected. Sign in to continue your request.`);
         } else {
@@ -452,6 +532,7 @@ export default function App() {
             ['vehicles', 'My bikes', '♧'],
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
+            ['requests', 'Bike requests', '↗'],
             ['notifications', 'Updates', '✦'],
           ] as const).map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'portal-tab active' : 'portal-tab'} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span>{icon}</span>{label}{key === 'notifications' && notificationPage.unreadCount > 0 && <b className="notification-tab-badge">{notificationPage.unreadCount > 99 ? '99+' : notificationPage.unreadCount}</b>}</button>)}
         </nav>
@@ -480,6 +561,25 @@ export default function App() {
           {!loadingData && tab === 'service' && <>
             <div className="portal-section-heading"><div><h2>Service history</h2><p>Job-card status and recorded operational bill balances from your saved customer records.</p></div><span className="section-mark">{history.length} RECORDS</span></div>
             {history.length === 0 ? <div className="glass-panel inline-empty">Your recorded workshop history will appear here when a job card is linked to your customer profile.</div> : <div className="service-history-list">{history.map((job) => <article className="glass-panel service-history-card" key={job.jobCardPublicId}><div className="service-history-top"><div><span className="history-job-code">{job.jobCardCode}</span><h3>{job.modelName}{job.variantName ? ' · ' + job.variantName : ''}</h3><p>{job.customerConcern}</p></div><span className={`status-pill status-${job.status.toLowerCase()}`}>{pretty(job.status)}</span></div><div className="history-timeline"><div><small>Checked in</small><strong>{dateTime(job.checkedInAt)}</strong></div><div><small>Completed</small><strong>{dateTime(job.completedAt)}</strong></div><div><small>Vehicle handover</small><strong>{dateTime(job.deliveredAt)}</strong></div></div>{job.invoiceNumber ? <div className="service-invoice-summary"><div><small>Operational invoice</small><strong>{job.invoiceNumber}</strong><span>{job.invoiceNotice}</span></div><div><small>Invoice total</small><strong>{money(job.invoiceTotal)}</strong></div><div><small>Recorded paid</small><strong>{money(job.paidAmount)}</strong></div><div><small>Balance due</small><strong className={job.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(job.balanceDue)}</strong></div></div> : <div className="service-invoice-unavailable">No issued operational invoice is recorded for this job card.</div>}</article>)}</div>}
+          </>}
+          {!loadingData && tab === 'requests' && <>
+            <div className="portal-section-heading"><div><h2>My Bajaj requests</h2><p>Requests from the showroom stay connected to your account. A request is not yet a confirmed test-ride slot or vehicle booking.</p></div><span className="section-mark">{salesRequests.length} REQUESTS</span></div>
+            {salesRequests.length === 0
+              ? <div className="glass-panel inline-empty"><strong>No bike requests yet.</strong><span>Browse the Bajaj showroom to choose a motorcycle and start a test-ride or purchase enquiry.</span></div>
+              : <div className="appointment-list">{salesRequests.map((request) => <article className="glass-panel customer-appointment-card" key={request.publicId}>
+                  <div className="appointment-date-card"><strong>{request.requestCode.slice(-4)}</strong><span>{request.requestType === 'TEST_RIDE' ? 'RIDE' : 'BUY'}</span></div>
+                  <div className="customer-appointment-copy">
+                    <div className="customer-appointment-top"><strong>{request.requestCode}</strong><span className={`status-pill status-${request.status.toLowerCase()}`}>{pretty(request.status)}</span></div>
+                    <h4>{request.modelName}</h4>
+                    <span>{request.requestType === 'TEST_RIDE' ? 'Test-ride request' : 'Purchase enquiry'} · {dateTime(request.createdAt)}</span>
+                    {request.preferredAt && <p>Preferred time: {dateTime(request.preferredAt)}</p>}
+                    <p>{request.status === 'CONVERTED'
+                      ? 'The dealership has added this request to its sales pipeline. The team will confirm availability and the next step.'
+                      : request.status === 'CANCELLED' ? 'You cancelled this request.'
+                      : 'Received by the dealership. The team will check availability and contact you to confirm the next step.'}</p>
+                    {request.status === 'REQUESTED' && <button type="button" className="text-link danger-link" onClick={() => void cancelCustomerSalesRequest(request)} disabled={saving}>Cancel request</button>}
+                  </div>
+                </article>)}</div>}
           </>}
           {!loadingData && tab === 'notifications' && <>
             <div className="portal-section-heading"><div><h2>Updates from Lucky Bajaj</h2><p>Service messages and dealership updates delivered through the QuantaEdge Notification Studio.</p></div><span className="section-mark">{notificationPage.unreadCount} UNREAD</span></div>
