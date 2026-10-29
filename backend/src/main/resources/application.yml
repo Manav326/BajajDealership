@@ -48,5 +48,27 @@ app:
   notifications:
     dispatch-interval-ms: ${NOTIFICATION_DISPATCH_INTERVAL_MS:15000}
     media-root: ${APP_NOTIFICATION_MEDIA_DIR:./var/private-notification-media}
+  social:
+    media:
+      storage-backend: ${SOCIAL_MEDIA_STORAGE_BACKEND:database}
+      public-base-url: ${SOCIAL_MEDIA_PUBLIC_BASE_URL:}
+      media-root: ${SOCIAL_MEDIA_MEDIA_DIR:./var/social-media-assets}
+      asset-signing-key-base64: ${SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64:}
+    meta:
+      publish-poll-interval-ms: ${SOCIAL_MEDIA_PUBLISH_POLL_INTERVAL_MS:15000}
+      enabled: ${SOCIAL_META_ENABLED:false}
+      app-id: ${SOCIAL_META_APP_ID:}
+      app-secret: ${SOCIAL_META_APP_SECRET:}
+      graph-api-version: ${SOCIAL_META_GRAPH_API_VERSION:}
+      redirect-uri: ${SOCIAL_META_REDIRECT_URI:}
+      completion-url: ${SOCIAL_META_COMPLETION_URL:}
+      token-encryption-key-base64: ${SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64:}
+    whatsapp:
+      enabled: ${SOCIAL_WHATSAPP_ENABLED:false}
+      phone-number-id: ${SOCIAL_WHATSAPP_PHONE_NUMBER_ID:}
+      business-account-id: ${SOCIAL_WHATSAPP_BUSINESS_ACCOUNT_ID:}
+      access-token: ${SOCIAL_WHATSAPP_ACCESS_TOKEN:}
+      verify-token: ${SOCIAL_WHATSAPP_VERIFY_TOKEN:}
+      dealership-code: ${SOCIAL_WHATSAPP_DEALERSHIP_CODE:}
   bootstrap:
     token: ${APP_BOOTSTRAP_TOKEN:}
