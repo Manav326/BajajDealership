@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { apiFetch } from './apiClient';
 import { notifyUser } from './GlobalNotificationHost';
 import LogoGraphicsLab, { type UploadedNotificationMedia } from './LogoGraphicsLab';
@@ -160,6 +160,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [addBlockType, setAddBlockType] = useState('richText');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const recipientSearchSequence = useRef(0);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
@@ -198,8 +199,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       return marketingOnly ? (options?.marketingConsentCustomerCount ?? 0) : (options?.activeCustomerCount ?? 0);
     }
     if (scope === 'STAFF') return options?.activeStaffCount ?? 0;
-    const selectedTypes = recipientTypes.length ? recipientTypes : ['CUSTOMER', 'STAFF'];
-    return selectedTypes.reduce((sum, type) => {
+    return recipientTypes.reduce((sum, type) => {
       if (type === 'STAFF') return sum + (options?.activeStaffCount ?? 0);
       return sum + (marketingOnly ? (options?.marketingConsentCustomerCount ?? 0) : (options?.activeCustomerCount ?? 0));
     }, 0);
@@ -210,19 +210,27 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     ? ['CUSTOMER']
     : scope === 'STAFF' ? ['STAFF'] : recipientTypes;
 
+  function invalidateRecipientSearch() {
+    // Ignore any late response from a search that no longer matches the active audience.
+    recipientSearchSequence.current += 1;
+    setRecipientResults([]);
+    setSearching(false);
+  }
+
   function changeScope(next: 'CUSTOMER' | 'STAFF' | 'DEALERSHIP') {
     setScope(next);
+    invalidateRecipientSearch();
     if (next === 'CUSTOMER') { setRecipientTypes(['CUSTOMER']); setMarketingOnly(false); setSearchKind('CUSTOMER'); }
     else if (next === 'STAFF') { setRecipientTypes(['STAFF']); setMarketingOnly(false); setSearchKind('STAFF'); }
     else setRecipientTypes(['CUSTOMER', 'STAFF']);
     setSelectionMode('ALL');
     setSelectedRecipients([]);
     setExcludedRecipients([]);
-    setRecipientResults([]);
     setPreview(null);
   }
 
   function toggleType(type: 'CUSTOMER' | 'STAFF') {
+    if (marketingOnly) return;
     const updated = recipientTypes.includes(type)
       ? recipientTypes.filter((value) => value !== type)
       : [...recipientTypes, type];
@@ -231,7 +239,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
     setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
     if (updated.length > 0 && !updated.includes(searchKind)) setSearchKind(updated[0]);
-    setRecipientResults([]);
+    invalidateRecipientSearch();
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
     if (type === 'STAFF' && !recipientTypes.includes('CUSTOMER')) setMarketingOnly(false);
     setPreview(null);
@@ -284,17 +292,23 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
 
   async function searchRecipients(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const requestId = ++recipientSearchSequence.current;
+    const requestedKind = searchKind;
+    const applyMarketingFilter = requestedKind === 'CUSTOMER' && scope !== 'STAFF' && marketingOnly;
     setSearching(true);
     setError('');
     try {
-      const params = new URLSearchParams({ kind: searchKind });
+      const params = new URLSearchParams({ kind: requestedKind });
       if (recipientQuery.trim()) params.set('query', recipientQuery.trim());
+      if (applyMarketingFilter) params.set('marketingOnly', 'true');
       const result = await getJson<{ recipients: Recipient[] }>(`/api/v1/admin/notifications/recipients?${params.toString()}`);
-      setRecipientResults(result.recipients ?? []);
+      if (requestId !== recipientSearchSequence.current) return;
+      setRecipientResults((result.recipients ?? []).filter((recipient) => recipient.recipientKind === requestedKind));
     } catch (cause) {
+      if (requestId !== recipientSearchSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Could not search eligible recipients.');
     } finally {
-      setSearching(false);
+      if (requestId === recipientSearchSequence.current) setSearching(false);
     }
   }
 
@@ -571,7 +585,10 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   }
 
   const audienceDescription = scope === 'CUSTOMER' ? 'Customers'
-    : scope === 'STAFF' ? 'Staff' : 'Customers and staff';
+    : scope === 'STAFF' ? 'Staff'
+      : recipientTypes.length === 2 ? 'Customers and staff'
+        : recipientTypes[0] === 'CUSTOMER' ? 'Customers'
+          : recipientTypes[0] === 'STAFF' ? 'Staff' : 'recipients';
 
   return (
     <section className="notification-studio">
@@ -647,10 +664,21 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 ] as const).map(([value, label, help]) => <button type="button" key={value} onClick={() => changeScope(value)} className={scope === value ? 'scope-choice active' : 'scope-choice'}><strong>{label}</strong><span>{help}</span></button>)}
               </div>
               {scope === 'DEALERSHIP' && <div className="recipient-type-choices">
-                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
-                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} onChange={() => toggleType('STAFF')} /> Staff</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} disabled={marketingOnly} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} disabled={marketingOnly} onChange={() => toggleType('STAFF')} /> Staff</label>
               </div>}
-              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} onChange={(event) => { setMarketingOnly(event.target.checked); setPreview(null); }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. The backend enforces consent filtering for this option.</p></label>}
+              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} onChange={(event) => {
+                const enabled = event.target.checked;
+                setMarketingOnly(enabled);
+                setSelectedRecipients([]);
+                setExcludedRecipients([]);
+                invalidateRecipientSearch();
+                if (enabled) {
+                  setSearchKind('CUSTOMER');
+                  if (scope === 'DEALERSHIP') setRecipientTypes(['CUSTOMER']);
+                }
+                setPreview(null);
+              }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. Enabling this filter resets recipient choices and limits the audience to consented customers.</p></label>}
               <div className="audience-mode">
                 <label>
                   <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); setPreview(null); }} />
@@ -667,7 +695,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
                 </div>
                 <form className="recipient-search-form" onSubmit={searchRecipients}>
-                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); setRecipientResults([]); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
+                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); invalidateRecipientSearch(); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
                   <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
                   <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search people'}</button>
                 </form>
