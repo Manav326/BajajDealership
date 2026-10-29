@@ -26,7 +26,9 @@ type Campaign = {
 type SavedCampaignPreview = {
   campaign: Campaign; contentDocument: DocumentV1; audienceStage: string;
   audienceResolvedAt: string | null; previewedRecipientCount: number;
-  recipientCounts: Record<string, number>; previewExpiresAt: string | null;
+  recipientCounts: Record<string, number>;
+  currentEligibleRecipientCount: number; currentEligibleRecipientCounts: Record<string, number>;
+  eligibilityCheckedAt: string; previewExpiresAt: string | null;
   previewConsumedAt: string | null; approvedAt: string | null;
 };
 type SendNowResult = { campaign: Campaign; alreadySent: boolean };
@@ -108,6 +110,19 @@ function humanDate(value: string | null) {
   return Number.isNaN(date.getTime())
     ? '—'
     : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+function dispatchTiming(campaign: Campaign): { label: string; when: string } | null {
+  if (campaign.status !== 'SCHEDULED') return null;
+  const scheduledFor = campaign.nextDispatchAttemptAt ?? campaign.scheduledAt;
+  if (!scheduledFor) return null;
+  const timestamp = Date.parse(scheduledFor);
+  const retry = Boolean(campaign.nextDispatchAttemptAt);
+  const overdue = Number.isFinite(timestamp) && timestamp <= Date.now();
+  return {
+    label: overdue ? (retry ? 'Retry overdue since' : 'Dispatch overdue since')
+      : (retry ? 'Retry scheduled for' : 'Dispatch due'),
+    when: humanDate(scheduledFor),
+  };
 }
 
 function fieldLabel(key: string) {
@@ -688,7 +703,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               {campaigns.map((campaign) => (
                 <article className="campaign-row" key={campaign.publicId}>
                   <div className="campaign-symbol">✳</div>
-                  <div className="campaign-main"><strong>{campaign.title}</strong><p>{campaign.summary}</p><div className="campaign-meta"><span>{campaign.scope}</span><span>{campaign.resolvedRecipientCount} recipients</span><span>Created {humanDate(campaign.createdAt)}</span>{campaign.scheduledAt && <span>Scheduled {humanDate(campaign.scheduledAt)}</span>}</div></div>
+                  <div className="campaign-main"><strong>{campaign.title}</strong><p>{campaign.summary}</p><div className="campaign-meta"><span>{campaign.scope}</span><span>{campaign.resolvedRecipientCount} recipients</span><span>Created {humanDate(campaign.createdAt)}</span>{campaign.scheduledAt && <span>Scheduled {humanDate(campaign.scheduledAt)}</span>}{dispatchTiming(campaign) && <span className="campaign-dispatch-timing">{dispatchTiming(campaign)!.label} {dispatchTiming(campaign)!.when}</span>}{campaign.dispatchAttemptCount > 0 && <span>{campaign.dispatchAttemptCount} dispatch attempt(s){campaign.lastDispatchAttemptAt ? ' · last ' + humanDate(campaign.lastDispatchAttemptAt) : ''}</span>}{campaign.status === 'FAILED' && campaign.lastDispatchError && <span className="campaign-dispatch-error">Failure recorded: {campaign.lastDispatchError}</span>}</div></div>
                   <div className="campaign-actions">
                     <span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>
                     <button type="button" className="text-button" onClick={() => void previewSavedCampaign(campaign.publicId)}>Preview exact content</button>
@@ -711,11 +726,17 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               <div className="saved-campaign-meta">
                 <span className={`campaign-status status-${savedPreview.campaign.status.toLowerCase()}`}>{savedPreview.campaign.status.replaceAll('_', ' ')}</span>
                 <span>{savedPreview.previewedRecipientCount} recipients in saved snapshot</span>
-                {savedPreview.campaign.scheduledAt && <span>Scheduled: {humanDate(savedPreview.campaign.scheduledAt)}</span>}
+                <span>{savedPreview.currentEligibleRecipientCount} currently eligible · checked {humanDate(savedPreview.eligibilityCheckedAt)}</span>
+                <span>Original audience stage: {savedPreview.audienceStage}</span>
+                {savedPreview.audienceResolvedAt && <span>Snapshot resolved: {humanDate(savedPreview.audienceResolvedAt)}</span>
+                {savedPreview.campaign.scheduledAt && <span>Scheduled: {humanDate(savedPreview.campaign.scheduledAt)}</span>
                 {savedPreview.campaign.expiresAt && <span>Expires: {humanDate(savedPreview.campaign.expiresAt)}</span>}
                 {savedPreview.approvedAt && <span>Approved: {humanDate(savedPreview.approvedAt)}</span>}
               </div>
+              <div className="saved-campaign-preview-label">ORIGINAL SAVED AUDIENCE</div>
               <div className="saved-campaign-counts">{Object.entries(savedPreview.recipientCounts).map(([kind, count]) => <div key={kind}><small>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</small><strong>{count}</strong></div>)}</div>
+              <div className="saved-campaign-preview-label">CURRENTLY ELIGIBLE AUDIENCE</div>
+              <div className="saved-campaign-counts saved-campaign-current-counts">{Object.entries(savedPreview.currentEligibleRecipientCounts).map(([kind, count]) => <div key={kind}><small>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</small><strong>{count}</strong></div>)}{savedPreview.currentEligibleRecipientCount === 0 && <div><small>Eligible now</small><strong>0</strong></div>}</div>
               <div className="saved-campaign-content-preview"><div className="saved-campaign-preview-label">EXACT SAVED CONTENT</div><RichNotificationRenderer document={savedPreview.contentDocument} surface="admin" mode="mobile" /></div>
               {savedPreview.campaign.lastDispatchError && <div className="saved-campaign-error"><strong>Last dispatch issue</strong><span>{savedPreview.campaign.lastDispatchError}</span>{savedPreview.campaign.dispatchAttemptCount > 0 && <small>{savedPreview.campaign.dispatchAttemptCount} dispatch attempt(s)</small>}</div>}
               {confirmSendNow ? <div className="saved-campaign-confirm" role="alertdialog" aria-label="Confirm send now"><strong>Send this exact approved notification now?</strong><p>The saved content above will be dispatched to the currently eligible recipients. This cannot be recalled once it appears in their inbox.</p><div><button type="button" className="text-button" disabled={!!sendingNowPublicId} onClick={() => setConfirmSendNow(false)}>Go back</button><button type="button" className="showroom-send-confirm" disabled={!!sendingNowPublicId} onClick={() => void sendScheduledNow()}>{sendingNowPublicId ? 'Sending…' : 'Confirm send now'}</button></div></div> : <footer className="saved-campaign-actions">

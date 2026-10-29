@@ -502,17 +502,41 @@ public class NotificationManagementService {
         if (RECIPIENT_KINDS.contains(kind)) recipientCounts.merge(kind, 1, Integer::sum);
       }
     }
+    String stage = snapshot.path("stage").asText("UNKNOWN");
     Instant resolvedAt = null;
     String resolvedAtText = snapshot.path("resolvedAt").asText("");
     if (!resolvedAtText.isBlank()) {
       try { resolvedAt = Instant.parse(resolvedAtText); }
       catch (java.time.format.DateTimeParseException ignored) { /* Older snapshots remain viewable. */ }
     }
+    ObjectNode filter = parseObject(campaign.audienceFilterJson());
+    List<RecipientCandidate> currentlyEligible = resolveCurrentSavedAudience(actor, campaign.scope(), filter);
+    Map<String, Integer> currentCounts = new LinkedHashMap<>();
+    for (RecipientCandidate recipient : currentlyEligible) {
+      currentCounts.merge(recipient.kind(), 1, Integer::sum);
+    }
+    Instant eligibilityCheckedAt = Instant.now();
     return new SavedCampaignPreview(
-        toView(campaign), readDocument(campaign.contentDocumentJson()),
-        snapshot.path("stage").asText("UNKNOWN"), resolvedAt,
-        snapshot.path("recipientCount").asInt(campaign.resolvedRecipientCount()),
-        Map.copyOf(recipientCounts), campaign.previewExpiresAt(), campaign.previewConsumedAt(), campaign.approvedAt());
+        toView(campaign), readDocument(campaign.contentDocumentJson()), stage, resolvedAt,
+        snapshot.path("recipientCount").asInt(campaign.resolvedRecipientCount()), Map.copyOf(recipientCounts),
+        currentlyEligible.size(), Map.copyOf(currentCounts), eligibilityCheckedAt,
+        campaign.previewExpiresAt(), campaign.previewConsumedAt(), campaign.approvedAt());
+  }
+
+  /**
+   * Re-resolve the saved audience against current active/consent records without exposing names.
+   * A previously selected recipient who is no longer eligible is counted as unavailable rather
+   * than making the historical preview unreadable; dispatch still performs its strict check.
+   */
+  private List<RecipientCandidate> resolveCurrentSavedAudience(
+      StaffPrincipal actor, String scope, ObjectNode savedFilter) {
+    boolean selectedOnly = "SELECTED".equals(savedFilter.path("selectionMode").asText("ALL"));
+    Set<String> selectedKeys = selectedRecipientKeys(savedFilter);
+    ObjectNode allEligibleFilter = savedFilter.deepCopy();
+    allEligibleFilter.put("selectionMode", "ALL");
+    List<RecipientCandidate> currentlyEligible = resolveAudience(actor, scope, allEligibleFilter);
+    if (selectedOnly) currentlyEligible.removeIf(candidate -> !selectedKeys.contains(candidate.key()));
+    return excludeRecipients(currentlyEligible, savedFilter);
   }
 
   @Transactional
@@ -1280,7 +1304,8 @@ public class NotificationManagementService {
   public record SavedCampaignPreview(
       CampaignView campaign, JsonNode contentDocument, String audienceStage, Instant audienceResolvedAt,
       int previewedRecipientCount, Map<String, Integer> recipientCounts,
-      Instant previewExpiresAt, Instant previewConsumedAt, Instant approvedAt) {}
+      int currentEligibleRecipientCount, Map<String, Integer> currentEligibleRecipientCounts,
+      Instant eligibilityCheckedAt, Instant previewExpiresAt, Instant previewConsumedAt, Instant approvedAt) {}
   public record CampaignView(
       long id, UUID publicId, String scope, String title, String summary, String status,
       int resolvedRecipientCount, Instant scheduledAt, Instant expiresAt, Instant createdAt,

@@ -2539,3 +2539,8 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   accent-color: #dcaa4f;
   flex: 0 0 auto;
 }
+
+/* Notification dispatch health is operational metadata, not a decorative status badge. */
+.campaign-meta .campaign-dispatch-timing { font-weight: 800; }
+.campaign-meta .campaign-dispatch-error { overflow-wrap: anywhere; }
+.saved-campaign-current-counts { margin-top: 8px; }

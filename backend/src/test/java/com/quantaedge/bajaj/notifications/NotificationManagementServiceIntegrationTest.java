@@ -424,6 +424,43 @@ class NotificationManagementServiceIntegrationTest {
 
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void savedPreviewComparesOriginalAudienceSnapshotWithCurrentEligibility() {
+    StaffPrincipal owner = createNotificationOperator();
+    String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    Long customerId = jdbc.queryForObject("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Eligibility Snapshot Customer', '9250000001', 'ACTIVE') returning id
+        """, Long.class, owner.dealershipId(), code);
+
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "CUSTOMER", "Saved audience comparison", "The original approval snapshot must stay inspectable",
+            Map.of("recipientTypes", List.of("CUSTOMER"), "marketingOnly", false,
+                "selectionMode", "SELECTED",
+                "selectedRecipients", List.of(Map.of("kind", "CUSTOMER", "id", customerId)),
+                "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        preview.campaignPublicId(), preview.previewToken(), "saved-eligibility-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+    jdbc.update("update customer set status = 'INACTIVE' where dealership_id = ? and id = ?",
+        owner.dealershipId(), customerId);
+
+    var saved = notifications.savedPreview(owner, preview.campaignPublicId());
+    assertThat(saved.campaign().status()).isEqualTo("SCHEDULED");
+    assertThat(saved.audienceStage()).isEqualTo("PREVIEW");
+    assertThat(saved.audienceResolvedAt()).isNotNull();
+    assertThat(saved.previewedRecipientCount()).isEqualTo(1);
+    assertThat(saved.recipientCounts()).containsEntry("CUSTOMER", 1);
+    assertThat(saved.currentEligibleRecipientCount()).isZero();
+    assertThat(saved.currentEligibleRecipientCounts()).isEmpty();
+    assertThat(saved.eligibilityCheckedAt()).isNotNull();
+    assertThat(saved.currentEligibleRecipientCount()).isNotEqualTo(saved.previewedRecipientCount());
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void automaticRetryStateBecomesTerminalAfterTheConfiguredAttemptLimit() {
     StaffPrincipal owner = createNotificationOperator();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();

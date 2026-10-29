@@ -59,11 +59,15 @@ function campaign(status: string) {
     summary: 'An update from your dealership',
     status,
     resolvedRecipientCount: 2,
-    scheduledAt: null,
+    scheduledAt: status === 'SCHEDULED' ? new Date(Date.now() - 60_000).toISOString() : null,
     expiresAt: previewExpiry,
     createdAt: '2026-01-01T00:00:00Z',
     dispatchedAt: null,
     cancelledAt: null,
+    dispatchAttemptCount: status === 'SCHEDULED' ? 1 : 0,
+    lastDispatchAttemptAt: status === 'SCHEDULED' ? new Date(Date.now() - 60_000).toISOString() : null,
+    nextDispatchAttemptAt: status === 'SCHEDULED' ? new Date(Date.now() - 60_000).toISOString() : null,
+    lastDispatchError: status === 'SCHEDULED' ? 'Dispatch error: ResponseStatusException' : null,
   };
 }
 
@@ -136,6 +140,23 @@ async function mockApi(page: Page) {
       });
     }
     if (path.endsWith('/admin/notifications/templates')) return json({ templates: [] });
+    if (/\/admin\/notifications\/campaigns\/[^/]+\/preview$/.test(path) && method === 'GET') {
+      const publicId = path.split('/').slice(-2, -1)[0];
+      return json({
+        campaign: { ...campaign('SCHEDULED'), publicId, title: 'Campaign history row 2' },
+        contentDocument: { version: 1, blocks: [{ type: 'hero', title: 'Exact saved headline', subtitle: 'Approved saved content' }] },
+        audienceStage: 'PREVIEW',
+        audienceResolvedAt: '2026-10-29T06:00:00Z',
+        previewedRecipientCount: 2,
+        recipientCounts: { CUSTOMER: 2 },
+        currentEligibleRecipientCount: 1,
+        currentEligibleRecipientCounts: { CUSTOMER: 1 },
+        eligibilityCheckedAt: new Date().toISOString(),
+        previewExpiresAt: previewExpiry,
+        previewConsumedAt: '2026-10-29T06:01:00Z',
+        approvedAt: '2026-10-29T06:01:00Z',
+      });
+    }
     if (path.endsWith('/admin/notifications/campaigns')) {
       const campaigns = Array.from({ length: 18 }, (_, index) => ({
         ...campaign(index % 2 === 0 ? 'SENT' : 'SCHEDULED'),
@@ -409,4 +430,25 @@ test('recipient/audience controls stay locked while a send request is processing
   } finally {
     releaseSend();
   }
+});
+
+test('campaign history exposes dispatch timing and compares saved audience with current eligibility', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openNotificationStudio(page);
+  await page.getByRole('button', { name: /Campaign history/ }).click();
+
+  const row = page.locator('.campaign-row').filter({ hasText: 'Campaign history row 2' });
+  await expect(row).toBeVisible();
+  await expect(row.getByText(/Retry overdue since/)).toBeVisible();
+  await expect(row.getByText(/1 dispatch attempt/)).toBeVisible();
+  await row.getByRole('button', { name: 'Preview exact content' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Campaign history row 2' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('EXACT SAVED CONTENT', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('ORIGINAL SAVED AUDIENCE', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('CURRENTLY ELIGIBLE AUDIENCE', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/1 currently eligible/)).toBeVisible();
+  await expect(dialog.getByText('Exact saved headline', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Snapshot resolved/)).toBeVisible();
 });
