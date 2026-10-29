@@ -16,6 +16,18 @@ type CatalogueModel = {
 type CatalogueDraft = {
   published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string; internalNote: string;
 };
+type LocationPriceProfile = {
+  publicId: string; modelCode: string; modelName: string; city: string; state: string;
+  effectiveFrom: string; effectiveTo: string | null; exShowroomPrice: number;
+  registrationFee: number; roadTaxPercent: number; insuranceFee: number; handlingFee: number;
+  otherCharges: number; otherChargesLabel: string | null; sourceUrl: string; priceNote: string | null;
+  updatedAt: string;
+};
+type LocationPriceDraft = {
+  modelCode: string; city: string; state: string; effectiveFrom: string; effectiveTo: string;
+  exShowroomPrice: string; registrationFee: string; roadTaxPercent: string; insuranceFee: string;
+  handlingFee: string; otherCharges: string; otherChargesLabel: string; sourceUrl: string; priceNote: string;
+};
 type VehicleUnit = {
   publicId: string; modelPublicId: string; modelCode: string; modelName: string;
   variantName: string | null; colourName: string | null; chassisNumber: string;
@@ -28,6 +40,14 @@ type UnitForm = { modelPublicId: string; chassisNumber: string; engineNumber: st
 
 const emptyModel: ModelForm = { modelCode: '', modelName: '', variantName: '', colourName: '', modelYear: '' };
 const emptyUnit: UnitForm = { modelPublicId: '', chassisNumber: '', engineNumber: '', supplierReference: '', purchaseCost: '' };
+const todayInIndia = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+const emptyPriceDraft: LocationPriceDraft = {
+  modelCode: '', city: '', state: '', effectiveFrom: todayInIndia(), effectiveTo: '',
+  exShowroomPrice: '', registrationFee: '0', roadTaxPercent: '0', insuranceFee: '0',
+  handlingFee: '0', otherCharges: '0', otherChargesLabel: '', sourceUrl: '', priceNote: '',
+};
 
 export default function VehicleInventoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canManage = staff.permissions.includes('vehicle.manage');
@@ -38,6 +58,9 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
   const [units, setUnits] = useState<VehicleUnit[]>([]);
   const [catalogueModels, setCatalogueModels] = useState<CatalogueModel[]>([]);
   const [catalogueDrafts, setCatalogueDrafts] = useState<Record<string, CatalogueDraft>>({});
+  const [priceProfiles, setPriceProfiles] = useState<LocationPriceProfile[]>([]);
+  const [priceDraft, setPriceDraft] = useState<LocationPriceDraft>(emptyPriceDraft);
+  const [editingPriceProfileId, setEditingPriceProfileId] = useState<string | null>(null);
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModel);
   const [unitForm, setUnitForm] = useState<UnitForm>(emptyUnit);
   const [showModelForm, setShowModelForm] = useState(false);
@@ -57,11 +80,14 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     try {
       const modelParams = new URLSearchParams({ page: '0', pageSize: '100' });
       if (searchValue) modelParams.set('q', searchValue);
-      const [modelPage, unitPage, catalogueResult] = await Promise.all([
+      const [modelPage, unitPage, catalogueResult, pricingResult] = await Promise.all([
         apiFetch<Page<VehicleModel>>(`/api/v1/admin/vehicle-models?${modelParams.toString()}`, token),
         apiFetch<Page<VehicleUnit>>('/api/v1/admin/vehicle-units?page=0&pageSize=100', token),
         canReadCatalogue
           ? apiFetch<{ models: CatalogueModel[] }>('/api/v1/admin/catalogue/models', token)
+          : Promise.resolve(null),
+        canReadCatalogue
+          ? apiFetch<{ profiles: LocationPriceProfile[] }>('/api/v1/admin/catalogue/pricing-profiles', token)
           : Promise.resolve(null),
       ]);
       setModels(modelPage.items);
@@ -73,6 +99,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
           expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
         }])));
       }
+      if (pricingResult) setPriceProfiles(pricingResult.profiles ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load vehicle inventory.');
     } finally {
@@ -186,6 +213,60 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     }
   }
 
+  async function savePriceProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageCatalogue) return;
+    setSaving(true); setError(''); setSuccess('');
+    const payload = {
+      modelCode: priceDraft.modelCode,
+      city: priceDraft.city.trim(),
+      state: priceDraft.state.trim(),
+      effectiveFrom: priceDraft.effectiveFrom,
+      effectiveTo: priceDraft.effectiveTo || null,
+      exShowroomPrice: Number(priceDraft.exShowroomPrice),
+      registrationFee: Number(priceDraft.registrationFee),
+      roadTaxPercent: Number(priceDraft.roadTaxPercent),
+      insuranceFee: Number(priceDraft.insuranceFee),
+      handlingFee: Number(priceDraft.handlingFee),
+      otherCharges: Number(priceDraft.otherCharges),
+      otherChargesLabel: priceDraft.otherChargesLabel.trim() || null,
+      sourceUrl: priceDraft.sourceUrl.trim(),
+      priceNote: priceDraft.priceNote.trim() || null,
+    };
+    try {
+      const saved = await apiFetch<LocationPriceProfile>(
+        editingPriceProfileId
+          ? `/api/v1/admin/catalogue/pricing-profiles/${editingPriceProfileId}`
+          : '/api/v1/admin/catalogue/pricing-profiles',
+        token,
+        { method: editingPriceProfileId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      );
+      setSuccess(`Saved sourced estimate inputs for ${saved.modelName} — ${saved.city}, ${saved.state}.`);
+      setPriceDraft(emptyPriceDraft);
+      setEditingPriceProfileId(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save location pricing inputs.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editPriceProfile(profile: LocationPriceProfile) {
+    setEditingPriceProfileId(profile.publicId);
+    setPriceDraft({
+      modelCode: profile.modelCode, city: profile.city, state: profile.state,
+      effectiveFrom: profile.effectiveFrom, effectiveTo: profile.effectiveTo ?? '',
+      exShowroomPrice: String(profile.exShowroomPrice), registrationFee: String(profile.registrationFee),
+      roadTaxPercent: String(profile.roadTaxPercent), insuranceFee: String(profile.insuranceFee),
+      handlingFee: String(profile.handlingFee), otherCharges: String(profile.otherCharges),
+      otherChargesLabel: profile.otherChargesLabel ?? '', sourceUrl: profile.sourceUrl,
+      priceNote: profile.priceNote ?? '',
+    });
+    setError('');
+    setSuccess('');
+  }
+
   function searchModels(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = modelSearch.trim();
@@ -275,6 +356,58 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
         </div>
         <div className="inventory-footnote"><span className="status-dot" /> Stock totals are from saved vehicle-unit records. Reservation and sale transitions are enabled only through the corresponding verified sales workflow.</div>
       </div>
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">SOURCED PRICE CONTROL</div><h2>Location on-road estimate profiles</h2>
+            <p>Configure verified model-specific prices and fee inputs. No profile means the customer sees no calculated on-road amount; overlapping effective dates are rejected.</p></div>
+          <span className="inventory-count-pill">{priceProfiles.length} profiles</span>
+        </div>
+        {canManageCatalogue ? <form className="customer-form-card location-price-form" onSubmit={(event) => void savePriceProfile(event)}>
+          <div className="form-card-heading"><div><h2>{editingPriceProfileId ? 'Edit pricing profile' : 'Add effective-dated price profile'}</h2>
+            <p>Use sourced dealership/OEM/authority amounts for the selected city and state. Percent road tax is calculated against the local ex-showroom price you enter.</p></div><span className="form-step">PRICING INPUTS</span></div>
+          <div className="customer-form-grid">
+            <label>Bajaj model *<select required value={priceDraft.modelCode} onChange={(e) => setPriceDraft((v) => ({ ...v, modelCode: e.target.value }))}>
+              <option value="">Choose a catalogue model…</option>
+              {catalogueModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName} · {model.modelCode}</option>)}
+            </select></label>
+            <label>City *<input required maxLength={80} value={priceDraft.city} onChange={(e) => setPriceDraft((v) => ({ ...v, city: e.target.value }))} placeholder="e.g. Bettiah" /></label>
+            <label>State *<input required maxLength={80} value={priceDraft.state} onChange={(e) => setPriceDraft((v) => ({ ...v, state: e.target.value }))} placeholder="e.g. Bihar" /></label>
+            <label>Effective from *<input required type="date" value={priceDraft.effectiveFrom} onChange={(e) => setPriceDraft((v) => ({ ...v, effectiveFrom: e.target.value }))} /></label>
+            <label>Effective to<input type="date" min={priceDraft.effectiveFrom} value={priceDraft.effectiveTo} onChange={(e) => setPriceDraft((v) => ({ ...v, effectiveTo: e.target.value }))} /></label>
+            <label>Local ex-showroom (₹) *<input required type="number" min="0.01" step="0.01" value={priceDraft.exShowroomPrice} onChange={(e) => setPriceDraft((v) => ({ ...v, exShowroomPrice: e.target.value }))} /></label>
+            <label>Registration fee (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.registrationFee} onChange={(e) => setPriceDraft((v) => ({ ...v, registrationFee: e.target.value }))} /></label>
+            <label>Road tax (% of local ex-showroom) *<input required type="number" min="0" max="100" step="0.0001" value={priceDraft.roadTaxPercent} onChange={(e) => setPriceDraft((v) => ({ ...v, roadTaxPercent: e.target.value }))} /></label>
+            <label>Insurance estimate (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.insuranceFee} onChange={(e) => setPriceDraft((v) => ({ ...v, insuranceFee: e.target.value }))} /></label>
+            <label>Handling fee (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.handlingFee} onChange={(e) => setPriceDraft((v) => ({ ...v, handlingFee: e.target.value }))} /></label>
+            <label>Other charges (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.otherCharges} onChange={(e) => setPriceDraft((v) => ({ ...v, otherCharges: e.target.value }))} /></label>
+            <label>Other charges label<input maxLength={120} value={priceDraft.otherChargesLabel} onChange={(e) => setPriceDraft((v) => ({ ...v, otherChargesLabel: e.target.value }))} placeholder="Required when other charges > ₹0" /></label>
+            <label className="field-span-two">Source URL (HTTPS) *<input type="url" required maxLength={1000} value={priceDraft.sourceUrl} onChange={(e) => setPriceDraft((v) => ({ ...v, sourceUrl: e.target.value }))} placeholder="Authority / insurer / dealership source" /></label>
+            <label className="field-span-two">Pricing note<input maxLength={500} value={priceDraft.priceNote} onChange={(e) => setPriceDraft((v) => ({ ...v, priceNote: e.target.value }))} placeholder="Optional caveat or scope of estimate" /></label>
+          </div>
+          <div className="form-actions">
+            {editingPriceProfileId && <button type="button" className="secondary-button" onClick={() => { setEditingPriceProfileId(null); setPriceDraft(emptyPriceDraft); }}>Cancel edit</button>}
+            <button type="submit" className="primary-button" disabled={saving || catalogueModels.length === 0}>{saving ? 'Saving…' : editingPriceProfileId ? 'Save profile' : 'Add price profile'}</button>
+          </div>
+        </form> : <div className="inventory-footnote">Price profile creation and editing require catalogue management permission.</div>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Model / location</th><th>Effective dates</th><th>Local ex-showroom</th><th>Fee inputs</th><th>Source</th>{canManageCatalogue && <th>Action</th>}</tr></thead>
+            <tbody>
+              {priceProfiles.map((profile) => <tr key={profile.publicId}>
+                <td><div className="customer-name-cell"><span className="vehicle-model-mark">₹</span><div><strong>{profile.modelName}</strong><span>{profile.city}, {profile.state}</span><small className="vehicle-serial">{profile.modelCode}</small></div></div></td>
+                <td>{profile.effectiveFrom} – {profile.effectiveTo ?? 'No end date'}</td>
+                <td><strong>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(profile.exShowroomPrice)}</strong></td>
+                <td><div className="showroom-stock-facts"><span>Registration: ₹{profile.registrationFee}</span><span>Road tax: {profile.roadTaxPercent}%</span><span>Insurance: ₹{profile.insuranceFee}</span><span>Handling: ₹{profile.handlingFee}</span><span>{profile.otherChargesLabel || 'Other'}: ₹{profile.otherCharges}</span></div></td>
+                <td><a href={profile.sourceUrl} target="_blank" rel="noreferrer">Open source ↗</a><small className="vehicle-serial">{profile.priceNote || 'No note'}</small></td>
+                {canManageCatalogue && <td><button type="button" className="secondary-button showroom-save-row" disabled={saving} onClick={() => editPriceProfile(profile)}>Edit</button></td>}
+              </tr>)}
+              {priceProfiles.length === 0 && <tr><td colSpan={canManageCatalogue ? 6 : 5} className="table-empty">No location estimates are configured. Customers will be asked to request a dealer quote.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote"><span className="status-dot" /> Public estimates are calculated from these saved inputs only. The source and effective dates are retained; the final amount must be confirmed by Lucky Bajaj and is not a guaranteed offer.</div>
+      </section>}
+
       {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
         <div className="showroom-admin-heading">
           <div><div className="eyebrow">PUBLIC SHOWROOM CONTROL</div><h2>Bajaj catalogue visibility</h2>
