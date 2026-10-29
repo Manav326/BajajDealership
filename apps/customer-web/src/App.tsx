@@ -71,10 +71,21 @@ type RetailOrder = {
 type CartLine = { partPublicId: string; quantity: string };
 
 type AuthMode = 'login' | 'activate';
+type CustomerRoute = 'showroom' | 'signin' | 'signup' | 'portal';
 type LoginIdentifierMode = 'customerCode' | 'username';
 type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
 const SESSION_KEY = 'qe_customer_portal_token';
+
+function routeFromLocation(): CustomerRoute {
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (requestedView === 'signin') return 'signin';
+  if (requestedView === 'signup') return 'signup';
+  if (requestedView === 'portal') {
+    return window.sessionStorage.getItem(SESSION_KEY) ? 'portal' : 'signin';
+  }
+  return 'showroom';
+}
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 
@@ -132,9 +143,9 @@ function toLocalDateTime(value: Date) {
 export default function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(SESSION_KEY) ?? '');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [route, setRoute] = useState<CustomerRoute>(routeFromLocation);
+  const [authMode, setAuthMode] = useState<AuthMode>(() => new URLSearchParams(window.location.search).get('view') === 'signup' ? 'activate' : 'login');
   const [loginIdentifierMode, setLoginIdentifierMode] = useState<LoginIdentifierMode>('customerCode');
-  const [showStorefront, setShowStorefront] = useState(true);
   const [tab, setTab] = useState<PortalTab>('home');
   const [loadingSession, setLoadingSession] = useState(Boolean(window.sessionStorage.getItem(SESSION_KEY)));
   const [loadingData, setLoadingData] = useState(false);
@@ -164,6 +175,20 @@ export default function App() {
   });
   const [cancelReasons, setCancelReasons] = useState<Record<string, string>>({});
 
+  const navigateCustomerRoute = useCallback((nextRoute: CustomerRoute, replace = false) => {
+    const url = new URL(window.location.href);
+    if (nextRoute === 'showroom') url.searchParams.delete('view');
+    else url.searchParams.set('view', nextRoute);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      if (replace) window.history.replaceState(window.history.state, '', nextUrl);
+      else window.history.pushState(window.history.state, '', nextUrl);
+    }
+    setRoute(nextRoute);
+    setAuthMode(nextRoute === 'signup' ? 'activate' : 'login');
+  }, []);
+
   const clearSession = useCallback(() => {
     window.sessionStorage.removeItem(SESSION_KEY);
     setToken('');
@@ -179,7 +204,8 @@ export default function App() {
     setRetailDeliveryAddress('');
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
-  }, []);
+    navigateCustomerRoute('signin', true);
+  }, [navigateCustomerRoute]);
 
   const loadPortalData = useCallback(async (sessionToken: string) => {
     setLoadingData(true);
@@ -271,6 +297,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Keep a canonical, reload-safe URL for each public/auth/portal screen.
+    navigateCustomerRoute(routeFromLocation(), true);
+    const syncRouteFromHistory = () => navigateCustomerRoute(routeFromLocation(), true);
+    window.addEventListener('popstate', syncRouteFromHistory);
+    return () => window.removeEventListener('popstate', syncRouteFromHistory);
+  }, [navigateCustomerRoute]);
+
+  useEffect(() => {
     if (!token) {
       setLoadingSession(false);
       return;
@@ -280,6 +314,7 @@ export default function App() {
       .then((profile) => {
         if (!cancelled) {
           setCustomer(profile);
+          navigateCustomerRoute('portal', true);
           void loadPortalData(token);
         }
       })
@@ -288,7 +323,7 @@ export default function App() {
       })
       .finally(() => { if (!cancelled) setLoadingSession(false); });
     return () => { cancelled = true; };
-  }, [token, clearSession, loadPortalData]);
+  }, [token, clearSession, loadPortalData, navigateCustomerRoute]);
 
   const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
@@ -299,8 +334,9 @@ export default function App() {
     const resumed = await resumePendingShowroomIntent(session.accessToken);
     setCustomer(session.customer);
     setToken(session.accessToken);
+    navigateCustomerRoute('portal', true);
     if (resumed === null) setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
-  }, [resumePendingShowroomIntent]);
+  }, [resumePendingShowroomIntent, navigateCustomerRoute]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -323,6 +359,7 @@ export default function App() {
       const resumed = await resumePendingShowroomIntent(session.accessToken);
       setCustomer(session.customer);
       setToken(session.accessToken);
+      navigateCustomerRoute('portal', true);
       if (resumed === null) setSuccess('You are signed in securely.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
@@ -351,6 +388,7 @@ export default function App() {
       const resumed = await resumePendingShowroomIntent(session.accessToken);
       setCustomer(session.customer);
       setToken(session.accessToken);
+      navigateCustomerRoute('portal', true);
       if (resumed === null) setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
@@ -561,8 +599,11 @@ export default function App() {
     try {
       await api<{ success: boolean }>('/api/v1/customer/auth/logout', currentToken, { method: 'POST' });
     } catch {
+      navigateCustomerRoute('signin', true);
       setError('This browser session has been cleared. The server could not confirm session revocation; sign in again before continuing.');
+      return;
     }
+    navigateCustomerRoute('showroom', true);
   }
 
   async function submitAppointment(event: FormEvent<HTMLFormElement>) {
@@ -631,7 +672,7 @@ export default function App() {
   }
 
   if (!token || !customer) {
-    if (showStorefront && authMode === 'login') {
+    if (route === 'showroom') {
       return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => {
         if (bike && action) {
           sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
@@ -645,8 +686,7 @@ export default function App() {
           setSuccess('');
         }
         setError('');
-        setAuthMode('login');
-        setShowStorefront(false);
+        navigateCustomerRoute('signin');
       }} />;
     }
     return (
@@ -655,6 +695,11 @@ export default function App() {
         <header className="portal-brand">
           <div className="brand-mark">Q</div>
           <div><strong>Quanta<span>Edge</span></strong><small>LUCKY BAJAJ CUSTOMER CARE</small></div>
+          <button type="button" className="auth-return-link" onClick={() => {
+            setError('');
+            setSuccess('');
+            navigateCustomerRoute('showroom');
+          }}>← Showroom</button>
         </header>
         <section className="auth-layout">
           <div className="auth-story">
@@ -675,8 +720,8 @@ export default function App() {
             {error && <div className="portal-alert alert-error" role="alert">{error}</div>}
             {success && <div className="portal-alert alert-success" role="status">{success}</div>}
             <div className="auth-mode-tabs" role="tablist" aria-label="Customer portal authentication">
-              <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}>Sign in</button>
-              <button type="button" role="tab" aria-selected={authMode === 'activate'} className={authMode === 'activate' ? 'active' : ''} onClick={() => { setAuthMode('activate'); setError(''); setSuccess(''); }}>Activate account</button>
+              <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('signin'); }}>Sign in</button>
+              <button type="button" role="tab" aria-selected={authMode === 'activate'} className={authMode === 'activate' ? 'active' : ''} onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('signup'); }}>Activate account</button>
             </div>
             {authMode === 'login' ? <form className="portal-form" onSubmit={submitLogin}>
               <label>Dealership code<input autoComplete="organization" required maxLength={40} value={loginForm.dealershipCode} onChange={(event) => setLoginForm((current) => ({ ...current, dealershipCode: event.target.value }))} placeholder="Lucky Bajaj code" /></label>
@@ -705,7 +750,7 @@ export default function App() {
               <div className="google-auth-panel__heading"><span className="google-auth-panel__spark">G</span><div><strong>{authMode === 'login' ? 'A simpler way to sign in' : 'Create access with Google'}</strong><small>Verified by Google · protected by QuantaEdge</small></div></div>
               <GoogleSignInButton requestUrl={apiRequestUrl} dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={(session) => void acceptGoogleSession(session)} />
             </div>
-            <button type="button" className="showroom-back-link" onClick={() => { setShowStorefront(true); setAuthMode('login'); setError(''); setSuccess(''); }}>← Back to Bajaj showroom</button>
+            <button type="button" className="showroom-back-link" onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('showroom'); }}>← Back to Bajaj showroom</button>
             <div className="invite-note"><strong>Need portal access?</strong><span>Ask Lucky Bajaj Agency to verify your customer record and issue an invitation. No account is created from public phone/email matching alone.</span></div>
             <div className="portal-auth-footer">Protected by QuantaEdge <span>•</span> Lucky Bajaj Agency</div>
           </section>
