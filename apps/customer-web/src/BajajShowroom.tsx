@@ -73,6 +73,63 @@ function catalogueAssetUrl(path: string): string {
   if (!path || /^(?:data:|blob:|https?:\/\/)/i.test(path)) return path;
   return apiBaseUrl ? new URL(path, `${apiBaseUrl}/`).toString() : path;
 }
+
+/**
+ * Official Bajaj CDN cutouts for the hero orbit.
+ * These product assets are separate from the dealership catalogue's legacy photos.
+ * White studio pixels are blended into the illuminated stage; transparent pixels stay transparent.
+ */
+type OrbitalBikeAsset = {
+  key: string;
+  priority: number;
+  imageUrl: string;
+  matches: string[];
+};
+
+const BAJAJ_ORBITAL_ASSETS: OrbitalBikeAsset[] = [
+  {
+    key: 'pulsar-ns400z', priority: 0,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/home-page/product-carousel/featurebrands/pulsar-ns-400.webp',
+    matches: ['pulsarns400z', 'pulsarns400', 'ns400z', 'ns400'],
+  },
+  {
+    key: 'dominar-400', priority: 1,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/new-images/plp-pages/header-drop-down-mob/dominar-400.webp',
+    matches: ['dominar400'],
+  },
+  {
+    key: 'pulsar-ns200', priority: 2,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/ns200.webp',
+    matches: ['pulsarns200', 'ns200'],
+  },
+  {
+    key: 'pulsar-n250', priority: 3,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/pulsar-n250.webp',
+    matches: ['pulsarn250', 'n250'],
+  },
+  {
+    key: 'pulsar-n160', priority: 4,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/n160.webp',
+    matches: ['pulsarn160', 'n160'],
+  },
+  {
+    key: 'pulsar-rs200', priority: 5,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/pulsar-rs200.webp',
+    matches: ['pulsarrs200', 'rs200'],
+  },
+  {
+    key: 'avenger-220-cruise', priority: 6,
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/avenger-220-cruise.webp',
+    matches: ['avenger220cruise', 'avengercruise'],
+  },
+];
+
+function orbitalAssetFor(bike: ShowroomBike): OrbitalBikeAsset | null {
+  const identity = `${bike.modelCode} ${bike.modelName} ${bike.family}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return BAJAJ_ORBITAL_ASSETS.find((asset) => asset.matches.some((match) => identity.includes(match))) ?? null;
+}
 const money = (value: number | null | undefined) => value == null
   ? 'Ask for price'
   : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
@@ -340,19 +397,21 @@ export default function BajajShowroom({
     return matchesCategory && matchesQuery;
   }), [catalogue, category, query]);
 
-  // Keep the orbital stage small: only the first seven image-ready catalogue bikes
-  // are mounted in the hero, rather than rendering the full catalogue above the fold.
-  const heroBikes = useMemo(() => {
-    const available = (catalogue?.bikes ?? []).filter((bike) => Boolean(bike.heroImageUrl));
-    const preferred = available.find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z');
-    const ordered = preferred
-      ? [preferred, ...available.filter((bike) => bike.modelCode !== preferred.modelCode)]
-      : available;
-    return ordered.slice(0, 7);
-  }, [catalogue]);
+  // Use only known genuine Bajaj cutouts in the orbital hero; never fall back to the
+  // old scene/background catalogue photos. Order the range intentionally and mount at most seven.
+  const heroBikes = useMemo(() => (catalogue?.bikes ?? [])
+    .filter((bike) => Boolean(orbitalAssetFor(bike)))
+    .sort((a, b) => (orbitalAssetFor(a)?.priority ?? 99) - (orbitalAssetFor(b)?.priority ?? 99))
+    .slice(0, 7), [catalogue]);
   const heroSelectedIndex = Math.max(0, heroBikes.findIndex((bike) => bike.modelCode === heroSelectionCode));
-  const activeHeroBike = heroBikes[heroSelectedIndex] ?? (catalogue?.bikes ?? []).find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z')
-    ?? catalogue?.bikes?.[0];
+  const activeHeroBike = heroBikes[heroSelectedIndex];
+
+  useEffect(() => {
+    if (heroBikes.length && !heroBikes.some((bike) => bike.modelCode === heroSelectionCode)) {
+      setHeroSelectionCode(heroBikes[0].modelCode);
+    }
+  }, [heroBikes, heroSelectionCode]);
+
   const featured = activeHeroBike;
 
   // Low-frequency state updates only; CSS handles interpolation between positions.
@@ -506,14 +565,19 @@ export default function BajajShowroom({
           {heroBikes.map((bike, index) => {
             const angle = ((index - heroSelectedIndex) / Math.max(heroBikes.length, 1)) * Math.PI * 2;
             const depth = Math.cos(angle);
-            const x = Math.sin(angle) * 31;
-            const y = Math.sin(angle * 2) * 14;
-            const scale = 0.64 + ((depth + 1) / 2) * 0.36;
+            const x = Math.sin(angle) * 36;
+            // The back arc sits higher; the front arc is closer to the illuminated floor.
+            const y = (1 - depth) * -26;
+            const scale = 0.56 + ((depth + 1) / 2) * 0.44;
+            const yaw = Math.sin(angle) * 18;
+            const roll = Math.sin(angle) * -1.6;
             const style = {
               '--orbit-x': `${x}%`,
               '--orbit-y': `${y}px`,
-              '--orbit-depth': `${depth * 105}px`,
+              '--orbit-depth': `${depth * 135}px`,
               '--orbit-scale': scale,
+              '--orbit-yaw': `${yaw}deg`,
+              '--orbit-roll': `${roll}deg`,
               '--orbit-depth-order': Math.round((depth + 1) * 10),
             } as CSSProperties;
             const isActive = bike.modelCode === activeHeroBike?.modelCode;
@@ -526,8 +590,8 @@ export default function BajajShowroom({
               aria-pressed={isActive}
               onClick={() => setHeroSelectionCode(bike.modelCode)}
             >
-              <img src={catalogueAssetUrl(bike.heroImageUrl)} alt="" loading={isActive ? 'eager' : 'lazy'}
-                fetchPriority={isActive ? 'high' : 'auto'} decoding="async"
+              <img src={orbitalAssetFor(bike)!.imageUrl} alt="" loading={isActive ? 'eager' : 'lazy'}
+                fetchPriority={isActive ? 'high' : 'auto'} decoding="async" draggable={false}
                 onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />
               <span>{bike.modelName}</span>
             </button>;
