@@ -1,33 +1,36 @@
 #!/usr/bin/env node
 /**
- * Read-only smoke checks for the three public preview services.
+ * Read-only smoke checks for the local API, customer site and staff site.
  * No credentials, writes, notifications, posts, or payments are used.
  *
- * Optional overrides: PREVIEW_API_URL, PREVIEW_CUSTOMER_URL, PREVIEW_STAFF_URL,
- * PREVIEW_TIMEOUT_MS. Requires Node.js 20+ (built-in fetch).
+ * Optional overrides: LOCAL_API_URL, LOCAL_CUSTOMER_URL, LOCAL_STAFF_URL,
+ * LOCAL_SMOKE_TIMEOUT_MS. Requires Node.js 20+ (built-in fetch).
  */
 const DEFAULTS = {
-  api: "https://lucky-bajaj-api.onrender.com",
-  customer: "https://lucky-bajaj-customer-web.onrender.com",
-  staff: "https://lucky-bajaj-staff-web.onrender.com",
+  api: "http://localhost:8080",
+  customer: "http://localhost:3000",
+  staff: "http://localhost:3001",
 };
-const timeoutMs = Math.max(5_000, Math.min(120_000, Number(process.env.PREVIEW_TIMEOUT_MS) || 45_000));
+const timeoutMs = Math.max(5_000, Math.min(120_000, Number(process.env.LOCAL_SMOKE_TIMEOUT_MS) || 45_000));
 
 function normalizeBaseUrl(value, key) {
   let url;
   try {
     url = new URL(value);
   } catch {
-    throw new Error(key + " URL is invalid. Use an absolute https:// URL.");
+    throw new Error(key + " URL is invalid. Use an absolute http://localhost URL for local services or an https:// URL for a hosted service.");
   }
-  if (url.protocol !== "https:") throw new Error(key + " URL must use HTTPS.");
+  const isLocalHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !isLocalHttp) {
+    throw new Error(key + " URL must use HTTPS, except HTTP is allowed for localhost/loopback.");
+  }
   if (url.username || url.password) throw new Error(key + " URL must not embed credentials.");
   return url.origin;
 }
 const urls = Object.fromEntries(Object.entries({
-  api: process.env.PREVIEW_API_URL || DEFAULTS.api,
-  customer: process.env.PREVIEW_CUSTOMER_URL || DEFAULTS.customer,
-  staff: process.env.PREVIEW_STAFF_URL || DEFAULTS.staff,
+  api: process.env.LOCAL_API_URL || DEFAULTS.api,
+  customer: process.env.LOCAL_CUSTOMER_URL || DEFAULTS.customer,
+  staff: process.env.LOCAL_STAFF_URL || DEFAULTS.staff,
 }).map(([key, value]) => [key, normalizeBaseUrl(value, key)]));
 
 const results = [];
@@ -105,7 +108,7 @@ async function verifyStaticAssets(base, html) {
   return localScripts.length + " JavaScript and " + localStylesheets.length + " CSS asset(s) fetched successfully";
 }
 
-console.log("Lucky Bajaj preview smoke check (read-only; no login, writes, messages or payments)");
+console.log("Lucky Bajaj local-stack smoke check (read-only; no login, writes, messages or payments)");
 console.log("API:      " + urls.api);
 console.log("Customer: " + urls.customer);
 console.log("Staff:    " + urls.staff);
@@ -188,27 +191,29 @@ await check("Google sign-in configuration is explicit", async () => {
   const data = result.data;
   requireCondition(typeof data.configured === "boolean", "Google config must expose a configured boolean.");
   if (!data.configured) {
-    throw new Error("Google sign-in is not configured on the preview API; set GOOGLE_WEB_CLIENT_ID / APP_AUTH_GOOGLE_CLIENT_ID.");
+    throw new Error("Google sign-in is not configured on the local API; set GOOGLE_WEB_CLIENT_ID / APP_AUTH_GOOGLE_CLIENT_ID.");
   }
   requireCondition(/^.+\.apps\.googleusercontent\.com$/.test(safeText(data.clientId)),
     "Google sign-in reports configured=true but the public client ID looks invalid.");
   return "Google sign-in is configured; client ID is present (value not printed)";
 });
 
-for (const [label, origin] of [["Customer CORS", urls.customer], ["Staff CORS", urls.staff]]) {
-  await check(label, async () => {
-    const result = await jsonRequest(urls.api, "/api/v1/public/catalogue/bikes", {
-      headers: { origin },
-    });
-    const allowOrigin = result.response.headers.get("access-control-allow-origin");
-    requireCondition(allowOrigin === origin,
-      "Expected Access-Control-Allow-Origin \"" + origin + "\"; received " + (allowOrigin || "(missing)") + ".");
-    return "HTTP " + result.response.status + "; exact origin allowed";
-  });
-}
+await check("Customer same-origin API proxy", async () => {
+  const result = await jsonRequest(urls.customer, "/api/v1/public/catalogue/bikes");
+  requireCondition(result.data.manufacturer === "BAJAJ" && Array.isArray(result.data.bikes),
+    "Customer site API proxy did not return the public Bajaj catalogue shape.");
+  return "Customer site's /api proxy returned the public catalogue";
+});
+
+await check("Staff same-origin API proxy", async () => {
+  const result = await jsonRequest(urls.staff, "/api/v1/public/catalogue/bikes");
+  requireCondition(result.data.manufacturer === "BAJAJ" && Array.isArray(result.data.bikes),
+    "Staff site API proxy did not return the public Bajaj catalogue shape.");
+  return "Staff site's /api proxy returned the public catalogue";
+});
 
 await check("Unauthenticated customer data remains protected", async () => {
-  const result = await request(urls.api, "/api/v1/customer/vehicles");
+  const result = await request(urls.customer, "/api/v1/customer/vehicles");
   requireCondition([401, 403].includes(result.response.status),
     "Expected HTTP 401/403 without credentials; received " + result.response.status
       + (result.body ? " (" + result.body.slice(0, 140) + ")" : "") + ".");
@@ -216,7 +221,7 @@ await check("Unauthenticated customer data remains protected", async () => {
 });
 
 await check("Unauthenticated staff website-request listing remains protected", async () => {
-  const result = await request(urls.api, "/api/v1/admin/sales/customer-requests");
+  const result = await request(urls.staff, "/api/v1/admin/sales/customer-requests");
   requireCondition([401, 403].includes(result.response.status),
     "Expected HTTP 401/403 without credentials; received " + result.response.status
       + (result.body ? " (" + result.body.slice(0, 140) + ")" : "") + ".");
@@ -234,8 +239,8 @@ const failed = results.length - passed;
 console.log("");
 console.log(passed + "/" + results.length + " checks passed; " + failed + " failed.");
 if (failed > 0) {
-  console.error("Preview smoke failed. Fix the reported deployment/configuration issue, then rerun this command.");
+  console.error("Local smoke failed. Fix the reported service/configuration issue, then rerun this command.");
   process.exitCode = 1;
 } else {
-  console.log("Read-only preview smoke passed. This does not replace manual checkout, sales handover, persistent-DB or visual/accessibility acceptance.");
+  console.log("Read-only local smoke passed. This does not replace manual checkout, sales handover, persistent-DB or visual/accessibility acceptance.");
 }

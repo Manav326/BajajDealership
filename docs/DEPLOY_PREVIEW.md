@@ -72,26 +72,26 @@ This Blueprint intentionally uses free-tier resources to provide a low-cost prev
 
 References: [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render free-tier limitations](https://render.com/docs/free), and [Render static sites](https://render.com/docs/static-sites).
 
-## Read-only deployed-preview smoke check
+## Read-only local-stack smoke check
 
-The current execution environment cannot resolve the three Render hostnames, so it cannot establish whether those services are healthy. Run this from a workstation or CI runner that can reach the preview:
+Run this on the same machine where Docker Compose services are running. Defaults match `scripts/start.ps1` and `scripts/start.sh`: customer web `http://localhost:3000`, staff portal `http://localhost:3001`, API `http://localhost:8080`. The script verifies each frontend's same-origin Nginx `/api/` proxy, as the browser uses it:
 
 ```bash
-node scripts/smoke-test-preview.mjs
+node scripts/smoke-test-local.mjs
 ```
 
-It performs only GET requests and does not log in, mutate records, send notifications/social posts or move money. It checks API health, both static-site HTML shells, at least ten published Bajaj models, source/date consistency for displayed prices and promotions, Google sign-in configuration, exact CORS origins, and unauthenticated customer/staff-data denial. It exits non-zero for any failed check and prints missing configuration explicitly.
+It performs only GET requests and does not log in, mutate records, send notifications/social posts or move money. It checks API health, both static-site HTML shells and their JavaScript/CSS assets, at least ten published Bajaj models, source/date consistency for displayed prices and promotions, Google sign-in configuration, both same-origin API proxies, and unauthenticated customer/staff-data denial. It exits non-zero for any failed check and prints missing configuration explicitly.
 
 Optional host overrides for an environment with different assigned URLs:
 
 ```bash
-PREVIEW_API_URL=https://api.example.test \
-PREVIEW_CUSTOMER_URL=https://customer.example.test \
-PREVIEW_STAFF_URL=https://staff.example.test \
-node scripts/smoke-test-preview.mjs
+LOCAL_API_URL=http://localhost:8080 \
+LOCAL_CUSTOMER_URL=http://localhost:3000 \
+LOCAL_STAFF_URL=http://localhost:3001 \
+node scripts/smoke-test-local.mjs
 ```
 
-A passing result is not production approval. Continue to keep real customer/financial data out of the free preview and inspect the target database's `flyway_schema_history` before applying the renamed showroom migration sequence.
+A passing local result is not production approval. Hosted deployments still require separate public smoke testing. Before applying schema changes to a persistent database, inspect its `flyway_schema_history`.
 
 ## Persistent database: read-only Flyway preflight
 

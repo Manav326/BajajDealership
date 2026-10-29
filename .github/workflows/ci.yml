@@ -80,7 +80,7 @@ jobs:
         with:
           node-version: "24"
       - name: Validate read-only preview smoke script syntax
-        run: node --check scripts/smoke-test-preview.mjs
+        run: node --check scripts/smoke-test-local.mjs
 
       - name: Install staff portal dependencies
         working-directory: apps/web
