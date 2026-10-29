@@ -681,7 +681,8 @@ function silentWav(seconds = 35, sampleRate = 8_000): Buffer {
   return buffer;
 }
 
-test('Social Media Artwork Studio offers festival templates, a bounded asset library, and layer transforms', async ({ page }) => {
+test('Social Media Artwork Studio offers festival templates, bounded image/music libraries, and Story video export', async ({ page }) => {
+  test.setTimeout(120_000);
   const browserDiagnostics: string[] = [];
   page.on('pageerror', (cause) => browserDiagnostics.push('pageerror: ' + (cause.stack || cause.message)));
   page.on('console', (message) => {
@@ -748,4 +749,13 @@ test('Social Media Artwork Studio offers festival templates, a bounded asset lib
   await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeEnabled();
   await expect(dialog.getByRole('slider', { name: 'Music snippet start' })).toBeEnabled();
   await expect(dialog.getByRole('slider', { name: 'Music volume' })).toBeEnabled();
+
+  // Exercise the real canvas/audio MediaRecorder path with a generated local WAV.
+  await dialog.getByRole('button', { name: '20s', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await dialog.getByRole('button', { name: 'Create story video' }).click();
+  await expect(dialog.getByRole('button', { name: 'Rendering story video…' })).toBeDisabled();
+  const videoDownload = await downloadPromise;
+  expect(videoDownload.suggestedFilename()).toMatch(/^lucky-bajaj-story-20s\.(mp4|webm)$/);
+  await expect(dialog.getByRole('status').filter({ hasText: /Story video exported \(20 seconds/ })).toBeVisible();
 });
