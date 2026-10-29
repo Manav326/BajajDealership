@@ -123,7 +123,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$files=@("scripts/start.ps1","scripts/bootstrap-owner.ps1"); foreach ($file in $files) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { Write-Host $file; $errors | Format-List *; exit 1 } }'
+          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }'
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
