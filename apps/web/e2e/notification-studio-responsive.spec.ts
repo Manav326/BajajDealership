@@ -741,7 +741,7 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
   await dialog.locator('[data-testid="artwork-music-upload"]').setInputFiles({
     name: 'festive-instrumental.wav',
     mimeType: 'audio/wav',
-    buffer: silentWav(),
+    buffer: silentWav(125),
   });
   await expect(dialog.getByText(/11 \/ 50 tracks/)).toBeVisible();
   await expect(dialog.getByText('festive-instrumental')).toBeVisible();
@@ -751,6 +751,14 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
   await expect(dialog.getByRole('slider', { name: 'Music snippet start' })).toBeEnabled();
   await expect(dialog.getByRole('slider', { name: 'Music volume' })).toBeEnabled();
 
+  const videoDestination = dialog.getByLabel('Story video destination');
+  await expect(videoDestination).toHaveValue('whatsapp-status');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await videoDestination.selectOption('instagram-story');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await videoDestination.selectOption('social-reel');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeEnabled();
+
   // Exercise the real canvas/audio MediaRecorder path with a generated local WAV.
   await dialog.getByRole('button', { name: '20s', exact: true }).click();
   const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
@@ -758,5 +766,5 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
   await expect(dialog.getByRole('button', { name: 'Rendering story video…' })).toBeDisabled();
   const videoDownload = await downloadPromise;
   expect(videoDownload.suggestedFilename()).toMatch(/^lucky-bajaj-story-20s\.(mp4|webm)$/);
-  await expect(dialog.getByRole('status').filter({ hasText: /Story video exported \(20 seconds/ })).toBeVisible();
+  await expect(dialog.getByRole('status').filter({ hasText: /Vertical video exported for Instagram \/ Facebook Reel \(20 seconds/ })).toBeVisible();
 });
