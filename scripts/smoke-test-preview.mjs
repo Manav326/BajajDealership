@@ -81,12 +81,12 @@ function safeText(value) {
 }
 async function verifyStaticAssets(base, html) {
   const baseUrl = new URL(base);
-  const scriptRefs = [...html.matchAll(/<script\\b[^>]*\\bsrc=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
+  const scriptRefs = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
   const localScripts = scriptRefs.map(reference => new URL(reference, baseUrl))
     .filter(asset => asset.origin === baseUrl.origin);
   requireCondition(localScripts.length > 0, "No same-origin JavaScript bundle is referenced by index.html.");
 
-  const stylesheetRefs = [...html.matchAll(/<link\\b(?=[^>]*\\brel=["']stylesheet["'])[^>]*\\bhref=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
+  const stylesheetRefs = [...html.matchAll(/<link\b(?=[^>]*\brel=["']stylesheet["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
   const localStylesheets = stylesheetRefs.map(reference => new URL(reference, baseUrl))
     .filter(asset => asset.origin === baseUrl.origin);
 
