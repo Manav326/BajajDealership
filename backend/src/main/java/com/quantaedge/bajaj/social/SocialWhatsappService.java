@@ -337,7 +337,7 @@ public class SocialWhatsappService {
   }
   return List.copyOf(missing);
  }
- private boolean webhookConfigured(){return missingWebhookConfigurationKeys().isEmpty();}
+ private boolean webhookConfigured(){return enabled&&!phoneNumberId.isBlank()&&!verifyToken.isBlank()&&!appSecret.isBlank();}
  private Long configuredDealershipId(){
   if(!enabled||dealershipCode.isBlank())return null;
   List<Long> ids=jdbc.query("select id from dealership where code=? and status='ACTIVE'",(rs,n)->rs.getLong(1),dealershipCode);
