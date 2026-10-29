@@ -338,6 +338,44 @@ test('public catalogue renders at least 20 Bajaj model cards and searches the re
   await expect(cards.getByRole('heading', { name: 'Fixture Bajaj Model 07', exact: true })).toBeVisible();
 });
 
+test('bike detail deep links restore from the URL and browser Back/Forward closes and reopens the dialog', async ({ page }) => {
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173/?bike=BAJAJ_PULSAR_NS200');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pulsar NS200', exact: true })).toBeVisible();
+
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await expect(page).toHaveURL(/bike=BAJAJ_PULSAR_NS200/);
+  await page.goBack();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.has('bike')).toBeFalsy();
+  await page.goForward();
+  await expect(page.getByRole('dialog')).toBeVisible();
+});
+
+test('bike comparison is shareable, side by side, and limited to three models', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+
+  const cards = page.locator('.showroom-bike-card');
+  await cards.nth(0).getByRole('button', { name: 'Add Pulsar NS200 to comparison' }).click();
+  await cards.nth(1).getByRole('button', { name: 'Add Fixture Bajaj Model 01 to comparison' }).click();
+  const comparison = page.locator('.showroom-comparison-panel');
+  await expect(comparison).toBeVisible();
+  await expect(comparison.getByRole('table')).toContainText('Pulsar NS200');
+  await expect(comparison.getByRole('table')).toContainText('Fixture Bajaj Model 01');
+  expect(new URL(page.url()).searchParams.get('compare')).toBe('BAJAJ_PULSAR_NS200,BAJAJ_TEST_MODEL_01');
+
+  await cards.nth(2).getByRole('button', { name: 'Add Fixture Bajaj Model 02 to comparison' }).click();
+  await expect(comparison.getByRole('table')).toContainText('Fixture Bajaj Model 02');
+  await cards.nth(3).getByRole('button', { name: 'Add Fixture Bajaj Model 03 to comparison' }).click();
+  await expect(comparison.getByRole('status')).toContainText('Compare up to three bikes');
+  await expect(comparison.getByRole('table').getByRole('columnheader')).toHaveCount(4);
+  expect(new URL(page.url()).searchParams.get('compare')).toBe('BAJAJ_PULSAR_NS200,BAJAJ_TEST_MODEL_01,BAJAJ_TEST_MODEL_02');
+});
+
 test('showroom honors reduced-motion preference', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockShowroomApi(page);
@@ -396,12 +434,18 @@ test('public promotions expose source and terms without claiming an automatic di
   await expect(card).toBeVisible();
   await expect(card.getByRole('heading', { name: 'Verified accessory offer' })).toBeVisible();
   await expect(card.getByRole('link', { name: 'Review source ↗' })).toHaveAttribute('href', 'https://www.bajajauto.com/bike-offer');
+  await expect(card.getByRole('link', { name: 'Share offer link ↗' })).toHaveAttribute(
+    'href', '?offer=promotion-e2e-1#showroom-offer-promotion-e2e-1');
   await card.getByText('Terms and exclusions').click();
   await expect(card.getByText('Valid only for eligible customers.', { exact: false })).toBeVisible();
   await expect(card.getByText('This announcement does not change catalogue prices automatically.', { exact: false })).toHaveCount(0);
   await expect(card.getByText('Dealer-authored information only.', { exact: false })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+  await page.goto('http://127.0.0.1:4173/?offer=promotion-e2e-1#showroom-offer-promotion-e2e-1');
+  await expect(page.locator('#showroom-offer-promotion-e2e-1')).toBeInViewport();
+  await expect(page.locator('#showroom-offer-promotion-e2e-1')).toHaveClass(/showroom-offer-card-highlighted/);
 });
 
 test('selecting a bike preserves the preferred test ride time through sign-in handoff', async ({ page }) => {

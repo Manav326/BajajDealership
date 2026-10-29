@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type ShowroomAction = 'TEST_RIDE' | 'PURCHASE';
 
@@ -112,7 +112,62 @@ export default function BajajShowroom({
   const [quoteError, setQuoteError] = useState('');
   const [quoteLocationKey, setQuoteLocationKey] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [compareModelCodes, setCompareModelCodes] = useState<string[]>([]);
+  const [compareNotice, setCompareNotice] = useState('');
+  const [sharedOfferPublicId, setSharedOfferPublicId] = useState('');
 
+  const updateLocationParams = useCallback((changes: Record<string, string | null>) => {
+    const url = new URL(window.location.href);
+    Object.entries(changes).forEach(([key, value]) => {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    });
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) window.history.pushState(window.history.state, '', nextUrl);
+  }, []);
+
+  const closeDetails = useCallback(() => {
+    setSelected(null);
+    setPreferredRideAt('');
+    setActionError('');
+    setOnRoadQuote(null);
+    setQuoteError('');
+    setQuoteLocationKey('');
+    updateLocationParams({ bike: null });
+  }, [updateLocationParams]);
+
+  const openDetails = useCallback((bike: ShowroomBike) => {
+    setSelected(bike);
+    setPreferredRideAt('');
+    setActionError('');
+    setOnRoadQuote(null);
+    setQuoteError('');
+    setQuoteLocationKey('');
+    updateLocationParams({ bike: bike.modelCode });
+  }, [updateLocationParams]);
+
+  const toggleCompare = useCallback((bike: ShowroomBike) => {
+    const alreadySelected = compareModelCodes.includes(bike.modelCode);
+    if (!alreadySelected && compareModelCodes.length >= 3) {
+      setCompareNotice('Compare up to three bikes at once. Remove one before adding another.');
+      return;
+    }
+    const next = alreadySelected
+      ? compareModelCodes.filter((code) => code !== bike.modelCode)
+      : [...compareModelCodes, bike.modelCode];
+    setCompareModelCodes(next);
+    setCompareNotice(next.length === 1
+      ? 'Select one more bike to compare specifications side by side.'
+      : next.length >= 2 ? `${next.length} bikes selected for comparison.` : '');
+    updateLocationParams({ compare: next.length ? next.join(',') : null });
+  }, [compareModelCodes, updateLocationParams]);
+
+  const clearComparison = useCallback(() => {
+    setCompareModelCodes([]);
+    setCompareNotice('');
+    updateLocationParams({ compare: null });
+  }, [updateLocationParams]);
 
   useEffect(() => {
     if (!selected) return;
@@ -122,9 +177,7 @@ export default function BajajShowroom({
     function keepModalKeyboardAccessible(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
-        setSelected(null);
-        setPreferredRideAt('');
-        setActionError('');
+        closeDetails();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -156,7 +209,7 @@ export default function BajajShowroom({
       const previous = previousModalFocusRef.current;
       if (previous?.isConnected) previous.focus();
     };
-  }, [selected]);
+  }, [selected, closeDetails]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -215,6 +268,33 @@ export default function BajajShowroom({
     return () => controller.abort();
   }, [mode]);
 
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const requestedBikeCode = params.get('bike');
+      setSelected(requestedBikeCode
+        ? (catalogue?.bikes ?? []).find((bike) => bike.modelCode === requestedBikeCode) ?? null
+        : null);
+      const requestedCompare = (params.get('compare') ?? '').split(',').filter(Boolean);
+      const validCodes = (catalogue?.bikes ?? []).map((bike) => bike.modelCode);
+      setCompareModelCodes([...new Set(requestedCompare)].filter((code) => validCodes.includes(code)).slice(0, 3));
+      setSharedOfferPublicId(params.get('offer') ?? '');
+    };
+    syncFromLocation();
+    window.addEventListener('popstate', syncFromLocation);
+    return () => window.removeEventListener('popstate', syncFromLocation);
+  }, [catalogue, mode]);
+
+  useEffect(() => {
+    if (mode !== 'landing' || promotionsLoading || !sharedOfferPublicId) return;
+    const promotion = promotions.find((item) => item.publicId === sharedOfferPublicId);
+    if (!promotion) return;
+    document.getElementById(`showroom-offer-${promotion.publicId}`)?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'center',
+    });
+  }, [mode, promotions, promotionsLoading, sharedOfferPublicId]);
+
   const bikes = useMemo(() => (catalogue?.bikes ?? []).filter((bike) => {
     const matchesCategory = category === 'ALL' || bike.category === category;
     const search = query.trim().toLowerCase();
@@ -226,14 +306,30 @@ export default function BajajShowroom({
   const featured = (catalogue?.bikes ?? []).find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z')
     ?? catalogue?.bikes?.[0];
 
-  const openDetails = (bike: ShowroomBike) => {
-    setSelected(bike);
-    setPreferredRideAt('');
-    setActionError('');
-    setOnRoadQuote(null);
-    setQuoteError('');
-    setQuoteLocationKey('');
-  };
+  const comparedBikes = useMemo(
+    () => compareModelCodes.map((code) => catalogue?.bikes.find((bike) => bike.modelCode === code))
+      .filter((bike): bike is ShowroomBike => Boolean(bike)),
+    [catalogue, compareModelCodes],
+  );
+  const comparisonRows: Array<{ label: string; value: (bike: ShowroomBike) => string }> = [
+    { label: 'Engine', value: (bike) => `${bike.engineCc} cc` },
+    { label: 'Max power', value: (bike) => bike.maxPower || 'Not published' },
+    { label: 'Max torque', value: (bike) => bike.maxTorque || 'Not published' },
+    { label: 'Gearbox', value: (bike) => bike.gearbox || 'Not published' },
+    { label: 'Brakes', value: (bike) => bike.braking || 'Not published' },
+    { label: 'Front suspension', value: (bike) => bike.frontSuspension || 'Not published' },
+    { label: 'Rear suspension', value: (bike) => bike.rearSuspension || 'Not published' },
+    { label: 'Fuel tank', value: (bike) => bike.fuelTankLitres == null ? 'Not published' : `${bike.fuelTankLitres} L` },
+    { label: 'Ground clearance', value: (bike) => bike.groundClearanceMm == null ? 'Not published' : `${bike.groundClearanceMm} mm` },
+    { label: 'Kerb weight', value: (bike) => bike.kerbWeightKg == null ? 'Not published' : `${bike.kerbWeightKg} kg` },
+    { label: 'Ex-showroom reference', value: (bike) => `${money(bike.exShowroomPrice)} · ${bike.priceCity || 'Price city not stated'}` },
+    { label: 'Price checked', value: (bike) => dateLabel(bike.priceVerifiedAt) },
+    { label: 'Dealership availability', value: (bike) => bike.availabilityStatus === 'IN_STOCK'
+      ? `${bike.availableUnits} unit(s) marked available`
+      : bike.availabilityStatus === 'EXPECTED'
+        ? (bike.expectedAvailableOn ? `Expected ${dateLabel(bike.expectedAvailableOn)}` : 'Expected; date not confirmed')
+        : 'Out of stock' },
+  ];
 
   async function loadOnRoadQuote(bike: ShowroomBike) {
     const location = splitPriceLocation(priceLocation);
@@ -338,7 +434,8 @@ export default function BajajShowroom({
           <div className="showroom-stage-disc" aria-hidden="true" />
           <div className="showroom-stage-ring ring-one" aria-hidden="true" />
           <div className="showroom-stage-ring ring-two" aria-hidden="true" />
-          {featured && <img src={featured.heroImageUrl} alt={`Bajaj ${featured.modelName}`} fetchPriority="high" />}
+          {featured && <img src={featured.heroImageUrl} alt={`Bajaj ${featured.modelName}`} fetchPriority="high"
+            onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />}
           {featured && <div className="showroom-stage-label"><span>FEATURED MACHINE</span><strong>{featured.modelName}</strong><small>{featured.engineCc} cc · {featured.maxPower}</small></div>}
           <span className="showroom-stage-index" aria-hidden="true">B / 01</span>
         </div>
@@ -372,13 +469,20 @@ export default function BajajShowroom({
                 </article>
               </div>
             : <div className="showroom-offers-grid">
-              {promotions.map((promotion) => <article key={promotion.publicId} className="showroom-offer-card">
+              {promotions.map((promotion) => <article key={promotion.publicId}
+                id={`showroom-offer-${promotion.publicId}`}
+                className={sharedOfferPublicId === promotion.publicId
+                  ? 'showroom-offer-card showroom-offer-card-highlighted' : 'showroom-offer-card'}>
                 <div className="showroom-offer-card-overline"><span>LUCKY BAJAJ</span><span>{promotion.modelName || 'BAJAJ RANGE'}</span></div>
                 <h3>{promotion.title}</h3>
                 <p>{promotion.summary}</p>
                 {promotion.terms && <details><summary>Terms and exclusions</summary><p>{promotion.terms}</p></details>}
                 <div className="showroom-offer-dates">Valid from {dateLabel(promotion.startsOn)}{promotion.endsOn ? ` to ${dateLabel(promotion.endsOn)}` : ''}</div>
                 <a href={promotion.sourceUrl} target="_blank" rel="noreferrer">Review source ↗</a>
+                <a className="showroom-offer-share"
+                  href={`?offer=${encodeURIComponent(promotion.publicId)}#showroom-offer-${encodeURIComponent(promotion.publicId)}`}>
+                  Share offer link ↗
+                </a>
                 <small>{promotion.disclaimer}</small>
               </article>)}
             </div>}
@@ -406,6 +510,36 @@ export default function BajajShowroom({
             onClick={() => setCategory(item.value)}>{item.label}</button>)}
         </div>
 
+        {!loading && comparedBikes.length > 0 && <section className="showroom-comparison-panel" aria-labelledby="showroom-comparison-title">
+          <div className="showroom-comparison-header">
+            <div>
+              <div className="showroom-eyebrow">SIDE-BY-SIDE SPECIFICATIONS</div>
+              <h3 id="showroom-comparison-title">Compare your shortlist</h3>
+              <p role="status" aria-live="polite">{compareNotice || (comparedBikes.length < 2
+                ? 'Select one more bike to compare specifications side by side.'
+                : `${comparedBikes.length} bikes selected for comparison.`)}</p>
+            </div>
+            <button type="button" className="showroom-compare-clear" onClick={clearComparison}>Clear comparison</button>
+          </div>
+          {comparedBikes.length < 2
+            ? <p className="showroom-comparison-hint">Choose at least two Bajaj motorcycles. Your selection is kept in the URL so you can share this comparison.</p>
+            : <div className="showroom-comparison-table-wrap" role="region" aria-label="Bike comparison table" tabIndex={0}>
+              <table className="showroom-comparison-table">
+                <caption className="sr-only">Comparison of selected Bajaj motorcycle specifications and dealership availability</caption>
+                <thead><tr><th scope="col">Specification</th>{comparedBikes.map((bike) => <th scope="col" key={bike.modelCode}>
+                  <span>{bike.modelName}</span>
+                  <div className="showroom-comparison-column-actions">
+                    <button type="button" onClick={() => openDetails(bike)} aria-label={`View ${bike.modelName} details`}>View details</button>
+                    <button type="button" onClick={() => toggleCompare(bike)} aria-label={`Remove ${bike.modelName} from comparison`}>Remove</button>
+                  </div>
+                </th>)}</tr></thead>
+                <tbody>{comparisonRows.map((row) => <tr key={row.label}>
+                  <th scope="row">{row.label}</th>{comparedBikes.map((bike) => <td key={bike.modelCode}>{row.value(bike)}</td>)}
+                </tr>)}</tbody>
+              </table>
+            </div>}
+        </section>}
+
         {loading && <div className="showroom-load-state"><span className="showroom-loader" /><strong>Setting the stage…</strong><p>Loading the live Bajaj catalogue and dealership availability.</p></div>}
         {!loading && error && <div className="showroom-error" role="alert"><strong>The showroom could not load.</strong><p>{error}</p><button type="button" onClick={() => window.location.reload()}>Retry catalogue ↻</button></div>}
         {!loading && !error && bikes.length === 0 && <div className="showroom-empty">No Bajaj motorcycles match that search. Try another model or category.</div>}
@@ -432,6 +566,11 @@ export default function BajajShowroom({
                 <button type="button" className="showroom-onroad-note" onClick={() => openDetails(bike)}>On-road in {priceLocation || 'your city'} <strong>Check estimate ↗</strong></button>
                 <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => openDetails(bike)}>Explore specs</button>
                   <button type="button" className="showroom-card-primary" onClick={() => openDetails(bike)}>Test ride <span>↗</span></button></div>
+                <button type="button" className="showroom-compare-toggle" aria-pressed={compareModelCodes.includes(bike.modelCode)}
+                  aria-label={`${compareModelCodes.includes(bike.modelCode) ? 'Remove' : 'Add'} ${bike.modelName} ${compareModelCodes.includes(bike.modelCode) ? 'from' : 'to'} comparison`}
+                  onClick={() => toggleCompare(bike)}>
+                  {compareModelCodes.includes(bike.modelCode) ? '✓ In comparison · Remove' : '+ Compare bike'}
+                </button>
               </div>
             </article>
           ))}
@@ -475,10 +614,14 @@ export default function BajajShowroom({
       </footer>
       </>}
 
-      {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelected(null); setPreferredRideAt(''); setActionError(''); } }}>
+      {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDetails(); }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
-          <button ref={closeButtonRef} className="showroom-modal-close" type="button" onClick={() => { setSelected(null); setPreferredRideAt(''); setActionError(''); }} aria-label="Close bike details">×</button>
-          <div className="showroom-modal-image"><img src={selected.heroImageUrl} alt={`Bajaj ${selected.modelName}`} /></div>
+          <button ref={closeButtonRef} className="showroom-modal-close" type="button" onClick={closeDetails} aria-label="Close bike details">×</button>
+          <div className="showroom-modal-image"><img src={selected.heroImageUrl} alt={`Bajaj ${selected.modelName}`}
+            onError={(event) => {
+              event.currentTarget.dataset.failed = 'true';
+              event.currentTarget.parentElement?.setAttribute('data-image-failed', 'true');
+            }} /></div>
           <div className="showroom-modal-copy"><div className="showroom-eyebrow">BAJAJ / {selected.family.toUpperCase()}</div><h2 id="showroom-modal-title">{selected.modelName}</h2>
             <p>{selected.rideCharacter}. Explore the key details before requesting a test ride or purchase discussion.</p>
             <div className="showroom-modal-price"><small>EX-SHOWROOM · {selected.priceCity}</small><strong>{money(selected.exShowroomPrice)}</strong><span>Reference price checked {dateLabel(selected.priceVerifiedAt)}</span></div>

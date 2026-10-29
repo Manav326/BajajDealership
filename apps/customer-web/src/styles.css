@@ -1447,3 +1447,52 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .retail-catalogue-filter-actions span { padding-bottom: 0; }
   .retail-catalogue-filter-actions .text-link { font-size: 10px; }
 }
+
+
+/* Shareable model comparisons and offer deep links. */
+.showroom-compare-toggle {
+  display: block; width: 100%; margin-top: 8px; padding: 9px 10px;
+  border: 1px solid rgba(122,240,220,.25); border-radius: 999px;
+  background: rgba(122,240,220,.045); color: #a8f5e8; font-size: 9px; font-weight: 800;
+  text-align: center; transition: background .18s, border-color .18s;
+}
+.showroom-compare-toggle:hover, .showroom-compare-toggle[aria-pressed="true"] {
+  border-color: rgba(122,240,220,.58); background: rgba(122,240,220,.13);
+}
+.showroom-compare-toggle:focus-visible, .showroom-compare-clear:focus-visible,
+.showroom-comparison-column-actions button:focus-visible, .showroom-offer-share:focus-visible {
+  outline: 2px solid #8ef5df; outline-offset: 3px;
+}
+.showroom-comparison-panel {
+  max-width: 1440px; margin: 8px 0 26px; padding: clamp(16px, 2.5vw, 28px);
+  border: 1px solid rgba(122,240,220,.22); border-radius: 20px;
+  background: linear-gradient(135deg, rgba(28,44,56,.88), rgba(10,17,25,.96));
+  box-shadow: 0 22px 48px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.07);
+}
+.showroom-comparison-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.showroom-comparison-header h3 { margin: 8px 0; color: #f5f7fa; font-size: clamp(22px, 3vw, 30px); letter-spacing: -.04em; }
+.showroom-comparison-header p, .showroom-comparison-hint { margin: 0; color: #aab8c7; font-size: 11px; line-height: 1.7; }
+.showroom-compare-clear { flex: 0 0 auto; padding: 9px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(255,255,255,.04); color: #e5edf5; font-size: 10px; font-weight: 800; }
+.showroom-comparison-table-wrap { max-width: 100%; overflow: auto; border: 1px solid rgba(255,255,255,.11); border-radius: 12px; scrollbar-width: thin; }
+.showroom-comparison-table { width: 100%; min-width: 600px; border-collapse: collapse; background: rgba(0,0,0,.12); }
+.showroom-comparison-table th, .showroom-comparison-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,.085); text-align: left; vertical-align: top; font-size: 10px; line-height: 1.6; }
+.showroom-comparison-table thead th { min-width: 150px; color: #f3f6f9; background: rgba(255,255,255,.045); }
+.showroom-comparison-table thead th:first-child { min-width: 130px; color: #9cacbd; }
+.showroom-comparison-table tbody th { width: 145px; color: #91a7ba; font-weight: 750; }
+.showroom-comparison-table td { color: #e1e8ef; overflow-wrap: anywhere; }
+.showroom-comparison-table tr:last-child th, .showroom-comparison-table tr:last-child td { border-bottom: 0; }
+.showroom-comparison-column-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.showroom-comparison-column-actions button { padding: 5px 7px; border: 1px solid rgba(122,240,220,.24); border-radius: 999px; background: rgba(122,240,220,.06); color: #a8f5e8; font-size: 8px; }
+.showroom-offer-card { scroll-margin-top: 88px; }
+.showroom-offer-card-highlighted { border-color: rgba(241,193,109,.8); box-shadow: 0 0 0 2px rgba(241,193,109,.18), 0 22px 42px rgba(0,0,0,.24); }
+.showroom-offer-share { display: inline-flex; align-items: center; gap: 5px; color: #b8e8df !important; }
+.showroom-hero-stage > img[data-failed="true"], .showroom-modal-image img[data-failed="true"] { visibility: hidden; }
+.showroom-modal-image[data-image-failed="true"]::after { content: "BAJAJ · MODEL IMAGE UNAVAILABLE"; color: #26384a; font-size: 10px; font-weight: 900; letter-spacing: .13em; }
+@media (max-width: 720px) {
+  .showroom-comparison-panel { padding: 14px; border-radius: 15px; }
+  .showroom-comparison-header { flex-direction: column; }
+  .showroom-compare-clear { align-self: flex-start; }
+}
+@media (max-width: 380px) {
+  .showroom-compare-toggle { font-size: 9px; }
+}
