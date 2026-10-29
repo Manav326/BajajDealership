@@ -85,6 +85,12 @@ function preview() {
 }
 
 async function mockApi(page: Page) {
+  let galleryImages: Array<{
+    publicId: string; modelCode: string; contentType: string; sizeBytes: number;
+    primary: boolean; uploadedAt: string;
+  }> = [];
+  let galleryUploadContentType = '';
+
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'responsive-e2e-session');
   });
@@ -110,6 +116,8 @@ async function mockApi(page: Page) {
           'customer.read',
           'sales.read',
           'vehicle.read',
+          'catalogue.read',
+          'catalogue.manage',
           'workshop.read',
           'parts.read',
           'finance.read',
@@ -132,6 +140,52 @@ async function mockApi(page: Page) {
       return json({ status: 'UP', service: 'bajaj-api', version: 'e2e', timestamp: previewExpiry });
     }
     if (path.endsWith('/system/bootstrap/status')) return json({ available: false });
+    if (path.endsWith('/admin/vehicle-models') && method === 'GET') {
+      return json({ items: [], page: 0, pageSize: 100, total: 0 });
+    }
+    if (path.endsWith('/admin/vehicle-units') && method === 'GET') {
+      return json({ items: [], page: 0, pageSize: 100, total: 0 });
+    }
+    if (path.endsWith('/admin/catalogue/models') && method === 'GET') {
+      return json({ models: [{
+        modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200',
+        family: 'Pulsar NS', category: 'SPORT', published: true,
+        markedOutOfStock: false, expectedAvailableOn: null, internalNote: null, updatedAt: null,
+        availableUnits: 0, expectedUnits: 0, reservedUnits: 0,
+      }] });
+    }
+    if (path.endsWith('/admin/catalogue/pricing-profiles') && method === 'GET') {
+      return json({ profiles: [] });
+    }
+    if (path.endsWith('/admin/catalogue/promotions') && method === 'GET') {
+      return json({ promotions: [] });
+    }
+    if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'GET') {
+      return json({ items: galleryImages });
+    }
+    if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'POST') {
+      galleryUploadContentType = request.headers()['content-type'] ?? '';
+      galleryImages = [{
+        publicId: 'e2e-catalogue-image-1',
+        modelCode: 'BAJAJ_PULSAR_NS200',
+        contentType: 'image/png',
+        sizeBytes: 68,
+        primary: true,
+        uploadedAt: '2026-10-29T12:00:00Z',
+      }];
+      return json(galleryImages[0]);
+    }
+    if (/\/admin\/catalogue\/models\/BAJAJ_PULSAR_NS200\/images\/[^/]+$/.test(path) && method === 'DELETE') {
+      galleryImages = [];
+      return json({ success: true, message: 'Image removed.' });
+    }
+    if (path.startsWith('/api/v1/public/catalogue/bikes/images/')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+      });
+    }
     if (path.endsWith('/admin/notifications/media/e2e-image')) {
       return route.fulfill({
         status: 200,
@@ -465,4 +519,31 @@ test('approved campaign history offers Send now before a schedule exists', async
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Send now ↗' })).toBeVisible();
   await expect(dialog.getByText('EXACT SAVED CONTENT', { exact: true })).toBeVisible();
+});
+
+
+test('staff manage Bajaj model gallery with multipart upload and primary-image removal', async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+
+  await page.getByRole('button', { name: /Bike inventory/ }).click();
+  await expect(page.getByRole('heading', { name: 'Motorcycle image gallery', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Bajaj catalogue model')).toHaveValue('BAJAJ_PULSAR_NS200');
+  await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
+
+  await page.locator('.catalogue-gallery-upload input[type="file"]').setInputFiles({
+    name: 'pulsar-ns200.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+  });
+  await page.getByRole('button', { name: 'Upload as primary image' }).click();
+  await expect(page.getByText('PRIMARY', { exact: true })).toBeVisible();
+  expect(galleryUploadContentType).toContain('multipart/form-data');
+  expect(galleryUploadContentType).not.toContain('application/json');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Remove image' }).click();
+  await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
 });
