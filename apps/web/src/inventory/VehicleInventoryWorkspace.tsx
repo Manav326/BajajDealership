@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { apiFetch } from '../apiClient';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { apiFetch, apiRequestUrl } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
 
 type VehicleModel = {
@@ -15,6 +15,10 @@ type CatalogueModel = {
 };
 type CatalogueDraft = {
   published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string; internalNote: string;
+};
+type CatalogueImage = {
+  publicId: string; modelCode: string; contentType: string; sizeBytes: number;
+  primary: boolean; uploadedAt: string;
 };
 type LocationPriceProfile = {
   publicId: string; modelCode: string; modelName: string; city: string; state: string;
@@ -88,6 +92,14 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [imageModelCode, setImageModelCode] = useState('');
+  const [catalogueImages, setCatalogueImages] = useState<CatalogueImage[]>([]);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryBusyId, setGalleryBusyId] = useState('');
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+  const [galleryError, setGalleryError] = useState('');
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async (searchValue = activeSearch) => {
     setLoading(true);
@@ -111,8 +123,11 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
       setModels(modelPage.items);
       setUnits(unitPage.items);
       if (catalogueResult) {
-        setCatalogueModels(catalogueResult.models ?? []);
-        setCatalogueDrafts(Object.fromEntries((catalogueResult.models ?? []).map((model) => [model.modelCode, {
+        const nextCatalogueModels = catalogueResult.models ?? [];
+        setCatalogueModels(nextCatalogueModels);
+        setImageModelCode((current) => current && nextCatalogueModels.some((model) => model.modelCode === current)
+          ? current : nextCatalogueModels[0]?.modelCode ?? '');
+        setCatalogueDrafts(Object.fromEntries(nextCatalogueModels.map((model) => [model.modelCode, {
           published: model.published, markedOutOfStock: model.markedOutOfStock,
           expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
         }])));
@@ -127,6 +142,74 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
   }, [token, activeSearch, canReadCatalogue]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!canReadCatalogue || !imageModelCode) {
+      setCatalogueImages([]);
+      setGalleryLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setGalleryLoading(true);
+    setGalleryError('');
+    void apiFetch<{ items: CatalogueImage[] }>(
+      `/api/v1/admin/catalogue/models/${encodeURIComponent(imageModelCode)}/images`,
+      token,
+      { signal: controller.signal },
+    ).then((response) => {
+      setCatalogueImages(Array.isArray(response.items) ? response.items : []);
+    }).catch((cause: unknown) => {
+      if (controller.signal.aborted) return;
+      setCatalogueImages([]);
+      setGalleryError(cause instanceof Error ? cause.message : 'Unable to load the image gallery.');
+    }).finally(() => {
+      if (!controller.signal.aborted) setGalleryLoading(false);
+    });
+    return () => controller.abort();
+  }, [canReadCatalogue, imageModelCode, token, galleryRefreshKey]);
+
+  async function uploadCatalogueImage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageCatalogue) return;
+    if (!imageModelCode) { setGalleryError('Choose a Bajaj catalogue model first.'); return; }
+    if (!imageFile) { setGalleryError('Choose a JPEG, PNG or WebP image to upload.'); return; }
+    if (imageFile.size > 4_718_592) { setGalleryError('Choose an image no larger than 4.5 MiB.'); return; }
+    setGalleryBusyId('upload'); setGalleryError(''); setError(''); setSuccess('');
+    try {
+      const formData = new FormData();
+      formData.append('file', imageFile);
+      await apiFetch<CatalogueImage>(
+        `/api/v1/admin/catalogue/models/${encodeURIComponent(imageModelCode)}/images`,
+        token,
+        { method: 'POST', body: formData },
+      );
+      setImageFile(null);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+      setSuccess(`Primary catalogue image updated for ${imageModelCode}. Existing vehicle stock was not changed.`);
+      setGalleryRefreshKey((key) => key + 1);
+    } catch (cause) {
+      setGalleryError(cause instanceof Error ? cause.message : 'Unable to upload the catalogue image.');
+    } finally { setGalleryBusyId(''); }
+  }
+
+  async function deleteCatalogueImage(image: CatalogueImage) {
+    if (!canManageCatalogue) return;
+    if (!window.confirm(`Remove this uploaded image for ${image.modelCode}? The official Bajaj image will be used if no uploaded primary image remains.`)) return;
+    setGalleryBusyId(image.publicId); setGalleryError(''); setSuccess('');
+    try {
+      await apiFetch<{ success: boolean; message: string }>(
+        `/api/v1/admin/catalogue/models/${encodeURIComponent(image.modelCode)}/images/${encodeURIComponent(image.publicId)}`,
+        token,
+        { method: 'DELETE' },
+      );
+      setSuccess(image.primary
+        ? 'Primary image removed. The saved gallery will choose its next image or use the official Bajaj fallback.'
+        : 'Catalogue image removed.');
+      setGalleryRefreshKey((key) => key + 1);
+    } catch (cause) {
+      setGalleryError(cause instanceof Error ? cause.message : 'Unable to remove this catalogue image.');
+    } finally { setGalleryBusyId(''); }
+  }
 
   async function createModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -551,6 +634,58 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
           </table>
         </div>
         <div className="inventory-footnote"><span className="status-dot" /> Publish controls only affect public visibility. Physical availability remains sourced from received vehicle units. Expected date and internal note are dealership-maintained forecasts; only the expected date is public.</div>
+      </section>}
+
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card catalogue-image-gallery" aria-labelledby="catalogue-image-gallery-title">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">BAJAJ PRODUCT PRESENTATION</div><h2 id="catalogue-image-gallery-title">Motorcycle image gallery</h2>
+            <p>Manage dealership-owned JPEG, PNG or WebP images for the selected catalogue model. Uploading changes the public primary image; it does not create or change physical inventory.</p></div>
+          <span className="inventory-count-pill">{catalogueImages.length} uploaded</span>
+        </div>
+        {galleryError && <div className="notice notice-error" role="alert">{galleryError}</div>}
+        <div className="catalogue-gallery-toolbar">
+          <label>Bajaj catalogue model
+            <select value={imageModelCode} onChange={(event) => { setImageModelCode(event.target.value); setImageFile(null); setGalleryError(''); if (imageInputRef.current) imageInputRef.current.value = ''; }}>
+              <option value="">Choose a model…</option>
+              {catalogueModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName} · {model.modelCode}</option>)}
+            </select>
+          </label>
+          {canManageCatalogue
+            ? <form className="catalogue-gallery-upload" onSubmit={(event) => void uploadCatalogueImage(event)}>
+              <label>Upload image <span>JPEG / PNG / WebP · max 4.5 MiB</span>
+                <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={!imageModelCode || galleryBusyId !== '' || saving}
+                  onChange={(event) => { setImageFile(event.target.files?.[0] ?? null); setGalleryError(''); }} />
+              </label>
+              <button type="submit" className="primary-button" disabled={!imageModelCode || !imageFile || galleryBusyId !== '' || saving}>
+                {galleryBusyId === 'upload' ? 'Uploading…' : 'Upload as primary image'}
+              </button>
+            </form>
+            : <p className="inventory-footnote">Image upload and removal require catalogue management permission.</p>}
+        </div>
+        {galleryLoading
+          ? <div className="table-empty" role="status">Loading model images…</div>
+          : !imageModelCode
+            ? <div className="table-empty">Choose a catalogue model to manage its image gallery.</div>
+            : catalogueImages.length === 0
+              ? <div className="table-empty">No uploaded gallery images for this model. The official Bajaj catalogue image remains the public fallback.</div>
+              : <div className="catalogue-gallery-grid">
+                {catalogueImages.map((image) => <article className="catalogue-gallery-image-card" key={image.publicId}>
+                  <div className="catalogue-gallery-image">
+                    <img src={apiRequestUrl(`/api/v1/public/catalogue/bikes/images/${encodeURIComponent(image.modelCode)}/${encodeURIComponent(image.publicId)}?dealershipCode=${encodeURIComponent(staff.dealershipCode)}`)}
+                      alt={`Uploaded catalogue image for ${image.modelCode}`} loading="lazy" />
+                    {image.primary && <span className="catalogue-gallery-primary">PRIMARY</span>}
+                  </div>
+                  <div className="catalogue-gallery-image-meta">
+                    <span>{image.contentType.replace('image/', '').toUpperCase()} · {(image.sizeBytes / 1_048_576).toFixed(2)} MiB</span>
+                    <small>{dateLabel(image.uploadedAt)}</small>
+                    {canManageCatalogue && <button type="button" className="secondary-button" disabled={galleryBusyId !== '' || saving}
+                      onClick={() => void deleteCatalogueImage(image)}>
+                      {galleryBusyId === image.publicId ? 'Removing…' : 'Remove image'}
+                    </button>}
+                  </div>
+                </article>)}
+              </div>}
+        <div className="inventory-footnote"><span className="status-dot" /> Images are scoped to this dealership and model, validated by file signature, size-checked by the API and served as raster images. The official Bajaj CDN image remains the fallback if no custom primary image is available.</div>
       </section>}
     </section>
   );

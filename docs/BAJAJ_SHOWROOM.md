@@ -71,3 +71,8 @@ New inventory SKUs receive a durable local catalogue candidate and remain mapped
 ### Shareable showroom links and bike comparison
 
 The public showroom and signed-in **Explore bikes** tab use the same backend catalogue. Opening model details adds the model code to the `bike` query parameter; closing the dialog and browser Back/Forward keep the URL and visible dialog in sync. Comparison state is stored as a comma-separated `compare` parameter, supports at most three catalogue models, and compares only the fields provided by the verified catalogue API (unknown values remain labelled as not published). Active promotions have stable card anchors and an `offer` parameter so a shared offer URL can scroll to and highlight the exact announcement. Existing `view` and other query parameters are preserved when these showroom parameters change.
+
+
+### Staff-managed motorcycle images
+
+Staff with `catalogue.read` can inspect each Bajaj model's image gallery in **Bike inventory**. `catalogue.manage` permits upload and removal. Uploads accept validated JPEG, PNG or WebP up to 4.5 MiB, become the primary dealer-owned image, and remain scoped to the dealership/model. Removing an image promotes another saved image when available; otherwise the official Bajaj image is used. Image edits never create, receive, reserve, sell or otherwise mutate physical vehicle inventory.

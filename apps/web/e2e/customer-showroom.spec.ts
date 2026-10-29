@@ -342,7 +342,7 @@ test('bike detail deep links restore from the URL and browser Back/Forward close
   await mockShowroomApi(page);
   await page.goto('http://127.0.0.1:4173/?bike=BAJAJ_PULSAR_NS200');
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Pulsar NS200', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Pulsar NS200', exact: true })).toBeVisible();
 
   await page.goto('http://127.0.0.1:4173');
   await page.getByRole('button', { name: 'View Pulsar NS200 details' }).click();

@@ -2658,3 +2658,27 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   font-size: 10px; font-weight: 800; line-height: 1.6;
 }
 .retail-stock-reassignment-warning input { flex: 0 0 auto; margin-top: 2px; accent-color: #b86a0a; }
+
+
+/* Staff-only uploaded motorcycle catalogue gallery. */
+.catalogue-image-gallery { margin-top: 22px; }
+.catalogue-gallery-toolbar { display: grid; grid-template-columns: minmax(190px, .75fr) minmax(0, 1.25fr); align-items: end; gap: 16px; margin: 18px 0; }
+.catalogue-gallery-toolbar > label, .catalogue-gallery-upload > label { display: grid; gap: 7px; color: var(--text-secondary, #64748b); font-size: 10px; font-weight: 800; }
+.catalogue-gallery-toolbar select, .catalogue-gallery-upload input[type="file"] { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--border, rgba(148,163,184,.4)); border-radius: 9px; background: var(--surface, #fff); color: var(--text, #233044); font: inherit; font-size: 11px; }
+.catalogue-gallery-upload { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 10px; }
+.catalogue-gallery-upload > label span { color: var(--text-muted, #8491a4); font-size: 9px; font-weight: 500; }
+.catalogue-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 13px; margin: 16px 0; }
+.catalogue-gallery-image-card { min-width: 0; overflow: hidden; border: 1px solid var(--border, rgba(148,163,184,.3)); border-radius: 12px; background: var(--surface-raised, #fff); }
+.catalogue-gallery-image { position: relative; display: grid; place-items: center; height: 170px; padding: 10px; overflow: hidden; background: #e5e9ee; }
+.catalogue-gallery-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.catalogue-gallery-primary { position: absolute; top: 9px; left: 9px; padding: 5px 7px; border-radius: 999px; background: #155e47; color: #e9fff5; font-size: 8px; font-weight: 900; letter-spacing: .06em; }
+.catalogue-gallery-image-meta { display: grid; gap: 7px; padding: 11px; }
+.catalogue-gallery-image-meta > span { color: var(--text-secondary, #526176); font-size: 10px; font-weight: 800; }
+.catalogue-gallery-image-meta small { color: var(--text-muted, #8491a4); font-size: 9px; }
+.catalogue-gallery-image-meta button { justify-self: start; min-height: 32px; }
+@media (max-width: 680px) {
+  .catalogue-gallery-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .catalogue-gallery-upload { grid-template-columns: minmax(0, 1fr); }
+  .catalogue-gallery-upload button { width: 100%; }
+  .catalogue-gallery-image { height: 145px; }
+}
