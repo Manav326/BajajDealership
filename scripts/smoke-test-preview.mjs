@@ -79,6 +79,31 @@ function requireCondition(condition, message) {
 function safeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
+async function verifyStaticAssets(base, html) {
+  const baseUrl = new URL(base);
+  const scriptRefs = [...html.matchAll(/<script\\b[^>]*\\bsrc=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
+  const localScripts = scriptRefs.map(reference => new URL(reference, baseUrl))
+    .filter(asset => asset.origin === baseUrl.origin);
+  requireCondition(localScripts.length > 0, "No same-origin JavaScript bundle is referenced by index.html.");
+
+  const stylesheetRefs = [...html.matchAll(/<link\\b(?=[^>]*\\brel=["']stylesheet["'])[^>]*\\bhref=["']([^"']+)["'][^>]*>/gi)].map(match => match[1]);
+  const localStylesheets = stylesheetRefs.map(reference => new URL(reference, baseUrl))
+    .filter(asset => asset.origin === baseUrl.origin);
+
+  const assets = [
+    ...localScripts.map(url => ({ url, kind: "JavaScript" })),
+    ...localStylesheets.map(url => ({ url, kind: "CSS" })),
+  ];
+  for (const asset of assets) {
+    const result = await request(base, asset.url.pathname + asset.url.search);
+    requireCondition(result.response.ok,
+      asset.kind + " asset " + asset.url.pathname + " returned HTTP " + result.response.status + ".");
+    requireCondition(result.body.length > 0, asset.kind + " asset " + asset.url.pathname + " is empty.");
+    requireCondition(!(result.response.headers.get("content-type") || "").includes("text/html"),
+      asset.kind + " asset " + asset.url.pathname + " returned HTML instead of an asset.");
+  }
+  return localScripts.length + " JavaScript and " + localStylesheets.length + " CSS asset(s) fetched successfully";
+}
 
 console.log("Lucky Bajaj preview smoke check (read-only; no login, writes, messages or payments)");
 console.log("API:      " + urls.api);
@@ -99,7 +124,8 @@ await check("Customer website HTML", async () => {
   requireCondition((result.response.headers.get("content-type") || "").includes("text/html"), "Expected text/html response.");
   requireCondition(/<div id="root"><\/div>/i.test(result.body), "Customer site HTML does not contain the React root.");
   requireCondition(/<title>[^<]*Lucky Bajaj/i.test(result.body), "Expected the Lucky Bajaj customer-site title.");
-  return "HTTP " + result.response.status + "; title and React root present";
+  const assets = await verifyStaticAssets(urls.customer, result.body);
+  return "HTTP " + result.response.status + "; title and React root present; " + assets;
 });
 
 await check("Staff website HTML", async () => {
@@ -108,7 +134,8 @@ await check("Staff website HTML", async () => {
   requireCondition((result.response.headers.get("content-type") || "").includes("text/html"), "Expected text/html response.");
   requireCondition(/<div id="root"><\/div>/i.test(result.body), "Staff site HTML does not contain the React root.");
   requireCondition(/<title>[^<]*(QuantaEdge|Bajaj Dealership)/i.test(result.body), "Expected the QuantaEdge/Bajaj staff-site title.");
-  return "HTTP " + result.response.status + "; title and React root present";
+  const assets = await verifyStaticAssets(urls.staff, result.body);
+  return "HTTP " + result.response.status + "; title and React root present; " + assets;
 });
 
 await check("Public Bajaj catalogue shape and model isolation", async () => {
