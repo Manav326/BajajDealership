@@ -21,7 +21,7 @@ Artwork composition in this slice stays local to the browser. It does not upload
 
 ### Meta account connection foundation now in code
 
-The backend now has a disabled-by-default Meta OAuth connection foundation: a 10-minute random state whose hash is persisted and consumed once; an allowlisted, server-configured completion URL; server-to-server authorization-code and long-lived-token exchange; AES-GCM encryption of provider tokens with a required 32-byte Base64 key; dealership-scoped Page/Instagram destination records; and an audit trail that excludes tokens and provider response bodies. Owner/Manager roles receive dedicated `social_media.read` and `social_media.manage` permissions. Provider credentials and a real Meta app are not configured in this repository by default, so connection remains unavailable until explicit deployment configuration is supplied. Do not claim the flow is production-verified until it passes Meta app review/configuration and authorized-account E2E testing.
+The backend now has a disabled-by-default Meta OAuth connection foundation: a 10-minute random state whose hash is persisted and consumed once; an allowlisted, server-configured completion URL; server-to-server authorization-code and long-lived-token exchange; AES-GCM encryption of provider tokens with a required 32-byte Base64 key; dealership-scoped Page/Instagram destination records; and an audit trail that excludes tokens and provider response bodies. Owner/Manager roles receive dedicated `social_media.read` and `social_media.manage` permissions. Provider credentials and a real Meta app are not configured in this repository by default, so connection remains unavailable until explicit deployment configuration is supplied. Staff actions remain controlled by the authenticated dealership scope and role permissions. Do not claim the flow is production-verified until it passes Meta app review/configuration and authorized-account E2E testing.
 
 ### Facebook / Instagram
 
@@ -33,7 +33,7 @@ Media delivery is a deployment concern: Meta must be able to fetch media from an
 
 The implementation now includes dealership-scoped customer consent records, Meta-approved template discovery, sequential body-placeholder validation, optional image headers, idempotent single-recipient sends, signed delivery webhooks and inbound opt-out handling. Each send rechecks that the saved opt-in matches the customer's current E.164 phone. Dynamic text headers and button-bearing templates are rejected until their parameter workflows are implemented. Provider acceptance is distinct from sent/delivered/read/failed status. WhatsApp Status stays on manual export/share. Live provider end-to-end validation still requires an authorized test WABA and a consented internal recipient.
 
-The initial deployment mapping binds one WhatsApp phone ID and WABA to one configured dealership code. Before supporting multiple independently configured dealerships in one API deployment, replace it with per-dealership encrypted WABA connections.
+This deployment intentionally uses one WhatsApp Business account and phone number for the Lucky Bajaj dealership. Staff with the relevant WhatsApp permissions can use that shared connection; the provider token stays on the backend, and each request is scoped to the authenticated staff member's dealership and permissions. Per-dealership credential management for a multi-dealership deployment is out of scope unless the product scope changes.
 
 ### WhatsApp Status
 
@@ -53,7 +53,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
 - **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires durable object storage.
-- **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work is authorized-provider E2E testing, multi-account WABA management, bulk/audience controls and an explicit preview/approval workflow.
+- **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work for this single-dealership deployment is authorized-provider E2E testing, plus review of bulk/audience controls and an explicit preview/approval workflow if those features are approved for scope.
 - **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
 
 ## Configuration and release gates
@@ -74,5 +74,5 @@ Keep provider secrets out of source control and browser responses. Production se
 - [ ] Provision production shared storage and validate put/read/delete, signed-URL fetching and multi-instance access with the selected provider.
 - [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
-- [ ] Expand the initial single-dealership environment mapping into per-dealership encrypted WABA connections before multi-account deployment.
+- [x] Keep one centrally configured WhatsApp Business connection for the Lucky Bajaj dealership; let staff with the required permissions use it without exposing provider credentials.
 - [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.
