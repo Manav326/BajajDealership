@@ -39,6 +39,9 @@ management:
 
 app:
   version: ${APP_VERSION:development}
+  auth:
+    # Public client ID only; provider secrets remain server-side.
+    google-client-id: ${APP_AUTH_GOOGLE_CLIENT_ID:${GOOGLE_WEB_CLIENT_ID:}}
   cors:
     # Empty by default: local dev and Docker use same-origin API proxies.
     # Production/preview deployment injects explicit frontend origins.
