@@ -20,7 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class SocialWhatsappController {
  private final SocialWhatsappService whatsapp;
- public SocialWhatsappController(SocialWhatsappService whatsapp){this.whatsapp=whatsapp;}
+ private final SocialWhatsappScheduleService schedules;
+ public SocialWhatsappController(SocialWhatsappService whatsapp,SocialWhatsappScheduleService schedules){this.whatsapp=whatsapp;this.schedules=schedules;}
  @GetMapping("/api/v1/admin/social/whatsapp/status")
  @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.manage','social_media.whatsapp.send')")
  public SocialWhatsappService.StatusView status(@AuthenticationPrincipal StaffPrincipal principal){return whatsapp.status(principal);}
@@ -36,9 +37,15 @@ public class SocialWhatsappController {
  @PostMapping("/api/v1/admin/social/whatsapp/send")
  @PreAuthorize("hasAuthority('social_media.whatsapp.send')")
  public SocialWhatsappService.MessageView send(@AuthenticationPrincipal StaffPrincipal principal,@RequestBody SocialWhatsappService.SendRequest request){return whatsapp.send(principal,request);}
+ @PostMapping("/api/v1/admin/social/whatsapp/schedule")
+ @PreAuthorize("hasAuthority('social_media.whatsapp.send')")
+ public SocialWhatsappScheduleService.ScheduledMessageView schedule(@AuthenticationPrincipal StaffPrincipal principal,@Valid @RequestBody SocialWhatsappScheduleService.ScheduleRequest request){return schedules.schedule(principal,request);}
+ @GetMapping("/api/v1/admin/social/whatsapp/scheduled")
+ @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.manage','social_media.whatsapp.send')")
+ public java.util.List<SocialWhatsappScheduleService.ScheduledMessageView> scheduled(@AuthenticationPrincipal StaffPrincipal principal,@RequestParam(defaultValue="50") int limit){return schedules.list(principal,limit);}
  @GetMapping("/api/v1/admin/social/whatsapp/messages/{publicId}")
  @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.send')")
- public SocialWhatsappService.MessageView message(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return whatsapp.messageStatus(principal,publicId);}
+ public SocialWhatsappScheduleService.ScheduledMessageView message(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return schedules.status(principal,publicId);}
  @GetMapping("/api/v1/social/whatsapp/webhook")
  public ResponseEntity<String> verify(@RequestParam(name="hub.mode",required=false) String mode,@RequestParam(name="hub.verify_token",required=false) String token,@RequestParam(name="hub.challenge",required=false) String challenge){
   if(!whatsapp.verifyWebhook(mode,token,challenge))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"WhatsApp webhook verification failed.");
