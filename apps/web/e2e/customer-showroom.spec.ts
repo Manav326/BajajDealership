@@ -48,8 +48,9 @@ async function mockShowroomApi(
   let failFirstSalesRequest = Boolean(options.failFirstSalesRequest);
   let failFirstSalesRequestList = Boolean(options.failFirstSalesRequestList);
   await page.route('**/api/v1/**', async (route) => {
-    const url = new URL(route.request().url());
-    const method = route.request().method();
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
     const json = (payload: unknown, status = 200) => route.fulfill({
       status,
       contentType: 'application/json',
