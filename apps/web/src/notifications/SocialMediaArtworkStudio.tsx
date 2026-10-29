@@ -234,6 +234,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
+  const canPublishSelectedFormat = selectedFormat.id !== 'story-status';
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
 
   useEffect(() => {
@@ -728,7 +729,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
           <div>
             <span className={styles.eyebrow}>LUCKY BAJAJ AGENCY · CAMPAIGN DESIGN</span>
             <h2 id="social-artwork-title">Social Media Artwork Studio</h2>
-            <p>Create a channel-sized artwork and caption. Publishing integrations are a separate next phase.</p>
+            <p>Create, export and publish campaign artwork. Direct posting is for feed formats; Story / Status uses manual share or export.</p>
           </div>
           <button type="button" className={styles.close} onClick={onClose} aria-label="Close social media artwork studio">×</button>
         </header>
@@ -818,12 +819,13 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
                 </select>
               </label>
-              <button type="button" className={styles.publishButton} disabled={!canPublish||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':canPublish?'Publish now':'Publishing permission required'}</button>
+              <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Publish now':'Choose a feed format to publish'}</button>
               {publishJob&&<div className={styles.publishResult}>
                 <div><strong>Latest publish job</strong><span className={publishJob.status==='PUBLISHED'?styles.connectedState:publishJob.status==='FAILED'?styles.disconnectedState:styles.publishPendingState}>{publishJob.status}</span></div>
                 <p>{publishJob.destinationName}{publishJob.externalPostId?' · Post ID '+publishJob.externalPostId:''}{publishJob.errorCode?' · '+publishJob.errorCode:''}</p>
                 {(publishJob.status==='PROCESSING'||publishJob.status==='UNKNOWN')&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishJob()}>Refresh publish status</button>}
               </div>}
+              {!canPublishSelectedFormat && <p className={styles.note}>Story / Status artwork is export/share-only in this version. Choose Facebook Feed, Square Feed or Instagram Feed to publish directly.</p>}
               <p className={styles.note}>Publishing creates a real post. Final confirmation is required; uncertain outcomes are not automatically retried.</p>
             </section>
             {error && <div className={styles.error} role="alert">{error}</div>}
