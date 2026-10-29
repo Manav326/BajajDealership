@@ -219,7 +219,9 @@ class NotificationManagementServiceIntegrationTest {
         Instant.now().plusSeconds(3600), null));
     jdbc.update("""
         update notification_campaign
-        set expires_at = now() - interval '1 second'
+        set scheduled_at = now() - interval '2 seconds',
+            expires_at = now() - interval '1 second',
+            next_dispatch_attempt_at = null
         where dealership_id = ? and public_id = ? and status = 'SCHEDULED'
         """, owner.dealershipId(), manualPreview.campaignPublicId());
 
