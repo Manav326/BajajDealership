@@ -254,6 +254,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [assetPreviewSources, setAssetPreviewSources] = useState<Record<string, string>>({});
   const assetPreviewUrlsRef = useRef<Record<string, string>>({});
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [selectedLogoAssetId, setSelectedLogoAssetId] = useState<string | null>(null);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
@@ -533,16 +534,21 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     return assets;
   }
 
-  async function selectArtworkAsset(asset: ArtworkAsset): Promise<boolean> {
+  async function selectArtworkAsset(asset: ArtworkAsset, target: 'photo' | 'logo' = 'photo'): Promise<boolean> {
     setAssetBusyId(asset.id);
     setError('');
     setNotice('');
     try {
       const source = await resolveArtworkAssetSource(asset);
-      setPhotoSource(source);
-      setSelectedAssetId(asset.id);
+      if (target === 'logo') {
+        setLogoSource(source);
+        setSelectedLogoAssetId(asset.id);
+      } else {
+        setPhotoSource(source);
+        setSelectedAssetId(asset.id);
+      }
       await refreshArtworkAssets();
-      setNotice(asset.name + ' is now selected and cached in this browser.');
+      setNotice(asset.name + (target === 'logo' ? ' is now used as the dealership logo.' : ' is now selected as the campaign image.') + ' It is cached in this browser.');
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The image could not be imported into the asset library.');
@@ -561,6 +567,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setHashtags(template.hashtags);
     setPrimary(template.primary);
     setAccent(template.accent);
+    setHeadlineColor('#ffffff');
+    setMessageColor('#e4eaf3');
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
     setSelectedLayer('headline');
@@ -646,6 +654,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       if (selectedAssetId === asset.id) {
         setSelectedAssetId(null);
         setPhotoSource(null);
+      }
+      if (selectedLogoAssetId === asset.id) {
+        setSelectedLogoAssetId(null);
+        setLogoSource(null);
       }
       await refreshArtworkAssets();
       setNotice('Uploaded asset removed from this browser.');
@@ -892,6 +904,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
       setSelectedLayer('headline');
       setSelectedAssetId(null);
+      setSelectedLogoAssetId(null);
       setNotice('Saved draft loaded.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected draft could not be loaded.');
@@ -938,6 +951,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setPhotoSource(null);
     setLogoSource(null);
     setSelectedAssetId(null);
+    setSelectedLogoAssetId(null);
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
     setSelectedLayer('headline');
@@ -1144,7 +1158,11 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   <div className={styles.assetActions}>
                     <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
                       onClick={() => void selectArtworkAsset(asset)}>
-                      {assetBusyId === asset.id ? 'Importing…' : selectedAssetId === asset.id ? 'Selected' : 'Use image'}
+                      {assetBusyId === asset.id ? 'Importing…' : selectedAssetId === asset.id ? 'Image selected' : 'Use image'}
+                    </button>
+                    <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
+                      onClick={() => void selectArtworkAsset(asset, 'logo')}>
+                      {selectedLogoAssetId === asset.id ? 'Logo selected' : 'Use as logo'}
                     </button>
                     {!asset.isStarter && <button type="button" className={styles.textButton}
                       disabled={assetBusyId !== null} onClick={() => void deleteLibraryAsset(asset)}>Remove</button>}
@@ -1201,9 +1219,12 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <label>Upload JPEG / PNG to asset library<input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} /></label>
             {photoSource && <button className={styles.textButton} type="button" onClick={() => setPhotoSource(null)}>Remove photo</button>}
             <div className={styles.colors}>
-              <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
+              <label>Background colour<input aria-label="Background colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
               <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
+              <label>Headline colour<input aria-label="Headline colour" type="color" value={headlineColor} onChange={(event) => setHeadlineColor(event.target.value)} /></label>
+              <label>Message colour<input aria-label="Message colour" type="color" value={messageColor} onChange={(event) => setMessageColor(event.target.value)} /></label>
             </div>
+            {logoSource && <button type="button" className={styles.textButton} onClick={() => { setLogoSource(null); setSelectedLogoAssetId(null); }}>Remove logo image</button>}
             <p className={styles.privacy}>Drafts and your 50-item asset library are stored in this browser. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
           </aside>
           <main className={styles.previewColumn}>
