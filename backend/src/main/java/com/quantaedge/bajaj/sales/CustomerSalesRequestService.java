@@ -103,7 +103,7 @@ public class CustomerSalesRequestService {
         where catalogue.manufacturer = 'BAJAJ' and catalogue.active = true
           and catalogue.model_code = ?
         """, Integer.class, actor.dealershipId(), modelCode);
-    if (eligible == null || eligible != 1) {
+    if (eligible == null || eligible < 1) {
       throw notFound("That Bajaj model is not currently published for this dealership.");
     }
 
