@@ -529,7 +529,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         </div>
         <div className="studio-heading-actions">
           <span className="studio-security-note"><span /> In-app delivery · dealership scoped</span>
-          <button className="secondary-button" type="button" onClick={() => setShowSocialArtwork(true)}>Create social artwork</button>
+          {staff.permissions.includes('social_media.read') && <button className="secondary-button" type="button" onClick={() => setShowSocialArtwork(true)}>Create social artwork</button>}
           <button className="secondary-button" type="button" onClick={() => void loadWorkspace()}>↻ Refresh</button>
         </div>
       </div>
