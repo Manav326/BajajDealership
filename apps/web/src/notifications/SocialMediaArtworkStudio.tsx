@@ -7,6 +7,12 @@ import {
   blobToDataUrl, loadArtworkAssets, removeArtworkAsset, resolveArtworkAssetSource,
   type ArtworkAsset, type ArtworkTemplate,
 } from './artworkAssets';
+import {
+  addArtworkMusicAsset, ARTWORK_MUSIC_LIMIT, ARTWORK_MUSIC_MAX_BYTES,
+  MUSIC_CLIP_DEFAULT_SECONDS, MUSIC_CLIP_MAX_SECONDS, MUSIC_CLIP_MIN_SECONDS,
+  loadArtworkMusicAssets, removeArtworkMusicAsset, updateArtworkMusicAsset,
+  type ArtworkMusicAsset,
+} from './artworkMusic';
 
 type ArtworkFormat = {
   id: string;
@@ -111,6 +117,10 @@ type ArtworkDraft = {
   logoSource?: string | null;
   layers?: ArtworkLayerVisibility;
   transforms?: ArtworkTransforms;
+  musicAssetId?: string | null;
+  musicClipStart?: number;
+  musicClipDuration?: number;
+  musicVolume?: number;
   updatedAt: string;
 };
 type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
@@ -135,13 +145,16 @@ function openArtworkDraftDb(): Promise<IDBDatabase> {
       reject(new Error('Saved drafts are not available in this browser context.'));
       return;
     }
-    const request = indexedDB.open('bajaj-social-media-artwork', 2);
+    const request = indexedDB.open('bajaj-social-media-artwork', 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains('drafts')) {
         request.result.createObjectStore('drafts', { keyPath: 'id' });
       }
       if (!request.result.objectStoreNames.contains('assets')) {
         request.result.createObjectStore('assets', { keyPath: 'id' });
+      }
+      if (!request.result.objectStoreNames.contains('music')) {
+        request.result.createObjectStore('music', { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -258,6 +271,16 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
+  const [musicAssets, setMusicAssets] = useState<ArtworkMusicAsset[]>([]);
+  const [musicLibraryOpen, setMusicLibraryOpen] = useState(true);
+  const [selectedMusicId, setSelectedMusicId] = useState<string | null>(null);
+  const [musicPreviewUrl, setMusicPreviewUrl] = useState<string | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [musicClipStart, setMusicClipStart] = useState(0);
+  const [musicClipDuration, setMusicClipDuration] = useState(MUSIC_CLIP_DEFAULT_SECONDS);
+  const [musicVolume, setMusicVolume] = useState(78);
+  const [musicIsPlaying, setMusicIsPlaying] = useState(false);
+  const [videoExporting, setVideoExporting] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [draftName, setDraftName] = useState('New campaign draft');
@@ -288,6 +311,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
+  const selectedMusicTrack = musicAssets.find((track) => track.id === selectedMusicId) ?? null;
+  const selectedMusicReady = Boolean(selectedMusicTrack?.fileData && musicPreviewUrl);
+  const musicStartLimit = Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - musicClipDuration);
   const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
   const canPublishSelectedFormat = selectedFormat.id !== 'story-status';
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
@@ -334,8 +360,30 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     refreshArtworkAssets().catch((cause) => {
       if (!disposed) setError(cause instanceof Error ? cause.message : 'The asset library could not be loaded.');
     });
+    refreshArtworkMusicAssets().catch((cause) => {
+      if (!disposed) setError(cause instanceof Error ? cause.message : 'The music library could not be loaded.');
+    });
     return () => { disposed = true; };
   }, []);
+
+  useEffect(() => {
+    const track = musicAssets.find((item) => item.id === selectedMusicId);
+    if (!track?.fileData) {
+      setMusicPreviewUrl(null);
+      setMusicIsPlaying(false);
+      return;
+    }
+    const url = URL.createObjectURL(track.fileData);
+    setMusicPreviewUrl(url);
+    setMusicIsPlaying(false);
+    return () => URL.revokeObjectURL(url);
+  }, [musicAssets, selectedMusicId]);
+
+  useEffect(() => {
+    const audio = musicAudioRef.current;
+    if (!audio) return;
+    audio.volume = musicVolume / 100;
+  }, [musicVolume, musicPreviewUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -555,6 +603,156 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       return false;
     } finally {
       setAssetBusyId(null);
+    }
+  }
+
+  async function refreshArtworkMusicAssets(): Promise<ArtworkMusicAsset[]> {
+    const tracks = await loadArtworkMusicAssets();
+    setMusicAssets(tracks);
+    return tracks;
+  }
+
+  async function selectMusicTrack(track: ArtworkMusicAsset) {
+    if (!track.fileData) {
+      window.open(track.sourcePage, '_blank', 'noopener,noreferrer');
+      setNotice('Download the MP3 from the linked source page, then attach it to this track below. Source pages are not direct audio files.');
+      return;
+    }
+    setSelectedMusicId(track.id);
+    setMusicClipStart(0);
+    setMusicClipDuration(Math.min(MUSIC_CLIP_DEFAULT_SECONDS, Math.floor(track.durationSeconds)));
+    setError('');
+    setNotice(track.name + ' is ready for your Story / Status video. The track is saved in this browser.');
+  }
+
+  async function handleMusicFile(event: ChangeEvent<HTMLInputElement>, starterTrackId?: string) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    setError('');
+    setNotice('');
+    if (!file) return;
+
+    const acceptedTypes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/x-m4a'];
+    const hasAudioExtension = /\.(mp3|m4a|mp4|wav|ogg|webm|aac)$/i.test(file.name);
+    if (!acceptedTypes.includes(file.type.toLowerCase()) && !hasAudioExtension) {
+      setError('Choose a supported MP3, M4A, WAV, OGG or WebM audio file.');
+      return;
+    }
+    if (file.size < 1 || file.size > ARTWORK_MUSIC_MAX_BYTES) {
+      setError('Audio files must be smaller than 25 MB.');
+      return;
+    }
+
+    const temporaryUrl = URL.createObjectURL(file);
+    let durationSeconds = 0;
+    try {
+      const audioDuration = await new Promise<number>((resolve, reject) => {
+        const probe = new Audio();
+        probe.preload = 'metadata';
+        probe.onloadedmetadata = () => resolve(probe.duration);
+        probe.onerror = () => reject(new Error('The selected audio file could not be decoded by this browser.'));
+        probe.src = temporaryUrl;
+        probe.load();
+      });
+      durationSeconds = audioDuration;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The selected audio file could not be read.');
+      URL.revokeObjectURL(temporaryUrl);
+      return;
+    }
+    URL.revokeObjectURL(temporaryUrl);
+
+    if (!Number.isFinite(durationSeconds) || durationSeconds < MUSIC_CLIP_MIN_SECONDS) {
+      setError('Choose an audio track at least 20 seconds long so it can be trimmed for a Story.');
+      return;
+    }
+
+    const existingTrack = starterTrackId ? musicAssets.find((track) => track.id === starterTrackId) : undefined;
+    if (starterTrackId && !existingTrack) {
+      setError('That catalogue track is no longer available. Refresh the studio and try again.');
+      return;
+    }
+    const trackId = existingTrack?.id ?? newDraftId();
+    const guessedMime = file.type || (file.name.toLowerCase().endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream');
+    const track: ArtworkMusicAsset = existingTrack
+      ? { ...existingTrack, fileData: file, mimeType: guessedMime, durationSeconds }
+      : {
+          id: trackId,
+          name: file.name.replace(/\.[^.]+$/, '').slice(0, 100) || 'Uploaded music',
+          category: 'Uploaded',
+          creator: 'Added by staff',
+          sourcePage: 'Uploaded locally by staff',
+          licenseLabel: 'Confirm permission for commercial use before exporting a public promotion.',
+          durationSeconds,
+          isStarter: false,
+          createdAt: new Date().toISOString(),
+          mimeType: guessedMime,
+          fileData: file,
+        };
+
+    setVideoExporting(false);
+    try {
+      if (existingTrack) await updateArtworkMusicAsset(track);
+      else await addArtworkMusicAsset(track);
+      const refreshedTracks = await refreshArtworkMusicAssets();
+      setSelectedMusicId(trackId);
+      setMusicClipStart(0);
+      setMusicClipDuration(Math.min(MUSIC_CLIP_DEFAULT_SECONDS, Math.floor(durationSeconds)));
+      setMusicVolume(78);
+      setNotice(track.name + ' is saved in this browser and ready to use in composed videos.');
+      if (!refreshedTracks.some((item) => item.id === trackId)) {
+        throw new Error('The music track was saved but could not be found in the refreshed library. Reopen the studio.');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The music track could not be stored in this browser.');
+    }
+  }
+
+  async function deleteMusicTrack(track: ArtworkMusicAsset) {
+    if (track.isStarter) return;
+    if (!window.confirm('Remove this uploaded music track from this browser? Existing exported videos are not affected.')) return;
+    setError('');
+    setNotice('');
+    try {
+      await removeArtworkMusicAsset(track.id);
+      if (selectedMusicId === track.id) setSelectedMusicId(null);
+      await refreshArtworkMusicAssets();
+      setNotice('Uploaded music removed from this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The music track could not be removed.');
+    }
+  }
+
+  async function toggleMusicPreview() {
+    const audio = musicAudioRef.current;
+    if (!audio || !selectedMusicReady) {
+      setError('Import a track and select it before previewing audio.');
+      return;
+    }
+    if (musicIsPlaying) {
+      audio.pause();
+      setMusicIsPlaying(false);
+      return;
+    }
+    try {
+      const start = Math.min(musicClipStart, musicStartLimit);
+      audio.currentTime = start;
+      audio.volume = musicVolume / 100;
+      await audio.play();
+      setMusicIsPlaying(true);
+    } catch {
+      setError('The selected track could not be previewed in this browser.');
+    }
+  }
+
+  function handleMusicTimeUpdate() {
+    const audio = musicAudioRef.current;
+    if (!audio || !musicIsPlaying) return;
+    const end = musicClipStart + musicClipDuration;
+    if (audio.currentTime >= end) {
+      audio.pause();
+      audio.currentTime = musicClipStart;
+      setMusicIsPlaying(false);
     }
   }
 
@@ -856,6 +1054,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         logoSource,
         layers: layerVisibility,
         transforms: layerTransforms,
+        musicAssetId: selectedMusicId,
+        musicClipStart,
+        musicClipDuration,
+        musicVolume,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -902,6 +1104,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setLogoSource(draft.logoSource ?? null);
       setLayerVisibility(draft.layers ?? defaultArtworkLayers);
       setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
+      setSelectedMusicId(draft.musicAssetId ?? null);
+      setMusicClipStart(draft.musicClipStart ?? 0);
+      setMusicClipDuration(draft.musicClipDuration ?? MUSIC_CLIP_DEFAULT_SECONDS);
+      setMusicVolume(draft.musicVolume ?? 78);
       setSelectedLayer('headline');
       setSelectedAssetId(null);
       setSelectedLogoAssetId(null);
@@ -954,6 +1160,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setSelectedLogoAssetId(null);
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
+    setSelectedMusicId(null);
+    setMusicClipStart(0);
+    setMusicClipDuration(MUSIC_CLIP_DEFAULT_SECONDS);
+    setMusicVolume(78);
     setSelectedLayer('headline');
     setError('');
     setNotice('Started a new draft. Save it to keep it on this browser.');
@@ -1033,6 +1243,162 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setNotice('Caption and hashtags copied.');
     } catch {
       setError('Clipboard access was blocked. Select and copy the caption manually.');
+    }
+  }
+
+  async function createStoryVideo() {
+    const sourceCanvas = canvasRef.current;
+    const track = musicAssets.find((item) => item.id === selectedMusicId);
+    if (!track?.fileData || !musicPreviewUrl) {
+      setError('Import and select a music track before creating the Story video.');
+      return;
+    }
+    if (formatId !== 'story-status') {
+      setFormatId('story-status');
+      setNotice('Switched the artwork to the 9:16 Story / Status layout. Review the preview, then create the video again.');
+      return;
+    }
+    if (!sourceCanvas || typeof MediaRecorder === 'undefined' || typeof sourceCanvas.captureStream !== 'function') {
+      setError('This browser does not support video export. Try the latest Chrome, Edge or Safari.');
+      return;
+    }
+    const availableSeconds = Math.floor(track.durationSeconds - Math.min(musicClipStart, track.durationSeconds));
+    const duration = Math.min(MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration), availableSeconds);
+    if (duration < MUSIC_CLIP_MIN_SECONDS) {
+      setError('This track does not have a full 20-second selection from the chosen start. Move the start marker earlier.');
+      return;
+    }
+
+    setVideoExporting(true);
+    setError('');
+    setNotice('Preparing a vertical Story video with your selected music. Keep this tab open until export finishes.');
+    let audioContext: AudioContext | null = null;
+    let outputStream: MediaStream | null = null;
+    let renderAudio: HTMLAudioElement | null = null;
+    let frameId = 0;
+    let recorder: MediaRecorder | null = null;
+
+    try {
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = 1080;
+      outputCanvas.height = 1920;
+      const outputContext = outputCanvas.getContext('2d');
+      if (!outputContext) throw new Error('The Story video canvas could not be created.');
+
+      renderAudio = new Audio();
+      renderAudio.preload = 'auto';
+      await new Promise<void>((resolve, reject) => {
+        if (!renderAudio) return reject(new Error('The audio player could not be created.'));
+        renderAudio.onloadedmetadata = () => resolve();
+        renderAudio.onerror = () => reject(new Error('The stored music file could not be decoded for video export.'));
+        renderAudio.src = musicPreviewUrl;
+        renderAudio.load();
+      });
+      const selectionStart = Math.max(0, Math.min(musicClipStart, Math.max(0, track.durationSeconds - duration)));
+      renderAudio.currentTime = selectionStart;
+
+      audioContext = new AudioContext();
+      const source = audioContext.createMediaElementSource(renderAudio);
+      const gain = audioContext.createGain();
+      const audioDestination = audioContext.createMediaStreamDestination();
+      const volume = Math.max(0, Math.min(1, musicVolume / 100));
+      const audioStartAt = audioContext.currentTime;
+      gain.gain.setValueAtTime(0, audioStartAt);
+      gain.gain.linearRampToValueAtTime(volume, audioStartAt + Math.min(0.6, duration / 4));
+      gain.gain.setValueAtTime(volume, audioStartAt + Math.max(0.6, duration - 0.8));
+      gain.gain.linearRampToValueAtTime(0, audioStartAt + duration);
+      source.connect(gain);
+      gain.connect(audioDestination);
+
+      const videoStream = outputCanvas.captureStream(30);
+      outputStream = new MediaStream([
+        ...videoStream.getVideoTracks(),
+        ...audioDestination.stream.getAudioTracks(),
+      ]);
+      const mimeCandidates = [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ];
+      const supportedMime = mimeCandidates.find((mime) => MediaRecorder.isTypeSupported(mime));
+      recorder = supportedMime
+        ? new MediaRecorder(outputStream, { mimeType: supportedMime, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 })
+        : new MediaRecorder(outputStream);
+
+      const videoBlobPromise = new Promise<Blob>((resolve, reject) => {
+        if (!recorder) return reject(new Error('The video recorder could not be created.'));
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
+        recorder.onerror = () => reject(new Error('Video recording failed. Try a shorter clip or another browser.'));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder?.mimeType || supportedMime || 'video/webm' }));
+      });
+
+      const drawFrame = (elapsedSeconds: number) => {
+        const zoom = 1 + Math.min(0.025, 0.025 * elapsedSeconds / duration);
+        outputContext.fillStyle = '#0b1220';
+        outputContext.fillRect(0, 0, 1080, 1920);
+        outputContext.save();
+        outputContext.translate(540, 960);
+        outputContext.scale(zoom, zoom);
+        outputContext.drawImage(sourceCanvas, -540, -960, 1080, 1920);
+        outputContext.restore();
+        // Gentle floating light flecks give the otherwise static campaign art a story-style motion layer.
+        for (let index = 0; index < 16; index += 1) {
+          const phase = (elapsedSeconds * (18 + (index % 5) * 3) + index * 127) % 1920;
+          const x = (index * 193 + Math.sin(elapsedSeconds * 0.55 + index) * 44 + 1080) % 1080;
+          outputContext.globalAlpha = 0.08 + (Math.sin(elapsedSeconds * 2 + index) + 1) * 0.08;
+          outputContext.fillStyle = index % 3 === 0 ? '#ffffff' : '#fbbf24';
+          outputContext.beginPath();
+          outputContext.arc(x, 1920 - phase, index % 4 === 0 ? 3 : 1.6, 0, Math.PI * 2);
+          outputContext.fill();
+        }
+        outputContext.globalAlpha = 1;
+      };
+
+      recorder.start(250);
+      await audioContext.resume();
+      await renderAudio.play();
+      const startTimestamp = performance.now();
+      await new Promise<void>((resolve) => {
+        const draw = (now: number) => {
+          const elapsed = Math.max(0, (now - startTimestamp) / 1000);
+          drawFrame(elapsed);
+          if (elapsed >= duration) {
+            resolve();
+            return;
+          }
+          frameId = window.requestAnimationFrame(draw);
+        };
+        frameId = window.requestAnimationFrame(draw);
+      });
+      renderAudio.pause();
+      if (recorder.state !== 'inactive') recorder.stop();
+      const videoBlob = await videoBlobPromise;
+      if (!videoBlob.size) throw new Error('Video export produced an empty file. Try again.');
+      const mimeType = videoBlob.type || supportedMime || 'video/webm';
+      const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const url = URL.createObjectURL(videoBlob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'lucky-bajaj-story-' + duration + 's.' + extension;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setNotice('Story video exported (' + duration + ' seconds, ' + extension.toUpperCase() + '). Add the downloaded video to WhatsApp Status, Facebook Story or Instagram Story/Reels; this export does not publish automatically.');
+    } catch (cause) {
+      if (recorder && recorder.state !== 'inactive') {
+        try { recorder.stop(); } catch { /* The recorder may already be stopping. */ }
+      }
+      setError(cause instanceof Error ? cause.message : 'The Story video could not be exported.');
+    } finally {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      renderAudio?.pause();
+      outputStream?.getTracks().forEach((trackItem) => trackItem.stop());
+      if (audioContext && audioContext.state !== 'closed') {
+        try { await audioContext.close(); } catch { /* The browser may already have closed the audio context. */ }
+      }
+      setVideoExporting(false);
     }
   }
 
@@ -1169,6 +1535,86 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   </div>
                 </article>)}
               </div>}
+            </section>
+            <section className={styles.musicPanel} aria-label="Music asset library">
+              <div className={styles.panelHeading}>
+                <div><strong>Music library</strong><small>{musicAssets.length} / {ARTWORK_MUSIC_LIMIT} tracks · separate from image assets</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setMusicLibraryOpen((open) => !open)}>
+                  {musicLibraryOpen ? 'Hide music' : 'Browse music'}
+                </button>
+              </div>
+              <label className={styles.musicUpload}>Add your own song
+                <input data-testid="artwork-music-upload" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/aac,.mp3,.m4a,.wav,.ogg,.webm,.aac"
+                  onChange={(event) => void handleMusicFile(event)}
+                  disabled={videoExporting || musicAssets.length >= ARTWORK_MUSIC_LIMIT} />
+              </label>
+              <p className={styles.panelFootnote}>Maximum 50 songs, separately from the 50 images. Tracks must be at least 20 seconds; videos can use 20–120 seconds, with 30 seconds as the default. The 10 curated festive picks below link to their source pages: download the MP3 there and attach it once to keep it in this browser. Please check each track's current licence and rights before commercial use.</p>
+              {musicLibraryOpen && <div className={styles.musicGrid}>
+                {musicAssets.map((track) => (
+                  <article key={track.id} className={styles.musicTile} data-ready={Boolean(track.fileData)} data-selected={selectedMusicId === track.id}>
+                    <div className={styles.musicTileTop}>
+                      <span className={styles.musicDisc} aria-hidden="true">♫</span>
+                      <div className={styles.musicTileCopy}>
+                        <strong>{track.name}</strong>
+                        <small>{track.category} · {track.creator}</small>
+                      </div>
+                      <span className={styles.musicDuration}>{Math.floor(track.durationSeconds / 60)}:{String(Math.floor(track.durationSeconds % 60)).padStart(2, '0')}</span>
+                    </div>
+                    <span className={styles.musicStatus}>{track.fileData ? 'Saved in this browser' : 'MP3 not imported yet'}</span>
+                    <a href={track.sourcePage} target="_blank" rel="noreferrer">Download from source</a>
+                    <label className={styles.musicUpload}>{track.fileData ? 'Replace audio file' : 'Attach downloaded MP3'}
+                      <input data-testid={'attach-music-' + track.id} type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/aac,.mp3,.m4a,.wav,.ogg,.webm,.aac"
+                        onChange={(event) => void handleMusicFile(event, track.id)}
+                        disabled={videoExporting} />
+                    </label>
+                    <div className={styles.musicActions}>
+                      <button type="button" className={styles.secondary} onClick={() => void selectMusicTrack(track)} disabled={!track.fileData || videoExporting}>
+                        {selectedMusicId === track.id ? 'Selected track' : 'Use track'}
+                      </button>
+                      {selectedMusicId === track.id && <button type="button" className={styles.secondary} onClick={() => void toggleMusicPreview()} disabled={!selectedMusicReady || videoExporting}>
+                        {musicIsPlaying ? 'Pause preview' : 'Preview clip'}
+                      </button>}
+                      {!track.isStarter && <button type="button" className={styles.textButton} onClick={() => void deleteMusicTrack(track)} disabled={videoExporting}>Remove</button>}
+                    </div>
+                    <small className={styles.musicLicense}>{track.licenseLabel}</small>
+                  </article>
+                ))}
+              </div>}
+            </section>
+            <section className={styles.storyVideoPanel} aria-label="Story video creator">
+              <div className={styles.panelHeading}><div><strong>Story video creator</strong><small>Story / Status · 9:16 vertical video</small></div><span className={styles.storyDurationPill}>{musicClipDuration}s</span></div>
+              <audio ref={musicAudioRef} src={musicPreviewUrl ?? undefined} preload="metadata" hidden
+                onTimeUpdate={handleMusicTimeUpdate}
+                onPause={() => setMusicIsPlaying(false)}
+                onEnded={() => setMusicIsPlaying(false)} />
+              <div className={styles.storyMusicSummary}>
+                <span className={styles.musicDisc} aria-hidden="true">♫</span>
+                <div><strong>{selectedMusicTrack?.name ?? 'Choose a song from the Music library'}</strong><small>{selectedMusicReady ? 'Ready to mix into the video' : 'Import an MP3 from the catalogue or upload a track'}</small></div>
+              </div>
+              <div className={styles.clipPresets} aria-label="Clip length">
+                {[20, 30, 60, 90, 120].map((seconds) => (
+                  <button key={seconds} type="button" className={musicClipDuration === seconds ? styles.clipPresetActive : styles.clipPreset}
+                    aria-pressed={musicClipDuration === seconds}
+                    disabled={videoExporting || (selectedMusicTrack?.fileData ? seconds > selectedMusicTrack.durationSeconds : false)}
+                    onClick={() => { setMusicClipDuration(seconds); setMusicClipStart((start) => Math.min(start, Math.max(0, (selectedMusicTrack?.durationSeconds ?? seconds) - seconds))); }}>
+                    {seconds}s
+                  </button>
+                ))}
+              </div>
+              <label className={styles.musicRange}>Snippet start <strong>{musicClipStart.toFixed(1)}s</strong>
+                <input aria-label="Music snippet start" type="range" min={0} max={musicStartLimit} step={0.5} value={Math.min(musicClipStart, musicStartLimit)}
+                  onChange={(event) => { setMusicClipStart(Number(event.target.value)); setMusicIsPlaying(false); musicAudioRef.current?.pause(); }}
+                  disabled={!selectedMusicReady || videoExporting || musicStartLimit <= 0} />
+              </label>
+              <label className={styles.musicRange}>Music volume <strong>{musicVolume}%</strong>
+                <input aria-label="Music volume" type="range" min={0} max={100} step={1} value={musicVolume}
+                  onChange={(event) => setMusicVolume(Number(event.target.value))} disabled={!selectedMusicReady || videoExporting} />
+              </label>
+              {formatId !== 'story-status' && <button type="button" className={styles.secondary} onClick={() => setFormatId('story-status')} disabled={videoExporting}>Use 9:16 Story format</button>}
+              <button type="button" className={styles.primary} onClick={() => void createStoryVideo()} disabled={!selectedMusicReady || videoExporting || formatId !== 'story-status'}>
+                {videoExporting ? 'Rendering story video…' : 'Create story video'}
+              </button>
+              <p className={styles.panelFootnote}>{videoExporting ? 'Rendering the selected clip in real time. Keep this tab open until download begins.' : 'The export combines the current artwork, gentle story-style motion, and the chosen music clip. It downloads a video file; posting and native music stickers remain inside the social app. MP4 is used where the browser supports it; otherwise the browser may export WebM.'}</p>
             </section>
             <section className={styles.layerPanel} aria-label="Artwork layers">
               <div className={styles.panelHeading}><div><strong>Canvas layers</strong><small>Show or hide individual parts</small></div></div>
