@@ -460,3 +460,22 @@ test('customer cancellation before a delivery quote marks the request cancelled 
   expect(state.currentOrder).toMatchObject({ status: 'CANCELLED', deliveryQuoteStatus: 'CANCELLED' });
   await expect(page.getByText('Awaiting Lucky Bajaj delivery quote.', { exact: false })).toHaveCount(0);
 });
+
+
+test('customer can cancel an accepted delivery request before fulfilment without stale quote actions', async ({ page }) => {
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture());
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Accept delivery quote' }).click();
+
+  await expect(page.getByText('Delivery fee accepted: ₹50.00', { exact: false })).toBeVisible();
+  expect(state.currentOrder).toMatchObject({ status: 'PLACED', deliveryQuoteStatus: 'ACCEPTED' });
+  await page.getByRole('button', { name: 'Cancel and release stock' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Order RPO-E2E-001 was cancelled and its stock reservation released.');
+  await expect(page.getByText('Delivery request cancelled; stock reservation was released.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Order cancelled; reserved stock released', { exact: true })).toBeVisible();
+  expect(state.cancellationRequested).toBe(true);
+  expect(state.currentOrder).toMatchObject({ status: 'CANCELLED', deliveryQuoteStatus: 'CANCELLED' });
+  await expect(page.getByRole('button', { name: 'Accept delivery quote' })).toHaveCount(0);
+});

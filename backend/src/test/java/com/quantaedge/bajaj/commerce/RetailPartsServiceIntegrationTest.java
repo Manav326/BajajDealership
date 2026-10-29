@@ -619,6 +619,54 @@ class RetailPartsServiceIntegrationTest {
         """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
   }
 
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void cancellingAcceptedDeliveryRetainsQuoteHistoryAndReleasesReservation() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("DEL-ACCEPT-CANCEL-" + UUID.randomUUID().toString().substring(0, 8),
+            "Rear brake shoe", "Accepted quote cancellation regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("320.00"),
+            "Rear brake shoe", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 3.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Cancel after quote acceptance", "delivery-accepted-cancel-" + UUID.randomUUID(),
+        "DELIVERY", "7 Demo Lane, Bettiah"));
+    retailParts.quoteDelivery(manager, placed.publicId(),
+        new RetailPartsService.DeliveryQuoteRequest(new BigDecimal("35.00"), "Staff-confirmed delivery fee",
+            "delivery-accepted-quote-" + UUID.randomUUID()));
+    var accepted = retailParts.respondToDeliveryQuote(customer, placed.publicId(), true);
+    assertThat(accepted.deliveryQuoteStatus()).isEqualTo("ACCEPTED");
+
+    var cancelled = retailParts.cancelOrder(customer, placed.publicId());
+
+    assertThat(cancelled.status()).isEqualTo("CANCELLED");
+    assertThat(cancelled.deliveryQuoteStatus()).isEqualTo("CANCELLED");
+    assertThat(cancelled.deliveryFee()).isEqualByComparingTo("35.00");
+    assertThat(cancelled.deliveryQuotedAt()).isNotNull();
+    assertThat(cancelled.paymentStatus()).isEqualTo("PAY_ON_DELIVERY");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from spare_part_stock_movement
+        where dealership_id = ? and reference_id = ? and movement_type = 'RETAIL_ORDER_RELEASED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from audit_event
+        where dealership_id = ? and entity_type = 'RETAIL_PART_ORDER' and entity_id = ?
+          and action = 'RETAIL_PART_ORDER_CANCELLED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
+  }
+
   private CustomerPrincipal registeredCustomerIn(StaffPrincipal manager) {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
     StaffPrincipal owner = new StaffPrincipal(
