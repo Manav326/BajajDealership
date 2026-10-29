@@ -483,7 +483,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     return assets;
   }
 
-  async function selectArtworkAsset(asset: ArtworkAsset) {
+  async function selectArtworkAsset(asset: ArtworkAsset): Promise<boolean> {
     setAssetBusyId(asset.id);
     setError('');
     setNotice('');
@@ -493,8 +493,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setSelectedAssetId(asset.id);
       await refreshArtworkAssets();
       setNotice(asset.name + ' is now selected and cached in this browser.');
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The image could not be imported into the asset library.');
+      return false;
     } finally {
       setAssetBusyId(null);
     }
@@ -521,7 +523,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setError('The template image is missing from the asset library. Refresh the studio and try again.');
       return;
     }
-    await selectArtworkAsset(asset);
+    const selected = await selectArtworkAsset(asset);
+    if (!selected) return;
     setNotice(template.name + ' template loaded. Review the wording, dealership details and any offer terms before exporting.');
   }
 
