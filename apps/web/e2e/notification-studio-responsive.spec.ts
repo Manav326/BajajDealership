@@ -722,7 +722,7 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
   await expect(dialog.getByRole('textbox', { name: 'Headline', exact: true })).toHaveValue('शुभ दीपावली');
   await expect(dialog.getByText(/template loaded/)).toBeVisible();
 
-  await dialog.locator('.assetUpload input[type="file"]').setInputFiles({
+  await dialog.getByTestId('artwork-image-upload').setInputFiles({
     name: 'dealer-logo.png',
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41STyHwAGmgKQNGNyggAAAABJRU5ErkJggg==', 'base64'),
