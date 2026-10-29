@@ -111,8 +111,8 @@ alter table retail_part_order_line alter column catalogue_product_id set not nul
 alter table retail_part_order_line add constraint fk_retail_order_line_catalogue_product foreign key (catalogue_product_id) references bajaj_spare_part_catalogue(id);
 create index ix_retail_order_line_catalogue_history on retail_part_order_line(catalogue_product_id, created_at desc);
 
--- New inventory SKUs receive a local catalogue record and stock bridge through the same receiving
--- workflow. Retail is off until staff configure it; the product master itself does not depend on stock.
+-- New inventory SKUs receive a durable local catalogue candidate through the same receiving workflow,
+-- but no stock mapping is created automatically. Staff must explicitly select the correct product.
 create or replace function ensure_bajaj_spare_part_catalogue_after_stock_insert() returns trigger language plpgsql as $$
 declare catalogue_row_id bigint;
 begin
@@ -123,7 +123,8 @@ begin
  insert into retail_part_catalogue_listing(dealership_id, catalogue_product_id, retail_enabled, retail_description, fitment_model_codes, retail_image_url, fitment_verified, updated_by_staff_user_id)
  values (new.dealership_id, catalogue_row_id, false, new.retail_description, coalesce(new.fitment_model_codes, '[]'::jsonb), new.retail_image_url, false, new.retail_updated_by_staff_user_id)
  on conflict (dealership_id, catalogue_product_id) do nothing;
- insert into retail_part_catalogue_stock_map(dealership_id, catalogue_product_id, stock_part_id) values (new.dealership_id, catalogue_row_id, new.id) on conflict do nothing;
+ -- Do not create a stock mapping here. A SKU may correspond to an existing global catalogue product,
+ -- so staff must explicitly link the correct catalogue item in the retail workspace.
  return new;
 end; $$;
 create trigger trg_spare_part_catalogue_after_insert after insert on spare_part for each row execute function ensure_bajaj_spare_part_catalogue_after_stock_insert();
