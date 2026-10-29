@@ -330,7 +330,11 @@ export default function App() {
   const navigateCustomerRoute = useCallback((nextRoute: CustomerRoute, replace = false) => {
     const url = new URL(window.location.href);
     if (nextRoute === 'showroom') url.searchParams.delete('view');
-    else url.searchParams.set('view', nextRoute);
+    else {
+      url.searchParams.set('view', nextRoute);
+      // Keep auth and legal URLs canonical even when the customer entered from a showroom anchor.
+      url.hash = '';
+    }
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
@@ -457,8 +461,8 @@ export default function App() {
   }, [navigateCustomerRoute]);
 
   useEffect(() => {
-    if (!token) {
-      setLoadingSession(false);
+    if (!token || route === 'privacy' || route === 'terms') {
+      if (!token) setLoadingSession(false);
       return;
     }
     let cancelled = false;
@@ -475,7 +479,7 @@ export default function App() {
       })
       .finally(() => { if (!cancelled) setLoadingSession(false); });
     return () => { cancelled = true; };
-  }, [token, clearSession, loadPortalData, navigateCustomerRoute]);
+  }, [token, clearSession, loadPortalData, navigateCustomerRoute, route]);
 
   const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
@@ -819,14 +823,15 @@ export default function App() {
   const mostRecentService = history[0];
   const hasPendingShowroomIntent = Boolean(window.sessionStorage.getItem('qe_bajaj_pending_intent'));
 
+  if (route === 'privacy' || route === 'terms') {
+    return <CustomerLegalPage kind={route} onNavigate={navigateCustomerRoute} />;
+  }
+
   if (loadingSession) {
     return <main className="portal-loading"><div className="brand-mark">Q</div><h1>Opening your customer space</h1><p>Checking your secure session…</p></main>;
   }
 
   if (!token || !customer) {
-    if (route === 'privacy' || route === 'terms') {
-      return <CustomerLegalPage kind={route} onNavigate={navigateCustomerRoute} />;
-    }
     if (route === 'showroom') {
       return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => {
         if (bike && action) {
