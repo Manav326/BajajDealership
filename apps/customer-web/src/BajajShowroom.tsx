@@ -89,7 +89,7 @@ type OrbitalBikeAsset = {
 const BAJAJ_ORBITAL_ASSETS: OrbitalBikeAsset[] = [
   {
     key: 'pulsar-ns400z', priority: 0,
-    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/home-page/product-carousel/featurebrands/pulsar-ns-400.webp',
+    imageUrl: 'https://cdn.bajajauto.com/-/media/assets/bajajauto/bikes/web-header-navigator-images/pulsar-ns400z.webp',
     matches: ['pulsarns400z', 'pulsarns400', 'ns400z', 'ns400'],
   },
   {
@@ -573,6 +573,7 @@ export default function BajajShowroom({
             const roll = Math.sin(angle) * -1.6;
             const style = {
               '--orbit-x': `${x}%`,
+              '--orbit-x-mobile': `${x * 0.68}%`,
               '--orbit-y': `${y}px`,
               '--orbit-depth': `${depth * 135}px`,
               '--orbit-scale': scale,
