@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,7 +24,27 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableMethodSecurity
 public class StaffSecurityConfiguration {
+  /**
+   * Keep first-owner bootstrap on a dedicated anonymous chain.
+   *
+   * The controller still validates a one-time high-entropy token and serializes
+   * competing requests, but setup must not depend on an existing staff session.
+   */
   @Bean
+  @Order(1)
+  SecurityFilterChain anonymousBootstrapSecurityFilterChain(
+      HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
+    http
+        .securityMatcher("/api/v1/system/bootstrap", "/api/v1/system/bootstrap/status")
+        .cors(cors -> cors.configurationSource(corsConfigurationSource))
+        .csrf(csrf -> csrf.disable())
+        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+    return http.build();
+  }
+
+  @Bean
+  @Order(2)
   SecurityFilterChain securityFilterChain(HttpSecurity http, StaffBearerTokenFilter bearerFilter, CustomerBearerTokenFilter customerBearerFilter, CorsConfigurationSource corsConfigurationSource) throws Exception {
     http
         .cors(cors -> cors.configurationSource(corsConfigurationSource))
@@ -44,8 +65,7 @@ public class StaffSecurityConfiguration {
             }))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
-            .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap", "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
-            .requestMatchers(HttpMethod.GET, "/api/v1/system/bootstrap/status").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
             .anyRequest().authenticated())
