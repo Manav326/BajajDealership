@@ -71,6 +71,7 @@ create table social_media_destination (
   updated_at timestamptz not null default now(),
   constraint uq_social_media_destination_provider_id
     unique (dealership_id, provider, destination_type, provider_destination_id),
+  constraint uq_social_media_destination_id_dealership unique (id, dealership_id),
   constraint fk_social_destination_connection_same_dealership
     foreign key (connection_id, dealership_id)
     references social_media_connection (id, dealership_id)
