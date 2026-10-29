@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -23,14 +24,31 @@ public class OwnerBootstrapController {
   private final JdbcTemplate jdbc;
   private final PasswordEncoder passwordEncoder;
   private final StaffSecurityConfiguration.BootstrapTokenVerifier tokenVerifier;
+  private final String configuredBootstrapToken;
 
   public OwnerBootstrapController(
       JdbcTemplate jdbc,
       PasswordEncoder passwordEncoder,
-      StaffSecurityConfiguration.BootstrapTokenVerifier tokenVerifier) {
+      StaffSecurityConfiguration.BootstrapTokenVerifier tokenVerifier,
+      @Value("${app.bootstrap.token:}") String configuredBootstrapToken) {
     this.jdbc = jdbc;
     this.passwordEncoder = passwordEncoder;
     this.tokenVerifier = tokenVerifier;
+    this.configuredBootstrapToken = configuredBootstrapToken;
+  }
+
+  @GetMapping("/bootstrap/status")
+  public BootstrapStatus bootstrapStatus() {
+    Integer provisionedOwners = jdbc.queryForObject("""
+        select count(*)
+        from staff_user_role ur
+        join role r on r.id = ur.role_id
+        where r.code = 'OWNER'
+        """, Integer.class);
+    boolean available = configuredBootstrapToken != null
+        && !configuredBootstrapToken.isBlank()
+        && (provisionedOwners == null || provisionedOwners == 0);
+    return new BootstrapStatus(available);
   }
 
   @PostMapping("/bootstrap")
@@ -40,6 +58,18 @@ public class OwnerBootstrapController {
       @Valid @RequestBody BootstrapRequest request) {
     if (!tokenVerifier.matches(suppliedToken)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Initial setup is not enabled.");
+    }
+    // Serialize bootstrap attempts and make this credential truly one-time across the instance.
+    jdbc.execute("select pg_advisory_xact_lock(741982031)");
+    Integer provisionedOwners = jdbc.queryForObject("""
+        select count(*)
+        from staff_user_role ur
+        join role r on r.id = ur.role_id
+        where r.code = 'OWNER'
+        """, Integer.class);
+    if (provisionedOwners != null && provisionedOwners > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "Initial owner setup has already been completed. Sign in or ask an authorized owner to invite staff.");
     }
     if ((request.email() == null || request.email().isBlank())
         && (request.phone() == null || request.phone().isBlank())) {
@@ -106,6 +136,8 @@ public class OwnerBootstrapController {
       @Email @Size(max = 320) String email,
       @Size(max = 32) String phone,
       @NotBlank @Size(min = 12, max = 72) String password) {}
+
+  public record BootstrapStatus(boolean available) {}
 
   public record BootstrapResponse(String status, String dealershipCode, String ownerName, String role) {}
 }

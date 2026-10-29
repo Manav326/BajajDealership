@@ -77,13 +77,16 @@ APP_BOOTSTRAP_TOKEN=$newToken
 }
 
 if ($generatedBootstrapToken) {
-    $tokenContent = Get-Content $rootEnv -Raw
-    $newTokenValue = [regex]::Match($tokenContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$').Groups[1].Value.Trim().Trim('"').Trim("'")
+    $tokenLine = Get-Content $rootEnv |
+        Where-Object { $_ -match '^\s*APP_BOOTSTRAP_TOKEN\s*=' } |
+        Select-Object -First 1
+    $tokenParts = $tokenLine -split '='
+    $newTokenValue = $tokenParts[1]
     Write-Host ''
-    Write-Host 'One-time initial owner setup token (local only):' -ForegroundColor Yellow
+    Write-Host 'One-time FIRST OWNER setup token (paste into the Owner setup screen at http://localhost:3001):' -ForegroundColor Yellow
     Write-Host $newTokenValue -ForegroundColor Yellow
-    Write-Host 'Use it in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap.' -ForegroundColor DarkYellow
-    Write-Host 'After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
+    Write-Host 'This is not a staff invitation token. After startup, use the web UI to create the first dealership owner.' -ForegroundColor DarkYellow
+    Write-Host 'The API will reject any further bootstrap attempts once the first owner has been created.' -ForegroundColor DarkYellow
     Write-Host ''
 }
 

@@ -15,8 +15,23 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  android-changes:
+    name: Detect Android source changes
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.filter.outputs.android }}
+    steps:
+      - name: Check Android-relevant paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            android:
+              - 'apps/android/**'
+
   backend:
     name: Backend tests and PostgreSQL migrations
     runs-on: ubuntu-latest
@@ -123,7 +138,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }'
+          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("Line {0}, column {1}: {2} ({3})" -f $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message, $e.ErrorId) }; exit 1 }'
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
@@ -142,6 +157,20 @@ jobs:
               && curl -fsS http://localhost:3000/ >/dev/null \
               && curl -fsS http://localhost:3001/ >/dev/null; then
               echo "Customer site, staff portal and API are healthy."
+              activation_status="$(curl -sS -o /tmp/staff-activation-response.txt -w '%{http_code}' \
+                -X POST \
+                -H 'Origin: http://localhost:3001' \
+                -H 'Content-Type: application/json' \
+                -H 'Accept: application/json' \
+                --data '{"activationToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","password":"CI-Activation-Test-Password"}' \
+                http://localhost:3001/api/v1/auth/staff/activate)"
+              if [ "$activation_status" != "401" ] || grep -q "Invalid CORS request" /tmp/staff-activation-response.txt; then
+                echo "Staff activation proxy smoke test failed (HTTP $activation_status):"
+                cat /tmp/staff-activation-response.txt
+                docker compose -f compose.yaml logs --tail=100
+                exit 1
+              fi
+              echo "Staff activation endpoint passes through the same-origin proxy and returns the expected invalid-invitation response."
               docker compose -f compose.yaml ps
               exit 0
             fi
@@ -156,7 +185,12 @@ jobs:
 
   android:
     name: Build Lucky Bajaj Android APK
+    needs: [android-changes]
+    # Native Android builds are costly. Run them for Android source changes on PRs;
+    # always build on push/main and manual runs so releases keep a fresh APK.
+    if: ${{ github.event_name != 'pull_request' || needs.android-changes.outputs.android == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     # Build the APK against the deployed Bajaj API by default.
     # Set BAJAJ_API_BASE_URL for LAN/emulator or staging builds.
     env:
@@ -170,51 +204,38 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/android/package.json
       - name: Set up Java for Android
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Configure preinstalled Android SDK
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-        run: |
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
-          if [ -z "$SDKMANAGER" ]; then
-            echo "Android SDK manager was not found on the hosted runner." >&2
-            exit 1
-          fi
-          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          for attempt in 1 2 3; do
-            if "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"; then
-              exit 0
-            fi
-            echo "Android SDK package installation failed on attempt $attempt/3." >&2
-            if [ "$attempt" -lt 3 ]; then
-              # A runner/network interruption can leave a partial NDK download or extraction.
-              rm -rf "$ANDROID_HOME/ndk/27.1.12297006" "$ANDROID_HOME/.temp"
-              sleep 5
-            fi
-          done
-          echo "Could not provision required Android SDK packages after three attempts." >&2
-          exit 1
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # Match the packages required by Expo SDK 57 / React Native 0.86.
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install mobile dependencies
         working-directory: apps/android
-        run: npm install
-      - name: Align Expo native dependency versions
+        run: npm install --prefer-offline --no-audit --no-fund
+      - name: Check Expo native dependency versions
         working-directory: apps/android
-        run: npx expo install --fix
+        run: npx expo install --check
       - name: Typecheck Android app
         working-directory: apps/android
         run: npm run typecheck
       - name: Generate native Android project
         working-directory: apps/android
-        run: npx expo prebuild --platform android --non-interactive
+        run: npx expo prebuild --platform android --non-interactive --no-install
+      - name: Cache Gradle dependencies and build outputs
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # PR builds restore main's cache; only main updates the shared cache.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Build debug APK
         working-directory: apps/android/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
       - name: Upload installable debug APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
