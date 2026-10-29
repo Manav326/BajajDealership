@@ -43,9 +43,17 @@ class CustomerSalesRequestServiceIntegrationTest {
     assertThat(created.status()).isEqualTo("REQUESTED");
     assertThat(created.requestType()).isEqualTo("TEST_RIDE");
     assertThat(created.preferredAt()).isEqualTo(preferredAt);
-    assertThat(requests.listForCustomer(fixture.customer()))
-        .extracting(CustomerSalesRequestService.RequestView::preferredAt)
-        .containsExactly(preferredAt);
+    var journey = requests.listForCustomer(fixture.customer()).getFirst();
+    assertThat(journey.preferredAt()).isEqualTo(preferredAt);
+    assertThat(journey.enquiryCode()).isNull();
+    assertThat(journey.enquiryStatus()).isNull();
+    assertThat(journey.testRideStatus()).isNull();
+    assertThat(journey.bookingStatus()).isNull();
+    assertThat(journey.invoiceStatus()).isNull();
+    assertThat(journey.invoiceTotal()).isNull();
+    assertThat(journey.paidAmount()).isEqualByComparingTo("0.00");
+    assertThat(journey.balanceDue()).isNull();
+    assertThat(journey.deliveredAt()).isNull();
   }
 
   @Test
