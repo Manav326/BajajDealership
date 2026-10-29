@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import BajajShowroom, { type ShowroomAction, type ShowroomBike } from './BajajShowroom';
 
 type CustomerProfile = {
   publicId: string; customerCode: string; fullName: string; phone: string | null; email: string | null;
@@ -93,6 +94,7 @@ export default function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(SESSION_KEY) ?? '');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [showStorefront, setShowStorefront] = useState(true);
   const [tab, setTab] = useState<PortalTab>('home');
   const [loadingSession, setLoadingSession] = useState(Boolean(window.sessionStorage.getItem(SESSION_KEY)));
   const [loadingData, setLoadingData] = useState(false);
@@ -356,6 +358,22 @@ export default function App() {
   }
 
   if (!token || !customer) {
+    if (showStorefront && authMode === 'login') {
+      return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction) => {
+        if (bike && action) {
+          sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
+            action, modelCode: bike.modelCode, modelName: bike.modelName,
+            inventoryModelPublicId: bike.inventoryModelPublicId, selectedAt: new Date().toISOString(),
+          }));
+          setSuccess(`${bike.modelName} selected. Sign in to continue your request.`);
+        } else {
+          setSuccess('');
+        }
+        setError('');
+        setAuthMode('login');
+        setShowStorefront(false);
+      }} />;
+    }
     return (
       <main className="portal-auth-screen">
         <div className="auth-orb orb-one" /><div className="auth-orb orb-two" /><div className="auth-orb orb-three" />
@@ -396,6 +414,7 @@ export default function App() {
               <label>Confirm password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={activationForm.confirmPassword} onChange={(event) => setActivationForm((current) => ({ ...current, confirmPassword: event.target.value }))} placeholder="Enter the same password again" /></label>
               <button className="primary-button portal-submit" type="submit" disabled={saving}>{saving ? 'Activating…' : 'Activate and continue'} <span>↗</span></button>
             </form>}
+            <button type="button" className="showroom-back-link" onClick={() => { setShowStorefront(true); setAuthMode('login'); setError(''); setSuccess(''); }}>← Back to Bajaj showroom</button>
             <div className="invite-note"><strong>Need portal access?</strong><span>Ask Lucky Bajaj Agency to verify your customer record and issue an invitation. No account is created from public phone/email matching alone.</span></div>
             <div className="portal-auth-footer">Protected by QuantaEdge <span>•</span> Lucky Bajaj Agency</div>
           </section>

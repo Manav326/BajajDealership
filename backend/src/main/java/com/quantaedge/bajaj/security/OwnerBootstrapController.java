@@ -97,6 +97,8 @@ public class OwnerBootstrapController {
       dealershipId = ((Number) dealer.get("id")).longValue();
     }
 
+    seedBajajCatalogueModels(dealershipId);
+
     Integer ownerCount = jdbc.queryForObject("""
         select count(*) from staff_user_role ur
         join role r on r.id = ur.role_id
@@ -127,6 +129,20 @@ public class OwnerBootstrapController {
 
     return new BootstrapResponse("created", code,
         request.ownerName().trim(), "OWNER");
+  }
+
+  /** Add model definitions only. Physical stock units are entered through the audited receiving flow. */
+  private void seedBajajCatalogueModels(long dealershipId) {
+    jdbc.update("""
+        insert into vehicle_model(
+          dealership_id, model_code, model_name, variant_name, colour_name, model_year, active)
+        select ?, catalogue.model_code, catalogue.model_name, null, null, null, true
+        from bajaj_catalogue_model catalogue
+        where catalogue.active = true
+          and not exists (
+            select 1 from vehicle_model existing
+            where existing.dealership_id = ? and existing.model_code = catalogue.model_code)
+        """, dealershipId, dealershipId);
   }
 
   public record BootstrapRequest(
