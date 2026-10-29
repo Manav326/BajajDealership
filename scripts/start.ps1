@@ -77,8 +77,17 @@ APP_BOOTSTRAP_TOKEN=$newToken
 }
 
 if ($generatedBootstrapToken) {
-    $tokenContent = Get-Content $rootEnv -Raw
-    $newTokenValue = [regex]::Match($tokenContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*
+    $tokenLine = Get-Content $rootEnv |
+        Where-Object { $_ -match '^\s*APP_BOOTSTRAP_TOKEN\s*=' } |
+        Select-Object -First 1
+    $newTokenValue = ($tokenLine -split '=', 2)[1].Trim()
+    Write-Host ''
+    Write-Host 'One-time FIRST OWNER setup token (paste into the Owner setup screen at http://localhost:3001):' -ForegroundColor Yellow
+    Write-Host $newTokenValue -ForegroundColor Yellow
+    Write-Host 'This is not a staff invitation token. After startup, use the web UI to create the first dealership owner.' -ForegroundColor DarkYellow
+    Write-Host 'The API will reject any further bootstrap attempts once the first owner has been created.' -ForegroundColor DarkYellow
+    Write-Host ''
+}
 
 # Match the physical-device convention while discovering the current host LAN IP.
 $lanIp = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
