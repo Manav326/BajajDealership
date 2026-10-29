@@ -42,6 +42,10 @@ The public endpoint is `/api/v1/public/catalogue/promotions`. Empty data explici
 The public on-road estimate endpoint has no customer-supplied dealership selector. Set `APP_PUBLIC_DEALERSHIP_CODE` to the configured `dealership.code` when an API runtime hosts multiple active dealerships. If it is blank, the service only serves estimates when exactly one active dealership exists; it refuses to guess when multiple active dealerships are present. This selector does not grant customer or staff access and never accepts a code from the browser as authorization.
 
 
+### Retail pickup/delivery, payment and returns
+
+Customers may reserve listed parts for pickup or request delivery. Delivery starts as a parts-only subtotal; staff must enter the actual delivery fee and the customer must explicitly accept it before delivery fulfilment. Declining a quote cancels the order and releases its stock reservation. Staff records delivery and payment as an operational attestation; this does not verify a bank/UPI settlement or invoke an online payment provider. No delivery fee is seeded or inferred, and orders remain payable at pickup/delivery unless a separate authorised gateway integration is added.
+
 ### Retail parts payment and returns
 
 Retail parts checkout currently reserves stock and records an order payable at dealership pickup. It does not initiate an online charge, so there is no simulated payment authorization to mistake for settlement. Staff collection is a manually recorded event, not proof of bank/UPI settlement. A full-order return is recorded once against the collected order; returned units are added to sellable stock only after explicit staff confirmation that all returned lines are inspected and resaleable. Every return is marked `REFUND_REVIEW_REQUIRED`; no refund is issued automatically, and any payout must go through an authorised, audited refund/credit workflow.

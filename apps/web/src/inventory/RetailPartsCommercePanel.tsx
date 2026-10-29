@@ -14,7 +14,9 @@ type RetailOrderLine = {
 };
 type RetailOrder = {
   publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
-  orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
+  orderTotal: number; fulfillmentMethod: 'PICKUP' | 'DELIVERY'; deliveryAddress: string | null;
+  deliveryFee: number; deliveryQuoteStatus: string; deliveryQuoteNote: string | null; deliveryQuotedAt: string | null;
+  customerNote: string | null; createdAt: string; updatedAt: string;
   cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
   returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
   customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
@@ -28,6 +30,7 @@ type CollectionDraft = {
   externalReference: string; note: string; idempotencyKey: string;
 };
 type ReturnDraft = { reason: string; restockable: boolean; idempotencyKey: string };
+type DeliveryQuoteDraft = { deliveryFee: string; note: string; idempotencyKey: string };
 const newKey = () => globalThis.crypto?.randomUUID?.() ?? `retail-pickup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const money = (value: number | null | undefined) => `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateLabel = (value: string | null | undefined) => {
@@ -55,6 +58,7 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
   const [openEditor, setOpenEditor] = useState('');
   const [collections, setCollections] = useState<Record<string, CollectionDraft>>({});
   const [returns, setReturns] = useState<Record<string, ReturnDraft>>({});
+  const [deliveryQuotes, setDeliveryQuotes] = useState<Record<string, DeliveryQuoteDraft>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
@@ -88,6 +92,13 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
         const next = { ...current };
         for (const order of loadedOrders ?? []) {
           next[order.publicId] = next[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() };
+        }
+        return next;
+      });
+      setDeliveryQuotes((current) => {
+        const next = { ...current };
+        for (const order of loadedOrders ?? []) {
+          next[order.publicId] = next[order.publicId] ?? { deliveryFee: '', note: '', idempotencyKey: newKey() };
         }
         return next;
       });
@@ -160,6 +171,37 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
   }
 
 
+  async function quoteDelivery(order: RetailOrder) {
+    const draft = deliveryQuotes[order.publicId] ?? { deliveryFee: '', note: '', idempotencyKey: newKey() };
+    const parsedFee = Number(draft.deliveryFee);
+    if (!draft.deliveryFee.trim() || !Number.isFinite(parsedFee) || parsedFee < 0) {
+      setError('Enter the actual non-negative delivery fee before quoting the customer.');
+      return;
+    }
+    setBusyId(order.publicId); setError(''); setMessage('');
+    try {
+      const updated = await apiFetch<RetailOrder>(
+        '/api/v1/admin/retail-part-orders/' + order.publicId + '/delivery-quote', token, {
+          method: 'POST',
+          body: JSON.stringify({ deliveryFee: parsedFee, note: draft.note.trim() || null, idempotencyKey: draft.idempotencyKey }),
+        });
+      setOrders((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+      setDeliveryQuotes((current) => ({ ...current, [order.publicId]: { deliveryFee: '', note: '', idempotencyKey: newKey() } }));
+      setMessage('Delivery quote saved for ' + updated.orderCode + '. The customer must accept it before staff can record delivery and payment.');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The delivery quote could not be saved.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  function updateDeliveryQuote(order: RetailOrder, patch: Partial<DeliveryQuoteDraft>) {
+    setDeliveryQuotes((current) => ({
+      ...current,
+      [order.publicId]: { ...(current[order.publicId] ?? { deliveryFee: '', note: '', idempotencyKey: newKey() }), ...patch },
+    }));
+  }
   async function recordReturn(order: RetailOrder) {
     const draft = returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() };
     if (!draft.reason.trim()) {
@@ -203,7 +245,7 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
   return <div className="retail-admin-workspace">
     <div className="spare-parts-panel retail-admin-intro">
       <div className="spare-parts-section-heading">
-        <div><h2>Customer retail shop</h2><p>Choose which SKUs customers can buy, maintain retail price and Bajaj fitment, and fulfil pickup orders. Workshop reservations remain protected.</p></div>
+        <div><h2>Customer retail shop</h2><p>Choose which SKUs customers can buy, maintain retail price and Bajaj fitment, quote delivery explicitly, and record pickup/delivery collection. Workshop reservations remain protected.</p></div>
         <button type="button" className="secondary-button" onClick={() => void load()} disabled={loading}>↻ Refresh</button>
       </div>
       {error && <div className="notice notice-error" role="alert">{error}</div>}
@@ -211,7 +253,7 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
       <div className="retail-admin-summaries">
         <article><small>Retail listings</small><strong>{parts.filter((part) => part.retailEnabled).length}</strong><span>Enabled SKU(s)</span></article>
         <article><small>Available for retail</small><strong>{parts.filter((part) => part.retailEnabled && part.quantityAvailable > 0).length}</strong><span>After reservations</span></article>
-        <article><small>Pickup orders</small><strong>{orders.filter((order) => order.status === 'PLACED').length}</strong><span>Awaiting collection</span></article>
+        <article><small>Open retail orders</small><strong>{orders.filter((order) => order.status === 'PLACED').length}</strong><span>Awaiting quote, acceptance or fulfilment</span></article>
       </div>
     </div>
 
@@ -250,19 +292,34 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
             collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
           };
           return <article className="retail-admin-order" key={order.publicId}>
-            <div className="retail-admin-order-head"><div><strong>{order.orderCode}</strong><small>{order.customerName} · {order.customerPhone || order.customerCode} · {dateLabel(order.createdAt)}</small></div><div className="retail-admin-order-total"><strong>{money(order.orderTotal)}</strong><span className={`sales-status status-${order.status.toLowerCase().replaceAll('_', '-')}`}>{pretty(order.status)}</span></div></div>
+            <div className="retail-admin-order-head"><div><strong>{order.orderCode}</strong><small>{order.customerName} · {order.customerPhone || order.customerCode} · {dateLabel(order.createdAt)}</small><small>{order.fulfillmentMethod === 'DELIVERY' ? 'DELIVERY REQUEST' : 'PICKUP ORDER'}{order.fulfillmentMethod === 'DELIVERY' && order.deliveryAddress ? ' · ' + order.deliveryAddress : ''}</small></div><div className="retail-admin-order-total"><strong>{money(order.orderTotal)}</strong><span className={`sales-status status-${order.status.toLowerCase().replaceAll('_', '-')}`}>{pretty(order.status)}</span></div></div>
             <div className="retail-admin-order-lines">{order.lines.map((line) => <div key={line.partPublicId}><span>{line.skuCode} · {line.partName} <small>({line.quantity} {line.unitOfMeasure})</small></span><strong>{money(line.lineTotal)}</strong></div>)}</div>
             {order.customerNote && <p className="retail-admin-order-note">Customer note: {order.customerNote}</p>}
-            {order.status === 'PLACED' ? (
+            {order.status === 'PLACED' && order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_STAFF_QUOTE' ? (
+              <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void quoteDelivery(order); }}>
+                <strong>Delivery quote required</strong>
+                <small>Customer total currently reflects parts only. Enter the actual delivery charge; no default rate is assumed.</small>
+                <label>Delivery fee (₹) *<input required type="number" min="0" step="0.01" value={(deliveryQuotes[order.publicId] ?? { deliveryFee: '', note: '', idempotencyKey: newKey() }).deliveryFee} onChange={(event) => updateDeliveryQuote(order, { deliveryFee: event.target.value })} placeholder="Fee confirmed by the dealership" /></label>
+                <label>Quote note (optional)<input maxLength={1000} value={(deliveryQuotes[order.publicId] ?? { deliveryFee: '', note: '', idempotencyKey: newKey() }).note} onChange={(event) => updateDeliveryQuote(order, { note: event.target.value })} placeholder="Delivery timing or scope" /></label>
+                <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Saving quote…' : 'Send delivery quote to customer'}</button>
+              </form>
+            ) : order.status === 'PLACED' && order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' ? (
+              <div className="retail-admin-fulfilled-note">
+                Delivery fee quoted: {money(order.deliveryFee)} · {dateLabel(order.deliveryQuotedAt)}. Waiting for the customer to accept or decline.
+                {order.deliveryQuoteNote && <p>Quote note: {order.deliveryQuoteNote}</p>}
+                <small>No delivery collection or stock deduction can be recorded until acceptance.</small>
+              </div>
+            ) : order.status === 'PLACED' ? (
               <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void fulfill(order); }}>
+                {order.fulfillmentMethod === 'DELIVERY' && <><strong>Customer accepted delivery quote</strong><p>Agreed delivery fee: {money(order.deliveryFee)}. Record payment when the parts are delivered; this is a manual staff attestation, not gateway verification.</p></>}
                 <label>Collection method<select value={draft.collectionMethod} onChange={(event) => updateCollection(order, { collectionMethod: event.target.value as CollectionDraft['collectionMethod'] })}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
                 <label>Receipt / reference<input maxLength={160} value={draft.externalReference} onChange={(event) => updateCollection(order, { externalReference: event.target.value })} placeholder="Optional transaction reference" /></label>
-                <label>Collection note<input maxLength={1000} value={draft.note} onChange={(event) => updateCollection(order, { note: event.target.value })} placeholder="Optional collection note" /></label>
-                <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : 'Record collection & fulfil'}</button>
+                <label>Collection note<input maxLength={1000} value={draft.note} onChange={(event) => updateCollection(order, { note: event.target.value })} placeholder="Optional pickup/delivery note" /></label>
+                <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : order.fulfillmentMethod === 'DELIVERY' ? 'Record delivery & payment' : 'Record pickup & payment'}</button>
               </form>
             ) : order.status === 'FULFILLED' ? (
               <>
-                <div className="retail-admin-fulfilled-note">{'Collected ' + dateLabel(order.fulfilledAt) + ' · ' + pretty(order.paymentStatus)}</div>
+                <div className="retail-admin-fulfilled-note">{(order.fulfillmentMethod === 'DELIVERY' ? 'Delivered ' : 'Collected ') + dateLabel(order.fulfilledAt) + ' · ' + pretty(order.paymentStatus)}</div>
                 <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void recordReturn(order); }}>
                   <label>Return reason *<input required maxLength={1000} value={(returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }).reason} onChange={(event) => setReturns((current) => ({ ...current, [order.publicId]: { ...(current[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }), reason: event.target.value } }))} placeholder="Record why the full order is returned" /></label>
                   <label className="retail-admin-enable"><input type="checkbox" checked={(returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }).restockable} onChange={(event) => setReturns((current) => ({ ...current, [order.publicId]: { ...(current[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }), restockable: event.target.checked } }))} /> I inspected every returned item and confirm it is fit for resale</label>

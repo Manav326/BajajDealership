@@ -61,7 +61,9 @@ type RetailOrderLine = {
 };
 type RetailOrder = {
   publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
-  orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
+  orderTotal: number; fulfillmentMethod: 'PICKUP' | 'DELIVERY'; deliveryAddress: string | null;
+  deliveryFee: number; deliveryQuoteStatus: string; deliveryQuoteNote: string | null; deliveryQuotedAt: string | null;
+  customerNote: string | null; createdAt: string; updatedAt: string;
   cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
   returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
   customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
@@ -148,6 +150,8 @@ export default function App() {
   const [retailCart, setRetailCart] = useState<CartLine[]>([]);
   const [fitmentModelCode, setFitmentModelCode] = useState('');
   const [partsOrderNote, setPartsOrderNote] = useState('');
+  const [retailFulfillmentMethod, setRetailFulfillmentMethod] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
+  const [retailDeliveryAddress, setRetailDeliveryAddress] = useState('');
   const [partsOrderKey, setPartsOrderKey] = useState(() => globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}`);
   const [notificationPage, setNotificationPage] = useState<NotificationPage>({
     items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0,
@@ -171,6 +175,8 @@ export default function App() {
     setRetailParts([]);
     setRetailOrders([]);
     setRetailCart([]);
+    setRetailFulfillmentMethod('PICKUP');
+    setRetailDeliveryAddress('');
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
   }, []);
@@ -364,6 +370,10 @@ export default function App() {
       setError('Add at least one available spare part to your cart.');
       return;
     }
+    if (retailFulfillmentMethod === 'DELIVERY' && !retailDeliveryAddress.trim()) {
+      setError('Enter the delivery address before requesting delivery.');
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');
@@ -374,6 +384,8 @@ export default function App() {
           lines: retailCart.map((line) => ({ partPublicId: line.partPublicId, quantity: Number(line.quantity) })),
           fitmentModelCode: fitmentModelCode || null,
           customerNote: partsOrderNote.trim() || null,
+          fulfillmentMethod: retailFulfillmentMethod,
+          deliveryAddress: retailFulfillmentMethod === 'DELIVERY' ? retailDeliveryAddress.trim() : null,
           idempotencyKey: partsOrderKey,
         }),
       });
@@ -385,8 +397,12 @@ export default function App() {
       setRetailOrders(orders);
       setRetailCart([]);
       setPartsOrderNote('');
+      setRetailFulfillmentMethod('PICKUP');
+      setRetailDeliveryAddress('');
       setPartsOrderKey(globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-      setSuccess(`Order ${order.orderCode} placed. Pay at dealership pickup; no online payment has been taken.`);
+      setSuccess(order.fulfillmentMethod === 'DELIVERY'
+        ? `Delivery request ${order.orderCode} saved. Lucky Bajaj must quote delivery before you accept it; no online payment has been taken.`
+        : `Pickup order ${order.orderCode} placed. Pay at dealership pickup; no online payment has been taken.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The spare-parts order could not be placed.');
     } finally {
@@ -414,6 +430,30 @@ export default function App() {
     }
   }
 
+  async function respondToDeliveryQuote(order: RetailOrder, accept: boolean) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<RetailOrder>(`/api/v1/customer/parts/orders/${order.publicId}/delivery-quote-response`, token, {
+        method: 'POST',
+        body: JSON.stringify({ accept }),
+      });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setSuccess(accept
+        ? `Delivery quote for ${order.orderCode} accepted. Lucky Bajaj can now arrange delivery; payment is still due on delivery.`
+        : `Delivery quote declined. Order ${order.orderCode} was cancelled and its stock reservation released.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Your delivery quote response could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
   async function cancelCustomerSalesRequest(request: CustomerSalesRequest) {
     setSaving(true);
     setError('');
@@ -771,7 +811,7 @@ export default function App() {
                   })}</div>}
               </section>
               <aside className="glass-panel retail-cart-panel">
-                <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · pickup at dealership</p></div><span className="next-visit-icon">▦</span></div>
+                <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · {retailFulfillmentMethod === 'PICKUP' ? 'pickup at dealership' : 'delivery request'}</p></div><span className="next-visit-icon">▦</span></div>
                 {retailCart.length === 0
                   ? <div className="inline-empty">Choose a part to start an order.</div>
                   : <>
@@ -792,11 +832,31 @@ export default function App() {
                       <label>Bike fitment (if applicable)
                         <input maxLength={60} value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value.toUpperCase())} placeholder="Model code, e.g. BAJAJ_PULSAR_N160" />
                       </label>
-                      <label>Pickup note (optional)
-                        <textarea rows={2} maxLength={1000} value={partsOrderNote} onChange={(event) => setPartsOrderNote(event.target.value)} placeholder="Preferred pickup details" />
+                      <label>Fulfillment method
+                        <select value={retailFulfillmentMethod} onChange={(event) => {
+                          const method = event.target.value as 'PICKUP' | 'DELIVERY';
+                          setRetailFulfillmentMethod(method);
+                          if (method === 'PICKUP') setRetailDeliveryAddress('');
+                        }}>
+                          <option value="PICKUP">Pickup at Lucky Bajaj</option>
+                          <option value="DELIVERY">Request delivery (fee quoted separately)</option>
+                        </select>
                       </label>
-                      <p className="retail-payment-note">Reserve stock now; pay when collecting from Lucky Bajaj. This checkout does not charge a bank account or UPI wallet.</p>
-                      <button type="submit" className="primary-button wide-button" disabled={saving || retailCart.length === 0}>{saving ? 'Placing order…' : 'Place pickup order'}</button>
+                      {retailFulfillmentMethod === 'DELIVERY' && <label>Delivery address *
+                        <textarea required rows={3} maxLength={1500} value={retailDeliveryAddress}
+                          onChange={(event) => setRetailDeliveryAddress(event.target.value)}
+                          placeholder="House / street, locality, city, state and PIN code" />
+                      </label>}
+                      <label>{retailFulfillmentMethod === 'PICKUP' ? 'Pickup note (optional)' : 'Delivery instructions (optional)'}
+                        <textarea rows={2} maxLength={1000} value={partsOrderNote} onChange={(event) => setPartsOrderNote(event.target.value)}
+                          placeholder={retailFulfillmentMethod === 'PICKUP' ? 'Preferred pickup details' : 'Landmark or safe delivery instructions'} />
+                      </label>
+                      <p className="retail-payment-note">{retailFulfillmentMethod === 'PICKUP'
+                        ? 'Reserve stock now; pay when collecting from Lucky Bajaj. This checkout does not charge a bank account or UPI wallet.'
+                        : 'This is a delivery request, not a confirmed delivery. Lucky Bajaj will quote the delivery fee separately; the order total currently shows parts only. Payment is due on delivery and no online charge is taken.'}</p>
+                      <button type="submit" className="primary-button wide-button" disabled={saving || retailCart.length === 0}>
+                        {saving ? 'Saving order…' : retailFulfillmentMethod === 'PICKUP' ? 'Place pickup order' : 'Request delivery quote'}
+                      </button>
                     </form>
                   </>}
               </aside>
@@ -807,7 +867,32 @@ export default function App() {
                 ? <div className="inline-empty">Your spare-parts orders will appear here.</div>
                 : <div className="retail-order-list">{retailOrders.map((order) => <article className="retail-order-row" key={order.publicId}>
                     <div><strong>{order.orderCode}</strong><small>{dateTime(order.createdAt)} · {order.lines.length} line(s)</small><p>{order.lines.map((line) => `${line.quantity} × ${line.partName}`).join(' · ')}</p></div>
-                    <div className="retail-order-state"><strong>{money(order.orderTotal)}</strong><span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span><small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Collected at pickup' : order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)' : 'Pay at dealership pickup'}</small>{order.status === 'RETURNED' && order.returnReason && <small>Return reason: {order.returnReason}. Returned quantity {order.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</small>}</div>
+                    <div className="retail-order-state">
+                      <strong>{money(order.orderTotal)}</strong>
+                      <span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span>
+                      <small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Payment recorded at pickup (staff-attested)'
+                        : order.paymentStatus === 'PAID_ON_DELIVERY' ? 'Payment recorded on delivery (staff-attested)'
+                        : order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)'
+                        : order.fulfillmentMethod === 'DELIVERY' ? 'Pay on delivery after accepting the quoted fee'
+                        : 'Pay at dealership pickup'}</small>
+                      {order.fulfillmentMethod === 'DELIVERY' && <small>Delivery address: {order.deliveryAddress}</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_STAFF_QUOTE' && order.status === 'PLACED' &&
+                        <small>Awaiting Lucky Bajaj delivery quote. Current total is the parts subtotal only; the delivery fee is not set yet.</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' && order.status === 'PLACED' &&
+                        <><small>Delivery fee: {money(order.deliveryFee)} · quoted {dateTime(order.deliveryQuotedAt)}</small>
+                          {order.deliveryQuoteNote && <small>Quote note: {order.deliveryQuoteNote}</small>}
+                          <small>Review the delivery fee. Accept to proceed or decline to cancel and release the reserved stock.</small>
+                          <div className="retail-delivery-quote-actions">
+                            <button type="button" className="primary-button" disabled={saving} onClick={() => void respondToDeliveryQuote(order, true)}>Accept delivery quote</button>
+                            <button type="button" className="secondary-button" disabled={saving} onClick={() => void respondToDeliveryQuote(order, false)}>Decline and cancel order</button>
+                          </div>
+                        </>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'ACCEPTED' && order.status === 'PLACED' &&
+                        <small>Delivery fee accepted: {money(order.deliveryFee)}. Lucky Bajaj can now arrange delivery; pay when it arrives.</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' && order.status === 'CANCELLED' &&
+                        <small>The order was cancelled; its pending delivery quote is no longer active.</small>}
+                      {order.status === 'RETURNED' && order.returnReason && <small>Return reason: {order.returnReason}. Returned quantity {order.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</small>}
+                    </div>
                     {order.status === 'PLACED' && <button type="button" className="text-link danger-link" disabled={saving} onClick={() => void cancelRetailOrder(order)}>Cancel and release stock</button>}
                   </article>)}</div>}
             </section>
