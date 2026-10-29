@@ -38,10 +38,10 @@ public class BajajMotorcycleImageService {
     if (filename.isBlank()) filename = "motorcycle-image";
     if (filename.length() > 180) filename = filename.substring(0, 180);
     String digest = digest(bytes);
-    jdbc.update("update bajaj_motorcycle_image set is_primary=false where dealership_id=? and model_code=? and is_primary=true", actor.dealershipId(), code);
-    Integer next = jdbc.queryForObject("select coalesce(max(sort_order),0)+1 from bajaj_motorcycle_image where dealership_id=? and model_code=?", Integer.class, actor.dealershipId(), code);
+    jdbc.update("update bajaj_catalogue_image set is_primary=false where dealership_id=? and model_code=? and is_primary=true", actor.dealershipId(), code);
+    Integer next = jdbc.queryForObject("select coalesce(max(sort_order),0)+1 from bajaj_catalogue_image where dealership_id=? and model_code=?", Integer.class, actor.dealershipId(), code);
     UUID id = jdbc.queryForObject("""
-      insert into bajaj_motorcycle_image(dealership_id,model_code,original_filename,content_type,image_bytes,sha256,size_bytes,sort_order,is_primary,uploaded_by_staff_user_id)
+      insert into bajaj_catalogue_image(dealership_id,model_code,original_filename,content_type,image_bytes,sha256,size_bytes,sort_order,is_primary,uploaded_by_staff_user_id)
       values (?,?,?,?,?,?,?,?,true,?) returning public_id
       """, UUID.class, actor.dealershipId(), code, filename, type, bytes, digest, bytes.length, next == null ? 100 : next, actor.staffUserId());
     jdbc.update("""
@@ -59,7 +59,7 @@ public class BajajMotorcycleImageService {
     String code = normalize(rawCode); requireModel(actor.dealershipId(), code);
     return jdbc.query("""
       select public_id,model_code,content_type,size_bytes,is_primary,created_at
-      from bajaj_motorcycle_image where dealership_id=? and model_code=?
+      from bajaj_catalogue_image where dealership_id=? and model_code=?
       order by is_primary desc,sort_order,id desc
       """, (rs,n) -> new UploadedImage(rs.getObject("public_id",UUID.class),rs.getString("model_code"),
       rs.getString("content_type"),rs.getInt("size_bytes"),rs.getBoolean("is_primary"),rs.getTimestamp("created_at").toInstant()),
@@ -69,14 +69,14 @@ public class BajajMotorcycleImageService {
   @Transactional
   public void delete(StaffPrincipal actor, String rawCode, UUID imageId) {
     String code = normalize(rawCode); requireModel(actor.dealershipId(), code);
-    List<Map<String,Object>> rows = jdbc.queryForList("select id,is_primary from bajaj_motorcycle_image where dealership_id=? and model_code=? and public_id=? for update",actor.dealershipId(),code,imageId);
+    List<Map<String,Object>> rows = jdbc.queryForList("select id,is_primary from bajaj_catalogue_image where dealership_id=? and model_code=? and public_id=? for update",actor.dealershipId(),code,imageId);
     if (rows.isEmpty()) throw notFound("Uploaded image was not found for this model.");
     long id=((Number)rows.getFirst().get("id")).longValue();
     boolean primary=Boolean.TRUE.equals(rows.getFirst().get("is_primary"));
-    jdbc.update("delete from bajaj_motorcycle_image where dealership_id=? and id=?",actor.dealershipId(),id);
+    jdbc.update("delete from bajaj_catalogue_image where dealership_id=? and id=?",actor.dealershipId(),id);
     if(primary) jdbc.update("""
-      update bajaj_motorcycle_image set is_primary=true where id=(
-        select id from bajaj_motorcycle_image where dealership_id=? and model_code=? order by sort_order,id desc limit 1
+      update bajaj_catalogue_image set is_primary=true where id=(
+        select id from bajaj_catalogue_image where dealership_id=? and model_code=? order by sort_order,id desc limit 1
       ) and dealership_id=?
       """,actor.dealershipId(),code,actor.dealershipId());
     jdbc.update("""
@@ -98,7 +98,7 @@ public class BajajMotorcycleImageService {
     if(ids.size()>1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"A dealershipCode is required.");
     List<PublicImage> found=jdbc.query("""
       select i.content_type,i.image_bytes,i.size_bytes,i.sha256
-      from bajaj_motorcycle_image i
+      from bajaj_catalogue_image i
       join bajaj_catalogue_model c on c.model_code=i.model_code and c.active=true and c.manufacturer='BAJAJ'
       join bajaj_catalogue_dealership_model settings
         on settings.dealership_id=i.dealership_id and settings.model_code=i.model_code and settings.is_published=true
