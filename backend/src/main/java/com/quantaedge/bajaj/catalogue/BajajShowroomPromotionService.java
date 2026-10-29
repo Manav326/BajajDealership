@@ -200,7 +200,7 @@ public class BajajShowroomPromotionService {
     if (raw == null || raw.isBlank()) return null;
     String value = raw.trim();
     if (value.length() > max || value.chars().anyMatch(ch ->
-        Character.isISOControl(ch) && ch != '\\n' && ch != '\\r' && ch != '\\t')) {
+        Character.isISOControl(ch) && ch != 10 && ch != 13 && ch != 9)) {
       throw badRequest("Promotion terms are invalid.");
     }
     return value;
