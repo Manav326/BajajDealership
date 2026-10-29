@@ -146,8 +146,8 @@ public class BajajShowroomPromotionService {
         insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
           action, entity_type, entity_id, details)
         values (?, 'STAFF', ?, ?, 'BAJAJ_SHOWROOM_PROMOTION', ?,
-          jsonb_build_object('title', ?, 'modelCode', ?, 'startsOn', ?::text,
-            'endsOn', ?::text, 'published', ?))
+          jsonb_build_object('title', ?::text, 'modelCode', ?::text, 'startsOn', ?::text,
+            'endsOn', ?::text, 'published', ?::boolean))
         """, actor.dealershipId(), actor.staffUserId(),
         creating ? "SHOWROOM_PROMOTION_CREATED" : "SHOWROOM_PROMOTION_UPDATED",
         publicId.toString(), title, modelCode, request.startsOn().toString(),
