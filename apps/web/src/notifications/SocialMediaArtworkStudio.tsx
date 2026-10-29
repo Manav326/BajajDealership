@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { apiFetch } from './apiClient';
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import styles from './SocialMediaArtworkStudio.module.css';
+import {
+  addArtworkAsset, ARTWORK_ASSET_LIMIT, ARTWORK_ASSET_MAX_BYTES, ARTWORK_TEMPLATES,
+  blobToDataUrl, loadArtworkAssets, removeArtworkAsset, resolveArtworkAssetSource,
+  type ArtworkAsset, type ArtworkTemplate,
+} from './artworkAssets';
 
 type ArtworkFormat = {
   id: string;
@@ -101,8 +106,11 @@ type ArtworkDraft = {
   primary: string;
   accent: string;
   photoSource: string | null;
+  layers?: ArtworkLayerVisibility;
   updatedAt: string;
 };
+type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
+const defaultArtworkLayers: ArtworkLayerVisibility = { decorations: true, brand: true, headline: true, message: true, photo: true, callToAction: true, footer: true };
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; missingConfigurationKeys: string[]; missingPublishingConfigurationKeys: string[]; destinations: MetaDestination[] };
@@ -114,10 +122,13 @@ function openArtworkDraftDb(): Promise<IDBDatabase> {
       reject(new Error('Saved drafts are not available in this browser context.'));
       return;
     }
-    const request = indexedDB.open('bajaj-social-media-artwork', 1);
+    const request = indexedDB.open('bajaj-social-media-artwork', 2);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains('drafts')) {
         request.result.createObjectStore('drafts', { keyPath: 'id' });
+      }
+      if (!request.result.objectStoreNames.contains('assets')) {
+        request.result.createObjectStore('assets', { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -220,6 +231,14 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [primary, setPrimary] = useState('#15213a');
   const [accent, setAccent] = useState('#f97316');
   const [photoSource, setPhotoSource] = useState<string | null>(null);
+  const [layerVisibility, setLayerVisibility] = useState<ArtworkLayerVisibility>(defaultArtworkLayers);
+  const [artworkAssets, setArtworkAssets] = useState<ArtworkAsset[]>([]);
+  const [assetPreviewSources, setAssetPreviewSources] = useState<Record<string, string>>({});
+  const assetPreviewUrlsRef = useRef<Record<string, string>>({});
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
+  const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [draftName, setDraftName] = useState('New campaign draft');
@@ -245,6 +264,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   useEffect(() => { void refreshPublishRequests(); }, []);
   useEffect(() => () => {
     Object.values(publishPreviewUrlRefs.current).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
   }, []);
 
 
@@ -292,6 +312,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     listArtworkDrafts()
       .then((drafts) => { if (!disposed) setSavedDrafts(drafts); })
       .catch(() => { if (!disposed) setSavedDrafts([]); });
+    refreshArtworkAssets().catch((cause) => {
+      if (!disposed) setError(cause instanceof Error ? cause.message : 'The asset library could not be loaded.');
+    });
     return () => { disposed = true; };
   }, []);
 
@@ -318,35 +341,39 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, width, height);
 
-      ctx.save();
-      ctx.globalAlpha = 0.2;
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(width * 0.94, height * 0.09, Math.min(width, height) * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 0.1;
-      ctx.beginPath();
-      ctx.arc(width * 0.04, height * 0.96, Math.min(width, height) * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      if (layerVisibility.decorations) {
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(width * 0.94, height * 0.09, Math.min(width, height) * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.1;
+        ctx.beginPath();
+        ctx.arc(width * 0.04, height * 0.96, Math.min(width, height) * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       const margin = width * 0.075;
-      const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075));
-      const brandY = height * (landscape ? 0.18 : 0.105);
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(margin + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
-      ctx.fillText('LB', margin + markSize * 0.42, brandY - markSize * 0.18);
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035)) + 'px Arial, sans-serif';
-      ctx.fillText(brandName.trim() || 'Your Dealership', margin + markSize * 1.05, brandY);
+      if (layerVisibility.brand) {
+        const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075));
+        const brandY = height * (landscape ? 0.18 : 0.105);
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(margin + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
+        ctx.fillText('LB', margin + markSize * 0.42, brandY - markSize * 0.18);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035)) + 'px Arial, sans-serif';
+        ctx.fillText(brandName.trim() || 'Your Dealership', margin + markSize * 1.05, brandY);
+      }
 
       const titleFontSize = Math.max(32, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066)));
       const titleLineHeight = titleFontSize * 1.12;
@@ -356,31 +383,37 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
       ctx.font = '800 ' + titleFontSize + 'px Arial, sans-serif';
-      const titleEnd = wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3);
+      const titleEnd = layerVisibility.headline
+        ? wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3)
+        : titleY;
 
       const messageFontSize = Math.max(19, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027)));
       const messageLineHeight = messageFontSize * 1.45;
       const messageY = titleEnd + messageLineHeight * 0.15;
       ctx.fillStyle = '#e4eaf3';
       ctx.font = '400 ' + messageFontSize + 'px Arial, sans-serif';
-      const messageEnd = wrapText(ctx, message, titleX, messageY, titleMaxWidth, messageLineHeight, landscape ? 2 : 3);
+      const messageEnd = layerVisibility.message
+        ? wrapText(ctx, message, titleX, messageY, titleMaxWidth, messageLineHeight, landscape ? 2 : 3)
+        : titleEnd;
 
       const ctaY = height * (landscape ? 0.81 : 0.855);
       const buttonHeight = Math.max(42, Math.min(height * 0.085, 72 * scale));
       const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale));
       const buttonX = landscape ? margin : (width - buttonWidth) / 2;
       const buttonTop = Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.075);
-      ctx.fillStyle = accent;
-      roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '800 ' + Math.round(Math.max(17, messageFontSize * 0.84)) + 'px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(callToAction.trim() || 'Learn more', buttonX + buttonWidth / 2, buttonTop + buttonHeight / 2, buttonWidth - 24 * scale);
-      ctx.textBaseline = 'alphabetic';
+      if (layerVisibility.callToAction) {
+        ctx.fillStyle = accent;
+        roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 ' + Math.round(Math.max(17, messageFontSize * 0.84)) + 'px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(callToAction.trim() || 'Learn more', buttonX + buttonWidth / 2, buttonTop + buttonHeight / 2, buttonWidth - 24 * scale);
+        ctx.textBaseline = 'alphabetic';
+      }
 
-      if (photo) {
+      if (photo && layerVisibility.photo) {
         if (landscape) {
           const photoX = width * 0.65;
           const photoY = height * 0.22;
@@ -409,15 +442,18 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         }
       }
 
-      ctx.fillStyle = '#cbd5e1';
-      ctx.textAlign = landscape ? 'left' : 'center';
-      ctx.font = '600 ' + Math.max(13, Math.round(17 * scale)) + 'px Arial, sans-serif';
-      ctx.fillText('SERVICE YOU CAN TRUST', landscape ? margin : width / 2, height * 0.965);
-      ctx.textAlign = 'left';
+      if (layerVisibility.footer) {
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = landscape ? 'left' : 'center';
+        ctx.font = '600 ' + Math.max(13, Math.round(17 * scale)) + 'px Arial, sans-serif';
+        ctx.fillText('SERVICE YOU CAN TRUST', landscape ? margin : width / 2, height * 0.965);
+        ctx.textAlign = 'left';
+      }
     };
 
     if (photoSource) {
       const image = new Image();
+      image.crossOrigin = 'anonymous';
       image.onload = () => render(image);
       image.onerror = () => render();
       image.src = photoSource;
@@ -425,7 +461,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       render();
     }
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility]);
 
   function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
