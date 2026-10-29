@@ -224,6 +224,52 @@ class RetailPartsServiceIntegrationTest {
   }
 
   @Test
+  void retailCheckoutCannotSpendWorkshopReservedQuantityAndCancellationReleasesOnlyRetailShare() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("WORKSHOP-" + UUID.randomUUID().toString().substring(0, 8),
+            "Workshop-held oil filter", "Workshop reservation protection regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("155.00"),
+            "Retail listing with workshop stock protected", List.of(), null));
+    // Four units are already reserved by workshop work; only one of five physical units is sellable.
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 5.000, quantity_reserved = 4.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+
+    assertThatThrownBy(() -> retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), new BigDecimal("2.000"))),
+        null, "Cannot consume workshop-reserved stock", "workshop-block-" + UUID.randomUUID())))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+
+    var retailOrder = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Only the unreserved unit can be ordered", "workshop-available-" + UUID.randomUUID()));
+    assertThat(retailOrder.status()).isEqualTo("PLACED");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("5.000");
+
+    retailParts.cancelOrder(customer, retailOrder.publicId());
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("5.000");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("4.000");
+  }
+
+  @Test
   void repeatedCheckoutWithSameKeyReturnsSameOrderAndDoesNotReserveTwice() {
     StaffPrincipal manager = createManager();
     var part = spareParts.createPart(manager,
