@@ -24,28 +24,28 @@ public class BajajMotorcycleImageController {
   private final BajajMotorcycleImageService images;
   public BajajMotorcycleImageController(BajajMotorcycleImageService images) { this.images=images; }
 
-  @GetMapping("/api/v1/admin/bajaj-catalogue/{modelCode}/images")
-  @PreAuthorize("hasAuthority('vehicle.read')")
+  @GetMapping("/api/v1/admin/catalogue/models/{modelCode}/images")
+  @PreAuthorize("hasAuthority('catalogue.read')")
   public ImageList list(@AuthenticationPrincipal StaffPrincipal actor,@PathVariable @Size(max=60) String modelCode) {
     return new ImageList(images.list(actor,modelCode));
   }
 
-  @PostMapping(value="/api/v1/admin/bajaj-catalogue/{modelCode}/images",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
-  @PreAuthorize("hasAuthority('vehicle.manage')")
+  @PostMapping(value="/api/v1/admin/catalogue/models/{modelCode}/images",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+  @PreAuthorize("hasAuthority('catalogue.manage')")
   public BajajMotorcycleImageService.UploadedImage upload(@AuthenticationPrincipal StaffPrincipal actor,
       @PathVariable @Size(max=60) String modelCode,@RequestPart("file") MultipartFile file) {
     return images.upload(actor,modelCode,file);
   }
 
-  @DeleteMapping("/api/v1/admin/bajaj-catalogue/{modelCode}/images/{imageId}")
-  @PreAuthorize("hasAuthority('vehicle.manage')")
+  @DeleteMapping("/api/v1/admin/catalogue/models/{modelCode}/images/{imageId}")
+  @PreAuthorize("hasAuthority('catalogue.manage')")
   public OperationResult delete(@AuthenticationPrincipal StaffPrincipal actor,
       @PathVariable @Size(max=60) String modelCode,@PathVariable UUID imageId) {
     images.delete(actor,modelCode,imageId);
     return new OperationResult(true,"Image removed.");
   }
 
-  @GetMapping("/api/v1/public/motorcycles/{modelCode}/images/{imageId}")
+  @GetMapping("/api/v1/public/catalogue/bikes/images/{modelCode}/{imageId}")
   public ResponseEntity<byte[]> read(@PathVariable @Size(max=60) String modelCode,
       @PathVariable UUID imageId,@RequestParam(required=false) @Size(max=40) String dealershipCode) {
     BajajMotorcycleImageService.PublicImage image=images.readPublic(dealershipCode,modelCode,imageId);
