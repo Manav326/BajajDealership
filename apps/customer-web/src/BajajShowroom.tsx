@@ -64,7 +64,7 @@ const categories = [
 ];
 
 export default function BajajShowroom({ onSignIn }: {
-  onSignIn: (bike?: ShowroomBike, action?: ShowroomAction) => void;
+  onSignIn: (bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => void;
 }) {
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,6 +72,8 @@ export default function BajajShowroom({ onSignIn }: {
   const [category, setCategory] = useState('ALL');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ShowroomBike | null>(null);
+  const [preferredRideAt, setPreferredRideAt] = useState('');
+  const [actionError, setActionError] = useState('');
   const [priceLocation, setPriceLocation] = useState('Bettiah, Bihar');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -116,7 +118,33 @@ export default function BajajShowroom({ onSignIn }: {
   const featured = (catalogue?.bikes ?? []).find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z')
     ?? catalogue?.bikes?.[0];
 
-  const chooseAction = (bike: ShowroomBike, action: ShowroomAction) => onSignIn(bike, action);
+  const openDetails = (bike: ShowroomBike) => {
+    setSelected(bike);
+    setPreferredRideAt('');
+    setActionError('');
+  };
+
+  const chooseAction = (bike: ShowroomBike, action: ShowroomAction) => {
+    setActionError('');
+    let preferredAt: string | null = null;
+    if (action === 'TEST_RIDE' && preferredRideAt) {
+      const requestedDate = new Date(preferredRideAt);
+      const now = Date.now();
+      if (Number.isNaN(requestedDate.getTime()) || requestedDate.getTime() <= now) {
+        setActionError('Choose a future preferred date and time, or leave this optional field blank.');
+        return;
+      }
+      if (requestedDate.getTime() > now + 180 * 24 * 60 * 60 * 1000) {
+        setActionError('Choose a preferred time within the next six months.');
+        return;
+      }
+      preferredAt = requestedDate.toISOString();
+    }
+    onSignIn(bike, action, preferredAt);
+  };
+
+  const minRideDateTime = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
+    .toISOString().slice(0, 16);
 
   return (
     <main className="bajaj-showroom">
@@ -202,7 +230,7 @@ export default function BajajShowroom({ onSignIn }: {
                 <img src={bike.heroImageUrl} alt={`Bajaj ${bike.modelName} motorcycle`} loading="lazy" decoding="async"
                   onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />
                 <span className="showroom-card-engine">{bike.engineCc} <small>CC</small></span>
-                <button type="button" className="showroom-card-view" onClick={() => setSelected(bike)} aria-label={`View ${bike.modelName} details`}>↗</button>
+                <button type="button" className="showroom-card-view" onClick={() => openDetails(bike)} aria-label={`View ${bike.modelName} details`}>↗</button>
               </div>
               <div className="showroom-card-content">
                 <div className="showroom-card-overline">{bike.rideCharacter}</div>
@@ -212,7 +240,7 @@ export default function BajajShowroom({ onSignIn }: {
                   <span className={bike.availabilityStatus === 'IN_STOCK' ? 'showroom-stock in-stock' : 'showroom-stock'}>{bike.availabilityStatus === 'IN_STOCK' ? 'In stock' : bike.availabilityStatus === 'EXPECTED' ? 'Expected' : 'Out of stock'}</span></div>
                 {bike.availabilityStatus !== 'IN_STOCK' && <p className="showroom-availability-note">{bike.availabilityStatus === 'EXPECTED' ? (bike.expectedAvailableOn ? `Expected availability: ${dateLabel(bike.expectedAvailableOn)}` : 'Expected availability date not confirmed') : 'Currently out of stock — ask Lucky Bajaj about the next delivery.'}</p>}
                 <p className="showroom-onroad-note">On-road in {priceLocation || 'your city'} <strong>Request a quote ↗</strong></p>
-                <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => setSelected(bike)}>Explore specs</button>
+                <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => openDetails(bike)}>Explore specs</button>
                   <button type="button" className="showroom-card-primary" onClick={() => chooseAction(bike, 'TEST_RIDE')}>Test ride <span>↗</span></button></div>
               </div>
             </article>
@@ -240,9 +268,9 @@ export default function BajajShowroom({ onSignIn }: {
       <footer className="showroom-footer"><a className="showroom-brand" href="#top"><span className="showroom-brand-mark">B</span><span><strong>LUCKY BAJAJ</strong><small>THE RIDE STARTS HERE</small></span></a>
         <p>Catalogue and reference prices are subject to official updates and dealer confirmation.</p><button type="button" onClick={() => onSignIn()}>Customer sign in ↗</button></footer>
 
-      {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
+      {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelected(null); setPreferredRideAt(''); setActionError(''); } }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
-          <button className="showroom-modal-close" type="button" onClick={() => setSelected(null)} aria-label="Close bike details">×</button>
+          <button className="showroom-modal-close" type="button" onClick={() => { setSelected(null); setPreferredRideAt(''); setActionError(''); }} aria-label="Close bike details">×</button>
           <div className="showroom-modal-image"><img src={selected.heroImageUrl} alt={`Bajaj ${selected.modelName}`} /></div>
           <div className="showroom-modal-copy"><div className="showroom-eyebrow">BAJAJ / {selected.family.toUpperCase()}</div><h2 id="showroom-modal-title">{selected.modelName}</h2>
             <p>{selected.rideCharacter}. Explore the key details before requesting a test ride or purchase discussion.</p>
@@ -256,6 +284,16 @@ export default function BajajShowroom({ onSignIn }: {
             <ul className="showroom-highlight-list">{selected.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}</ul>
             <p className="showroom-modal-stock">{selected.availableUnits > 0 ? `${selected.availableUnits} physical unit(s) currently marked available in dealership inventory.` : selected.availabilityStatus === 'EXPECTED' ? `Expected availability: ${selected.expectedAvailableOn ? dateLabel(selected.expectedAvailableOn) : 'date not confirmed'}.` : 'Currently out of stock; contact Lucky Bajaj to confirm availability.'}</p>
             <p className="showroom-modal-stock">On-road price for {priceLocation || 'your location'}: request a current, location-specific quote.</p>
+            <label className="showroom-preferred-time">
+              <span>Preferred test-ride date &amp; time <small>Optional</small></span>
+              <input type="datetime-local" value={preferredRideAt} min={minRideDateTime}
+                onChange={(event) => { setPreferredRideAt(event.target.value); setActionError(''); }}
+                aria-describedby="showroom-ride-time-note" />
+            </label>
+            <p id="showroom-ride-time-note" className="showroom-ride-time-note">
+              This is a preference, not a confirmed appointment. Lucky Bajaj will contact you to confirm the bike and available slot.
+            </p>
+            {actionError && <p className="showroom-ride-time-error" role="alert">{actionError}</p>}
             <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" onClick={() => chooseAction(selected, 'TEST_RIDE')}>Book a test ride ↗</button></div>
             <a className="showroom-source-link" href={selected.officialModelUrl} target="_blank" rel="noreferrer">View official Bajaj range ↗</a>
           </div>
