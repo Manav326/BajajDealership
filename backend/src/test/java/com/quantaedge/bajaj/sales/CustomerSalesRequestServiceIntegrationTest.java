@@ -62,14 +62,15 @@ class CustomerSalesRequestServiceIntegrationTest {
   @Test
   void customerJourneyReflectsRealTestRideBookingInvoicePaymentAndHandoverRecords() {
     Fixture fixture = createFixture();
+    Instant preferredAt = Instant.now().plus(2, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS);
     var request = requests.create(fixture.customer(), new CustomerSalesRequestService.CreateRequest(
-        "TEST_RIDE", MODEL_CODE, Instant.now().plus(2, ChronoUnit.DAYS),
+        "TEST_RIDE", MODEL_CODE, preferredAt,
         "Synthetic full journey integration test.", "full-journey-" + UUID.randomUUID()));
 
     var converted = requests.convertToEnquiry(fixture.owner(), request.publicId());
     assertThat(converted.convertedEnquiryPublicId()).isNotNull();
 
-    Instant rideStart = Instant.now().plus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS);
+    Instant rideStart = preferredAt;
     var ride = sales.scheduleTestRide(fixture.owner(), converted.convertedEnquiryPublicId(),
         new SalesOperationsService.TestRideRequest(fixture.vehicleUnitPublicId(), rideStart,
             rideStart.plus(1, ChronoUnit.HOURS), "Synthetic acceptance test only"));
