@@ -80,8 +80,9 @@ const categories = [
   { value: 'RUGGED', label: 'Rugged' },
 ];
 
-export default function BajajShowroom({ onSignIn }: {
+export default function BajajShowroom({ onSignIn, onNavigate }: {
   onSignIn: (bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => void;
+  onNavigate: (route: 'privacy' | 'terms') => void;
 }) {
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
@@ -429,8 +430,23 @@ export default function BajajShowroom({ onSignIn }: {
         <div className="showroom-offer-panel"><span className="offer-light" /><small>LUCKY BAJAJ / CUSTOMER EXPERIENCE</small><strong>THE NEXT<br />RIDE IS YOURS.</strong><span className="offer-panel-rule" /><span>Browse the Bajaj range. Choose with confidence.</span></div>
       </section>
 
-      <footer className="showroom-footer"><a className="showroom-brand" href="#top"><span className="showroom-brand-mark">B</span><span><strong>LUCKY BAJAJ</strong><small>THE RIDE STARTS HERE</small></span></a>
-        <p>Catalogue and reference prices are subject to official updates and dealer confirmation.</p><button type="button" onClick={() => onSignIn()}>Customer sign in ↗</button></footer>
+      <footer className="showroom-footer showroom-footer--composed">
+        <a className="showroom-brand" href="#top" aria-label="Return to Lucky Bajaj showroom top">
+          <span className="showroom-brand-mark">B</span>
+          <span><strong>LUCKY BAJAJ</strong><small>THE RIDE STARTS HERE</small></span>
+        </a>
+        <p>Catalogue and reference prices are subject to official updates and dealer confirmation. Stock, offers and requests must be confirmed by the dealership.</p>
+        <nav className="showroom-footer-links" aria-label="Legal information">
+          <button type="button" onClick={() => onNavigate('privacy')}>Privacy policy</button>
+          <button type="button" onClick={() => onNavigate('terms')}>Terms &amp; conditions</button>
+        </nav>
+        <a className="quantaedge-attribution" href="https://qe.thinkwithsujeet.in/" target="_blank" rel="noreferrer"
+          aria-label="Developed by QuantaEdge — Smarter Decisions. Greater Growth.">
+          <span>Developed by</span>
+          <img src="/branding/quantaedge-logo.svg" alt="QuantaEdge — Smarter Decisions. Greater Growth." loading="lazy" />
+        </a>
+        <button type="button" className="showroom-footer-signin" onClick={() => onSignIn()}>Customer sign in ↗</button>
+      </footer>
 
       {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelected(null); setPreferredRideAt(''); setActionError(''); } }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
