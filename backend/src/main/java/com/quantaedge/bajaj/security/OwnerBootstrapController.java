@@ -41,6 +41,18 @@ public class OwnerBootstrapController {
     if (!tokenVerifier.matches(suppliedToken)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Initial setup is not enabled.");
     }
+    // Serialize bootstrap attempts and make this credential truly one-time across the instance.
+    jdbc.execute("select pg_advisory_xact_lock(741982031)");
+    Integer provisionedOwners = jdbc.queryForObject("""
+        select count(*)
+        from staff_user_role ur
+        join role r on r.id = ur.role_id
+        where r.code = 'OWNER'
+        """, Integer.class);
+    if (provisionedOwners != null && provisionedOwners > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "Initial owner setup has already been completed. Sign in or ask an authorized owner to invite staff.");
+    }
     if ((request.email() == null || request.email().isBlank())
         && (request.phone() == null || request.phone().isBlank())) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provide an owner email or phone number.");
