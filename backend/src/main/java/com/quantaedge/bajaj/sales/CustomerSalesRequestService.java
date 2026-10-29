@@ -3,6 +3,7 @@ package com.quantaedge.bajaj.sales;
 import com.quantaedge.bajaj.security.CustomerPrincipal;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import com.quantaedge.bajaj.security.TokenDigests;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -32,6 +33,12 @@ public class CustomerSalesRequestService {
     Timestamp preferred = rs.getTimestamp("preferred_at");
     Timestamp created = rs.getTimestamp("created_at");
     Timestamp updated = rs.getTimestamp("updated_at");
+    Timestamp testRideAt = rs.getTimestamp("test_ride_scheduled_start");
+    Timestamp deliveredAt = rs.getTimestamp("delivered_at");
+    BigDecimal invoiceTotal = rs.getBigDecimal("invoice_total");
+    BigDecimal paidAmount = rs.getBigDecimal("paid_amount");
+    if (paidAmount == null) paidAmount = BigDecimal.ZERO.setScale(2);
+    BigDecimal balanceDue = invoiceTotal == null ? null : invoiceTotal.subtract(paidAmount).max(BigDecimal.ZERO);
     return new RequestView(
         rs.getObject("public_id", UUID.class), rs.getString("request_code"),
         rs.getString("request_type"), rs.getString("model_code"), rs.getString("model_name"),
@@ -39,7 +46,13 @@ public class CustomerSalesRequestService {
         rs.getString("status"), created.toInstant(), updated.toInstant(),
         rs.getObject("converted_enquiry_public_id", UUID.class),
         rs.getObject("customer_public_id", UUID.class), rs.getString("customer_code"),
-        rs.getString("customer_name"), rs.getString("customer_phone"), rs.getString("customer_email"));
+        rs.getString("customer_name"), rs.getString("customer_phone"), rs.getString("customer_email"),
+        rs.getString("enquiry_code"), rs.getString("enquiry_status"),
+        rs.getString("test_ride_code"), rs.getString("test_ride_status"),
+        testRideAt == null ? null : testRideAt.toInstant(),
+        rs.getString("booking_code"), rs.getString("booking_status"),
+        rs.getString("invoice_number"), rs.getString("invoice_status"),
+        invoiceTotal, paidAmount, balanceDue, deliveredAt == null ? null : deliveredAt.toInstant());
   };
 
   private static final String SELECT_REQUEST = """
@@ -47,12 +60,56 @@ public class CustomerSalesRequestService {
         model.model_name, request.preferred_at, request.notes, request.status, request.created_at,
         request.updated_at, enquiry.public_id as converted_enquiry_public_id,
         customer.public_id as customer_public_id, customer.customer_code, customer.full_name as customer_name,
-        customer.phone as customer_phone, customer.email as customer_email
+        customer.phone as customer_phone, customer.email as customer_email,
+        enquiry.enquiry_code, enquiry.status as enquiry_status,
+        ride.test_ride_code, ride.status as test_ride_status, ride.scheduled_start as test_ride_scheduled_start,
+        booking.booking_code, booking.status as booking_status,
+        invoice.invoice_number, invoice.status as invoice_status, invoice.invoice_total,
+        coalesce(payment.paid_amount, 0)::numeric(16,2) as paid_amount,
+        handover.delivered_at
       from customer_sales_request request
       join customer on customer.dealership_id = request.dealership_id and customer.id = request.customer_id
       join bajaj_catalogue_model model on model.model_code = request.model_code and model.manufacturer = 'BAJAJ'
       left join sales_enquiry enquiry
         on enquiry.dealership_id = request.dealership_id and enquiry.id = request.converted_enquiry_id
+      left join lateral (
+        select ride.test_ride_code, ride.status, ride.scheduled_start
+        from sales_test_ride ride
+        where enquiry.id is not null and ride.dealership_id = request.dealership_id
+          and ride.enquiry_id = enquiry.id
+        order by ride.created_at desc, ride.id desc
+        limit 1
+      ) ride on true
+      left join lateral (
+        select booking.id, booking.booking_code, booking.status, booking.created_at
+        from sales_booking booking
+        where enquiry.id is not null and booking.dealership_id = request.dealership_id
+          and booking.enquiry_id = enquiry.id
+        order by booking.created_at desc, booking.id desc
+        limit 1
+      ) booking on true
+      left join lateral (
+        select invoice.id, invoice.invoice_number, invoice.status, invoice.invoice_total, invoice.created_at
+        from vehicle_sale_invoice invoice
+        where booking.id is not null and invoice.dealership_id = request.dealership_id
+          and invoice.booking_id = booking.id
+        order by invoice.created_at desc, invoice.id desc
+        limit 1
+      ) invoice on true
+      left join lateral (
+        select coalesce(sum(payment.amount) filter (where payment.status = 'RECORDED'), 0)::numeric(16,2) as paid_amount
+        from vehicle_sale_payment payment
+        where invoice.id is not null and payment.dealership_id = request.dealership_id
+          and payment.invoice_id = invoice.id
+      ) payment on true
+      left join lateral (
+        select handover.delivered_at
+        from vehicle_sale_handover handover
+        where booking.id is not null and handover.dealership_id = request.dealership_id
+          and handover.booking_id = booking.id
+        order by handover.delivered_at desc, handover.id desc
+        limit 1
+      ) handover on true
       """;
 
   public CustomerSalesRequestService(JdbcTemplate jdbc, SalesOperationsService sales) {
@@ -303,5 +360,8 @@ public class CustomerSalesRequestService {
       String modelCode, String modelName, Instant preferredAt, String notes, String status,
       Instant createdAt, Instant updatedAt, UUID convertedEnquiryPublicId,
       UUID customerPublicId, String customerCode, String customerName,
-      String customerPhone, String customerEmail) {}
+      String customerPhone, String customerEmail, String enquiryCode, String enquiryStatus,
+      String testRideCode, String testRideStatus, Instant testRideScheduledStart,
+      String bookingCode, String bookingStatus, String invoiceNumber, String invoiceStatus,
+      BigDecimal invoiceTotal, BigDecimal paidAmount, BigDecimal balanceDue, Instant deliveredAt) {}
 }
