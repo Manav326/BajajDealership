@@ -82,8 +82,12 @@ public class BajajMotorcycleImageService {
     if(ids.isEmpty()) throw notFound("The selected dealership is unavailable.");
     if(ids.size()>1) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"A dealershipCode is required.");
     List<PublicImage> found=jdbc.query("""
-      select content_type,image_bytes,size_bytes,sha256 from bajaj_motorcycle_image
-      where dealership_id=? and model_code=? and public_id=?
+      select i.content_type,i.image_bytes,i.size_bytes,i.sha256
+      from bajaj_motorcycle_image i
+      join bajaj_catalogue_model c on c.model_code=i.model_code and c.active=true and c.manufacturer='BAJAJ'
+      join bajaj_catalogue_dealership_model settings
+        on settings.dealership_id=i.dealership_id and settings.model_code=i.model_code and settings.is_published=true
+      where i.dealership_id=? and i.model_code=? and i.public_id=?
       """,(rs,n)->new PublicImage(rs.getString("content_type"),rs.getBytes("image_bytes"),rs.getInt("size_bytes"),rs.getString("sha256")),ids.getFirst(),code,imageId);
     if(found.isEmpty()) throw notFound("Image was not found.");
     PublicImage image=found.getFirst();
