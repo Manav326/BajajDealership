@@ -561,7 +561,8 @@ public class NotificationManagementService {
 
   private boolean dispatchScheduledCampaignInTransaction(UUID publicId) {
     List<CampaignRecord> rows = jdbc.query("""
-        select """ + CAMPAIGN_COLUMNS + """
+        select
+        """ + CAMPAIGN_COLUMNS + """
         from notification_campaign
         where public_id = ? and status = 'SCHEDULED' and scheduled_at <= now()
           and coalesce(next_dispatch_attempt_at, scheduled_at) <= now()
@@ -690,7 +691,8 @@ public class NotificationManagementService {
     String reason = "Dispatch error: " + failure.getClass().getSimpleName();
     dispatchTransactionTemplate.executeWithoutResult(status -> {
       List<CampaignRecord> rows = jdbc.query("""
-          select """ + CAMPAIGN_COLUMNS + """
+          select
+          """ + CAMPAIGN_COLUMNS + """
           from notification_campaign
           where public_id = ? and status in ('SCHEDULED', 'FAILED')
           for update
