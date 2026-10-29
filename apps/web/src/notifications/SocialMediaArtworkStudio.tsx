@@ -27,8 +27,19 @@ const formats: ArtworkFormat[] = [
   { id: 'facebook-feed', label: 'Facebook Feed · Landscape', channel: 'Facebook Feed', width: 1200, height: 630, note: 'Landscape promotional artwork for a Facebook Page post.' },
   { id: 'square-feed', label: 'Square Feed Post', channel: 'Facebook / Instagram Feed', width: 1080, height: 1080, note: 'A square creative for feed placements.' },
   { id: 'instagram-portrait', label: 'Instagram Feed · Portrait', channel: 'Instagram Feed', width: 1080, height: 1350, note: 'A portrait feed creative with room for readable copy.' },
-  { id: 'story-status', label: 'Story / Status · Vertical', channel: 'Instagram Story / WhatsApp Status export', width: 1080, height: 1920, note: 'Exports artwork for manual sharing. Direct WhatsApp Status publishing is not provided by this tool.' },
+  { id: 'story-status', label: 'Story / Status · Vertical', channel: 'Social Story / Status / Reel export', width: 1080, height: 1920, note: 'Exports vertical video for manual sharing. Native Story music stickers and direct Status publishing are not provided by this tool.' },
 ];
+
+type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
+const storyTargets: Array<{ id: StoryTarget; label: string; maxDuration: number; description: string }> = [
+  { id: 'whatsapp-status', label: 'WhatsApp Status', maxDuration: 90, description: 'Up to 90 seconds for supported Status-video clients. The app may show a shorter limit.' },
+  { id: 'instagram-story', label: 'Instagram Story', maxDuration: 60, description: 'Keep Story video to 60 seconds; use Reels for longer videos.' },
+  { id: 'facebook-story', label: 'Facebook Story', maxDuration: 60, description: 'Use the conservative 60-second Story preset.' },
+  { id: 'social-reel', label: 'Instagram / Facebook Reel', maxDuration: 120, description: 'Longer vertical video up to 2 minutes; this editor still exports a single file.' },
+];
+function storyTargetSettings(id: StoryTarget) {
+  return storyTargets.find((target) => target.id === id) ?? storyTargets[0];
+}
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
   const r = Math.min(radius, width / 2, height / 2);
@@ -121,6 +132,7 @@ type ArtworkDraft = {
   musicClipStart?: number;
   musicClipDuration?: number;
   musicVolume?: number;
+  storyTarget?: StoryTarget;
   updatedAt: string;
 };
 type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
@@ -274,6 +286,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [musicAssets, setMusicAssets] = useState<ArtworkMusicAsset[]>([]);
   const [musicLibraryOpen, setMusicLibraryOpen] = useState(true);
   const [selectedMusicId, setSelectedMusicId] = useState<string | null>(null);
+  const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [musicPreviewUrl, setMusicPreviewUrl] = useState<string | null>(null);
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const [musicClipStart, setMusicClipStart] = useState(0);
@@ -312,6 +325,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const selectedMusicTrack = musicAssets.find((track) => track.id === selectedMusicId) ?? null;
+  const selectedStoryTarget = storyTargetSettings(storyTarget);
+  const storyDurationLimit = selectedStoryTarget.maxDuration;
   const selectedMusicReady = Boolean(selectedMusicTrack?.fileData && musicPreviewUrl);
   const musicStartLimit = Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - musicClipDuration);
   const activeMetaDestinations = Array.isArray(metaStatus?.destinations)
@@ -1060,6 +1075,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         musicClipStart,
         musicClipDuration,
         musicVolume,
+        storyTarget,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -1106,9 +1122,11 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setLogoSource(draft.logoSource ?? null);
       setLayerVisibility(draft.layers ?? defaultArtworkLayers);
       setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
+      const restoredTarget = draft.storyTarget ?? 'whatsapp-status';
+      setStoryTarget(restoredTarget);
       setSelectedMusicId(draft.musicAssetId ?? null);
+      setMusicClipDuration(Math.min(draft.musicClipDuration ?? MUSIC_CLIP_DEFAULT_SECONDS, storyTargetSettings(restoredTarget).maxDuration));
       setMusicClipStart(draft.musicClipStart ?? 0);
-      setMusicClipDuration(draft.musicClipDuration ?? MUSIC_CLIP_DEFAULT_SECONDS);
       setMusicVolume(draft.musicVolume ?? 78);
       setSelectedLayer('headline');
       setSelectedAssetId(null);
@@ -1163,6 +1181,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
     setSelectedMusicId(null);
+    setStoryTarget('whatsapp-status');
     setMusicClipStart(0);
     setMusicClipDuration(MUSIC_CLIP_DEFAULT_SECONDS);
     setMusicVolume(78);
@@ -1287,7 +1306,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       await audioContext.resume();
       const sourceBytes = await track.fileData.arrayBuffer();
       const decodedAudio = await audioContext.decodeAudioData(sourceBytes);
-      const requestedDuration = Math.min(MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration));
+      const requestedDuration = Math.min(storyDurationLimit, MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration));
       const duration = Math.min(requestedDuration, Math.floor(decodedAudio.duration));
       if (duration < MUSIC_CLIP_MIN_SECONDS) {
         throw new Error('The audio file has less than 20 seconds of usable audio. Choose a longer track.');
@@ -1381,7 +1400,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       anchor.download = 'lucky-bajaj-story-' + duration + 's.' + extension;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      setNotice('Story video exported (' + duration + ' seconds, ' + extension.toUpperCase() + '). Add the downloaded video to WhatsApp Status, Facebook Story or Instagram Story/Reels; this export does not publish automatically.');
+      const uploadNote = extension === 'mp4'
+        ? 'Upload it manually in the selected social app; this file is not published automatically.'
+        : 'This browser exported WebM. Some social upload flows accept MP4/MOV only, so convert it to MP4 before posting if the app rejects it.';
+      setNotice('Vertical video exported for ' + selectedStoryTarget.label + ' (' + duration + ' seconds, ' + extension.toUpperCase() + '). ' + uploadNote);
     } catch (cause) {
       if (recorder && recorder.state !== 'inactive') {
         try { recorder.stop(); } catch { /* The recorder may already be stopping. */ }
@@ -1579,7 +1601,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               </div>}
             </section>
             <section className={styles.storyVideoPanel} aria-label="Story video creator">
-              <div className={styles.panelHeading}><div><strong>Story video creator</strong><small>Story / Status · 9:16 vertical video</small></div><span className={styles.storyDurationPill}>{musicClipDuration}s</span></div>
+              <div className={styles.panelHeading}><div><strong>Story video creator</strong><small>9:16 vertical video · choose where it will be used</small></div><span className={styles.storyDurationPill}>{musicClipDuration}s</span></div>
+              <label className={styles.storyTargetLabel}>Destination
+                <select aria-label="Story video destination" value={storyTarget} disabled={videoExporting}
+                  onChange={(event) => {
+                    const nextTarget = event.target.value as StoryTarget;
+                    const maxDuration = storyTargetSettings(nextTarget).maxDuration;
+                    setStoryTarget(nextTarget);
+                    setMusicClipDuration((duration) => Math.min(duration, maxDuration));
+                    setMusicClipStart((start) => Math.min(start, Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - Math.min(musicClipDuration, maxDuration))));
+                  }}>
+                  {storyTargets.map((target) => <option key={target.id} value={target.id}>{target.label} · up to {target.maxDuration}s</option>)}
+                </select>
+              </label>
+              <p className={styles.panelFootnote}>{selectedStoryTarget.description}</p>
               <audio ref={musicAudioRef} src={musicPreviewUrl ?? undefined} preload="metadata" hidden
                 onTimeUpdate={handleMusicTimeUpdate}
                 onPause={() => setMusicIsPlaying(false)}
@@ -1592,7 +1627,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 {[20, 30, 60, 90, 120].map((seconds) => (
                   <button key={seconds} type="button" className={musicClipDuration === seconds ? styles.clipPresetActive : styles.clipPreset}
                     aria-pressed={musicClipDuration === seconds}
-                    disabled={videoExporting || (selectedMusicTrack?.fileData ? seconds > selectedMusicTrack.durationSeconds : false)}
+                    disabled={videoExporting || seconds > storyDurationLimit || (selectedMusicTrack?.fileData ? seconds > selectedMusicTrack.durationSeconds : false)}
                     onClick={() => { setMusicClipDuration(seconds); setMusicClipStart((start) => Math.min(start, Math.max(0, (selectedMusicTrack?.durationSeconds ?? seconds) - seconds))); }}>
                     {seconds}s
                   </button>
@@ -1611,7 +1646,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <button type="button" className={styles.primary} onClick={() => void createStoryVideo()} disabled={!selectedMusicReady || videoExporting || formatId !== 'story-status'}>
                 {videoExporting ? 'Rendering story video…' : 'Create story video'}
               </button>
-              <p className={styles.panelFootnote}>{videoExporting ? 'Rendering the selected clip in real time. Keep this tab open until download begins.' : 'The export combines the current artwork, gentle story-style motion, and the chosen music clip. It downloads a video file; posting and native music stickers remain inside the social app. MP4 is used where the browser supports it; otherwise the browser may export WebM.'}</p>
+              <p className={styles.panelFootnote}>{videoExporting ? 'Rendering the selected clip in real time. Keep this tab open until download begins.' : 'The export combines the current artwork, gentle story-style motion and chosen music. Direct publishing and native music stickers remain inside the social app. MP4 is preferred; if this browser exports WebM instead, convert it before uploading to a platform that only accepts MP4/MOV.'}</p>
             </section>
             <section className={styles.layerPanel} aria-label="Artwork layers">
               <div className={styles.panelHeading}><div><strong>Canvas layers</strong><small>Show or hide individual parts</small></div></div>
