@@ -43,7 +43,7 @@ type CustomerSalesRequest = {
   testRideCode: string | null; testRideStatus: string | null; testRideScheduledStart: string | null;
   bookingCode: string | null; bookingStatus: string | null;
   invoiceNumber: string | null; invoiceStatus: string | null; invoiceTotal: number | null;
-  paidAmount: number; balanceDue: number | null; deliveredAt: string | null;
+  paidAmount: number; creditedAmount: number | null; balanceDue: number | null; deliveredAt: string | null;
 };
 
 type PendingShowroomIntent = {
@@ -725,8 +725,9 @@ export default function App() {
                       {request.requestType === 'TEST_RIDE' && <div><small>Test ride</small><strong>{request.testRideCode ? `${pretty(request.testRideStatus || 'SCHEDULED')} · ${dateTime(request.testRideScheduledStart)}` : 'Slot not confirmed'}</strong></div>}
                       <div><small>Vehicle booking</small><strong>{request.bookingCode ? `${request.bookingCode} · ${pretty(request.bookingStatus || 'ACTIVE')}` : 'Not booked'}</strong></div>
                       <div><small>Operational invoice</small><strong>{request.invoiceNumber ? `${request.invoiceNumber} · ${pretty(request.invoiceStatus || 'DRAFT')}` : 'Not issued'}</strong></div>
-                      <div><small>Recorded payment</small><strong>{request.invoiceTotal == null ? 'Awaiting invoice' : `${money(request.paidAmount)} of ${money(request.invoiceTotal)}`}</strong></div>
-                      {request.invoiceTotal != null && <div><small>Balance due</small><strong className={request.balanceDue != null && request.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(request.balanceDue)}</strong></div>}
+                      <div><small>Net recorded payment</small><strong>{request.invoiceTotal == null ? 'Awaiting invoice' : `${money(request.paidAmount)} of ${money(request.invoiceTotal)}`}</strong></div>
+                      {request.creditedAmount != null && request.creditedAmount > 0 && <div><small>Approved credit notes</small><strong>{money(request.creditedAmount)}</strong></div>}
+                      {request.invoiceTotal != null && <div><small>Balance due after credits</small><strong className={request.balanceDue != null && request.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(request.balanceDue)}</strong></div>}
                       <div><small>Vehicle handover</small><strong>{request.deliveredAt ? dateTime(request.deliveredAt) : 'Not recorded'}</strong></div>
                     </div>
                     {request.invoiceNumber && <small className="sales-invoice-disclaimer">Operational sales invoice only; this is not a statutory GST invoice.</small>}
