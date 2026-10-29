@@ -15,10 +15,19 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 3001 --strictPort',
-    url: 'http://127.0.0.1:3001',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      command: 'npm run dev -- --host 127.0.0.1 --port 3001 --strictPort',
+      url: 'http://127.0.0.1:3001',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+    {
+      // Run the public customer showroom alongside staff UI so one suite covers both real entry points.
+      command: 'cd ../customer-web && npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
+      url: 'http://127.0.0.1:4173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+  ],
 });
