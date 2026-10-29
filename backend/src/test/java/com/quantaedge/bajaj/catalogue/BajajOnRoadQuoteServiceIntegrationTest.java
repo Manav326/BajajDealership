@@ -17,7 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.dealership.public-code=PRICE-TEST-DEALER")
 @ActiveProfiles("test")
 @Transactional
 class BajajOnRoadQuoteServiceIntegrationTest {
@@ -114,7 +114,7 @@ class BajajOnRoadQuoteServiceIntegrationTest {
 
   private StaffPrincipal createManager() {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
-    String dealershipCode = "PRICE-" + suffix;
+    String dealershipCode = "PRICE-TEST-DEALER";
     Long dealershipId = jdbc.queryForObject("""
         insert into dealership(code, name) values (?, ?) returning id
         """, Long.class, dealershipCode, "Pricing Test Dealership");
