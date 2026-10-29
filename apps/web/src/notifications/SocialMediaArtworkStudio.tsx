@@ -105,7 +105,10 @@ type ArtworkDraft = {
   hashtags: string;
   primary: string;
   accent: string;
+  headlineColor?: string;
+  messageColor?: string;
   photoSource: string | null;
+  logoSource?: string | null;
   layers?: ArtworkLayerVisibility;
   transforms?: ArtworkTransforms;
   updatedAt: string;
@@ -240,7 +243,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [hashtags, setHashtags] = useState('#LuckyBajaj #Bajaj #RideWithConfidence');
   const [primary, setPrimary] = useState('#15213a');
   const [accent, setAccent] = useState('#f97316');
+  const [headlineColor, setHeadlineColor] = useState('#ffffff');
+  const [messageColor, setMessageColor] = useState('#e4eaf3');
   const [photoSource, setPhotoSource] = useState<string | null>(null);
+  const [logoSource, setLogoSource] = useState<string | null>(null);
   const [layerVisibility, setLayerVisibility] = useState<ArtworkLayerVisibility>(defaultArtworkLayers);
   const [layerTransforms, setLayerTransforms] = useState<ArtworkTransforms>(defaultArtworkTransforms);
   const [selectedLayer, setSelectedLayer] = useState<ArtworkLayerKey>('headline');
@@ -336,7 +342,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     if (!canvas || !ctx) return;
 
     let cancelled = false;
-    const render = (photo?: HTMLImageElement) => {
+    const render = (photo?: HTMLImageElement, logo?: HTMLImageElement) => {
       if (cancelled) return;
       const width = selectedFormat.width;
       const height = selectedFormat.height;
@@ -374,15 +380,24 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075) * transform.scale / 100);
         const brandX = margin + width * transform.x / 100;
         const brandY = height * (landscape ? 0.18 : 0.105) + height * transform.y / 100;
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
-        ctx.fillText('LB', brandX + markSize * 0.42, brandY - markSize * 0.18);
+        if (logo) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(logo, brandX, brandY - markSize * 0.6, markSize, markSize);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = accent;
+          ctx.beginPath();
+          ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
+          ctx.fillText('LB', brandX + markSize * 0.42, brandY - markSize * 0.18);
+        }
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff';
@@ -396,7 +411,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       const titleX = margin + width * headlineTransform.x / 100;
       const titleY = height * (landscape ? 0.43 : 0.245) + height * headlineTransform.y / 100;
       const titleMaxWidth = width * (landscape ? 0.52 : 0.85) * headlineTransform.scale / 100;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = headlineColor;
       ctx.textAlign = 'left';
       ctx.font = '800 ' + titleFontSize + 'px Arial, sans-serif';
       const titleEnd = layerVisibility.headline
@@ -409,7 +424,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       const messageX = margin + width * messageTransform.x / 100;
       const messageY = titleEnd + messageLineHeight * 0.15 + height * messageTransform.y / 100;
       const messageMaxWidth = width * (landscape ? 0.52 : 0.85) * messageTransform.scale / 100;
-      ctx.fillStyle = '#e4eaf3';
+      ctx.fillStyle = messageColor;
       ctx.font = '400 ' + messageFontSize + 'px Arial, sans-serif';
       const messageEnd = layerVisibility.message
         ? wrapText(ctx, message, messageX, messageY, messageMaxWidth, messageLineHeight, landscape ? 2 : 3)
@@ -473,17 +488,30 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       }
     };
 
+    let photoLoaded = !photoSource;
+    let logoLoaded = !logoSource;
+    let loadedPhoto: HTMLImageElement | undefined;
+    let loadedLogo: HTMLImageElement | undefined;
+    const renderWhenReady = () => {
+      if (!cancelled && photoLoaded && logoLoaded) render(loadedPhoto, loadedLogo);
+    };
     if (photoSource) {
       const image = new Image();
       image.crossOrigin = 'anonymous';
-      image.onload = () => render(image);
-      image.onerror = () => render();
+      image.onload = () => { loadedPhoto = image; photoLoaded = true; renderWhenReady(); };
+      image.onerror = () => { photoLoaded = true; renderWhenReady(); };
       image.src = photoSource;
-    } else {
-      render();
     }
+    if (logoSource) {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => { loadedLogo = image; logoLoaded = true; renderWhenReady(); };
+      image.onerror = () => { logoLoaded = true; renderWhenReady(); };
+      image.src = logoSource;
+    }
+    renderWhenReady();
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility, layerTransforms]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms]);
 
   async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
     const assets = await loadArtworkAssets();
@@ -810,7 +838,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         hashtags,
         primary,
         accent,
+        headlineColor,
+        messageColor,
         photoSource,
+        logoSource,
         layers: layerVisibility,
         transforms: layerTransforms,
         updatedAt: new Date().toISOString(),
@@ -853,7 +884,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setHashtags(draft.hashtags);
       setPrimary(draft.primary);
       setAccent(draft.accent);
+      setHeadlineColor(draft.headlineColor ?? '#ffffff');
+      setMessageColor(draft.messageColor ?? '#e4eaf3');
       setPhotoSource(draft.photoSource);
+      setLogoSource(draft.logoSource ?? null);
       setLayerVisibility(draft.layers ?? defaultArtworkLayers);
       setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
       setSelectedLayer('headline');
@@ -899,7 +933,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setHashtags('#LuckyBajaj #Bajaj #RideWithConfidence');
     setPrimary('#15213a');
     setAccent('#f97316');
+    setHeadlineColor('#ffffff');
+    setMessageColor('#e4eaf3');
     setPhotoSource(null);
+    setLogoSource(null);
     setSelectedAssetId(null);
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
