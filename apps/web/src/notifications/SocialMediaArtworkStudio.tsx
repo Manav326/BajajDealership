@@ -626,8 +626,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
   }
 
-  function toggleArtworkLayer(layer: keyof ArtworkLayerVisibility, visible: boolean) {
+  function toggleArtworkLayer(layer: ArtworkLayerKey, visible: boolean) {
+    setSelectedLayer(layer);
     setLayerVisibility((current) => ({ ...current, [layer]: visible }));
+  }
+
+  function updateSelectedLayerTransform(axis: keyof ArtworkTransform, value: number) {
+    setLayerTransforms((current) => ({
+      ...current,
+      [selectedLayer]: { ...current[selectedLayer], [axis]: value },
+    }));
+  }
+
+  function resetSelectedLayerTransform() {
+    setLayerTransforms((current) => ({ ...current, [selectedLayer]: { ...defaultArtworkTransforms[selectedLayer] } }));
   }
 
 
@@ -1115,10 +1127,26 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   ['decorations', 'Background decorations'],
                   ['footer', 'Footer tagline'],
                 ] as Array<[keyof ArtworkLayerVisibility, string]>).map(([layer, label]) =>
-                  <label className={styles.layerToggle} key={layer}>
+                  <label className={styles.layerToggle} key={layer} data-selected={selectedLayer === layer} onClick={() => setSelectedLayer(layer)}>
                     <input type="checkbox" checked={layerVisibility[layer]} onChange={(event) => toggleArtworkLayer(layer, event.target.checked)} />
                     <span>{label}</span>
                   </label>)}
+              </div>
+              <div className={styles.transformControls}>
+                <div className={styles.panelHeading}><div><strong>Selected layer: {selectedLayer === 'brand' ? 'Dealership name & mark' : selectedLayer === 'headline' ? 'Main heading' : selectedLayer === 'message' ? 'Supporting message' : selectedLayer === 'photo' ? 'Campaign image' : selectedLayer === 'callToAction' ? 'Call-to-action badge' : selectedLayer === 'decorations' ? 'Background decorations' : 'Footer tagline'}</strong><small>Move or resize this part of the artwork</small></div></div>
+                <label className={styles.rangeControl}>Position X <span>{layerTransforms[selectedLayer].x}%</span>
+                  <input type="range" min={-35} max={35} step={1} value={layerTransforms[selectedLayer].x} onChange={(event) => updateSelectedLayerTransform('x', Number(event.target.value))} />
+                </label>
+                <label className={styles.rangeControl}>Position Y <span>{layerTransforms[selectedLayer].y}%</span>
+                  <input type="range" min={-25} max={25} step={1} value={layerTransforms[selectedLayer].y} onChange={(event) => updateSelectedLayerTransform('y', Number(event.target.value))} />
+                </label>
+                <label className={styles.rangeControl}>Size <span>{layerTransforms[selectedLayer].scale}%</span>
+                  <input type="range" min={60} max={150} step={5} value={layerTransforms[selectedLayer].scale} onChange={(event) => updateSelectedLayerTransform('scale', Number(event.target.value))} />
+                </label>
+                <div className={styles.assetActions}>
+                  <button type="button" className={styles.secondary} onClick={resetSelectedLayerTransform}>Reset selected layer</button>
+                  <button type="button" className={styles.secondary} onClick={() => setLayerTransforms(defaultArtworkTransforms)}>Reset all layers</button>
+                </div>
               </div>
             </section>
             <label>Artwork format
