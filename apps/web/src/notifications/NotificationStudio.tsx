@@ -218,13 +218,13 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   }
 
   function toggleType(type: 'CUSTOMER' | 'STAFF') {
-    setRecipientTypes((current) => {
-      const updated = current.includes(type) ? current.filter((value) => value !== type) : [...current, type];
-      // Keep manual selections compatible with the groups still included in this campaign.
-      setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
-      setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
-      return updated;
-    });
+    const updated = recipientTypes.includes(type)
+      ? recipientTypes.filter((value) => value !== type)
+      : [...recipientTypes, type];
+    setRecipientTypes(updated);
+    // Keep manual selections compatible with the groups still included in this campaign.
+    setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
+    setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
     if (type === 'STAFF' && !recipientTypes.includes('CUSTOMER')) setMarketingOnly(false);
     setPreview(null);
@@ -565,8 +565,6 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
 
   const audienceDescription = scope === 'CUSTOMER' ? 'Customers'
     : scope === 'STAFF' ? 'Staff' : 'Customers and staff';
-  const selectedRecipientKeys = new Set(selectedRecipients.map(recipientKey));
-  const excludedRecipientKeys = new Set(excludedRecipients.map(recipientKey));
 
   return (
     <section className="notification-studio">
