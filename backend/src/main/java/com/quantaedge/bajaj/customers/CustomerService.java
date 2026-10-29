@@ -163,61 +163,6 @@ public class CustomerService {
   }
 
 
-  /** Customer-maintained delivery addresses visible only to authorised staff in the same dealership. */
-  public List<CustomerAddressView> savedAddresses(StaffPrincipal principal, UUID publicId) {
-    Long customerId = customerId(principal, publicId);
-    return jdbc.query("""
-        select public_id, label, recipient_name, phone, address_line1, address_line2, landmark, locality,
-          city, district, state, postal_code, country, is_default_delivery, created_at, updated_at
-        from customer_address
-        where dealership_id = ? and customer_id = ?
-        order by is_default_delivery desc, lower(label), updated_at desc, id desc
-        """, (rs, rowNum) -> new CustomerAddressView(
-            rs.getObject("public_id", UUID.class), rs.getString("label"), rs.getString("recipient_name"),
-            rs.getString("phone"), rs.getString("address_line1"), rs.getString("address_line2"),
-            rs.getString("landmark"), rs.getString("locality"), rs.getString("city"), rs.getString("district"),
-            rs.getString("state"), rs.getString("postal_code"), rs.getString("country"),
-            rs.getBoolean("is_default_delivery"), rs.getTimestamp("created_at").toInstant(),
-            rs.getTimestamp("updated_at").toInstant()), principal.dealershipId(), customerId);
-  }
-
-  /** Reads a private profile image after dealership-scoping the owner and validating the stored image signature. */
-  public CustomerProfilePhoto profilePhoto(StaffPrincipal principal, UUID publicId) {
-    Long customerId = customerId(principal, publicId);
-    List<CustomerProfilePhoto> photos = jdbc.query("""
-        select content_type, image_bytes, byte_length from customer_profile_photo
-        where dealership_id = ? and customer_id = ?
-        """, (rs, rowNum) -> new CustomerProfilePhoto(
-            rs.getString("content_type"), rs.getBytes("image_bytes"), rs.getInt("byte_length")),
-        principal.dealershipId(), customerId);
-    if (photos.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This customer has not added a profile photo.");
-    CustomerProfilePhoto photo = photos.getFirst();
-    if (photo.bytes() == null || photo.bytes().length == 0 || photo.bytes().length > 2 * 1024 * 1024
-        || photo.bytes().length != photo.byteLength()
-        || !photo.contentType().equals(detectImageType(photo.bytes()))) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This customer profile photo is unavailable. Ask them to upload it again.");
-    }
-    return photo;
-  }
-
-  private long customerId(StaffPrincipal principal, UUID publicId) {
-    List<Long> ids = jdbc.query("""
-        select id from customer where dealership_id = ? and public_id = ?
-        """, (rs, rowNum) -> rs.getLong(1), principal.dealershipId(), publicId);
-    if (ids.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer was not found.");
-    return ids.getFirst();
-  }
-
-  private static String detectImageType(byte[] bytes) {
-    if (bytes == null || bytes.length < 12) return null;
-    if ((bytes[0] & 255) == 255 && (bytes[1] & 255) == 216 && (bytes[2] & 255) == 255) return "image/jpeg";
-    if ((bytes[0] & 255) == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71
-        && bytes[4] == 13 && bytes[5] == 10 && bytes[6] == 26 && bytes[7] == 10) return "image/png";
-    if (bytes[0] == 82 && bytes[1] == 73 && bytes[2] == 70 && bytes[3] == 70
-        && bytes[8] == 87 && bytes[9] == 69 && bytes[10] == 66 && bytes[11] == 80) return "image/webp";
-    return null;
-  }
-
   @Transactional
   public CustomerView create(StaffPrincipal principal, CustomerRequest request) {
     NormalizedCustomer data = normalize(request);
@@ -377,11 +322,6 @@ public class CustomerService {
       Instant createdAt,
       Instant updatedAt) {}
 
-  public record CustomerAddressView(
-      UUID publicId, String label, String recipientName, String phone, String addressLine1, String addressLine2,
-      String landmark, String locality, String city, String district, String state, String postalCode,
-      String country, boolean isDefaultDelivery, Instant createdAt, Instant updatedAt) {}
-  public record CustomerProfilePhoto(String contentType, byte[] bytes, int byteLength) {}
   public record MotorcyclePurchaseHistoryView(
       UUID publicId, String invoiceNumber, String modelName, String variantName, String colourName, Integer modelYear,
       BigDecimal invoiceTotal, BigDecimal paidAmount, BigDecimal creditedAmount, BigDecimal balanceDue,

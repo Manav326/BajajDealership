@@ -7,10 +7,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.UUID;
-import org.springframework.http.CacheControl;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,24 +42,6 @@ public class CustomerController {
   public CustomerService.CustomerView get(
       @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
     return customers.get(principal, publicId);
-  }
-
-  @GetMapping("/{publicId}/saved-addresses")
-  @PreAuthorize("hasAuthority('customer.read')")
-  public java.util.List<CustomerService.CustomerAddressView> savedAddresses(
-      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
-    return customers.savedAddresses(principal, publicId);
-  }
-
-  @GetMapping("/{publicId}/profile-photo")
-  @PreAuthorize("hasAuthority('customer.read')")
-  public ResponseEntity<byte[]> profilePhoto(
-      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
-    CustomerService.CustomerProfilePhoto photo = customers.profilePhoto(principal, publicId);
-    return ResponseEntity.ok().contentType(MediaType.parseMediaType(photo.contentType()))
-        .contentLength(photo.bytes().length).cacheControl(CacheControl.noStore())
-        .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
-        .header("X-Content-Type-Options", "nosniff").body(photo.bytes());
   }
 
   @GetMapping("/{publicId}/history")

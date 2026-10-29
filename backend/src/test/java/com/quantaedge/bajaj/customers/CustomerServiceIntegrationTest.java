@@ -25,6 +25,9 @@ class CustomerServiceIntegrationTest {
   @Autowired
   private CustomerService customers;
 
+  @Autowired
+  private CustomerPortalService portal;
+
   @Test
   void createsCustomerWithDefaultHindiAndAuditableChange() {
     StaffPrincipal owner = createOwner("A");
@@ -142,20 +145,20 @@ class CustomerServiceIntegrationTest {
         values (?, ?, 'image/png', ?, ?)
         """, owner.dealershipId(), customerId, png, png.length);
 
-    var addresses = customers.savedAddresses(owner, created.publicId());
+    var addresses = portal.addressesForStaff(owner, created.publicId());
     assertThat(addresses).hasSize(1);
     assertThat(addresses.getFirst().isDefaultDelivery()).isTrue();
     assertThat(addresses.getFirst().addressLine1()).isEqualTo("12 Sample Road");
-    var photo = customers.profilePhoto(owner, created.publicId());
+    var photo = portal.readProfilePhotoForStaff(owner, created.publicId());
     assertThat(photo.contentType()).isEqualTo("image/png");
     assertThat(photo.bytes()).containsExactly(png);
 
     StaffPrincipal anotherDealership = createOwner("PROFILE_OTHER");
-    assertThatThrownBy(() -> customers.savedAddresses(anotherDealership, created.publicId()))
+    assertThatThrownBy(() -> portal.addressesForStaff(anotherDealership, created.publicId()))
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.NOT_FOUND));
-    assertThatThrownBy(() -> customers.profilePhoto(anotherDealership, created.publicId()))
+    assertThatThrownBy(() -> portal.readProfilePhotoForStaff(anotherDealership, created.publicId()))
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.NOT_FOUND));
