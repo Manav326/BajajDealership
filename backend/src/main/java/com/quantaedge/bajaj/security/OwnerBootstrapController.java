@@ -99,6 +99,20 @@ public class OwnerBootstrapController {
 
     seedBajajCatalogueModels(dealershipId);
 
+    // Ensure every new dealership can browse the Bajaj catalogue. These are model masters only,
+    // not physical stock units, and existing inventory models are never overwritten.
+    jdbc.update("""
+        insert into vehicle_model(dealership_id, model_code, model_name, variant_name, colour_name, model_year, active)
+        select ?, catalog.model_code, catalog.display_name, null, null, null, true
+        from bajaj_motorcycle_catalog catalog
+        where catalog.published = true
+          and not exists (
+            select 1 from vehicle_model existing
+            where existing.dealership_id = ? and upper(existing.model_code) = catalog.model_code
+          )
+        on conflict do nothing
+        """, dealershipId, dealershipId);
+
     Integer ownerCount = jdbc.queryForObject("""
         select count(*) from staff_user_role ur
         join role r on r.id = ur.role_id

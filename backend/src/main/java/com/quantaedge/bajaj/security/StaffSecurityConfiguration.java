@@ -70,6 +70,7 @@ public class StaffSecurityConfiguration {
             // The original request is still authorized normally before any error dispatch.
             .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/public/catalogue/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/meta/callback").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/media/**").permitAll()
