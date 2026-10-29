@@ -206,6 +206,59 @@ class NotificationManagementServiceIntegrationTest {
 
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void expiredCampaignCannotBeDispatchedManuallyOrByTheScheduler() {
+    StaffPrincipal owner = createNotificationOperator();
+    NotificationManagementService.PreviewResult manualPreview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Expired manual dispatch", "Must not send after expiry",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, manualPreview.campaignPublicId(), manualPreview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        manualPreview.campaignPublicId(), manualPreview.previewToken(), "expire-manual-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+    jdbc.update("""
+        update notification_campaign
+        set expires_at = now() - interval '1 second'
+        where dealership_id = ? and public_id = ? and status = 'SCHEDULED'
+        """, owner.dealershipId(), manualPreview.campaignPublicId());
+
+    var manualResult = notifications.sendNow(owner, manualPreview.campaignPublicId());
+    assertThat(manualResult.campaign().status()).isEqualTo("EXPIRED");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, manualPreview.campaignPublicId())).isZero();
+
+    NotificationManagementService.PreviewResult scheduledPreview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Expired scheduled dispatch", "Scheduler must not send after expiry",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, scheduledPreview.campaignPublicId(), scheduledPreview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        scheduledPreview.campaignPublicId(), scheduledPreview.previewToken(), "expire-scheduled-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+    jdbc.update("""
+        update notification_campaign
+        set scheduled_at = now() - interval '2 seconds',
+            expires_at = now() - interval '1 second',
+            next_dispatch_attempt_at = null
+        where dealership_id = ? and public_id = ? and status = 'SCHEDULED'
+        """, owner.dealershipId(), scheduledPreview.campaignPublicId());
+
+    assertThat(notifications.dispatchScheduledCampaign(scheduledPreview.campaignPublicId())).isFalse();
+    assertThat(jdbc.queryForObject("""
+        select status from notification_campaign where public_id = ?
+        """, String.class, scheduledPreview.campaignPublicId())).isEqualTo("EXPIRED");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, scheduledPreview.campaignPublicId())).isZero();
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void sendNowRaceWithScheduledDispatcherCreatesOnlyOneInboxDelivery() throws Exception {
     StaffPrincipal owner = createNotificationOperator();
     NotificationManagementService.PreviewResult preview = notifications.preview(owner,
