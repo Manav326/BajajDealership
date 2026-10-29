@@ -198,12 +198,12 @@ async function removeArtworkDraft(id: string): Promise<void> {
   });
 }
 
-function newDraftId() {
 function localDateTimeMin(minutes = 2): string {
   const date = new Date(Date.now() + minutes * 60_000);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function newDraftId() {
   return globalThis.crypto?.randomUUID?.()
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 }

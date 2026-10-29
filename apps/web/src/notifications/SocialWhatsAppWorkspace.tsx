@@ -14,12 +14,12 @@ async function readResponse<T>(response: Response): Promise<T> {
   if (!response.ok) throw new Error(payload.message ?? payload.detail ?? 'Request failed (' + response.status + ').');
   return payload;
 }
-function makeIdempotencyKey(): string {
 function localDateTimeMin(minutes = 2): string {
   const date = new Date(Date.now() + minutes * 60_000);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function makeIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? ('wa-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 }
 
