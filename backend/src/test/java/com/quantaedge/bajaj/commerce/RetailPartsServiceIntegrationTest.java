@@ -192,6 +192,15 @@ class RetailPartsServiceIntegrationTest {
     assertThat(persisted.lines().getFirst().partPublicId()).isEqualTo(publicBrakeShoe.publicId());
     assertThat(persisted.lines().getFirst().partName()).isEqualTo("Brake shoe");
     assertThat(persisted.lines().getFirst().unitPrice()).isEqualByComparingTo("199.00");
+    assertThat(persisted.customerName()).isEqualTo(customer.fullName());
+    assertThat(persisted.customerPhone()).isEqualTo(customer.phone());
+
+    portal.updateProfile(customer, new CustomerPortalService.CustomerProfileUpdate(
+        "Renamed Retail Customer", "919977665544", customer.phone(), customer.email(), "en"));
+    var historyAfterProfileEdit = retailParts.listOrdersForCustomer(customer).getFirst();
+    assertThat(historyAfterProfileEdit.customerName()).isEqualTo(customer.fullName());
+    assertThat(historyAfterProfileEdit.customerPhone()).isEqualTo(customer.phone());
+    assertThat(historyAfterProfileEdit.lines().getFirst().partName()).isEqualTo("Brake shoe");
   }
 
   @Test

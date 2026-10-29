@@ -381,20 +381,34 @@ public class RetailPartsService {
     total = total.setScale(2, RoundingMode.HALF_UP);
     if (total.signum() <= 0) throw badRequest("The order total must be positive.");
 
+    List<CustomerIdentitySnapshot> identityRows = jdbc.query("""
+        select customer.full_name, customer.phone
+        from customer
+        join customer_portal_account account
+          on account.dealership_id = customer.dealership_id and account.customer_id = customer.id
+        where customer.dealership_id = ? and customer.id = ? and account.id = ?
+          and customer.status = 'ACTIVE'
+        for share of customer
+        """, (rs, rowNum) -> new CustomerIdentitySnapshot(rs.getString("full_name"), rs.getString("phone")),
+        actor.dealershipId(), actor.customerId(), actor.accountId());
+    if (identityRows.isEmpty()) throw notFound("The customer account is no longer active in this dealership.");
+    CustomerIdentitySnapshot identity = identityRows.getFirst();
+
     String orderCode = "RPO-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
     UUID orderPublicId;
     try {
       orderPublicId = jdbc.queryForObject("""
           insert into retail_part_order(
             dealership_id, order_code, customer_id, customer_portal_account_id,
+            customer_name_snapshot, customer_phone_snapshot,
             idempotency_key, request_fingerprint, status, payment_method, payment_status,
             fulfillment_method, delivery_address, delivery_fee, delivery_quote_status,
             order_total, customer_note)
-          values (?, ?, ?, ?, ?, ?, 'PLACED', ?, ?, ?, ?, 0, ?, ?, ?)
+          values (?, ?, ?, ?, ?, ?, ?, ?, 'PLACED', ?, ?, ?, ?, 0, ?, ?, ?)
           returning public_id
           """, UUID.class, actor.dealershipId(), orderCode, actor.customerId(), actor.accountId(),
-          key, fingerprint, paymentMethod, paymentStatus, fulfillmentMethod, deliveryAddress,
-          deliveryQuoteStatus, total, note);
+          identity.fullName(), identity.phone(), key, fingerprint, paymentMethod, paymentStatus,
+          fulfillmentMethod, deliveryAddress, deliveryQuoteStatus, total, note);
     } catch (DuplicateKeyException duplicate) {
       RetailOrderView raced = findOrderReplay(actor, key, fingerprint);
       if (raced != null) return raced;
@@ -920,8 +934,10 @@ public class RetailPartsService {
           order_record.delivery_quote_status, order_record.delivery_quote_note, order_record.delivery_quoted_at,
           order_record.customer_note, order_record.created_at, order_record.updated_at,
           order_record.cancelled_at, order_record.fulfilled_at, order_record.returned_at,
-          order_record.returned_reason, order_record.returned_restocked, customer.full_name as customer_name,
-          customer.customer_code, customer.phone as customer_phone
+          order_record.returned_reason, order_record.returned_restocked,
+          coalesce(order_record.customer_name_snapshot, customer.full_name) as customer_name,
+          customer.customer_code,
+          coalesce(order_record.customer_phone_snapshot, customer.phone) as customer_phone
         from retail_part_order order_record
         join customer on customer.dealership_id = order_record.dealership_id and customer.id = order_record.customer_id
         """;
@@ -1136,6 +1152,7 @@ public class RetailPartsService {
     String fulfillmentMethod, String deliveryAddress, BigDecimal deliveryFee, String deliveryQuoteStatus, String deliveryQuoteNote,
     Instant deliveryQuotedAt, String customerNote, Instant createdAt, Instant updatedAt, Instant cancelledAt, Instant fulfilledAt,
     Instant returnedAt, String returnReason, Boolean restockedOnReturn, String customerName, String customerCode, String customerPhone, List<RetailOrderLineView> lines) {}
+  private record CustomerIdentitySnapshot(String fullName, String phone) {}
   private record OrderStockLine(long partId, BigDecimal quantity) {}
   private record StockPart(long id, long catalogueId, UUID publicId, String skuCode, String partName, String unitOfMeasure,
     boolean active, boolean retailEnabled, BigDecimal retailPrice, List<String> fitmentModelCodes, boolean fitmentVerified,
