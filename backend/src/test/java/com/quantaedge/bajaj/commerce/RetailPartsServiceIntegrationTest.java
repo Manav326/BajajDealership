@@ -477,6 +477,111 @@ class RetailPartsServiceIntegrationTest {
         .isEqualByComparingTo("1.000");
   }
 
+  @Test
+  void deliveryOrderRequiresAQuotedFeeAndCustomerAcceptanceBeforeFulfilment() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("DELIVERY-" + UUID.randomUUID().toString().substring(0, 8),
+            "Chain lubricant", "Delivery quote lifecycle regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("199.00"),
+            "Chain lubricant", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 5.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Delivery request", "delivery-place-" + UUID.randomUUID(), "DELIVERY", "12 Test Road, Bettiah"));
+    assertThat(placed.status()).isEqualTo("PLACED");
+    assertThat(placed.fulfillmentMethod()).isEqualTo("DELIVERY");
+    assertThat(placed.deliveryAddress()).isEqualTo("12 Test Road, Bettiah");
+    assertThat(placed.deliveryQuoteStatus()).isEqualTo("AWAITING_STAFF_QUOTE");
+    assertThat(placed.deliveryFee()).isEqualByComparingTo("0.00");
+    assertThat(placed.orderTotal()).isEqualByComparingTo("199.00");
+    assertThat(placed.paymentMethod()).isEqualTo("PAY_ON_DELIVERY");
+    assertThat(placed.paymentStatus()).isEqualTo("PAY_ON_DELIVERY");
+
+    assertThatThrownBy(() -> retailParts.fulfillOrder(manager, placed.publicId(),
+        new RetailPartsService.FulfillRequest("UPI", "EARLY", "early-" + UUID.randomUUID(), "Must not collect yet")))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+    String quoteKey = "delivery-quote-" + UUID.randomUUID();
+    var quoted = retailParts.quoteDelivery(manager, placed.publicId(),
+        new RetailPartsService.DeliveryQuoteRequest(new BigDecimal("50.00"), "Local delivery to the saved address", quoteKey));
+    assertThat(quoted.status()).isEqualTo("PLACED");
+    assertThat(quoted.deliveryQuoteStatus()).isEqualTo("AWAITING_CUSTOMER_CONFIRMATION");
+    assertThat(quoted.deliveryFee()).isEqualByComparingTo("50.00");
+    assertThat(quoted.orderTotal()).isEqualByComparingTo("249.00");
+    assertThat(quoted.deliveryQuoteNote()).isEqualTo("Local delivery to the saved address");
+    assertThat(quoted.deliveryQuotedAt()).isNotNull();
+    var quoteReplay = retailParts.quoteDelivery(manager, placed.publicId(),
+        new RetailPartsService.DeliveryQuoteRequest(new BigDecimal("50.00"), "Local delivery to the saved address", quoteKey));
+    assertThat(quoteReplay.orderTotal()).isEqualByComparingTo("249.00");
+
+    var accepted = retailParts.respondToDeliveryQuote(customer, placed.publicId(), true);
+    assertThat(accepted.deliveryQuoteStatus()).isEqualTo("ACCEPTED");
+    assertThat(retailParts.respondToDeliveryQuote(customer, placed.publicId(), true).deliveryQuoteStatus()).isEqualTo("ACCEPTED");
+    var delivered = retailParts.fulfillOrder(manager, placed.publicId(),
+        new RetailPartsService.FulfillRequest("UPI", "SYNTHETIC-DELIVERY-COLLECTION",
+            "delivery-collect-" + UUID.randomUUID(), "Synthetic staff-attested delivery"));
+    assertThat(delivered.status()).isEqualTo("FULFILLED");
+    assertThat(delivered.paymentStatus()).isEqualTo("PAID_ON_DELIVERY");
+    assertThat(delivered.deliveryQuoteStatus()).isEqualTo("ACCEPTED");
+    assertThat(jdbc.queryForObject("""
+        select amount from retail_part_order_collection
+        where dealership_id = ? and order_id = (select id from retail_part_order where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), placed.publicId()))
+        .isEqualByComparingTo("249.00");
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("4.000");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+  }
+
+  @Test
+  void decliningADeliveryQuoteCancelsTheOrderAndReleasesStockExactlyOnce() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("DECLINE-" + UUID.randomUUID().toString().substring(0, 8),
+            "Brake lever", "Delivery decline regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("75.00"), "Brake lever", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 2.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Delivery I may decline", "delivery-decline-place-" + UUID.randomUUID(), "DELIVERY", "9 Sample Lane"));
+    retailParts.quoteDelivery(manager, placed.publicId(),
+        new RetailPartsService.DeliveryQuoteRequest(new BigDecimal("25.00"), "Local delivery",
+            "delivery-decline-quote-" + UUID.randomUUID()));
+
+    var declined = retailParts.respondToDeliveryQuote(customer, placed.publicId(), false);
+    assertThat(declined.status()).isEqualTo("CANCELLED");
+    assertThat(declined.deliveryQuoteStatus()).isEqualTo("DECLINED");
+    assertThat(retailParts.respondToDeliveryQuote(customer, placed.publicId(), false).status()).isEqualTo("CANCELLED");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from spare_part_stock_movement
+        where dealership_id = ? and reference_id = ? and movement_type = 'RETAIL_ORDER_RELEASED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
+  }
+
   private CustomerPrincipal registeredCustomerIn(StaffPrincipal manager) {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
     StaffPrincipal owner = new StaffPrincipal(

@@ -49,7 +49,8 @@ public class CustomerRetailPartsController {
     return retail.placeOrder(principal, new RetailPartsService.PlaceOrderRequest(
         request.lines().stream().map(line ->
             new RetailPartsService.OrderLineRequest(line.partPublicId(), line.quantity())).toList(),
-        request.fitmentModelCode(), request.customerNote(), request.idempotencyKey()));
+        request.fitmentModelCode(), request.customerNote(), request.idempotencyKey(),
+        request.fulfillmentMethod(), request.deliveryAddress()));
   }
 
   @PostMapping("/orders/{publicId}/cancel")
@@ -57,6 +58,16 @@ public class CustomerRetailPartsController {
       @AuthenticationPrincipal CustomerPrincipal principal, @PathVariable UUID publicId) {
     return retail.cancelOrder(principal, publicId);
   }
+
+  @PostMapping("/orders/{publicId}/delivery-quote-response")
+  public RetailPartsService.RetailOrderView respondToDeliveryQuote(
+      @AuthenticationPrincipal CustomerPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody DeliveryQuoteResponse request) {
+    return retail.respondToDeliveryQuote(principal, publicId, request.accept());
+  }
+
+  public record DeliveryQuoteResponse(@NotNull Boolean accept) {}
 
   public record LineRequest(
       @NotNull UUID partPublicId,
@@ -66,5 +77,7 @@ public class CustomerRetailPartsController {
       @NotEmpty @Size(max = 50) List<@Valid LineRequest> lines,
       @Size(max = 60) String fitmentModelCode,
       @Size(max = 1000) String customerNote,
+      @NotBlank @Size(max = 16) String fulfillmentMethod,
+      @Size(max = 1500) String deliveryAddress,
       @NotBlank @Size(max = 120) String idempotencyKey) {}
 }

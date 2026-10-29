@@ -57,6 +57,16 @@ public class RetailPartsAdminController {
     return retail.listOrdersForStaff(principal, limit, status);
   }
 
+  @PostMapping("/retail-part-orders/{publicId}/delivery-quote")
+  @PreAuthorize("hasAuthority('parts.manage')")
+  public RetailPartsService.RetailOrderView quoteDelivery(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody DeliveryQuoteRequest request) {
+    return retail.quoteDelivery(principal, publicId,
+        new RetailPartsService.DeliveryQuoteRequest(request.deliveryFee(), request.note(), request.idempotencyKey()));
+  }
+
   @PostMapping("/retail-part-orders/{publicId}/fulfill")
   @PreAuthorize("hasAuthority('parts.manage')")
   public RetailPartsService.RetailOrderView fulfill(
@@ -92,5 +102,9 @@ public class RetailPartsAdminController {
   public record ReturnRequest(
       @NotBlank @Size(max = 1000) String reason,
       @NotNull Boolean restockable,
+      @NotBlank @Size(max = 120) String idempotencyKey) {}
+  public record DeliveryQuoteRequest(
+      @NotNull @jakarta.validation.constraints.DecimalMin("0.00") @jakarta.validation.constraints.Digits(integer = 12, fraction = 2) BigDecimal deliveryFee,
+      @Size(max = 1000) String note,
       @NotBlank @Size(max = 120) String idempotencyKey) {}
 }

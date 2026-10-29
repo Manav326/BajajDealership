@@ -168,6 +168,21 @@ public class RetailPartsService {
     String note = optional(request.customerNote(), 1000);
     String fitmentModelCode = request.fitmentModelCode() == null || request.fitmentModelCode().isBlank()
         ? null : required(request.fitmentModelCode(), "Bajaj model code", 60).toUpperCase(Locale.ROOT);
+    String fulfillmentMethod = request.fulfillmentMethod() == null || request.fulfillmentMethod().isBlank()
+        ? "PICKUP" : required(request.fulfillmentMethod(), "Fulfillment method", 16).toUpperCase(Locale.ROOT);
+    if (!List.of("PICKUP", "DELIVERY").contains(fulfillmentMethod)) {
+      throw badRequest("Choose pickup or delivery for this order.");
+    }
+    String deliveryAddress = null;
+    if ("DELIVERY".equals(fulfillmentMethod)) {
+      deliveryAddress = required(request.deliveryAddress(), "Delivery address", 1500);
+    } else if (request.deliveryAddress() != null && !request.deliveryAddress().isBlank()) {
+      throw badRequest("A delivery address is only used for a delivery request.");
+    }
+    String deliveryQuoteStatus = "DELIVERY".equals(fulfillmentMethod)
+        ? "AWAITING_STAFF_QUOTE" : "NOT_REQUIRED";
+    String paymentMethod = "DELIVERY".equals(fulfillmentMethod) ? "PAY_ON_DELIVERY" : "PAY_AT_PICKUP";
+    String paymentStatus = "DELIVERY".equals(fulfillmentMethod) ? "PAY_ON_DELIVERY" : "PAY_ON_PICKUP";
     List<OrderLineRequest> normalized = new ArrayList<>();
     Set<UUID> uniqueParts = new LinkedHashSet<>();
     for (OrderLineRequest line : request.lines()) {
@@ -180,7 +195,9 @@ public class RetailPartsService {
     String fingerprint = TokenDigests.sha256(
         normalized.stream().map(line -> line.partPublicId() + "=" + line.quantity().toPlainString()).reduce("", (a,b) -> a + "|" + b)
             + "|fitment=" + (fitmentModelCode == null ? "" : fitmentModelCode)
-            + "|note=" + (note == null ? "" : note));
+            + "|note=" + (note == null ? "" : note)
+            + "|fulfillment=" + fulfillmentMethod
+            + "|deliveryAddress=" + (deliveryAddress == null ? "" : deliveryAddress));
     RetailOrderView replay = findOrderReplay(actor, key, fingerprint);
     if (replay != null) return replay;
 
@@ -220,11 +237,13 @@ public class RetailPartsService {
           insert into retail_part_order(
             dealership_id, order_code, customer_id, customer_portal_account_id,
             idempotency_key, request_fingerprint, status, payment_method, payment_status,
+            fulfillment_method, delivery_address, delivery_fee, delivery_quote_status,
             order_total, customer_note)
-          values (?, ?, ?, ?, ?, ?, 'PLACED', 'PAY_AT_PICKUP', 'PAY_ON_PICKUP', ?, ?)
+          values (?, ?, ?, ?, ?, ?, 'PLACED', ?, ?, ?, ?, 0, ?, ?, ?)
           returning public_id
           """, UUID.class, actor.dealershipId(), orderCode, actor.customerId(), actor.accountId(),
-          key, fingerprint, total, note);
+          key, fingerprint, paymentMethod, paymentStatus, fulfillmentMethod, deliveryAddress,
+          deliveryQuoteStatus, total, note);
     } catch (DuplicateKeyException duplicate) {
       RetailOrderView raced = findOrderReplay(actor, key, fingerprint);
       if (raced != null) return raced;
@@ -266,15 +285,17 @@ public class RetailPartsService {
         insert into audit_event(dealership_id, actor_kind, actor_customer_id,
           action, entity_type, entity_id, details)
         values (?, 'CUSTOMER', ?, 'RETAIL_PART_ORDER_PLACED', 'RETAIL_PART_ORDER', ?,
-          jsonb_build_object('orderCode', ?, 'lineCount', ?, 'orderTotal', ?, 'paymentStatus', 'PAY_ON_PICKUP'))
+          jsonb_build_object('orderCode', ?, 'lineCount', ?, 'orderTotal', ?, 'paymentStatus', ?,
+            'fulfillmentMethod', ?, 'deliveryQuoteStatus', ?))
         """, actor.dealershipId(), actor.customerId(), orderPublicId.toString(),
-        orderCode, normalized.size(), total);
+        orderCode, normalized.size(), total, paymentStatus, fulfillmentMethod, deliveryQuoteStatus);
     jdbc.update("""
         insert into customer_portal_activity(
           dealership_id, account_id, action, entity_type, entity_public_id, details)
         values (?, ?, 'RETAIL_PART_ORDER_PLACED', 'RETAIL_PART_ORDER', ?,
-          jsonb_build_object('orderCode', ?, 'lineCount', ?, 'orderTotal', ?))
-        """, actor.dealershipId(), actor.accountId(), orderPublicId, orderCode, normalized.size(), total);
+          jsonb_build_object('orderCode', ?, 'lineCount', ?, 'orderTotal', ?, 'fulfillmentMethod', ?))
+        """, actor.dealershipId(), actor.accountId(), orderPublicId, orderCode, normalized.size(), total,
+        fulfillmentMethod);
     return getOrderForCustomer(actor, orderPublicId);
   }
 
@@ -301,24 +322,7 @@ public class RetailPartsService {
       throw conflict("Only an order that has not been fulfilled can be cancelled.");
     }
     Long orderId = ((Number) row.get("id")).longValue();
-    List<OrderStockLine> lines = getOrderStockLines(actor.dealershipId(), orderId, true);
-    for (OrderStockLine line : lines) {
-      StockPart part = lockPartById(actor.dealershipId(), line.partId());
-      if (part == null || part.quantityReserved().compareTo(line.quantity()) < 0) {
-        throw conflict("The reserved stock no longer matches this order. Staff reconciliation is required.");
-      }
-      int changed = jdbc.update("""
-          update spare_part_balance
-          set quantity_reserved = quantity_reserved - ?, updated_at = now()
-          where dealership_id = ? and part_id = ? and quantity_reserved >= ?
-          """, line.quantity(), actor.dealershipId(), line.partId(), line.quantity());
-      if (changed != 1) throw conflict("Stock changed while cancelling. Refresh and try again.");
-      BigDecimal reservedAfter = part.quantityReserved().subtract(line.quantity()).setScale(3, RoundingMode.HALF_UP);
-      insertMovement(actor.dealershipId(), part, "RETAIL_ORDER_RELEASED", BigDecimal.ZERO,
-          line.quantity().negate(), part.quantityOnHand(), reservedAfter, orderPublicId.toString(),
-          "RET-REL:" + orderPublicId + ":" + part.publicId(),
-          TokenDigests.sha256(orderPublicId + "|release|" + part.publicId()), null, actor.customerId());
-    }
+    releaseOrderReservation(actor.dealershipId(), orderId, orderPublicId, null, actor.customerId());
     jdbc.update("""
         update retail_part_order set status = 'CANCELLED', cancelled_at = now(), updated_at = now()
         where dealership_id = ? and id = ? and status = 'PLACED'
@@ -328,6 +332,92 @@ public class RetailPartsService {
           dealership_id, account_id, action, entity_type, entity_public_id, details)
         values (?, ?, 'RETAIL_PART_ORDER_CANCELLED', 'RETAIL_PART_ORDER', ?,
           jsonb_build_object('orderCode', ?))
+        """, actor.dealershipId(), actor.accountId(), orderPublicId, String.valueOf(row.get("order_code")));
+    return getOrderForCustomer(actor, orderPublicId);
+  }
+
+  private void releaseOrderReservation(long dealershipId, long orderId, UUID orderPublicId,
+      Long actorStaffUserId, Long actorCustomerId) {
+    List<OrderStockLine> lines = getOrderStockLines(dealershipId, orderId, true);
+    for (OrderStockLine line : lines) {
+      StockPart part = lockPartById(dealershipId, line.partId());
+      if (part == null || part.quantityReserved().compareTo(line.quantity()) < 0) {
+        throw conflict("The reserved stock no longer matches this order. Staff reconciliation is required.");
+      }
+      int changed = jdbc.update("""
+          update spare_part_balance set quantity_reserved = quantity_reserved - ?, updated_at = now()
+          where dealership_id = ? and part_id = ? and quantity_reserved >= ?
+          """, line.quantity(), dealershipId, line.partId(), line.quantity());
+      if (changed != 1) throw conflict("Stock changed while releasing the retail reservation. Refresh and retry.");
+      BigDecimal reservedAfter = part.quantityReserved().subtract(line.quantity()).setScale(3, RoundingMode.HALF_UP);
+      insertMovement(dealershipId, part, "RETAIL_ORDER_RELEASED", BigDecimal.ZERO,
+          line.quantity().negate(), part.quantityOnHand(), reservedAfter, orderPublicId.toString(),
+          "RET-REL:" + orderPublicId + ":" + part.publicId(),
+          TokenDigests.sha256(orderPublicId + "|release|" + part.publicId()), actorStaffUserId, actorCustomerId);
+    }
+  }
+
+  @Transactional
+  public RetailOrderView respondToDeliveryQuote(CustomerPrincipal actor, UUID orderPublicId, boolean accept) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, order_code, status, fulfillment_method, delivery_quote_status
+        from retail_part_order
+        where dealership_id = ? and customer_id = ? and customer_portal_account_id = ? and public_id = ?
+        for update
+        """, actor.dealershipId(), actor.customerId(), actor.accountId(), orderPublicId);
+    if (rows.isEmpty()) throw notFound("That parts order was not found in your account.");
+    Map<String, Object> row = rows.getFirst();
+    if (!"DELIVERY".equals(String.valueOf(row.get("fulfillment_method")))) {
+      throw conflict("This order does not have a delivery quote to respond to.");
+    }
+    String status = String.valueOf(row.get("status"));
+    String quoteStatus = String.valueOf(row.get("delivery_quote_status"));
+    if (accept && "PLACED".equals(status) && "ACCEPTED".equals(quoteStatus)) {
+      return getOrderForCustomer(actor, orderPublicId);
+    }
+    if (!accept && "CANCELLED".equals(status) && "DECLINED".equals(quoteStatus)) {
+      return getOrderForCustomer(actor, orderPublicId);
+    }
+    if (!"PLACED".equals(status) || !"AWAITING_CUSTOMER_CONFIRMATION".equals(quoteStatus)) {
+      throw conflict("A current delivery quote awaiting your decision is required.");
+    }
+    if (accept) {
+      int changed = jdbc.update("""
+          update retail_part_order set delivery_quote_status = 'ACCEPTED', updated_at = now()
+          where dealership_id = ? and id = ? and status = 'PLACED'
+            and delivery_quote_status = 'AWAITING_CUSTOMER_CONFIRMATION'
+          """, actor.dealershipId(), row.get("id"));
+      if (changed != 1) throw conflict("The delivery quote changed while you were accepting it. Refresh and retry.");
+      jdbc.update("""
+          insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+            action, entity_type, entity_id, details)
+          values (?, 'CUSTOMER', ?, 'RETAIL_PART_ORDER_DELIVERY_ACCEPTED', 'RETAIL_PART_ORDER', ?,
+            jsonb_build_object('orderCode', ?, 'quoteStatus', 'ACCEPTED'))
+          """, actor.dealershipId(), actor.customerId(), orderPublicId.toString(), String.valueOf(row.get("order_code")));
+      jdbc.update("""
+          insert into customer_portal_activity(dealership_id, account_id, action, entity_type, entity_public_id, details)
+          values (?, ?, 'RETAIL_PART_ORDER_DELIVERY_ACCEPTED', 'RETAIL_PART_ORDER', ?, jsonb_build_object('orderCode', ?))
+          """, actor.dealershipId(), actor.accountId(), orderPublicId, String.valueOf(row.get("order_code")));
+      return getOrderForCustomer(actor, orderPublicId);
+    }
+    long orderId = ((Number) row.get("id")).longValue();
+    releaseOrderReservation(actor.dealershipId(), orderId, orderPublicId, null, actor.customerId());
+    int changed = jdbc.update("""
+        update retail_part_order
+        set status = 'CANCELLED', cancelled_at = now(), delivery_quote_status = 'DECLINED', updated_at = now()
+        where dealership_id = ? and id = ? and status = 'PLACED'
+          and delivery_quote_status = 'AWAITING_CUSTOMER_CONFIRMATION'
+        """, actor.dealershipId(), orderId);
+    if (changed != 1) throw conflict("The delivery request changed while you were declining it. Refresh and retry.");
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, 'RETAIL_PART_ORDER_DELIVERY_DECLINED', 'RETAIL_PART_ORDER', ?,
+          jsonb_build_object('orderCode', ?, 'quoteStatus', 'DECLINED', 'reservationReleased', true))
+        """, actor.dealershipId(), actor.customerId(), orderPublicId.toString(), String.valueOf(row.get("order_code")));
+    jdbc.update("""
+        insert into customer_portal_activity(dealership_id, account_id, action, entity_type, entity_public_id, details)
+        values (?, ?, 'RETAIL_PART_ORDER_DELIVERY_DECLINED', 'RETAIL_PART_ORDER', ?, jsonb_build_object('orderCode', ?))
         """, actor.dealershipId(), actor.accountId(), orderPublicId, String.valueOf(row.get("order_code")));
     return getOrderForCustomer(actor, orderPublicId);
   }
@@ -352,6 +442,71 @@ public class RetailPartsService {
   }
 
   @Transactional
+  public RetailOrderView quoteDelivery(StaffPrincipal actor, UUID orderPublicId, DeliveryQuoteRequest request) {
+    if (request == null || request.deliveryFee() == null) throw badRequest("A delivery fee quote is required.");
+    BigDecimal fee = request.deliveryFee();
+    if (fee.signum() < 0 || fee.compareTo(new BigDecimal("999999999999.99")) > 0) {
+      throw badRequest("Delivery fee must be a non-negative amount within the supported range.");
+    }
+    try { fee = fee.setScale(2, RoundingMode.UNNECESSARY); }
+    catch (ArithmeticException invalid) { throw badRequest("Delivery fee may have at most two decimal places."); }
+    String note = optional(request.note(), 1000);
+    String key = required(request.idempotencyKey(), "Delivery quote idempotency key", 120);
+    String fingerprint = TokenDigests.sha256(orderPublicId + "|" + fee.toPlainString() + "|" + (note == null ? "" : note));
+
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, order_code, status, fulfillment_method, delivery_quote_status
+        from retail_part_order where dealership_id = ? and public_id = ? for update
+        """, actor.dealershipId(), orderPublicId);
+    if (rows.isEmpty()) throw notFound("Retail parts order was not found.");
+    Map<String, Object> row = rows.getFirst();
+
+    List<Map<String, Object>> keyRows = jdbc.queryForList("""
+        select public_id, delivery_quote_fingerprint from retail_part_order
+        where dealership_id = ? and delivery_quote_idempotency_key = ?
+        """, actor.dealershipId(), key);
+    if (!keyRows.isEmpty()) {
+      Map<String, Object> previous = keyRows.getFirst();
+      if (!orderPublicId.equals(previous.get("public_id"))
+          || !fingerprint.equals(String.valueOf(previous.get("delivery_quote_fingerprint")).trim())) {
+        throw conflict("This delivery quote key was already used for different order details.");
+      }
+      return getOrderForStaff(actor, orderPublicId);
+    }
+    if (!"DELIVERY".equals(String.valueOf(row.get("fulfillment_method")))
+        || !"PLACED".equals(String.valueOf(row.get("status")))
+        || !"AWAITING_STAFF_QUOTE".equals(String.valueOf(row.get("delivery_quote_status")))) {
+      throw conflict("Only a delivery request awaiting its first quote can be quoted.");
+    }
+    int updated = jdbc.update("""
+        update retail_part_order
+        set delivery_fee = ?, delivery_quote_status = 'AWAITING_CUSTOMER_CONFIRMATION',
+            delivery_quote_note = ?, delivery_quoted_by_staff_user_id = ?, delivery_quoted_at = now(),
+            delivery_quote_idempotency_key = ?, delivery_quote_fingerprint = ?,
+            order_total = order_total + ?, updated_at = now()
+        where dealership_id = ? and id = ? and status = 'PLACED'
+          and fulfillment_method = 'DELIVERY' and delivery_quote_status = 'AWAITING_STAFF_QUOTE'
+        """, fee, note, actor.staffUserId(), key, fingerprint, fee, actor.dealershipId(), row.get("id"));
+    if (updated != 1) throw conflict("The delivery request changed while its quote was being saved. Refresh and retry.");
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
+          action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, 'RETAIL_PART_ORDER_DELIVERY_QUOTED', 'RETAIL_PART_ORDER', ?,
+          jsonb_build_object('orderCode', ?, 'deliveryFee', ?, 'quoteStatus', 'AWAITING_CUSTOMER_CONFIRMATION'))
+        """, actor.dealershipId(), actor.staffUserId(), orderPublicId.toString(),
+        String.valueOf(row.get("order_code")), fee);
+    jdbc.update("""
+        insert into customer_portal_activity(
+          dealership_id, account_id, action, entity_type, entity_public_id, details)
+        select dealership_id, customer_portal_account_id, 'RETAIL_PART_ORDER_DELIVERY_QUOTED',
+          'RETAIL_PART_ORDER', public_id, jsonb_build_object('orderCode', ?, 'deliveryFee', ?,
+            'quoteStatus', 'AWAITING_CUSTOMER_CONFIRMATION')
+        from retail_part_order where dealership_id = ? and public_id = ?
+        """, String.valueOf(row.get("order_code")), fee, actor.dealershipId(), orderPublicId);
+    return getOrderForStaff(actor, orderPublicId);
+  }
+
+  @Transactional
   public RetailOrderView fulfillOrder(StaffPrincipal actor, UUID orderPublicId, FulfillRequest request) {
     if (request == null) throw badRequest("Collection details are required to fulfil an order.");
     String method = required(request.collectionMethod(), "Collection method", 24).toUpperCase(Locale.ROOT);
@@ -363,8 +518,8 @@ public class RetailPartsService {
     String key = required(request.idempotencyKey(), "Collection idempotency key", 120);
 
     List<Map<String, Object>> rows = jdbc.queryForList("""
-        select id, order_code, status, order_total from retail_part_order
-        where dealership_id = ? and public_id = ? for update
+        select id, order_code, status, order_total, fulfillment_method, delivery_quote_status
+        from retail_part_order where dealership_id = ? and public_id = ? for update
         """, actor.dealershipId(), orderPublicId);
     if (rows.isEmpty()) throw notFound("Retail parts order was not found.");
     Map<String, Object> row = rows.getFirst();
@@ -375,6 +530,11 @@ public class RetailPartsService {
     if (replay != null) return replay;
     if (!"PLACED".equals(String.valueOf(row.get("status")))) {
       throw conflict("Only a placed order can be fulfilled and collected.");
+    }
+    String fulfillmentMethod = String.valueOf(row.get("fulfillment_method"));
+    if ("DELIVERY".equals(fulfillmentMethod)
+        && !"ACCEPTED".equals(String.valueOf(row.get("delivery_quote_status")))) {
+      throw conflict("The customer must accept the delivery quote before delivery and payment can be recorded.");
     }
     Long orderId = ((Number) row.get("id")).longValue();
     List<OrderStockLine> lines = getOrderStockLines(actor.dealershipId(), orderId, true);
@@ -413,18 +573,19 @@ public class RetailPartsService {
       throw conflict("This collection key was used concurrently. Refresh and retry.");
     }
     jdbc.update("""
-        update retail_part_order set status = 'FULFILLED', payment_status = 'PAID_AT_PICKUP',
+        update retail_part_order set status = 'FULFILLED', payment_status = ?,
           fulfilled_by_staff_user_id = ?, fulfilled_at = now(), updated_at = now()
         where dealership_id = ? and id = ? and status = 'PLACED'
-        """, actor.staffUserId(), actor.dealershipId(), orderId);
+        """, "DELIVERY".equals(fulfillmentMethod) ? "PAID_ON_DELIVERY" : "PAID_AT_PICKUP",
+        actor.staffUserId(), actor.dealershipId(), orderId);
     jdbc.update("""
         insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
           action, entity_type, entity_id, details)
         values (?, 'STAFF', ?, 'RETAIL_PART_ORDER_FULFILLED', 'RETAIL_PART_ORDER', ?,
           jsonb_build_object('orderCode', ?, 'receiptNumber', ?, 'collectionMethod', ?, 'amount', ?,
-            'manualCollectionAttestation', true))
+            'fulfillmentMethod', ?, 'manualCollectionAttestation', true))
         """, actor.dealershipId(), actor.staffUserId(), orderPublicId.toString(),
-        String.valueOf(row.get("order_code")), receiptNumber, method, total);
+        String.valueOf(row.get("order_code")), receiptNumber, method, total, fulfillmentMethod);
     return getOrderForStaff(actor, orderPublicId);
   }
 
@@ -574,6 +735,8 @@ public class RetailPartsService {
     return """
         select order_record.id as order_id, order_record.public_id, order_record.order_code,
           order_record.status, order_record.payment_method, order_record.payment_status, order_record.order_total,
+          order_record.fulfillment_method, order_record.delivery_address, order_record.delivery_fee,
+          order_record.delivery_quote_status, order_record.delivery_quote_note, order_record.delivery_quoted_at,
           order_record.customer_note, order_record.created_at, order_record.updated_at,
           order_record.cancelled_at, order_record.fulfilled_at, order_record.returned_at,
           order_record.returned_reason, order_record.returned_restocked, customer.full_name as customer_name,
@@ -588,9 +751,13 @@ public class RetailPartsService {
     Timestamp fulfilled = rs.getTimestamp("fulfilled_at");
     Timestamp returned = rs.getTimestamp("returned_at");
     Boolean restocked = (Boolean) rs.getObject("returned_restocked");
+    Timestamp deliveryQuoted = rs.getTimestamp("delivery_quoted_at");
     return new RetailOrderView(
         rs.getObject("public_id", UUID.class), rs.getString("order_code"), rs.getString("status"),
         rs.getString("payment_method"), rs.getString("payment_status"), rs.getBigDecimal("order_total"),
+        rs.getString("fulfillment_method"), rs.getString("delivery_address"), rs.getBigDecimal("delivery_fee"),
+        rs.getString("delivery_quote_status"), rs.getString("delivery_quote_note"),
+        deliveryQuoted == null ? null : deliveryQuoted.toInstant(),
         rs.getString("customer_note"), rs.getTimestamp("created_at").toInstant(),
         rs.getTimestamp("updated_at").toInstant(), cancelled == null ? null : cancelled.toInstant(),
         fulfilled == null ? null : fulfilled.toInstant(), returned == null ? null : returned.toInstant(),
@@ -782,16 +949,24 @@ public class RetailPartsService {
       BigDecimal quantityAvailable, boolean available) {}
   public record OrderLineRequest(UUID partPublicId, BigDecimal quantity) {}
   public record PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode,
-      String customerNote, String idempotencyKey) {}
+      String customerNote, String idempotencyKey, String fulfillmentMethod, String deliveryAddress) {
+    public PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode,
+        String customerNote, String idempotencyKey) {
+      this(lines, fitmentModelCode, customerNote, idempotencyKey, "PICKUP", null);
+    }
+  }
   public record FulfillRequest(String collectionMethod, String externalReference,
       String idempotencyKey, String note) {}
   public record ReturnRequest(String reason, Boolean restockable, String idempotencyKey) {}
+  public record DeliveryQuoteRequest(BigDecimal deliveryFee, String note, String idempotencyKey) {}
   public record RetailOrderLineView(
       UUID partPublicId, String skuCode, String partName, String unitOfMeasure,
       BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
   public record RetailOrderView(
       UUID publicId, String orderCode, String status, String paymentMethod, String paymentStatus,
-      BigDecimal orderTotal, String customerNote, Instant createdAt, Instant updatedAt,
+      BigDecimal orderTotal, String fulfillmentMethod, String deliveryAddress, BigDecimal deliveryFee,
+      String deliveryQuoteStatus, String deliveryQuoteNote, Instant deliveryQuotedAt,
+      String customerNote, Instant createdAt, Instant updatedAt,
       Instant cancelledAt, Instant fulfilledAt, Instant returnedAt, String returnReason,
       Boolean restockedOnReturn, String customerName, String customerCode,
       String customerPhone, List<RetailOrderLineView> lines) {}
