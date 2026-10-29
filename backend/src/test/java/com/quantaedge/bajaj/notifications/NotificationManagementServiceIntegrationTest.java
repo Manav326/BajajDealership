@@ -210,6 +210,17 @@ class NotificationManagementServiceIntegrationTest {
         values (?, ?, 'Consented Customer', '9000000002', 'ACTIVE', now(), 'test opt-in')
         """, owner.dealershipId(), consentCode);
 
+    assertThat(notifications.searchRecipients(owner, "CUSTOMER", null, true))
+        .extracting(NotificationManagementService.RecipientOption::recipientName)
+        .containsExactly("Consented Customer");
+    assertThat(notifications.searchRecipients(owner, "CUSTOMER", "Consented", true))
+        .extracting(NotificationManagementService.RecipientOption::recipientName)
+        .containsExactly("Consented Customer");
+    assertThatThrownBy(() -> notifications.searchRecipients(owner, "STAFF", null, true))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST));
+
     NotificationManagementService.PreviewResult preview = notifications.preview(owner,
         new NotificationManagementService.PreviewRequest(
             "CUSTOMER", "Service tips", "Helpful information",

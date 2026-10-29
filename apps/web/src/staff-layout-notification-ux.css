@@ -1,0 +1,649 @@
+/* Staff shell and notification preview UX fixes.
+   Keep the desktop navigation in the viewport and give each preview state a stable layout. */
+
+@media (min-width: 821px) {
+  .app-shell {
+    align-items: flex-start;
+  }
+
+  .app-shell > .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+  }
+
+  .app-shell > .sidebar .brand-lockup,
+  .app-shell > .sidebar .agency-switcher,
+  .app-shell > .sidebar .nav-group,
+  .app-shell > .sidebar .sidebar-bottom {
+    flex-shrink: 0;
+  }
+
+  .app-shell > .sidebar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .app-shell > .sidebar::-webkit-scrollbar-thumb {
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* The existing mobile navigation is a modal drawer, not a sticky desktop rail. */
+@media (max-width: 820px) {
+  .app-shell > .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}
+
+/* Notification Studio: the editor, customer-facing preview, audience proof, and
+   delivery controls should read as separate steps rather than one long panel. */
+.notification-studio .studio-preview-column {
+  min-width: 0;
+  align-content: start;
+}
+
+.notification-studio .studio-preview-panel {
+  display: grid;
+  align-content: start;
+  gap: 15px;
+  min-width: 0;
+  overflow: visible;
+}
+
+.notification-studio .preview-panel-header {
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+.notification-studio .preview-view-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid rgba(218, 226, 237, 0.88);
+  border-radius: 12px;
+  background: rgba(244, 247, 251, 0.78);
+}
+
+.notification-studio .preview-view-button {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #69768c;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.notification-studio .preview-view-button:hover {
+  color: #9c4c14;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.notification-studio .preview-view-button.active {
+  color: #a94b0c;
+  background: #fff;
+  border-color: rgba(249, 115, 22, 0.24);
+  box-shadow: 0 2px 7px rgba(39, 54, 78, 0.07);
+}
+
+.notification-studio .preview-view-button:focus-visible {
+  outline: 3px solid rgba(249, 115, 22, 0.45);
+  outline-offset: 2px;
+}
+
+.notification-studio .preview-summary {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .rich-preview-frame {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgba(216, 225, 237, 0.94);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(255, 255, 255, 0.95), transparent 52%),
+    linear-gradient(145deg, rgba(236, 242, 250, 0.96), rgba(248, 250, 253, 0.96));
+  overflow: visible;
+}
+
+.notification-studio .preview-frame-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  min-width: 0;
+  color: #69778d;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.notification-studio .preview-frame-heading > span:first-child {
+  color: #8995a7;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+}
+
+.notification-studio .preview-frame-heading > span:last-child {
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(217, 226, 238, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #4c5d76;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .preview-device-screen {
+  width: 100%;
+  min-width: 0;
+  max-width: 390px;
+  margin-inline: auto;
+  padding: 10px;
+  border: 1px solid rgba(215, 224, 237, 0.98);
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(29, 45, 70, 0.08), inset 0 1px rgba(255, 255, 255, 0.95);
+  overflow: hidden;
+}
+
+.notification-studio .preview-device-screen > .renderer {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.notification-studio .rich-preview-frame[data-preview-mode="mobile"] .preview-device-screen {
+  max-width: 390px;
+}
+
+.notification-studio .rich-preview-frame[data-preview-mode="inbox"] .preview-device-screen {
+  max-width: 760px;
+  padding: 14px;
+}
+
+.notification-studio .rich-preview-frame[data-preview-mode="push"] .preview-device-screen {
+  max-width: 360px;
+  padding: 10px;
+}
+
+.notification-studio .preview-result {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border-radius: 16px;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .preview-result-top > div {
+  min-width: 0;
+}
+
+.notification-studio .preview-result-top span:not(.preview-success-icon) {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .preview-counts > div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.notification-studio .preview-counts span,
+.notification-studio .preview-counts strong {
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .preview-recipient {
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .preview-recipient span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .campaign-approval-banner {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.notification-studio .campaign-approval-banner > div {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.notification-studio .campaign-approval-banner > div span {
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .send-panel.send-panel-card {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.83), rgba(248, 250, 253, 0.67));
+  box-shadow: 0 14px 34px rgba(34, 53, 82, 0.06), inset 0 1px rgba(255, 255, 255, 0.95);
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .send-panel.send-panel-card > h3 {
+  color: #1f2d44;
+  font-size: 15px;
+  letter-spacing: -0.2px;
+}
+
+.notification-studio .send-panel.send-panel-card > p {
+  margin: -5px 0 0;
+  color: #727f94;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.notification-studio .send-panel.send-panel-card .send-channel-note {
+  font-size: 10px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1150px) {
+  .notification-studio .studio-preview-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notification-studio .rich-preview-frame {
+    max-width: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .notification-studio .studio-preview-panel,
+  .notification-studio .preview-result,
+  .notification-studio .send-panel.send-panel-card {
+    padding: 14px;
+  }
+
+  .notification-studio .preview-view-controls {
+    gap: 3px;
+    padding: 3px;
+  }
+
+  .notification-studio .preview-view-button {
+    min-height: 42px;
+    padding: 7px 4px;
+    font-size: 10px;
+  }
+
+  .notification-studio .rich-preview-frame {
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .notification-studio .preview-device-screen {
+    padding: 7px;
+    border-radius: 11px;
+  }
+
+  .notification-studio .preview-counts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-studio .preview-view-button {
+    transition: none;
+  }
+}
+
+
+/* Explicit include/exclude recipient picker. Checked always means the person is included. */
+.notification-studio .recipient-picker-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.notification-studio .recipient-picker-heading > div {
+  min-width: 0;
+}
+
+.notification-studio .recipient-picker-heading strong {
+  display: block;
+  color: #26364f;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.notification-studio .recipient-picker-heading p {
+  margin: 5px 0 0;
+  color: #78869b;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.notification-studio .recipient-picker-heading > span {
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(224, 232, 242, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #52637a;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.notification-studio .audience-mode {
+  gap: 10px;
+}
+
+.notification-studio .audience-mode label {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(224, 231, 240, 0.9);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.notification-studio .audience-mode label:has(input:checked) {
+  border-color: rgba(249, 115, 22, 0.36);
+  background: rgba(255, 246, 238, 0.82);
+}
+
+.notification-studio .audience-mode label > span {
+  display: grid;
+  gap: 4px;
+}
+
+.notification-studio .audience-mode label strong {
+  color: #38475e;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.notification-studio .audience-mode label small {
+  color: #7e8a9e;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.notification-studio .recipient-search-hint {
+  margin: 9px 1px 0;
+  color: #8995a7;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.notification-studio .recipient-results-heading {
+  align-items: flex-start;
+}
+
+.notification-studio .recipient-results-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px 10px;
+}
+
+.notification-studio .recipient-results-heading .text-button {
+  padding: 2px 0;
+  color: #a75113;
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.notification-studio .recipient-option {
+  border: 1px solid transparent;
+  gap: 10px;
+}
+
+.notification-studio .recipient-option > input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #e96b17;
+}
+
+.notification-studio .recipient-option.active {
+  border-color: rgba(37, 157, 102, 0.16);
+  background: rgba(239, 251, 244, 0.78);
+}
+
+.notification-studio .recipient-option.excluded {
+  background: rgba(249, 250, 252, 0.9);
+  opacity: 0.9;
+}
+
+.notification-studio .recipient-option-action {
+  flex-shrink: 0;
+  max-width: 98px;
+  text-align: right;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.notification-studio .recipient-option.active .recipient-option-action {
+  color: #18784d;
+}
+
+.notification-studio .recipient-option.excluded .recipient-option-action {
+  color: #929cad;
+}
+
+.notification-studio .recipient-selection-review {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(222, 230, 239, 0.95);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(245, 248, 252, 0.68));
+}
+
+.notification-studio .recipient-selection-review-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.notification-studio .recipient-selection-review-heading > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.notification-studio .recipient-selection-review-heading strong {
+  color: #33435a;
+  font-size: 11px;
+}
+
+.notification-studio .recipient-selection-review-heading span {
+  color: #7f8b9e;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.notification-studio .recipient-selection-review-heading .text-button {
+  color: #a75113;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.notification-studio .recipient-selection-review-list {
+  display: grid;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.notification-studio .recipient-selection-review-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 3px;
+  border-top: 1px solid rgba(225, 232, 240, 0.72);
+}
+
+.notification-studio .recipient-selection-review-row > span:nth-child(2) {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-studio .recipient-selection-review-row strong {
+  color: #3b4b62;
+  font-size: 10px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .recipient-selection-review-row small {
+  color: #8a96a8;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.notification-studio .recipient-selection-review-row .text-button {
+  flex-shrink: 0;
+  color: #a75113;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .notification-studio .recipient-picker-heading {
+    flex-direction: column;
+  }
+
+  .notification-studio .recipient-results-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .notification-studio .recipient-results-heading > div {
+    justify-content: flex-start;
+  }
+
+  .notification-studio .recipient-results-heading .text-button {
+    text-align: left;
+  }
+
+  .notification-studio .recipient-option {
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 6px;
+  }
+
+  .notification-studio .recipient-option-action {
+    max-width: 82px;
+    font-size: 8px;
+  }
+
+  .notification-studio .recipient-selection-review {
+    padding: 11px;
+  }
+}
+
+/* Toasts are viewport overlays. They must not participate in the app-shell flex row:
+   a long success/error message would otherwise push the sidebar and workspace sideways. */
+.toast-stack {
+  position: fixed;
+  inset: 16px 16px auto auto;
+  z-index: 200;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  min-width: 0;
+  pointer-events: none;
+}
+
+.toast-stack .toast {
+  min-width: 0;
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid rgba(216, 225, 237, 0.98);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  color: #33435b;
+  box-shadow: 0 16px 42px rgba(22, 37, 61, 0.16), inset 0 1px rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.toast-stack .toast-success {
+  border-color: #bfe9d2;
+  background: rgba(244, 253, 248, 0.98);
+  color: #176b47;
+}
+
+.toast-stack .toast-error {
+  border-color: #f4c8c5;
+  background: rgba(255, 247, 246, 0.98);
+  color: #963831;
+}
+
+@media (max-width: 560px) {
+  .toast-stack {
+    inset: 12px 12px auto auto;
+    width: min(420px, calc(100vw - 24px));
+  }
+
+  .toast-stack .toast {
+    padding: 11px 12px;
+    font-size: 11px;
+  }
+}
+

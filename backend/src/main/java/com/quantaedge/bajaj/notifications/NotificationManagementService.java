@@ -192,20 +192,31 @@ public class NotificationManagementService {
   }
 
   public List<RecipientOption> searchRecipients(StaffPrincipal actor, String kind, String query) {
+    return searchRecipients(actor, kind, query, false);
+  }
+
+  public List<RecipientOption> searchRecipients(
+      StaffPrincipal actor, String kind, String query, boolean marketingOnly) {
     String normalizedKind = normalizeKind(kind);
+    if (marketingOnly && !"CUSTOMER".equals(normalizedKind)) {
+      throw badRequest("Marketing-consent filters may only search customers.");
+    }
     String term = optionalText(query, 100);
     String like = term == null ? null : "%" + escapeLike(term.toLowerCase(Locale.ROOT)) + "%";
     if ("CUSTOMER".equals(normalizedKind)) {
+      String marketingFilter = marketingOnly ? " and c.marketing_consent_at is not null " : "";
       if (like == null) {
         return jdbc.query("""
             select c.id, c.public_id, c.full_name, c.status
             from customer c where c.dealership_id = ? and c.status = 'ACTIVE'
+            """ + marketingFilter + """
             order by lower(c.full_name) limit 50
             """, recipientOptionMapper("CUSTOMER", actor), actor.dealershipId());
       }
       return jdbc.query("""
           select c.id, c.public_id, c.full_name, c.status
           from customer c where c.dealership_id = ? and c.status = 'ACTIVE'
+          """ + marketingFilter + """
             and (lower(c.full_name) like ? escape '!' or c.phone like ? escape '!'
               or lower(coalesce(c.email,'')) like ? escape '!' or lower(c.customer_code) like ? escape '!')
           order by lower(c.full_name) limit 50

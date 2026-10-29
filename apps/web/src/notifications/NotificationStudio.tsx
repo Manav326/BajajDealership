@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { apiFetch } from './apiClient';
 import { notifyUser } from './GlobalNotificationHost';
 import LogoGraphicsLab, { type UploadedNotificationMedia } from './LogoGraphicsLab';
@@ -159,7 +159,10 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [selectedRecipients, setSelectedRecipients] = useState<Recipient[]>([]);
   const [excludedRecipients, setExcludedRecipients] = useState<Recipient[]>([]);
   const [document, setDocument] = useState<DocumentV1>(defaultDocument);
+  const [previewMode, setPreviewMode] = useState<'mobile' | 'inbox' | 'push'>('mobile');
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const previewRequestSequence = useRef(0);
   const [approvedCampaignPublicId, setApprovedCampaignPublicId] = useState('');
   const [scheduleValue, setScheduleValue] = useState('');
   const [expiryValue, setExpiryValue] = useState('');
@@ -168,6 +171,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [addBlockType, setAddBlockType] = useState('richText');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const recipientSearchSequence = useRef(0);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [savedPreview, setSavedPreview] = useState<SavedCampaignPreview | null>(null);
@@ -210,33 +214,61 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       return marketingOnly ? (options?.marketingConsentCustomerCount ?? 0) : (options?.activeCustomerCount ?? 0);
     }
     if (scope === 'STAFF') return options?.activeStaffCount ?? 0;
-    const selectedTypes = recipientTypes.length ? recipientTypes : ['CUSTOMER', 'STAFF'];
-    return selectedTypes.reduce((sum, type) => {
+    return recipientTypes.reduce((sum, type) => {
       if (type === 'STAFF') return sum + (options?.activeStaffCount ?? 0);
       return sum + (marketingOnly ? (options?.marketingConsentCustomerCount ?? 0) : (options?.activeCustomerCount ?? 0));
     }, 0);
   }, [scope, marketingOnly, options, recipientTypes]);
 
+  // The picker must never offer recipients outside the active campaign audience.
+  const availableSearchKinds: Array<'CUSTOMER' | 'STAFF'> = scope === 'CUSTOMER'
+    ? ['CUSTOMER']
+    : scope === 'STAFF' ? ['STAFF'] : recipientTypes;
+
+  function invalidateRecipientSearch() {
+    // Ignore any late response from a search that no longer matches the active audience.
+    recipientSearchSequence.current += 1;
+    setRecipientResults([]);
+    setSearching(false);
+  }
+
+  function invalidatePreview() {
+    // Ignore any in-flight validation if the audience or content changed afterwards.
+    previewRequestSequence.current += 1;
+    setPreview(null);
+    setApprovedCampaignPublicId('');
+    setPreviewing(false);
+  }
+
   function changeScope(next: 'CUSTOMER' | 'STAFF' | 'DEALERSHIP') {
     setScope(next);
+    invalidateRecipientSearch();
     if (next === 'CUSTOMER') { setRecipientTypes(['CUSTOMER']); setMarketingOnly(false); setSearchKind('CUSTOMER'); }
     else if (next === 'STAFF') { setRecipientTypes(['STAFF']); setMarketingOnly(false); setSearchKind('STAFF'); }
-    else setRecipientTypes(['CUSTOMER', 'STAFF']);
+    else {
+      setRecipientTypes(marketingOnly ? ['CUSTOMER'] : ['CUSTOMER', 'STAFF']);
+      setSearchKind('CUSTOMER');
+    }
     setSelectionMode('ALL');
     setSelectedRecipients([]);
     setExcludedRecipients([]);
-    setRecipientResults([]);
-    setPreview(null);
+    invalidatePreview();
   }
 
   function toggleType(type: 'CUSTOMER' | 'STAFF') {
-    setRecipientTypes((current) => {
-      const updated = current.includes(type) ? current.filter((value) => value !== type) : [...current, type];
-      return updated;
-    });
+    if (marketingOnly) return;
+    const updated = recipientTypes.includes(type)
+      ? recipientTypes.filter((value) => value !== type)
+      : [...recipientTypes, type];
+    setRecipientTypes(updated);
+    // Keep manual selections compatible with the groups still included in this campaign.
+    setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
+    setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
+    if (updated.length > 0 && !updated.includes(searchKind)) setSearchKind(updated[0]);
+    invalidateRecipientSearch();
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
     if (type === 'STAFF' && !recipientTypes.includes('CUSTOMER')) setMarketingOnly(false);
-    setPreview(null);
+    invalidatePreview();
   }
 
   function updateBlock(index: number, key: string, value: string | boolean | number) {
@@ -245,12 +277,12 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       blocks: current.blocks.map((block, blockIndex) =>
         blockIndex === index ? { ...block, [key]: value } : block),
     }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function deleteBlock(index: number) {
     setDocument((current) => ({ version: 1, blocks: current.blocks.filter((_, blockIndex) => blockIndex !== index) }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function addBlock() {
@@ -259,13 +291,13 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       return;
     }
     setDocument((current) => ({ version: 1, blocks: [...current.blocks, freshBlock(addBlockType)] }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function chooseTemplate(event: ChangeEvent<HTMLSelectElement>) {
     const id = event.target.value;
     setSelectedTemplate(id);
-    setPreview(null);
+    invalidatePreview();
     if (!id) {
       setTemplatePublicId(null);
       setTemplateVersion(null);
@@ -286,39 +318,90 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
 
   async function searchRecipients(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const requestId = ++recipientSearchSequence.current;
+    const requestedKind = searchKind;
+    const applyMarketingFilter = requestedKind === 'CUSTOMER' && scope !== 'STAFF' && marketingOnly;
     setSearching(true);
     setError('');
     try {
-      const params = new URLSearchParams({ kind: searchKind });
+      const params = new URLSearchParams({ kind: requestedKind });
       if (recipientQuery.trim()) params.set('query', recipientQuery.trim());
+      if (applyMarketingFilter) params.set('marketingOnly', 'true');
       const result = await getJson<{ recipients: Recipient[] }>(`/api/v1/admin/notifications/recipients?${params.toString()}`);
-      setRecipientResults(result.recipients ?? []);
+      if (requestId !== recipientSearchSequence.current) return;
+      setRecipientResults((result.recipients ?? []).filter((recipient) => recipient.recipientKind === requestedKind));
     } catch (cause) {
+      if (requestId !== recipientSearchSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Could not search eligible recipients.');
     } finally {
-      setSearching(false);
+      if (requestId === recipientSearchSequence.current) setSearching(false);
     }
+  }
+
+  function isRecipientIncluded(recipient: Recipient) {
+    const key = recipientKey(recipient);
+    return selectionMode === 'SELECTED'
+      ? selectedRecipients.some((item) => recipientKey(item) === key)
+      : !excludedRecipients.some((item) => recipientKey(item) === key);
+  }
+
+  function setRecipientIncluded(recipient: Recipient, included: boolean) {
+    const key = recipientKey(recipient);
+    if (selectionMode === 'SELECTED') {
+      setSelectedRecipients((current) => included
+        ? current.some((item) => recipientKey(item) === key) ? current : [...current, recipient]
+        : current.filter((item) => recipientKey(item) !== key));
+    } else {
+      // In "all eligible" mode, checked means included; unchecked recipients are exclusions.
+      setExcludedRecipients((current) => included
+        ? current.filter((item) => recipientKey(item) !== key)
+        : current.some((item) => recipientKey(item) === key) ? current : [...current, recipient]);
+    }
+    invalidatePreview();
   }
 
   function toggleRecipient(recipient: Recipient) {
+    setRecipientIncluded(recipient, !isRecipientIncluded(recipient));
+  }
+
+  function setVisibleRecipientsIncluded(included: boolean) {
+    if (recipientResults.length === 0) return;
+    const visibleKeys = new Set(recipientResults.map(recipientKey));
     if (selectionMode === 'SELECTED') {
-      setSelectedRecipients((current) => current.some((item) => recipientKey(item) === recipientKey(recipient))
-        ? current.filter((item) => recipientKey(item) !== recipientKey(recipient))
-        : [...current, recipient]);
+      setSelectedRecipients((current) => {
+        const retained = current.filter((recipient) => !visibleKeys.has(recipientKey(recipient)));
+        return included ? [...retained, ...recipientResults] : retained;
+      });
     } else {
-      setExcludedRecipients((current) => current.some((item) => recipientKey(item) === recipientKey(recipient))
-        ? current.filter((item) => recipientKey(item) !== recipientKey(recipient))
-        : [...current, recipient]);
+      setExcludedRecipients((current) => {
+        const retained = current.filter((recipient) => !visibleKeys.has(recipientKey(recipient)));
+        return included ? retained : [...retained, ...recipientResults];
+      });
     }
-    setPreview(null);
+    invalidatePreview();
+  }
+
+  function clearRecipientChanges() {
+    if (selectionMode === 'SELECTED') setSelectedRecipients([]);
+    else setExcludedRecipients([]);
+    invalidatePreview();
+  }
+
+  function restoreRecipient(recipient: Recipient) {
+    if (selectionMode === 'SELECTED') {
+      setSelectedRecipients((current) => current.filter((item) => recipientKey(item) !== recipientKey(recipient)));
+    } else {
+      setExcludedRecipients((current) => current.filter((item) => recipientKey(item) !== recipientKey(recipient)));
+    }
+    invalidatePreview();
   }
 
   async function previewCampaign() {
-    setSaving(true);
+    invalidatePreview();
+    const requestId = ++previewRequestSequence.current;
+    setPreviewing(true);
     setError('');
     setMessage('');
-    setPreview(null);
-    setApprovedCampaignPublicId('');
     try {
       if (!document.blocks.length) throw new Error('Add at least one content block before previewing.');
       if (selectionMode === 'SELECTED' && selectedRecipients.length === 0) {
@@ -345,19 +428,22 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         templateVersion,
       };
       const result = await sendJson<Preview>('/api/v1/admin/notifications/preview', 'POST', request);
+      if (requestId !== previewRequestSequence.current) return;
       setPreview(result);
       setApprovedCampaignPublicId('');
       setMessage(result.message);
       notifyUser('Audience preview is ready. Review the recipients and expiry before sending.', 'success');
     } catch (cause) {
+      if (requestId !== previewRequestSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Notification preview failed.');
     } finally {
-      setSaving(false);
+      if (requestId === previewRequestSequence.current) setPreviewing(false);
     }
   }
 
   async function saveTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    invalidatePreview();
     setSaving(true);
     setError('');
     setMessage('');
@@ -379,7 +465,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         notifyUser('Template saved to the dealership library.', 'success');
       }
       setMessage('Template saved. Template versions are retained for audit and reuse.');
-      setPreview(null);
+      invalidatePreview();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save the template.');
     } finally {
@@ -398,7 +484,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
     if (new Date(preview.expiresAt).getTime() <= Date.now()) {
       setError('This preview has expired. Run a new preview before approval.');
-      setPreview(null);
+      invalidatePreview();
       setApprovedCampaignPublicId('');
       return;
     }
@@ -434,7 +520,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
     if (new Date(preview.expiresAt).getTime() <= Date.now()) {
       setError('This preview has expired. Run a new preview before sending.');
-      setPreview(null);
+      invalidatePreview();
       return;
     }
     setSending(true);
@@ -464,7 +550,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       setMessage(savedCampaign.status === 'SCHEDULED'
         ? `Campaign scheduled for ${humanDate(savedCampaign.scheduledAt)}. Recipients will be resolved again at dispatch.`
         : `In-app notification created for ${savedCampaign.resolvedRecipientCount} recipient(s).`);
-      setPreview(null);
+      invalidatePreview();
       setApprovedCampaignPublicId('');
       setScheduleValue('');
       notifyUser(savedCampaign.status === 'SCHEDULED' ? 'Notification campaign scheduled.' : 'In-app notification sent.', 'success');
@@ -548,7 +634,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       const asset = await readResponse<UploadedNotificationMedia>(response);
       setDocument((current) => ({ version: 1, blocks: [...current.blocks,
         { type: 'image', assetId: asset.assetId, alt: asset.altText || file.name, caption: '', decorative: false }] }));
-      setPreview(null);
+      invalidatePreview();
       notifyUser('Image uploaded privately and added to the notification.', 'success');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The image could not be uploaded.');
@@ -561,14 +647,15 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     setDocument((current) => ({ version: 1, blocks: [...current.blocks,
       { type: 'image', assetId: asset.assetId, alt: asset.altText || 'Lucky Bajaj logo', caption: '', decorative: false }] }));
     setShowGraphics(false);
-    setPreview(null);
+    invalidatePreview();
     notifyUser('Graphic added to the notification design.', 'success');
   }
 
   const audienceDescription = scope === 'CUSTOMER' ? 'Customers'
-    : scope === 'STAFF' ? 'Staff' : 'Customers and staff';
-  const selectedRecipientKeys = new Set(selectedRecipients.map(recipientKey));
-  const excludedRecipientKeys = new Set(excludedRecipients.map(recipientKey));
+    : scope === 'STAFF' ? 'Staff'
+      : recipientTypes.length === 2 ? 'Customers and staff'
+        : recipientTypes[0] === 'CUSTOMER' ? 'Customers'
+          : recipientTypes[0] === 'STAFF' ? 'Staff' : 'recipients';
 
   return (
     <section className="notification-studio">
@@ -659,8 +746,8 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <div className="template-form-footer"><span>{templateVersion ? `Editing version ${templateVersion}; save creates a new version.` : 'Save this design as a reusable template.'}</span><button type="submit" className="secondary-button" disabled={saving}>{saving ? 'Saving…' : templatePublicId ? 'Save new version' : 'Save template'}</button></div>
               </form>
               <div className="studio-two-fields">
-                <div className="studio-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" required maxLength={120} value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); }} /></div>
-                <div className="studio-field"><label htmlFor="campaign-summary">Inbox summary</label><input id="campaign-summary" required maxLength={300} value={summary} onChange={(event) => { setSummary(event.target.value); setPreview(null); }} /></div>
+                <div className="studio-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" required maxLength={120} value={title} onChange={(event) => { setTitle(event.target.value); invalidatePreview(); }} /></div>
+                <div className="studio-field"><label htmlFor="campaign-summary">Inbox summary</label><input id="campaign-summary" required maxLength={300} value={summary} onChange={(event) => { setSummary(event.target.value); invalidatePreview(); }} /></div>
               </div>
             </section>
 
@@ -671,40 +758,84 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   ['CUSTOMER', 'Customers', 'Customer messages'],
                   ['STAFF', 'Staff', 'Internal updates'],
                   ['DEALERSHIP', 'Dealership-wide', 'Choose either or both groups'],
-                ] as const).map(([value, label, help]) => <button type="button" key={value} onClick={() => changeScope(value)} className={scope === value ? 'scope-choice active' : 'scope-choice'}><strong>{label}</strong><span>{help}</span></button>)}
+                ] as const).map(([value, label, help]) => <button type="button" key={value} disabled={sending} onClick={() => changeScope(value)} className={scope === value ? 'scope-choice active' : 'scope-choice'}><strong>{label}</strong><span>{help}</span></button>)}
               </div>
               {scope === 'DEALERSHIP' && <div className="recipient-type-choices">
-                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
-                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} onChange={() => toggleType('STAFF')} /> Staff</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} disabled={sending || marketingOnly} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} disabled={sending || marketingOnly} onChange={() => toggleType('STAFF')} /> Staff</label>
               </div>}
-              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} onChange={(event) => { setMarketingOnly(event.target.checked); setPreview(null); }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. The backend enforces consent filtering for this option.</p></label>}
+              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} disabled={sending} onChange={(event) => {
+                const enabled = event.target.checked;
+                setMarketingOnly(enabled);
+                setSelectedRecipients([]);
+                setExcludedRecipients([]);
+                invalidateRecipientSearch();
+                if (enabled) {
+                  setSearchKind('CUSTOMER');
+                  if (scope === 'DEALERSHIP') setRecipientTypes(['CUSTOMER']);
+                }
+                invalidatePreview();
+              }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. Enabling this filter resets recipient choices and limits the audience to consented customers.</p></label>}
               <div className="audience-mode">
-                <label><input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); setPreview(null); }} /> All eligible {audienceDescription.toLowerCase()}</label>
-                <label><input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); setPreview(null); }} /> Only selected recipients</label>
+                <label>
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} disabled={sending} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); invalidatePreview(); }} />
+                  <span><strong>All eligible {audienceDescription.toLowerCase()}</strong><small>Everyone receives it unless you uncheck specific people below.</small></span>
+                </label>
+                <label>
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} disabled={sending} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); invalidatePreview(); }} />
+                  <span><strong>Choose recipients manually</strong><small>Only the people you check will receive it.</small></span>
+                </label>
               </div>
               <div className="recipient-search-panel">
+                <div className="recipient-picker-heading">
+                  <div><strong>{selectionMode === 'SELECTED' ? 'Choose who will receive this' : 'Include or exclude specific people'}</strong><p>Search by name, mobile, email or customer code. Each result has its own checkbox.</p></div>
+                  <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
+                </div>
                 <form className="recipient-search-form" onSubmit={searchRecipients}>
-                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} onChange={(event) => setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF')}><option value="CUSTOMER">Customers</option><option value="STAFF">Staff</option></select></div>
-                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find people to {selectionMode === 'SELECTED' ? 'include' : 'exclude'}</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile or email" /></div>
-                  <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button>
+                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={sending || availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); invalidateRecipientSearch(); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
+                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} disabled={sending} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
+                  <button type="submit" className="secondary-button" disabled={searching || sending}>{searching ? 'Searching…' : 'Search people'}</button>
                 </form>
+                <p className="recipient-search-hint">Showing up to 50 matching people per search. Search again to find additional recipients.</p>
                 {recipientResults.length > 0 && <div className="recipient-results">
-                  <div className="recipient-results-heading"><span>Eligible search results (up to 50)</span><button type="button" className="text-button" onClick={() => setRecipientResults([])}>Clear results</button></div>
+                  <div className="recipient-results-heading">
+                    <span>{recipientResults.length} matching {searchKind === 'CUSTOMER' ? 'customers' : 'staff members'}</span>
+                    <div>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setVisibleRecipientsIncluded(true)}>{selectionMode === 'SELECTED' ? 'Select all results' : 'Include all results'}</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setVisibleRecipientsIncluded(false)}>{selectionMode === 'SELECTED' ? 'Deselect results' : 'Exclude all results'}</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setRecipientResults([])}>Clear search</button>
+                    </div>
+                  </div>
                   {recipientResults.map((recipient) => {
                     const key = recipientKey(recipient);
-                    const active = selectionMode === 'SELECTED' ? selectedRecipientKeys.has(key) : excludedRecipientKeys.has(key);
-                    return <label className={active ? 'recipient-option active' : 'recipient-option'} key={key}>
-                      <input type="checkbox" checked={active} onChange={() => toggleRecipient(recipient)} />
+                    const included = isRecipientIncluded(recipient);
+                    return <label className={included ? 'recipient-option active' : 'recipient-option excluded'} key={key}>
+                      <input aria-label={`${included ? 'Deselect' : 'Select'} ${recipient.recipientName}`} type="checkbox" checked={included} disabled={sending} onChange={() => toggleRecipient(recipient)} />
                       <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
                       <span className="recipient-option-main"><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
-                      <span className="recipient-option-action">{active ? 'Selected' : selectionMode === 'SELECTED' ? 'Include' : 'Exclude'}</span>
+                      <span className="recipient-option-action">{included ? (selectionMode === 'SELECTED' ? 'Will receive' : 'Included') : (selectionMode === 'SELECTED' ? 'Not selected' : 'Excluded')}</span>
                     </label>;
                   })}
                 </div>}
               </div>
+              {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).length > 0 && <div className="recipient-selection-review">
+                <div className="recipient-selection-review-heading">
+                  <div><strong>{selectionMode === 'SELECTED' ? 'Selected recipients' : 'Excluded recipients'}</strong><span>{selectionMode === 'SELECTED' ? 'Only these people will receive this notification.' : 'These people will not receive this notification.'}</span></div>
+                  <button type="button" className="text-button" disabled={sending} onClick={clearRecipientChanges}>{selectionMode === 'SELECTED' ? 'Clear selection' : 'Remove all exclusions'}</button>
+                </div>
+                <div className="recipient-selection-review-list">
+                  {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).map((recipient) => (
+                    <div className="recipient-selection-review-row" key={recipientKey(recipient)}>
+                      <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => restoreRecipient(recipient)}>{selectionMode === 'SELECTED' ? 'Deselect' : 'Restore'}</button>
+                    </div>
+                  ))}
+                </div>
+              </div>}
               <div className="selection-summary">
                 <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
-                <span>{selectionMode === 'SELECTED' ? 'Only these records are considered.' : 'Excluded records are removed from the server-resolved audience.'}</span>
+                <span>{selectionMode === 'SELECTED' ? 'Only checked people are considered for delivery.' : 'Unchecked people are excluded from the server-resolved audience.'}</span>
               </div>
             </section>
 
@@ -740,10 +871,36 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
 
           <aside className="studio-preview-column">
             <section className="studio-preview-panel">
-              <div className="preview-panel-header"><div><span className="panel-step">04</span><div><h2>Preview</h2><p>Preview is not delivery.</p></div></div><button type="button" className="primary-button" onClick={() => void previewCampaign()} disabled={saving || !title.trim() || !summary.trim()}>{saving ? 'Validating…' : 'Preview audience'}</button></div>
+              <div className="preview-panel-header"><div><span className="panel-step">04</span><div><h2>Preview</h2><p>Preview is not delivery.</p></div></div><button type="button" className="primary-button" onClick={() => void previewCampaign()} disabled={saving || previewing || !title.trim() || !summary.trim()}>{previewing ? 'Validating…' : 'Preview audience'}</button></div>
+              <div className="preview-view-controls" role="group" aria-label="Choose notification preview format">
+                {([
+                  ['mobile', 'Mobile app'],
+                  ['inbox', 'Desktop inbox'],
+                  ['push', 'Push'],
+                ] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={previewMode === mode ? 'preview-view-button active' : 'preview-view-button'}
+                    aria-pressed={previewMode === mode}
+                    onClick={() => setPreviewMode(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className="preview-summary"><span className="preview-summary-icon">◎</span><div><strong>{title || 'Your campaign title'}</strong><span>{summary || 'Your inbox summary'}</span><small>Draft · {document.blocks.length} content blocks</small></div></div>
-              <div className="rich-preview-frame"><div className="preview-device-top"><span /><span /><span /></div><RichNotificationRenderer document={document} surface="admin" mode="mobile" /></div>
-              {preview && <div className="preview-result" role="status">
+              <div className="rich-preview-frame" data-preview-mode={previewMode}>
+                <div className="preview-frame-heading">
+                  <span>MESSAGE CONTENT</span>
+                  <span>{previewMode === 'mobile' ? 'Mobile app' : previewMode === 'inbox' ? 'Desktop inbox' : 'Push notification'}</span>
+                </div>
+                <div className="preview-device-screen">
+                  <RichNotificationRenderer document={document} surface="admin" mode={previewMode} />
+                </div>
+              </div>
+            </section>
+            {preview && <div className="preview-result" role="status">
                 <div className="preview-result-top"><span className="preview-success-icon">✓</span><div><strong>Audience validated</strong><span>{preview.recipientCount.toLocaleString('en-IN')} recipients after exclusions</span></div></div>
                 <div className="preview-counts">{Object.entries(preview.recipientCounts).map(([kind, count]) => <div key={kind}><span>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</span><strong>{count.toLocaleString('en-IN')}</strong></div>)}</div>
                 <p>{preview.message}</p>
@@ -751,19 +908,18 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <details className="preview-recipient-details"><summary>Review recipient sample ({Math.min(preview.recipients.length, 50)} shown)</summary>{preview.recipients.slice(0, 50).map((recipient) => <div className="preview-recipient" key={recipientKey(recipient)}><span>{recipient.recipientName}</span><small>{recipient.recipientKind}</small></div>)}</details>
                 <div className={approvedCampaignPublicId === preview.campaignPublicId ? 'campaign-approval-banner approved' : 'campaign-approval-banner'}>
                   <div><strong>{approvedCampaignPublicId === preview.campaignPublicId ? '✓ Campaign approved' : 'Approval required'}</strong><span>{approvedCampaignPublicId === preview.campaignPublicId ? 'This preview is approved for sending or scheduling.' : 'An authorized approver must approve this exact preview before any delivery can be queued.'}</span></div>
-                  {approvedCampaignPublicId !== preview.campaignPublicId && canApprove && <button type="button" className="primary-button" onClick={() => void approveCampaign()} disabled={saving || sending || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{saving ? 'Approving…' : 'Approve campaign'}</button>}
+                  {approvedCampaignPublicId !== preview.campaignPublicId && canApprove && <button type="button" className="primary-button" onClick={() => void approveCampaign()} disabled={saving || previewing || sending || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{saving ? 'Approving…' : 'Approve campaign'}</button>}
                   {approvedCampaignPublicId !== preview.campaignPublicId && !canApprove && <span className="approval-permission-note">Your role does not include approval.</span>}
                 </div>
               </div>}
-              <form className="send-panel" onSubmit={sendCampaign}>
+              <form className="send-panel send-panel-card" onSubmit={sendCampaign}>
                 <h3>Send or schedule</h3>
                 <p>The server must record approval of the same unexpired preview before sending or scheduling.</p>
                 <label>Schedule for later <span className="optional-label">Optional</span><input type="datetime-local" value={scheduleValue} onChange={(event) => setScheduleValue(event.target.value)} /></label>
                 <label>Expiry time <span className="optional-label">Optional</span><input type="datetime-local" value={expiryValue} onChange={(event) => setExpiryValue(event.target.value)} /></label>
-                <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
+                <button type="submit" className="send-button" disabled={!canSend || sending || saving || previewing || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
                 <div className="send-channel-note">{!canSend && <><strong>Send permission required:</strong> Your role can prepare previews but cannot send or schedule notifications yet. </>}<strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
               </form>
-            </section>
             <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign approval is audited, recipient changes invalidate approval, and sends use one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
           </aside>
         </div>

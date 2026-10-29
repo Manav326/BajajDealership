@@ -65,8 +65,9 @@ public class NotificationController {
   public RecipientList recipients(
       @AuthenticationPrincipal StaffPrincipal principal,
       @RequestParam String kind,
-      @RequestParam(required = false) @Size(max = 100) String query) {
-    return new RecipientList(notifications.searchRecipients(principal, kind, query));
+      @RequestParam(required = false) @Size(max = 100) String query,
+      @RequestParam(defaultValue = "false") boolean marketingOnly) {
+    return new RecipientList(notifications.searchRecipients(principal, kind, query, marketingOnly));
   }
 
   @PostMapping("/preview")
