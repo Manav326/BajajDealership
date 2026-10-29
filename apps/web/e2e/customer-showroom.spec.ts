@@ -734,3 +734,66 @@ test('Asia/Kolkata test-ride preference round-trips the same instant and local d
     document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   await context.close();
 });
+
+
+test('showroom header stays fixed while the public page scrolls and anchor targets clear it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 840 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+
+  const header = page.locator('.showroom-nav');
+  await expect(header).toBeVisible();
+  await expect.poll(() => header.evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(0);
+
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto';
+    window.scrollTo(0, 950);
+  });
+  await expect.poll(() => header.evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(0);
+
+  await page.getByRole('link', { name: 'Motorcycles' }).click();
+  await expect.poll(() => page.locator('#collection').evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top))).toBeGreaterThanOrEqual(80);
+  await expect.poll(() => page.locator('#collection').evaluate((element) =>
+    Math.round(element.getBoundingClientRect().top))).toBeLessThan(130);
+});
+
+test('customer auth has stable URLs, returns to the showroom, and exposes policy and QuantaEdge footer links', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+
+  await page.getByRole('button', { name: 'My account' }).click();
+  await expect(page).toHaveURL(/\/\?view=signin$/);
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Showroom/ }).first().click();
+  await expect(page).toHaveURL('http://127.0.0.1:4173/');
+  await expect(page.locator('.bajaj-showroom')).toBeVisible();
+
+  await page.goto('http://127.0.0.1:4173/?view=signup');
+  await expect(page).toHaveURL(/\/\?view=signup$/);
+  await expect(page.getByRole('tab', { name: 'Activate account' })).toHaveAttribute('aria-selected', 'true');
+
+  const quantaEdgeLogo = page.getByRole('img', { name: 'QuantaEdge — Smarter Decisions. Greater Growth.' });
+  await quantaEdgeLogo.scrollIntoViewIfNeeded();
+  await expect(quantaEdgeLogo).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Privacy policy' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Terms & conditions' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Privacy policy' }).click();
+  await expect(page).toHaveURL(/\/\?view=privacy$/);
+  await expect(page.getByRole('heading', { name: 'Privacy policy', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Terms & conditions' }).click();
+  await expect(page).toHaveURL(/\/\?view=terms$/);
+  await expect(page.getByRole('heading', { name: 'Terms & conditions', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '← Back to showroom' }).click();
+  await expect(page).toHaveURL('http://127.0.0.1:4173/');
+  await expect(page.locator('.bajaj-showroom')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Privacy policy' }).scrollIntoViewIfNeeded();
+  await page.getByRole('button', { name: 'Privacy policy' }).click();
+  await expect(page).toHaveURL(/\/\?view=privacy$/);
+  await expect(page.getByRole('heading', { name: 'Privacy policy', exact: true })).toBeVisible();
+});
