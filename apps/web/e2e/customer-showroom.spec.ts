@@ -593,7 +593,7 @@ test('failed showroom handoff remains recoverable and retry reuses the original 
 
   const recovery = page.getByRole('region', { name: 'Saved showroom request not submitted' });
   await expect(recovery).toBeVisible();
-  await expect(recovery).toContainText('Synthetic temporary sales-request outage');
+  await expect(page.getByRole('alert')).toContainText('Synthetic temporary sales-request outage');
   await recovery.getByRole('button', { name: 'Retry saved request' }).click();
 
   await expect(page.getByText('SR-E2E-0001')).toBeVisible();
@@ -620,4 +620,37 @@ test('a customer can discard a failed showroom selection and return to a clean r
   await expect(recovery).toHaveCount(0);
   await expect(page.getByRole('status')).toContainText('Saved showroom selection cleared.');
   expect(await page.evaluate(() => window.sessionStorage.getItem('qe_bajaj_pending_intent'))).toBeNull();
+});
+
+
+test('customer login resumes a test-ride request with its preferred local date and time', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+
+  const preferredTime = await page.evaluate(() => {
+    const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    date.setSeconds(0, 0);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  });
+  await page.locator('.showroom-preferred-time input').fill(preferredTime);
+  const expectedPreferredAt = await page.locator('.showroom-preferred-time input').evaluate((element) =>
+    new Date((element as HTMLInputElement).value).toISOString());
+  await page.getByRole('button', { name: /Request test ride/ }).click();
+
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  await expect(page.getByRole('heading', { name: 'My Bajaj requests' })).toBeVisible();
+  await expect(page.getByText('Test-ride request', { exact: false }).first()).toBeVisible();
+  expect(journey.requestPayloads).toHaveLength(1);
+  expect(journey.requestPayloads[0]).toMatchObject({
+    requestType: 'TEST_RIDE',
+    modelCode: 'BAJAJ_PULSAR_NS200',
+    preferredAt: expectedPreferredAt,
+  });
 });
