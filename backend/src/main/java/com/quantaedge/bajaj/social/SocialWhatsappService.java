@@ -131,7 +131,7 @@ public class SocialWhatsappService {
   if(key.length()<8||key.length()>120)throw badRequest("A valid idempotency key is required.");
   if(parameters.size()>20||parameters.stream().anyMatch(p->p==null||p.length()>1024))throw badRequest("Template parameters exceed supported limits.");
   String paramsJson=writeJson(parameters),assetMarker=request.assetId()==null?"":request.assetId().toString();
-  String fingerprint=TokenDigests.sha256(request.customerPublicId()+"\n"+name+"\\n"+language+"\\n"+paramsJson+"\\n"+assetMarker);
+  String fingerprint=TokenDigests.sha256(request.customerPublicId()+"\n"+name+"\n"+language+"\n"+paramsJson+"\n"+assetMarker);
   MessageRow prior=findByKey(actor.dealershipId(),key);
   if(prior!=null){if(!prior.fingerprint().equals(fingerprint))throw new ResponseStatusException(HttpStatus.CONFLICT,"This idempotency key belongs to a different message.");return toView(prior);}
 
