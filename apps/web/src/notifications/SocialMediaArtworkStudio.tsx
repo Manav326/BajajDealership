@@ -106,7 +106,6 @@ type ArtworkDraft = {
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; destinations: MetaDestination[] };
-type MetaPublishJob = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; externalPostId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; publishedAt: string | null };
 type MetaPublishRequest = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
@@ -229,7 +228,6 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [metaError, setMetaError] = useState('');
   const [publishDestinationId, setPublishDestinationId] = useState('');
   const [publishingBusy, setPublishingBusy] = useState(false);
-  const [publishJob, setPublishJob] = useState<MetaPublishJob | null>(null);
   const [pendingPublishAssetId, setPendingPublishAssetId] = useState<string | null>(null);
   const [publishIdempotencyKey, setPublishIdempotencyKey] = useState(() => newDraftId());
   const [publishRequests, setPublishRequests] = useState<MetaPublishRequest[]>([]);
@@ -475,19 +473,6 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }catch(cause){setMetaError(cause instanceof Error?cause.message:'Approval request could not be saved.');}
     finally{setPublishingBusy(false);}
   }
-  async function refreshPublishJob(){
-    if(!publishJob)return;setMetaError('');
-    try{
-      const response=await apiFetch('/api/v1/admin/social/meta/publishes/'+publishJob.publicId,{cache:'no-store'});
-      const result=await response.json().catch(()=>({})) as MetaPublishJob&{message?:string};
-      if(!response.ok||!result.publicId)throw new Error(result.message??'Publish status could not be refreshed.');
-      setPublishJob(result);
-      if(result.status==='PUBLISHED')setNotice('Published to '+result.destinationName+'. Provider post ID: '+(result.externalPostId??'recorded')+'.');
-      else if(result.status==='FAILED')setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+').');
-      else if(result.status==='UNKNOWN')setMetaError('The provider result is uncertain. Do not repost until reconciled.');
-    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish status could not be refreshed.');}
-  }
-
   async function refreshPublishRequests(){
     try{
       const response=await apiFetch('/api/v1/admin/social/meta/publish-requests?limit=50',{cache:'no-store'});
@@ -542,7 +527,6 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       const nextStatus = await statusResponse.json().catch(() => ({})) as MetaStatus & { message?: string; detail?: string };
       if (!statusResponse.ok) throw new Error(nextStatus.message ?? nextStatus.detail ?? 'Disconnect succeeded, but status could not be refreshed.');
       setMetaStatus(nextStatus);
-      setPublishJob(null);
       setPendingPublishAssetId(null);
     } catch (cause) {
       setMetaError(cause instanceof Error ? cause.message : 'Meta disconnect could not be completed.');
