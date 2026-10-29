@@ -306,7 +306,7 @@ public class SocialWhatsappService {
  private boolean configuredFor(long dealershipId){
   return missingConfigurationKeys(dealershipId).isEmpty();
  }
- private List<String> missingConfigurationKeys(long dealershipId) {
+ List<String> missingConfigurationKeys(long dealershipId) {
   List<String> missing = new ArrayList<>();
   if (!enabled) missing.add("SOCIAL_WHATSAPP_ENABLED (set to true after credentials are supplied)");
   if (!graphVersion.matches("v[0-9]+\\.[0-9]+")) missing.add("SOCIAL_META_GRAPH_API_VERSION (expected vN.N)");
@@ -323,7 +323,7 @@ public class SocialWhatsappService {
   }
   return List.copyOf(missing);
  }
- private List<String> missingWebhookConfigurationKeys() {
+ List<String> missingWebhookConfigurationKeys() {
   List<String> missing = new ArrayList<>();
   if (!enabled) missing.add("SOCIAL_WHATSAPP_ENABLED (set to true after webhook credentials are supplied)");
   if (phoneNumberId.isBlank()) missing.add("SOCIAL_WHATSAPP_PHONE_NUMBER_ID");
