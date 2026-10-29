@@ -244,7 +244,22 @@ for (const width of [320, 768, 1280]) {
     // The real audience/approval surfaces must not introduce horizontal overflow.
     await page.getByRole('button', { name: 'Preview audience', exact: true }).click();
     await expect(page.locator('.preview-result')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+    const toastStack = page.locator('.toast-stack');
+    await expect(toastStack).toHaveCSS('position', 'fixed');
+    await expect(toastStack.getByRole('status')).toContainText('Audience preview is ready');
+    const toastBounds = await toastStack.boundingBox();
+    expect(toastBounds).not.toBeNull();
+    expect(toastBounds!.x).toBeGreaterThanOrEqual(-1);
+    expect(toastBounds!.x + toastBounds!.width).toBeLessThanOrEqual(width + 1);
+    const viewportMetrics = await page.evaluate(() => ({
+      htmlWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      scrollX: window.scrollX,
+    }));
+    expect(viewportMetrics.htmlWidth - viewportMetrics.clientWidth, JSON.stringify(viewportMetrics))
+      .toBeLessThanOrEqual(1);
+    expect(viewportMetrics.bodyWidth - viewportMetrics.clientWidth, JSON.stringify(viewportMetrics))
       .toBeLessThanOrEqual(1);
   });
 }
