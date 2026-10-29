@@ -38,6 +38,11 @@ type CustomerSalesRequest = {
   status: 'REQUESTED' | 'CONVERTED' | 'CANCELLED'; createdAt: string; updatedAt: string;
   convertedEnquiryPublicId: string | null; customerPublicId: string; customerCode: string;
   customerName: string; customerPhone: string | null; customerEmail: string | null;
+  enquiryCode: string | null; enquiryStatus: string | null;
+  testRideCode: string | null; testRideStatus: string | null; testRideScheduledStart: string | null;
+  bookingCode: string | null; bookingStatus: string | null;
+  invoiceNumber: string | null; invoiceStatus: string | null; invoiceTotal: number | null;
+  paidAmount: number; balanceDue: number | null; deliveredAt: string | null;
 };
 
 type PendingShowroomIntent = {
@@ -678,9 +683,19 @@ export default function App() {
                     <span>{request.requestType === 'TEST_RIDE' ? 'Test-ride request' : 'Purchase enquiry'} · {dateTime(request.createdAt)}</span>
                     {request.preferredAt && <p>Preferred time: {dateTime(request.preferredAt)}</p>}
                     <p>{request.status === 'CONVERTED'
-                      ? 'The dealership has added this request to its sales pipeline. The team will confirm availability and the next step.'
+                      ? 'The dealership has added this request to its sales pipeline. Progress below reflects saved dealership transactions.'
                       : request.status === 'CANCELLED' ? 'You cancelled this request.'
-                      : 'Received by the dealership. The team will check availability and contact you to confirm the next step.'}</p>
+                      : 'Received by the dealership. A request is not a confirmed test-ride slot, booking, quote, or payment.'}</p>
+                    <div className="history-timeline sales-journey-timeline" aria-label={`Sales journey for ${request.requestCode}`}>
+                      <div><small>Sales enquiry</small><strong>{request.enquiryCode ? `${request.enquiryCode} · ${pretty(request.enquiryStatus || 'NEW')}` : 'Awaiting review'}</strong></div>
+                      {request.requestType === 'TEST_RIDE' && <div><small>Test ride</small><strong>{request.testRideCode ? `${pretty(request.testRideStatus || 'SCHEDULED')} · ${dateTime(request.testRideScheduledStart)}` : 'Slot not confirmed'}</strong></div>}
+                      <div><small>Vehicle booking</small><strong>{request.bookingCode ? `${request.bookingCode} · ${pretty(request.bookingStatus || 'ACTIVE')}` : 'Not booked'}</strong></div>
+                      <div><small>Operational invoice</small><strong>{request.invoiceNumber ? `${request.invoiceNumber} · ${pretty(request.invoiceStatus || 'DRAFT')}` : 'Not issued'}</strong></div>
+                      <div><small>Recorded payment</small><strong>{request.invoiceTotal == null ? 'Awaiting invoice' : `${money(request.paidAmount)} of ${money(request.invoiceTotal)}`}</strong></div>
+                      {request.invoiceTotal != null && <div><small>Balance due</small><strong className={request.balanceDue != null && request.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(request.balanceDue)}</strong></div>}
+                      <div><small>Vehicle handover</small><strong>{request.deliveredAt ? dateTime(request.deliveredAt) : 'Not recorded'}</strong></div>
+                    </div>
+                    {request.invoiceNumber && <small className="sales-invoice-disclaimer">Operational sales invoice only; this is not a statutory GST invoice.</small>}
                     {request.status === 'REQUESTED' && <button type="button" className="text-link danger-link" onClick={() => void cancelCustomerSalesRequest(request)} disabled={saving}>Cancel request</button>}
                   </div>
                 </article>)}</div>}
