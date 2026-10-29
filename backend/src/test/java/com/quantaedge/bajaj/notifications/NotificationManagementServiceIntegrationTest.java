@@ -444,14 +444,17 @@ class NotificationManagementServiceIntegrationTest {
     notifications.send(owner, new NotificationManagementService.SendRequest(
         preview.campaignPublicId(), preview.previewToken(), "exhaust-" + UUID.randomUUID(),
         Instant.now().plusSeconds(3600), null));
+    jdbc.update("""
+        update notification_campaign
+        set scheduled_at = now() - interval '1 second', next_dispatch_attempt_at = null
+        where dealership_id = ? and public_id = ?
+        """, owner.dealershipId(), preview.campaignPublicId());
     jdbc.update("update customer set status = 'INACTIVE' where dealership_id = ? and id = ?",
         owner.dealershipId(), customerId);
 
     for (int attempt = 1; attempt <= 5; attempt++) {
-      assertThatThrownBy(() -> notifications.sendNow(owner, preview.campaignPublicId()))
-          .isInstanceOf(ResponseStatusException.class)
-          .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-              .isEqualTo(HttpStatus.BAD_REQUEST));
+      // Drive the actual scheduled dispatcher, not repeated manual Send now requests.
+      assertThat(notifications.dispatchDueScheduledCampaigns()).isZero();
 
       var saved = jdbc.queryForMap("""
           select status, dispatch_attempt_count, last_dispatch_error, next_dispatch_attempt_at
@@ -462,7 +465,14 @@ class NotificationManagementServiceIntegrationTest {
           .contains("Dispatch error: ResponseStatusException");
       if (attempt < 5) {
         assertThat(saved.get("status")).isEqualTo("SCHEDULED");
-        assertThat((Timestamp) saved.get("next_dispatch_attempt_at")).isNotNull();
+        Timestamp nextAttempt = (Timestamp) saved.get("next_dispatch_attempt_at");
+        assertThat(nextAttempt).isNotNull();
+        assertThat(nextAttempt.toInstant()).isAfter(Instant.now());
+        // Advance only this synthetic retry to the due boundary instead of sleeping for backoff.
+        jdbc.update("""
+            update notification_campaign set next_dispatch_attempt_at = now() - interval '1 second'
+            where dealership_id = ? and public_id = ?
+            """, owner.dealershipId(), preview.campaignPublicId());
       } else {
         assertThat(saved.get("status")).isEqualTo("FAILED");
         assertThat(saved.get("next_dispatch_attempt_at")).isNull();
