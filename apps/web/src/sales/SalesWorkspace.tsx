@@ -729,6 +729,10 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
               <div><span>Lead source</span><strong>{titleCase(selectedEnquiry.leadSource)} · {titleCase(selectedEnquiry.contactPreference)}</strong></div>
               <div><span>Assigned staff</span><strong>{selectedEnquiry.assignedStaffName || 'Unassigned'}</strong></div>
             </div>
+            {selectedEnquiry.notes && <section className="sales-enquiry-context" aria-label="Enquiry and customer request notes">
+              <div><span>ENQUIRY CONTEXT</span><strong>Notes from the customer or original enquiry</strong></div>
+              <p>{selectedEnquiry.notes}</p>
+            </section>}
 
             {canManage && allowedStatuses.length > 0 && <form className="sales-action-card" onSubmit={changeEnquiryStatus}>
               <div className="sales-section-heading"><div><h3>Update lead stage</h3><p>Stage changes are appended to the timeline.</p></div></div>

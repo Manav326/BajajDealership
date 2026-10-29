@@ -83,11 +83,14 @@ export default function CustomerSalesRequestsPanel({
       {loading ? <div className="studio-empty">Loading website requests…</div>
         : requests.length === 0 ? <div className="studio-empty">No website requests yet. Requests made from the public Bajaj showroom will appear here.</div>
         : <div className="sales-table-wrap"><table className="sales-table">
-          <thead><tr><th>Request</th><th>Customer</th><th>Bajaj motorcycle</th><th>Requested</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Request</th><th>Customer</th><th>Bajaj motorcycle</th><th>Customer note</th><th>Requested</th><th>Status</th><th /></tr></thead>
           <tbody>{requests.map((request) => <tr key={request.publicId}>
             <td><strong>{request.requestCode}</strong><small>{request.requestType === 'TEST_RIDE' ? 'Test ride' : 'Purchase enquiry'}</small></td>
             <td><strong>{request.customerName}</strong><small>{request.customerPhone || request.customerEmail || request.customerCode}</small></td>
             <td><strong>{request.modelName}</strong><small>{request.modelCode}</small></td>
+            <td>{request.notes
+              ? <p className="sales-customer-request-note">{request.notes}</p>
+              : <span className="sales-help-text">No note provided</span>}</td>
             <td><strong>{dateLabel(request.createdAt)}</strong><small>{request.preferredAt ? 'Preferred: ' + dateLabel(request.preferredAt) : 'Time to be confirmed'}</small></td>
             <td><span className={`sales-status status-${request.status.toLowerCase().replaceAll('_', '-')}`}>{titleCase(request.status)}</span></td>
             <td>{request.status === 'REQUESTED' && canManage
