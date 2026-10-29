@@ -583,6 +583,42 @@ class RetailPartsServiceIntegrationTest {
         """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
   }
 
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void cancellingUnquotedDeliveryMarksQuoteCancelledAuditsAndReleasesReservation() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("DEL-CANCEL-" + UUID.randomUUID().toString().substring(0, 8),
+            "Clutch cable", "Delivery cancellation regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("125.00"),
+            "Clutch cable", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 4.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Cancel delivery before quote", "delivery-cancel-" + UUID.randomUUID(),
+        "DELIVERY", "21 Demo Street, Bettiah"));
+
+    var cancelled = retailParts.cancelOrder(customer, placed.publicId());
+
+    assertThat(cancelled.status()).isEqualTo("CANCELLED");
+    assertThat(cancelled.deliveryQuoteStatus()).isEqualTo("CANCELLED");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from audit_event
+        where dealership_id = ? and entity_type = 'RETAIL_PART_ORDER' and entity_id = ?
+          and action = 'RETAIL_PART_ORDER_CANCELLED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
+  }
+
   private CustomerPrincipal registeredCustomerIn(StaffPrincipal manager) {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
     StaffPrincipal owner = new StaffPrincipal(

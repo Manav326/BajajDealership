@@ -312,7 +312,8 @@ public class RetailPartsService {
   @Transactional
   public RetailOrderView cancelOrder(CustomerPrincipal actor, UUID orderPublicId) {
     List<Map<String, Object>> rows = jdbc.queryForList("""
-        select id, order_code, status from retail_part_order
+        select id, order_code, status, fulfillment_method, delivery_quote_status
+        from retail_part_order
         where dealership_id = ? and customer_id = ? and customer_portal_account_id = ? and public_id = ?
         for update
         """, actor.dealershipId(), actor.customerId(), actor.accountId(), orderPublicId);
@@ -324,9 +325,20 @@ public class RetailPartsService {
     Long orderId = ((Number) row.get("id")).longValue();
     releaseOrderReservation(actor.dealershipId(), orderId, orderPublicId, null, actor.customerId());
     jdbc.update("""
-        update retail_part_order set status = 'CANCELLED', cancelled_at = now(), updated_at = now()
+        update retail_part_order
+        set status = 'CANCELLED', cancelled_at = now(), updated_at = now(),
+            delivery_quote_status = case when fulfillment_method = 'DELIVERY' then 'CANCELLED' else delivery_quote_status end
         where dealership_id = ? and id = ? and status = 'PLACED'
         """, actor.dealershipId(), orderId);
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, 'RETAIL_PART_ORDER_CANCELLED', 'RETAIL_PART_ORDER', ?,
+          jsonb_build_object('orderCode', ?, 'fulfillmentMethod', ?,
+            'deliveryQuoteStatus', ?, 'stockReservationReleased', true))
+        """, actor.dealershipId(), actor.customerId(), orderPublicId.toString(),
+        String.valueOf(row.get("order_code")), String.valueOf(row.get("fulfillment_method")),
+        "DELIVERY".equals(String.valueOf(row.get("fulfillment_method"))) ? "CANCELLED" : "NOT_REQUIRED");
     jdbc.update("""
         insert into customer_portal_activity(
           dealership_id, account_id, action, entity_type, entity_public_id, details)

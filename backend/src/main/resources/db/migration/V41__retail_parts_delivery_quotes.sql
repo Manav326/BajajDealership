@@ -25,7 +25,7 @@ alter table retail_part_order
     check (fulfillment_method in ('PICKUP', 'DELIVERY')),
   add constraint ck_retail_order_delivery_quote_status
     check (delivery_quote_status in (
-      'NOT_REQUIRED', 'AWAITING_STAFF_QUOTE', 'AWAITING_CUSTOMER_CONFIRMATION', 'ACCEPTED', 'DECLINED'
+      'NOT_REQUIRED', 'AWAITING_STAFF_QUOTE', 'AWAITING_CUSTOMER_CONFIRMATION', 'ACCEPTED', 'DECLINED', 'CANCELLED'
     )),
   add constraint ck_retail_order_delivery_details
     check (
@@ -37,7 +37,9 @@ alter table retail_part_order
       or
       (fulfillment_method = 'DELIVERY'
         and delivery_address is not null and length(trim(delivery_address)) > 0
-        and delivery_quote_status in ('AWAITING_STAFF_QUOTE', 'AWAITING_CUSTOMER_CONFIRMATION', 'ACCEPTED', 'DECLINED')
+        and delivery_quote_status in (
+          'AWAITING_STAFF_QUOTE', 'AWAITING_CUSTOMER_CONFIRMATION', 'ACCEPTED', 'DECLINED', 'CANCELLED'
+        )
         and (
           (delivery_quote_status = 'AWAITING_STAFF_QUOTE'
             and delivery_fee = 0 and delivery_quote_note is null and delivery_quoted_by_staff_user_id is null
@@ -47,6 +49,15 @@ alter table retail_part_order
           (delivery_quote_status in ('AWAITING_CUSTOMER_CONFIRMATION', 'ACCEPTED', 'DECLINED')
             and delivery_quoted_by_staff_user_id is not null and delivery_quoted_at is not null
             and delivery_quote_idempotency_key is not null and delivery_quote_fingerprint is not null)
+          or
+          (delivery_quote_status = 'CANCELLED' and (
+            (delivery_fee = 0 and delivery_quote_note is null and delivery_quoted_by_staff_user_id is null
+              and delivery_quoted_at is null and delivery_quote_idempotency_key is null
+              and delivery_quote_fingerprint is null)
+            or
+            (delivery_quoted_by_staff_user_id is not null and delivery_quoted_at is not null
+              and delivery_quote_idempotency_key is not null and delivery_quote_fingerprint is not null)
+          ))
         ))
     ),
   add constraint ck_retail_order_fulfillment_payment
