@@ -74,7 +74,7 @@ type AuthMode = 'login' | 'activate';
 type PublicLegalRoute = 'privacy' | 'terms';
 type CustomerRoute = 'showroom' | 'signin' | 'signup' | 'portal' | PublicLegalRoute;
 type LoginIdentifierMode = 'customerCode' | 'username';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
+type PortalTab = 'home' | 'bikes' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
 const SESSION_KEY = 'qe_customer_portal_token';
 
@@ -427,7 +427,7 @@ export default function App() {
           requestType: intent.action,
           modelCode: intent.modelCode,
           preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt ?? null : null,
-          notes: 'Request started from the public Bajaj showroom.',
+          notes: 'Request started from the Lucky Bajaj bike catalogue.',
           idempotencyKey: intent.idempotencyKey,
         }),
       });
@@ -451,6 +451,27 @@ export default function App() {
       return false;
     }
   }, []);
+
+  async function submitPortalBikeIntent(bike: ShowroomBike, action: ShowroomAction, preferredAt: string | null) {
+    if (!token || saving) return;
+    const intent: PendingShowroomIntent = {
+      action,
+      modelCode: bike.modelCode,
+      modelName: bike.modelName,
+      selectedAt: new Date().toISOString(),
+      idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `portal-bike-${Date.now()}-${bike.modelCode}`,
+      preferredAt: action === 'TEST_RIDE' ? preferredAt : null,
+    };
+    window.sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify(intent));
+    setError('');
+    setSuccess('');
+    setSaving(true);
+    try {
+      await resumePendingShowroomIntent(token);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     // Keep a canonical, reload-safe URL for each public/auth/portal screen.
@@ -945,6 +966,7 @@ export default function App() {
         <nav className="portal-tabs" aria-label="Customer portal sections">
           {([
             ['home', 'Overview', '⌂'],
+            ['bikes', 'Explore bikes', '↗'],
             ['vehicles', 'My bikes', '♧'],
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
@@ -971,6 +993,11 @@ export default function App() {
               </section>
             </div>
           </>}
+          {!loadingData && tab === 'bikes' && <BajajShowroom
+            mode="portal"
+            requesting={saving}
+            onCustomerRequest={(bike, action, preferredAt) => { void submitPortalBikeIntent(bike, action, preferredAt); }}
+          />}
           {!loadingData && tab === 'vehicles' && <>
             <div className="portal-section-heading"><div><h2>My bikes</h2><p>Only vehicles currently linked to your verified customer profile are shown.</p></div><span className="section-mark">{vehicles.length} LINKED</span></div>
             {vehicles.length === 0 ? <div className="glass-panel inline-empty">No currently linked vehicles were found. Ask Lucky Bajaj to verify your ownership record.</div> : <div className="vehicle-grid">{vehicles.map((vehicle) => <article className="vehicle-glass-card" key={vehicle.publicId}><div className="vehicle-card-top"><span className="vehicle-logo">LB</span><span className="status-pill status-active">Current vehicle</span></div><div className="vehicle-illustration"><div className="bike-arc" /><div className="bike-profile-wheel a" /><div className="bike-profile-wheel b" /><div className="bike-profile-frame" /><span>BAJAJ</span></div><div className="vehicle-card-copy"><span className="vehicle-overline">{vehicle.modelYear || 'BIKE'}{vehicle.colourName ? ' / ' + vehicle.colourName.toUpperCase() : ''}</span><h3>{vehicle.modelName}</h3><p>{vehicle.variantName || 'Standard variant'}</p><div className="vehicle-card-facts"><div><small>Chassis number</small><strong>{vehicle.chassisNumber}</strong></div><div><small>Engine number</small><strong>{vehicle.engineNumber}</strong></div><div><small>Linked since</small><strong>{dateOnly(vehicle.ownershipStartedAt)}</strong></div></div><button type="button" className="secondary-button wide-button" onClick={() => { setAppointmentForm((current) => ({ ...current, vehiclePublicId: vehicle.publicId })); setTab('appointments'); }}>Book a service visit <span>↗</span></button></div></article>)}</div>}

@@ -802,3 +802,71 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await expect(page).toHaveURL(/\/\?view=privacy$/);
   await expect(page.getByRole('heading', { name: 'Privacy policy', exact: true })).toBeVisible();
 });
+
+
+test('signed-in customer explores the shared Bajaj catalogue and sends an enquiry through the existing sales-request flow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockSignedInCustomerPortal(page);
+  const savedRequests: Array<Record<string, unknown>> = [];
+  let submittedPayload: Record<string, unknown> | null = null;
+  let catalogueCalls = 0;
+
+  // Override only the catalogue and sales-request routes; all other portal APIs retain their normal fixtures.
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const json = (payload: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    });
+
+    if (url.pathname === '/api/v1/public/catalogue/bikes') {
+      catalogueCalls += 1;
+      return json({
+        manufacturer: 'BAJAJ', dealershipCode: 'LBA', dealershipName: 'Lucky Bajaj Agency',
+        priceReferenceCity: 'New Delhi', servedAt: '2026-10-29T00:00:00Z', bikes: [bike],
+      });
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'POST') {
+      submittedPayload = request.postDataJSON() as Record<string, unknown>;
+      const created = {
+        publicId: 'sales-request-portal-explorer', requestCode: 'SR-PORTAL-0001',
+        requestType: submittedPayload.requestType, modelCode: submittedPayload.modelCode,
+        modelName: 'Pulsar NS200', preferredAt: submittedPayload.preferredAt ?? null,
+        notes: submittedPayload.notes ?? null, status: 'REQUESTED',
+        createdAt: '2026-10-29T08:00:00Z', updatedAt: '2026-10-29T08:00:00Z',
+        convertedEnquiryPublicId: null, customerPublicId: 'customer-public-e2e-1',
+        customerCode: 'CUS-E2E-001', customerName: 'Manav Test Customer',
+        customerPhone: '9000000001', customerEmail: null,
+        enquiryCode: null, enquiryStatus: null, testRideCode: null, testRideStatus: null,
+        testRideScheduledStart: null, bookingCode: null, bookingStatus: null,
+        invoiceNumber: null, invoiceStatus: null, invoiceTotal: null,
+        paidAmount: 0, creditedAmount: null, balanceDue: null, deliveredAt: null,
+      } as Record<string, unknown>;
+      savedRequests.splice(0, savedRequests.length, created);
+      return json(created);
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'GET') return json(savedRequests);
+    return route.fallback();
+  });
+
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+  await page.getByRole('button', { name: /Explore bikes/ }).click();
+  await expect(page.getByRole('heading', { name: /Explore the Bajaj range/ })).toBeVisible();
+  await expect(page.locator('.showroom-bike-card')).toHaveCount(1);
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+
+  await expect(page.getByRole('heading', { name: 'My Bajaj requests' })).toBeVisible();
+  await expect(page.locator('.portal-alert.alert-success')).toContainText('Your purchase enquiry for Pulsar NS200 was sent to Lucky Bajaj.');
+  expect(catalogueCalls).toBe(1);
+  expect(submittedPayload).toMatchObject({
+    requestType: 'PURCHASE', modelCode: 'BAJAJ_PULSAR_NS200', preferredAt: null,
+  });
+  expect(typeof submittedPayload?.idempotencyKey).toBe('string');
+  await expect(page.getByText('SR-PORTAL-0001')).toBeVisible();
+});

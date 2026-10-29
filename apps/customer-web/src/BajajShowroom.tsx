@@ -80,10 +80,20 @@ const categories = [
   { value: 'RUGGED', label: 'Rugged' },
 ];
 
-export default function BajajShowroom({ onSignIn, onNavigate }: {
-  onSignIn: (bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => void;
-  onNavigate: (route: 'privacy' | 'terms') => void;
+export default function BajajShowroom({
+  onSignIn = () => {},
+  onNavigate = () => {},
+  mode = 'landing',
+  requesting = false,
+  onCustomerRequest,
+}: {
+  onSignIn?: (bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => void;
+  onNavigate?: (route: 'privacy' | 'terms') => void;
+  mode?: 'landing' | 'portal';
+  requesting?: boolean;
+  onCustomerRequest?: (bike: ShowroomBike, action: ShowroomAction, preferredAt: string | null) => void;
 }) {
+  const Wrapper = mode === 'portal' ? 'div' : 'main';
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -179,6 +189,11 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
   }, []);
 
   useEffect(() => {
+    if (mode === 'portal') {
+      setPromotions([]);
+      setPromotionsLoading(false);
+      return;
+    }
     const controller = new AbortController();
     fetch(endpoint('/api/v1/public/catalogue/promotions'), {
       headers: { Accept: 'application/json' },
@@ -198,7 +213,7 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
       })
       .finally(() => setPromotionsLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [mode]);
 
   const bikes = useMemo(() => (catalogue?.bikes ?? []).filter((bike) => {
     const matchesCategory = category === 'ALL' || bike.category === category;
@@ -273,6 +288,14 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
       }
       preferredAt = requestedDate.toISOString();
     }
+    if (mode === 'portal') {
+      if (!onCustomerRequest) {
+        setActionError('Customer bike requests are unavailable right now. Please try again later.');
+        return;
+      }
+      onCustomerRequest(bike, action, preferredAt);
+      return;
+    }
     onSignIn(bike, action, preferredAt);
   };
 
@@ -280,8 +303,9 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
     .toISOString().slice(0, 16);
 
   return (
-    <main className="bajaj-showroom">
+    <Wrapper className={mode === 'portal' ? 'bajaj-showroom bajaj-showroom-embedded' : 'bajaj-showroom'}>
       <div className="showroom-grain" aria-hidden="true" />
+      {mode === 'landing' && <>
       <header className="showroom-nav">
         <a className="showroom-brand" href="#top" aria-label="Lucky Bajaj home">
           <span className="showroom-brand-mark">B</span>
@@ -359,12 +383,13 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
               </article>)}
             </div>}
       </section>
+      </>}
 
       <section id="collection" className="showroom-collection">
         <div className="showroom-section-top">
-          <div><div className="showroom-eyebrow">THE COLLECTION / {catalogue?.bikes.length ?? '—'} MACHINES</div>
-            <h2>Find your <em>kind of ride.</em></h2>
-            <p>From daily commutes to sport-minded weekends: explore the Bajaj range, model by model.</p></div>
+          <div><div className="showroom-eyebrow">{mode === 'portal' ? 'LUCKY BAJAJ / LIVE CATALOGUE' : `THE COLLECTION / ${catalogue?.bikes.length ?? '—'} MACHINES`}</div>
+            <h2>{mode === 'portal' ? <>Explore the Bajaj <em>range.</em></> : <>Find your <em>kind of ride.</em></>}</h2>
+            <p>{mode === 'portal' ? 'Browse the same live motorcycle catalogue shown on our public landing page, with the same specifications, reference prices and stock status.' : 'From daily commutes to sport-minded weekends: explore the Bajaj range, model by model.'}</p></div>
           <div className="showroom-toolbar-fields">
             <div className="showroom-search-wrap"><span aria-hidden="true">⌕</span>
               <label className="sr-only" htmlFor="bajaj-model-search">Search Bajaj models</label>
@@ -414,6 +439,7 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
         <p className="showroom-pricing-disclaimer">Prices shown are the Bajaj Auto reference ex-showroom prices for New Delhi captured on the date displayed for each model. They are not an on-road quotation. Registration, insurance, location and current offer terms affect the final price; confirm with Lucky Bajaj before purchase.</p>
       </section>
 
+      {mode === 'landing' && <>
       <section id="experience" className="showroom-experience">
         <div className="showroom-experience-art"><span className="experience-orbit orbit-a" /><span className="experience-orbit orbit-b" />
           <div className="experience-card"><small>YOUR NEXT CHAPTER</small><strong>Not just a bike.<br /><em>Your kind of freedom.</em></strong><span>LUCKY BAJAJ · DISCOVER MORE</span></div>
@@ -447,6 +473,7 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
         </a>
         <button type="button" className="showroom-footer-signin" onClick={() => onSignIn()}>Customer sign in ↗</button>
       </footer>
+      </>}
 
       {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelected(null); setPreferredRideAt(''); setActionError(''); } }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
@@ -490,11 +517,11 @@ export default function BajajShowroom({ onSignIn, onNavigate }: {
               This is a preference, not a confirmed appointment. Lucky Bajaj will contact you to confirm the bike and available slot.
             </p>
             {actionError && <p className="showroom-ride-time-error" role="alert">{actionError}</p>}
-            <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" onClick={() => chooseAction(selected, 'TEST_RIDE')}>Request test ride ↗</button></div>
+            <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" disabled={requesting} onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" disabled={requesting} onClick={() => chooseAction(selected, 'TEST_RIDE')}>{requesting ? 'Sending…' : 'Request test ride ↗'}</button></div>
             <a className="showroom-source-link" href={selected.officialModelUrl} target="_blank" rel="noreferrer">View official Bajaj range ↗</a>
           </div>
         </section>
       </div>}
-    </main>
+    </Wrapper>
   );
 }
