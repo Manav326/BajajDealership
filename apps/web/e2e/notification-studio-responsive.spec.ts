@@ -192,6 +192,20 @@ async function mockApi(page: Page, extraPermissions: string[] = []) {
       });
     }
     if (path.endsWith('/admin/notifications/templates')) return json({ templates: [] });
+    if (path.endsWith('/admin/social/meta/status')) return json({
+      configured: false, publishingReady: false, code: 'NOT_CONFIGURED',
+      message: 'Meta connection is not configured for this test.',
+      missingConfigurationKeys: [], missingPublishingConfigurationKeys: [], destinations: [],
+    });
+    if (path.endsWith('/admin/social/whatsapp/status')) return json({
+      configured: false, webhookConfigured: false,
+      message: 'WhatsApp is not configured for this test.',
+      webhookMessage: 'Webhook is not configured for this test.',
+      missingConfigurationKeys: [], missingWebhookConfigurationKeys: [],
+    });
+    if (path.endsWith('/admin/social/whatsapp/customers')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/scheduled')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/templates')) return json([]);
     if (/\/admin\/notifications\/campaigns\/[^/]+\/preview$/.test(path) && method === 'GET') {
       const publicId = path.split('/').slice(-2, -1)[0];
       return json({
