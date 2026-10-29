@@ -503,7 +503,7 @@ public class RetailPartsService {
     List<Object> args = new ArrayList<>();
     args.add(dealershipId);
     args.addAll(publicIds);
-    return jdbc.query("""
+    String sql = """
         select part.id, part.public_id, part.sku_code, part.part_name, part.unit_of_measure,
           part.active, part.retail_enabled, part.retail_price,
           part.fitment_model_codes::text as fitment_model_codes, balance.quantity_on_hand,
@@ -511,15 +511,18 @@ public class RetailPartsService {
         from spare_part part
         join spare_part_balance balance
           on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.public_id in (""" + placeholders + """)
+        where part.dealership_id = ? and part.public_id in (
+        """ + placeholders + """
+        )
         order by part.id
         for update of part, balance
-        """, (rs, rowNum) -> new StockPart(
-            rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("sku_code"),
-            rs.getString("part_name"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
-            rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
-            readStringList(rs.getString("fitment_model_codes")), rs.getBigDecimal("quantity_on_hand"),
-            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")), args.toArray());
+        """;
+    return jdbc.query(sql, (rs, rowNum) -> new StockPart(
+        rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("sku_code"),
+        rs.getString("part_name"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
+        rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
+        readStringList(rs.getString("fitment_model_codes")), rs.getBigDecimal("quantity_on_hand"),
+        rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")), args.toArray());
   }
 
   private StockPart lockPartById(long dealershipId, long partId) {
@@ -578,15 +581,15 @@ public class RetailPartsService {
   private static String normalizeImageUrl(String raw) {
     String url = optional(raw, 1000);
     if (url == null) return null;
+    URI parsed;
     try {
-      URI parsed = URI.create(url);
-      if (!"https".equalsIgnoreCase(parsed.getScheme()) || parsed.getHost() == null
-          || url.chars().anyMatch(Character::isISOControl)) {
-        throw badRequest("Retail product images must use a valid HTTPS URL.");
-      }
+      parsed = URI.create(url);
     } catch (IllegalArgumentException invalid) {
-      if (invalid instanceof ResponseStatusException response) throw response;
       throw badRequest("Retail product image URL is invalid.");
+    }
+    if (!"https".equalsIgnoreCase(parsed.getScheme()) || parsed.getHost() == null
+        || url.chars().anyMatch(Character::isISOControl)) {
+      throw badRequest("Retail product images must use a valid HTTPS URL.");
     }
     return url;
   }
