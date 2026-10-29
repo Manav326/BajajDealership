@@ -139,7 +139,7 @@ class RetailPartsServiceIntegrationTest {
             .isEqualTo(HttpStatus.NOT_FOUND));
 
     assertThat(retailParts.listRetailSettings(dealershipB))
-        .noneMatch(item -> item.publicId().equals(partB.publicId()) && !item.retailEnabled());
+        .anyMatch(item -> item.publicId().equals(partB.publicId()) && !item.retailEnabled());
   }
 
   private CustomerPrincipal customerIn(StaffPrincipal manager) {
