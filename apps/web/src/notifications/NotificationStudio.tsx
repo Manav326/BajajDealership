@@ -220,6 +220,9 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   function toggleType(type: 'CUSTOMER' | 'STAFF') {
     setRecipientTypes((current) => {
       const updated = current.includes(type) ? current.filter((value) => value !== type) : [...current, type];
+      // Keep manual selections compatible with the groups still included in this campaign.
+      setSelectedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
+      setExcludedRecipients((recipients) => recipients.filter((recipient) => updated.includes(recipient.recipientKind)));
       return updated;
     });
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
@@ -288,15 +291,60 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
   }
 
-  function toggleRecipient(recipient: Recipient) {
+  function isRecipientIncluded(recipient: Recipient) {
+    const key = recipientKey(recipient);
+    return selectionMode === 'SELECTED'
+      ? selectedRecipients.some((item) => recipientKey(item) === key)
+      : !excludedRecipients.some((item) => recipientKey(item) === key);
+  }
+
+  function setRecipientIncluded(recipient: Recipient, included: boolean) {
+    const key = recipientKey(recipient);
     if (selectionMode === 'SELECTED') {
-      setSelectedRecipients((current) => current.some((item) => recipientKey(item) === recipientKey(recipient))
-        ? current.filter((item) => recipientKey(item) !== recipientKey(recipient))
-        : [...current, recipient]);
+      setSelectedRecipients((current) => included
+        ? current.some((item) => recipientKey(item) === key) ? current : [...current, recipient]
+        : current.filter((item) => recipientKey(item) !== key));
     } else {
-      setExcludedRecipients((current) => current.some((item) => recipientKey(item) === recipientKey(recipient))
-        ? current.filter((item) => recipientKey(item) !== recipientKey(recipient))
-        : [...current, recipient]);
+      // In "all eligible" mode, checked means included; unchecked recipients are exclusions.
+      setExcludedRecipients((current) => included
+        ? current.filter((item) => recipientKey(item) !== key)
+        : current.some((item) => recipientKey(item) === key) ? current : [...current, recipient]);
+    }
+    setPreview(null);
+  }
+
+  function toggleRecipient(recipient: Recipient) {
+    setRecipientIncluded(recipient, !isRecipientIncluded(recipient));
+  }
+
+  function setVisibleRecipientsIncluded(included: boolean) {
+    if (recipientResults.length === 0) return;
+    const visibleKeys = new Set(recipientResults.map(recipientKey));
+    if (selectionMode === 'SELECTED') {
+      setSelectedRecipients((current) => {
+        const retained = current.filter((recipient) => !visibleKeys.has(recipientKey(recipient)));
+        return included ? [...retained, ...recipientResults] : retained;
+      });
+    } else {
+      setExcludedRecipients((current) => {
+        const retained = current.filter((recipient) => !visibleKeys.has(recipientKey(recipient)));
+        return included ? retained : [...retained, ...recipientResults];
+      });
+    }
+    setPreview(null);
+  }
+
+  function clearRecipientChanges() {
+    if (selectionMode === 'SELECTED') setSelectedRecipients([]);
+    else setExcludedRecipients([]);
+    setPreview(null);
+  }
+
+  function restoreRecipient(recipient: Recipient) {
+    if (selectionMode === 'SELECTED') {
+      setSelectedRecipients((current) => current.filter((item) => recipientKey(item) !== recipientKey(recipient)));
+    } else {
+      setExcludedRecipients((current) => current.filter((item) => recipientKey(item) !== recipientKey(recipient)));
     }
     setPreview(null);
   }
@@ -599,32 +647,65 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               </div>}
               {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} onChange={(event) => { setMarketingOnly(event.target.checked); setPreview(null); }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. The backend enforces consent filtering for this option.</p></label>}
               <div className="audience-mode">
-                <label><input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); setPreview(null); }} /> All eligible {audienceDescription.toLowerCase()}</label>
-                <label><input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); setPreview(null); }} /> Only selected recipients</label>
+                <label>
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); setPreview(null); }} />
+                  <span><strong>All eligible {audienceDescription.toLowerCase()}</strong><small>Everyone receives it unless you uncheck specific people below.</small></span>
+                </label>
+                <label>
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); setPreview(null); }} />
+                  <span><strong>Choose recipients manually</strong><small>Only the people you check will receive it.</small></span>
+                </label>
               </div>
               <div className="recipient-search-panel">
+                <div className="recipient-picker-heading">
+                  <div><strong>{selectionMode === 'SELECTED' ? 'Choose who will receive this' : 'Include or exclude specific people'}</strong><p>Search by name, mobile, email or customer code. Each result has its own checkbox.</p></div>
+                  <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
+                </div>
                 <form className="recipient-search-form" onSubmit={searchRecipients}>
-                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} onChange={(event) => setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF')}><option value="CUSTOMER">Customers</option><option value="STAFF">Staff</option></select></div>
-                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find people to {selectionMode === 'SELECTED' ? 'include' : 'exclude'}</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile or email" /></div>
-                  <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button>
+                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); setRecipientResults([]); }}><option value="CUSTOMER">Customers</option><option value="STAFF">Staff</option></select></div>
+                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
+                  <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search people'}</button>
                 </form>
+                <p className="recipient-search-hint">Showing up to 50 matching people per search. Search again to find additional recipients.</p>
                 {recipientResults.length > 0 && <div className="recipient-results">
-                  <div className="recipient-results-heading"><span>Eligible search results (up to 50)</span><button type="button" className="text-button" onClick={() => setRecipientResults([])}>Clear results</button></div>
+                  <div className="recipient-results-heading">
+                    <span>{recipientResults.length} matching {searchKind === 'CUSTOMER' ? 'customers' : 'staff members'}</span>
+                    <div>
+                      <button type="button" className="text-button" onClick={() => setVisibleRecipientsIncluded(true)}>{selectionMode === 'SELECTED' ? 'Select all results' : 'Include all results'}</button>
+                      <button type="button" className="text-button" onClick={() => setVisibleRecipientsIncluded(false)}>{selectionMode === 'SELECTED' ? 'Deselect results' : 'Exclude all results'}</button>
+                      <button type="button" className="text-button" onClick={() => setRecipientResults([])}>Clear search</button>
+                    </div>
+                  </div>
                   {recipientResults.map((recipient) => {
                     const key = recipientKey(recipient);
-                    const active = selectionMode === 'SELECTED' ? selectedRecipientKeys.has(key) : excludedRecipientKeys.has(key);
-                    return <label className={active ? 'recipient-option active' : 'recipient-option'} key={key}>
-                      <input type="checkbox" checked={active} onChange={() => toggleRecipient(recipient)} />
+                    const included = isRecipientIncluded(recipient);
+                    return <label className={included ? 'recipient-option active' : 'recipient-option excluded'} key={key}>
+                      <input aria-label={`${included ? 'Deselect' : 'Select'} ${recipient.recipientName}`} type="checkbox" checked={included} onChange={() => toggleRecipient(recipient)} />
                       <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
                       <span className="recipient-option-main"><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
-                      <span className="recipient-option-action">{active ? 'Selected' : selectionMode === 'SELECTED' ? 'Include' : 'Exclude'}</span>
+                      <span className="recipient-option-action">{included ? (selectionMode === 'SELECTED' ? 'Will receive' : 'Included') : (selectionMode === 'SELECTED' ? 'Not selected' : 'Excluded')}</span>
                     </label>;
                   })}
                 </div>}
               </div>
+              {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).length > 0 && <div className="recipient-selection-review">
+                <div className="recipient-selection-review-heading">
+                  <div><strong>{selectionMode === 'SELECTED' ? 'Selected recipients' : 'Excluded recipients'}</strong><span>{selectionMode === 'SELECTED' ? 'Only these people will receive this notification.' : 'These people will not receive this notification.'}</span></div>
+                  <button type="button" className="text-button" onClick={clearRecipientChanges}>{selectionMode === 'SELECTED' ? 'Clear selection' : 'Remove all exclusions'}</button>
+                </div>
+                <div className="recipient-selection-review-list">
+                  {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).map((recipient) => (
+                    <div className="recipient-selection-review-row" key={recipientKey(recipient)}>
+                      <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
+                      <button type="button" className="text-button" onClick={() => restoreRecipient(recipient)}>{selectionMode === 'SELECTED' ? 'Deselect' : 'Restore'}</button>
+                    </div>
+                  ))}
+                </div>
+              </div>}
               <div className="selection-summary">
                 <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
-                <span>{selectionMode === 'SELECTED' ? 'Only these records are considered.' : 'Excluded records are removed from the server-resolved audience.'}</span>
+                <span>{selectionMode === 'SELECTED' ? 'Only checked people are considered for delivery.' : 'Unchecked people are excluded from the server-resolved audience.'}</span>
               </div>
             </section>
 
