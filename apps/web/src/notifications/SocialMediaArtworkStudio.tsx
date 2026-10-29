@@ -314,7 +314,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const selectedMusicTrack = musicAssets.find((track) => track.id === selectedMusicId) ?? null;
   const selectedMusicReady = Boolean(selectedMusicTrack?.fileData && musicPreviewUrl);
   const musicStartLimit = Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - musicClipDuration);
-  const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
+  const activeMetaDestinations = Array.isArray(metaStatus?.destinations)
+    ? metaStatus.destinations.filter((destination) => destination.status === 'ACTIVE')
+    : [];
   const canPublishSelectedFormat = selectedFormat.id !== 'story-status';
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
 
