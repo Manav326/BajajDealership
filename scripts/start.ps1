@@ -2,7 +2,11 @@
 param(
     [ValidateSet('Build', 'Pull')]
     [string]$Mode = 'Build',
-    [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}
+    [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')]
+    [string]$Tag = 'latest',
+    [switch]$Rebuild
+)
+
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot

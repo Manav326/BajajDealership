@@ -18,7 +18,245 @@ case "$MODE" in
   -h|--help|help) usage; exit 0 ;;
   *) echo "Unknown mode: $MODE" >&2; usage >&2; exit 2 ;;
 esac
-if ! printf '%s' "$IMAGE_TAG" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}
+if ! printf '%s' "$IMAGE_TAG" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]* >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
+docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
+
+# Create a private ignored .env and a random one-time first-owner token.
+ROOT_ENV=".env"
+GENERATED_BOOTSTRAP_TOKEN=0
+if [ ! -f "$ROOT_ENV" ] || ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
+  if command -v openssl >/dev/null 2>&1; then
+    NEW_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+  else
+    NEW_BOOTSTRAP_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' ')"
+  fi
+  if [ ! -f "$ROOT_ENV" ]; then
+    cat > "$ROOT_ENV" <<EOF
+POSTGRES_DB=bajaj_dealership
+POSTGRES_USER=bajaj_app
+POSTGRES_PASSWORD=bajaj_local_only
+POSTGRES_PORT=5432
+API_PORT=8080
+CUSTOMER_WEB_PORT=3000
+STAFF_WEB_PORT=3001
+APP_BOOTSTRAP_TOKEN=$NEW_BOOTSTRAP_TOKEN
+EOF
+  elif grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
+    awk -v token="$NEW_BOOTSTRAP_TOKEN" '
+      BEGIN { written = 0 }
+      /^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=/ {
+        if (!written) print "APP_BOOTSTRAP_TOKEN=" token
+        written = 1
+        next
+      }
+      { print }
+      END { if (!written) print "APP_BOOTSTRAP_TOKEN=" token }
+    ' "$ROOT_ENV" > "$ROOT_ENV.tmp"
+    mv "$ROOT_ENV.tmp" "$ROOT_ENV"
+  else
+    printf '\nAPP_BOOTSTRAP_TOKEN=%s\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
+  fi
+  GENERATED_BOOTSTRAP_TOKEN=1
+fi
+
+if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
+  echo ""
+  echo "One-time initial owner setup token (local only):"
+  sed -n 's/^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*//p' "$ROOT_ENV" | tail -n 1
+  echo "Use this in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap."
+  echo "After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api."
+  echo ""
+fi
+
+# Match the mPAY physical-device convention but discover the current host LAN IP.
+LAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
+fi
+if [ -z "$LAN_IP" ] && [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v ipconfig >/dev/null 2>&1; then
+  for interface in en0 en1; do
+    LAN_IP="$(ipconfig getifaddr "$interface" 2>/dev/null || true)"
+    [ -z "$LAN_IP" ] || break
+  done
+fi
+if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
+  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+[ -n "$LAN_IP" ] || LAN_IP="192.168.31.47"
+ANDROID_BASE_URL="${BAJAJ_ANDROID_API_BASE_URL:-http://${LAN_IP}:8080/}"
+ANDROID_ENV="apps/android/.env"
+if [ ! -f "$ANDROID_ENV" ] || [ -n "${BAJAJ_ANDROID_API_BASE_URL:-}" ]; then
+  printf 'EXPO_PUBLIC_API_BASE_URL=%s\n' "$ANDROID_BASE_URL" > "$ANDROID_ENV"
+else
+  EXISTING="$(sed -n 's/^[[:space:]]*EXPO_PUBLIC_API_BASE_URL[[:space:]]*=[[:space:]]*//p' "$ANDROID_ENV" | head -n 1)"
+  [ -z "$EXISTING" ] || ANDROID_BASE_URL="$(printf '%s' "$EXISTING" | tr -d '"')"
+fi
+
+echo "QuantaEdge | Lucky Bajaj — local stack"
+echo "Customer web : http://localhost:3000"
+echo "Staff web    : http://localhost:3001"
+echo "Backend API  : http://localhost:8080"
+echo "Android API  : $ANDROID_BASE_URL"
+
+docker compose -f compose.yaml config --quiet
+if [ "$MODE" = "pull" ]; then
+  echo "Pulling prebuilt GHCR images (tag: $BAJAJ_IMAGE_TAG)…"
+  if ! docker compose -f compose.yaml pull api customer-web staff-web; then
+    echo "Could not pull the GHCR images for tag '$BAJAJ_IMAGE_TAG'." >&2
+    echo "If the packages are private, authenticate first with: docker login ghcr.io" >&2
+    echo "Then rerun: sh ./scripts/start.sh pull $BAJAJ_IMAGE_TAG" >&2
+    exit 1
+  fi
+  docker compose -f compose.yaml up --no-build -d
+else
+  echo "Building API and both web images locally (tag: $BAJAJ_IMAGE_TAG)…"
+  docker compose -f compose.yaml up --build -d
+fi
+
+echo "Waiting for the API and both websites…"
+i=0
+while [ "$i" -lt 90 ]; do
+  if curl -fsS http://localhost:8080/actuator/health >/dev/null 2>&1 \
+    && curl -fsS http://localhost:3000/ >/dev/null 2>&1 \
+    && curl -fsS http://localhost:3001/ >/dev/null 2>&1; then
+    echo ""
+    echo "All services are responding:"
+    echo "Customer website : http://localhost:3000"
+    echo "Staff portal     : http://localhost:3001"
+    echo "Backend API      : http://localhost:8080"
+    echo "Android device   : $ANDROID_BASE_URL"
+    docker compose -f compose.yaml ps
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+
+echo "Stack did not become healthy. Recent service logs:" >&2
+docker compose -f compose.yaml logs --tail=100
+exit 1
+; then
+  echo "Invalid Docker image tag: $IMAGE_TAG" >&2
+  exit 2
+fi
+export BAJAJ_IMAGE_TAG="$IMAGE_TAG"
+
+
+command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
+docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
+
+# Create a private ignored .env and a random one-time first-owner token.
+ROOT_ENV=".env"
+GENERATED_BOOTSTRAP_TOKEN=0
+if [ ! -f "$ROOT_ENV" ] || ! grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
+  if command -v openssl >/dev/null 2>&1; then
+    NEW_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+  else
+    NEW_BOOTSTRAP_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' ')"
+  fi
+  if [ ! -f "$ROOT_ENV" ]; then
+    cat > "$ROOT_ENV" <<EOF
+POSTGRES_DB=bajaj_dealership
+POSTGRES_USER=bajaj_app
+POSTGRES_PASSWORD=bajaj_local_only
+POSTGRES_PORT=5432
+API_PORT=8080
+CUSTOMER_WEB_PORT=3000
+STAFF_WEB_PORT=3001
+APP_BOOTSTRAP_TOKEN=$NEW_BOOTSTRAP_TOKEN
+EOF
+  elif grep -Eq '^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=' "$ROOT_ENV"; then
+    awk -v token="$NEW_BOOTSTRAP_TOKEN" '
+      BEGIN { written = 0 }
+      /^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=/ {
+        if (!written) print "APP_BOOTSTRAP_TOKEN=" token
+        written = 1
+        next
+      }
+      { print }
+      END { if (!written) print "APP_BOOTSTRAP_TOKEN=" token }
+    ' "$ROOT_ENV" > "$ROOT_ENV.tmp"
+    mv "$ROOT_ENV.tmp" "$ROOT_ENV"
+  else
+    printf '\nAPP_BOOTSTRAP_TOKEN=%s\n' "$NEW_BOOTSTRAP_TOKEN" >> "$ROOT_ENV"
+  fi
+  GENERATED_BOOTSTRAP_TOKEN=1
+fi
+
+if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
+  echo ""
+  echo "One-time initial owner setup token (local only):"
+  sed -n 's/^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*//p' "$ROOT_ENV" | tail -n 1
+  echo "Use this in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap."
+  echo "After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api."
+  echo ""
+fi
+
+# Match the mPAY physical-device convention but discover the current host LAN IP.
+LAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
+fi
+if [ -z "$LAN_IP" ] && [ "$(uname -s 2>/dev/null)" = "Darwin" ] && command -v ipconfig >/dev/null 2>&1; then
+  for interface in en0 en1; do
+    LAN_IP="$(ipconfig getifaddr "$interface" 2>/dev/null || true)"
+    [ -z "$LAN_IP" ] || break
+  done
+fi
+if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
+  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+[ -n "$LAN_IP" ] || LAN_IP="192.168.31.47"
+ANDROID_BASE_URL="${BAJAJ_ANDROID_API_BASE_URL:-http://${LAN_IP}:8080/}"
+ANDROID_ENV="apps/android/.env"
+if [ ! -f "$ANDROID_ENV" ] || [ -n "${BAJAJ_ANDROID_API_BASE_URL:-}" ]; then
+  printf 'EXPO_PUBLIC_API_BASE_URL=%s\n' "$ANDROID_BASE_URL" > "$ANDROID_ENV"
+else
+  EXISTING="$(sed -n 's/^[[:space:]]*EXPO_PUBLIC_API_BASE_URL[[:space:]]*=[[:space:]]*//p' "$ANDROID_ENV" | head -n 1)"
+  [ -z "$EXISTING" ] || ANDROID_BASE_URL="$(printf '%s' "$EXISTING" | tr -d '"')"
+fi
+
+echo "QuantaEdge | Lucky Bajaj — local stack"
+echo "Customer web : http://localhost:3000"
+echo "Staff web    : http://localhost:3001"
+echo "Backend API  : http://localhost:8080"
+echo "Android API  : $ANDROID_BASE_URL"
+
+docker compose -f compose.yaml config --quiet
+docker compose -f compose.yaml up --build -d
+
+echo "Waiting for the API and both websites…"
+i=0
+while [ "$i" -lt 90 ]; do
+  if curl -fsS http://localhost:8080/actuator/health >/dev/null 2>&1 \
+    && curl -fsS http://localhost:3000/ >/dev/null 2>&1 \
+    && curl -fsS http://localhost:3001/ >/dev/null 2>&1; then
+    echo ""
+    echo "All services are responding:"
+    echo "Customer website : http://localhost:3000"
+    echo "Staff portal     : http://localhost:3001"
+    echo "Backend API      : http://localhost:8080"
+    echo "Android device   : $ANDROID_BASE_URL"
+    docker compose -f compose.yaml ps
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+
+echo "Stack did not become healthy. Recent service logs:" >&2
+docker compose -f compose.yaml logs --tail=100
+exit 1
+; then
+  echo "Invalid Docker image tag: $IMAGE_TAG" >&2
+  exit 2
+fi
+export BAJAJ_IMAGE_TAG="$IMAGE_TAG"
+
 command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
