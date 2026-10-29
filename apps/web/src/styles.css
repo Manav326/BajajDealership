@@ -2682,3 +2682,5 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .catalogue-gallery-upload button { width: 100%; }
   .catalogue-gallery-image { height: 145px; }
 }
+
+.catalogue-gallery-private-preview { display: grid; place-items: center; max-width: 240px; padding: 18px; color: #516174; font-size: 10px; line-height: 1.7; text-align: center; }

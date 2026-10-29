@@ -44,6 +44,14 @@ public class BajajMotorcycleImageService {
       insert into bajaj_motorcycle_image(dealership_id,model_code,original_filename,content_type,image_bytes,sha256,size_bytes,sort_order,is_primary,uploaded_by_staff_user_id)
       values (?,?,?,?,?,?,?,?,true,?) returning public_id
       """, UUID.class, actor.dealershipId(), code, filename, type, bytes, digest, bytes.length, next == null ? 100 : next, actor.staffUserId());
+    jdbc.update("""
+      insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
+        action, entity_type, entity_id, details)
+      values (?, 'STAFF', ?, 'BAJAJ_CATALOGUE_IMAGE_UPLOADED', 'BAJAJ_CATALOGUE_IMAGE', ?,
+        jsonb_build_object('modelCode', ?, 'imagePublicId', ?::text,
+          'contentType', ?, 'sizeBytes', ?, 'sha256', ?))
+      """, actor.dealershipId(), actor.staffUserId(), id.toString(),
+        code, id.toString(), type, bytes.length, digest);
     return new UploadedImage(id, code, type, bytes.length, true, java.time.Instant.now());
   }
 
@@ -71,6 +79,13 @@ public class BajajMotorcycleImageService {
         select id from bajaj_motorcycle_image where dealership_id=? and model_code=? order by sort_order,id desc limit 1
       ) and dealership_id=?
       """,actor.dealershipId(),code,actor.dealershipId());
+    jdbc.update("""
+      insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
+        action, entity_type, entity_id, details)
+      values (?, 'STAFF', ?, 'BAJAJ_CATALOGUE_IMAGE_REMOVED', 'BAJAJ_CATALOGUE_IMAGE', ?,
+        jsonb_build_object('modelCode', ?, 'imagePublicId', ?::text, 'wasPrimary', ?))
+      """, actor.dealershipId(), actor.staffUserId(), imageId.toString(),
+        code, imageId.toString(), primary);
   }
 
   public PublicImage readPublic(String rawDealerCode,String rawModelCode,UUID imageId) {

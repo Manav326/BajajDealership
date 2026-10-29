@@ -429,6 +429,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
   const expectedCount = models.reduce((sum, model) => sum + model.expectedCount, 0);
   const reservedCount = models.reduce((sum, model) => sum + model.reservedCount, 0);
   const soldCount = models.reduce((sum, model) => sum + model.soldCount, 0);
+  const galleryModelPublished = catalogueModels.find((model) => model.modelCode === imageModelCode)?.published ?? false;
 
   if (!staff.permissions.includes('vehicle.read')) {
     return <section className="module-landing"><div className="module-symbol">▤</div><div className="eyebrow">ACCESS CONTROL</div><h1>Bike inventory</h1><p>Your assigned role does not include access to vehicle stock.</p></section>;
@@ -677,8 +678,10 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
               : <div className="catalogue-gallery-grid">
                 {catalogueImages.map((image) => <article className="catalogue-gallery-image-card" key={image.publicId}>
                   <div className="catalogue-gallery-image">
-                    <img src={apiRequestUrl(`/api/v1/public/catalogue/bikes/images/${encodeURIComponent(image.modelCode)}/${encodeURIComponent(image.publicId)}?dealershipCode=${encodeURIComponent(staff.dealershipCode)}`)}
-                      alt={`Uploaded catalogue image for ${image.modelCode}`} loading="lazy" />
+                    {galleryModelPublished
+                      ? <img src={apiRequestUrl(`/api/v1/public/catalogue/bikes/images/${encodeURIComponent(image.modelCode)}/${encodeURIComponent(image.publicId)}?dealershipCode=${encodeURIComponent(staff.dealershipCode)}`)}
+                          alt={`Uploaded catalogue image for ${image.modelCode}`} loading="lazy" />
+                      : <div className="catalogue-gallery-private-preview">Image preview is only served after this model is published.</div>}
                     {image.primary && <span className="catalogue-gallery-primary">PRIMARY</span>}
                   </div>
                   <div className="catalogue-gallery-image-meta">
