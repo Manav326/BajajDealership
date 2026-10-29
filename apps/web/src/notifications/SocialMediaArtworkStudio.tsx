@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { apiFetch } from './apiClient';
+import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import styles from './SocialMediaArtworkStudio.module.css';
 
 type ArtworkFormat = {
@@ -202,7 +203,7 @@ function newDraftId() {
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 }
 
-export default function SocialMediaArtworkStudio({ onClose, canManage = false, canPublish = false }: { onClose: () => void; canManage?: boolean; canPublish?: boolean }) {
+export default function SocialMediaArtworkStudio({ onClose, canManage = false, canPublish = false, canReadWhatsapp = false, canManageWhatsapp = false, canSendWhatsapp = false }: { onClose: () => void; canManage?: boolean; canPublish?: boolean; canReadWhatsapp?: boolean; canManageWhatsapp?: boolean; canSendWhatsapp?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [formatId, setFormatId] = useState(formats[0].id);
   const [brandName, setBrandName] = useState('Lucky Bajaj Agency');
@@ -667,6 +668,14 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
   }
 
+  async function getArtworkJpeg(): Promise<Blob> {
+    const canvas = canvasRef.current;
+    if (!canvas) throw new Error('The current artwork preview is not ready.');
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('The artwork could not be prepared as a JPEG.')), 'image/jpeg', 0.92);
+    });
+  }
+
   async function copyCaption() {
     setError('');
     setNotice('');
@@ -757,7 +766,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
               <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
             </div>
-            <p className={styles.privacy}>Artwork and the selected photo are composed in this browser. This phase does not upload them or connect social accounts.</p>
+            <p className={styles.privacy}>Artwork remains browser-local until you choose to upload, publish or share it. Publishing uploads the rendered JPEG only after you confirm the action.</p>
           </aside>
           <main className={styles.previewColumn}>
             <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
@@ -790,9 +799,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <button type="button" className={styles.secondary} onClick={() => void shareArtwork()}>Share from device</button>
               <button type="button" className={styles.primary} onClick={() => downloadArtwork('image/png')}>Download PNG</button>
             </div>
-            <p className={styles.note}>Facebook and Instagram publishing, and WhatsApp Business messaging, will be enabled only after official account authorization and provider delivery verification. WhatsApp Status currently uses manual export/share.</p>
+            <p className={styles.note}>Facebook/Instagram posts and WhatsApp Business template messages use separate, permission-gated API workflows. WhatsApp Status is still manual export/share.</p>
           </main>
         </div>
+        <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />
       </section>
     </div>
   );

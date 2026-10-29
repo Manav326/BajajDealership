@@ -689,7 +689,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       )}
 
       {showGraphics && <LogoGraphicsLab onUseAsset={addLogoAsset} onClose={() => setShowGraphics(false)} />}
-      {showSocialArtwork && <SocialMediaArtworkStudio onClose={() => setShowSocialArtwork(false)} canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} />}
+      {showSocialArtwork && <SocialMediaArtworkStudio onClose={() => setShowSocialArtwork(false)} canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} canReadWhatsapp={staff.permissions.includes('social_media.whatsapp.read')} canManageWhatsapp={staff.permissions.includes('social_media.whatsapp.manage')} canSendWhatsapp={staff.permissions.includes('social_media.whatsapp.send')} />}
     </section>
   );
 }
