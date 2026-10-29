@@ -14,6 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -22,6 +24,15 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 class BajajOnRoadQuoteServiceIntegrationTest {
   private static final String MODEL_CODE = "BAJAJ_PULSAR_NS200";
+
+  /**
+   * Public quote resolution must be deterministic even when the migration fixture contains
+   * multiple active dealerships. Dynamic properties take precedence over environment defaults.
+   */
+  @DynamicPropertySource
+  static void configurePublicQuoteDealership(DynamicPropertyRegistry registry) {
+    registry.add("app.dealership.public-code", () -> "PRICE-TEST-DEALER");
+  }
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private BajajOnRoadQuoteService quotes;
