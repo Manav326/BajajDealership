@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { apiRequestUrl } from '../apiClient';
 
 type StaffSummary = {
@@ -69,6 +69,25 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
     phone: '',
   });
   const [activationMessage, setActivationMessage] = useState('');
+  const [ownerSetupAvailable, setOwnerSetupAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch(apiRequestUrl('/api/v1/system/bootstrap/status'), {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await readResponseBody(response);
+        const available = typeof payload === 'object' && payload !== null
+          && 'available' in payload && (payload as { available?: unknown }).available === true;
+        if (active) setOwnerSetupAvailable(response.ok && available);
+      } catch {
+        if (active) setOwnerSetupAvailable(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -194,6 +213,7 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
       setDealershipCode(result.dealershipCode);
       setLogin(ownerSetup.email.trim() || ownerSetup.phone.trim());
       setBootstrapToken('');
+      setOwnerSetupAvailable(false);
       setActivationToken('');
       setPassword('');
       setConfirmPassword('');
@@ -321,9 +341,9 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
           </button>
         </form>
         {authMode === 'login' ? <>
-          <button className="text-button auth-mode-toggle" type="button" onClick={() => changeMode('owner-setup')}>
+          {ownerSetupAvailable && <button className="text-button auth-mode-toggle" type="button" onClick={() => changeMode('owner-setup')}>
             First time here? Set up dealership owner
-          </button>
+          </button>}
           <button className="text-button auth-mode-toggle" type="button" onClick={() => changeMode('staff-activate')}>
             Have a staff invitation? Activate invitation
           </button>
