@@ -101,7 +101,7 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
         Set.copyOf(permissions));
 
     DealershipLicenseService.LicenseRestriction restriction = licenses.restrictionFor(
-        principal.dealershipId(), request.getMethod(), request.getServletPath());
+        principal.dealershipId(), request.getMethod(), request.getRequestURI());
     if (restriction != null) {
       response.setStatus(restriction.httpStatus());
       response.setContentType("application/json");

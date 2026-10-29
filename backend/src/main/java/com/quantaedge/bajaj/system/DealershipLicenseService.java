@@ -134,7 +134,7 @@ public class DealershipLicenseService {
           dealership_id, actor_kind, action, entity_type, entity_id, reason, details)
         values (?, 'SYSTEM', 'DEALERSHIP_LICENSE_UPDATED', 'DEALERSHIP_LICENSE', ?, ?,
           jsonb_build_object(
-            'planCode', ?, 'status', ?, 'startsAt', ?, 'expiresAt', ?,
+            'planCode', ?, 'status', ?, 'startsAt', ?::timestamptz, 'expiresAt', ?::timestamptz,
             'gracePeriodDays', ?, 'maxStaffSeats', ?))
         """,
         dealershipId, code, reason, planCode, status, startsAt, expiresAt,
@@ -201,10 +201,13 @@ public class DealershipLicenseService {
 
   private static boolean isLicenseOrSessionRecoveryPath(String method, String path) {
     String verb = method == null ? "" : method.toUpperCase(Locale.ROOT);
-    return ("/api/v1/system/license/status".equals(path) && "GET".equals(verb))
-        || ("/api/v1/auth/staff/me".equals(path) && "GET".equals(verb))
-        || ("/api/v1/auth/staff/logout".equals(path) && "POST".equals(verb))
-        || (path != null && path.startsWith("/api/v1/system/license/admin/"));
+    // Use path suffixes so deployments with a servlet context path and MockMvc requests
+    // apply the same license/status exemptions.
+    String normalizedPath = path == null ? "" : path;
+    return (normalizedPath.endsWith("/api/v1/system/license/status") && "GET".equals(verb))
+        || (normalizedPath.endsWith("/api/v1/auth/staff/me") && "GET".equals(verb))
+        || (normalizedPath.endsWith("/api/v1/auth/staff/logout") && "POST".equals(verb))
+        || normalizedPath.contains("/api/v1/system/license/admin/");
   }
 
   private LicenseStatus mapStatus(ResultSet rs, int rowNum) throws SQLException {

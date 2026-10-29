@@ -80,7 +80,8 @@ class DealershipLicenseIntegrationTest {
   void expiredAfterGraceKeepsExistingRecordsReadableButRejectsWrites() throws Exception {
     jdbc.update("""
         update dealership_license
-        set expires_at = now() - interval '8 days', grace_period_days = 7
+        set starts_at = now() - interval '38 days',
+            expires_at = now() - interval '8 days', grace_period_days = 7
         where dealership_id = ?
         """, dealershipId);
 
