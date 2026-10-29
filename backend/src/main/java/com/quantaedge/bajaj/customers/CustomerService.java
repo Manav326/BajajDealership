@@ -336,7 +336,7 @@ public class CustomerService {
       CustomerView customer, String notes, Instant marketingConsentAt, String marketingConsentSource,
       List<MotorcyclePurchaseHistoryView> motorcyclePurchases,
       List<RetailPartsService.RetailOrderView> sparePartOrders,
-      List<SalesOperationsService.EnquiryView> salesEnquiries,
+      List<SalesOperationsService.EnquiryDetailView> salesEnquiries,
       List<CustomerSalesRequestService.RequestView> websiteRequests) {}
   private record JourneyMetadata(String notes, Instant marketingConsentAt, String marketingConsentSource) {}
   public record Page<T>(List<T> items, int page, int pageSize, long total) {}

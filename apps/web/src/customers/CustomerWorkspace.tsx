@@ -585,7 +585,7 @@ export default function CustomerWorkspace({
                   ? <div className="customer-profile-address-empty">Sales enquiry history could not be loaded. Reopen the profile to retry.</div>
                   : (selectedHistory.salesEnquiries ?? []).length === 0
                     ? <div className="customer-profile-address-empty">No dealership sales enquiries are linked to this customer yet.</div>
-                    : <div className="customer-history-list">{(selectedHistory.salesEnquiries ?? []).map((enquiry) => <article className="customer-history-record" key={enquiry.publicId}>
+                    : <div className="customer-history-list">{(selectedHistory.salesEnquiries ?? []).map((enquiry) => <article className="customer-history-record" key={enquiry.enquiry.publicId}>
                       <span className="customer-history-record-icon request-history-icon">E</span>
                       <div className="customer-history-record-main"><div className="customer-history-title"><strong>{enquiry.enquiry.modelName || "Motorcycle enquiry"}</strong><span className="customer-history-status">{enquiry.enquiry.status.replaceAll("_"," ")}</span></div>
                         <p>{enquiry.enquiry.enquiryCode} · {enquiry.enquiry.leadSource.replaceAll("_"," ")} · {enquiry.enquiry.contactPreference.replaceAll("_"," ")}</p>
