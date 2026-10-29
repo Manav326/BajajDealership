@@ -6,7 +6,7 @@
 export const ARTWORK_ASSET_LIMIT = 50;
 export const ARTWORK_ASSET_MAX_BYTES = 4_500_000;
 const DB_NAME = 'bajaj-social-media-artwork';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export type ArtworkAsset = {
   id: string;
@@ -177,6 +177,7 @@ function openArtworkAssetDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('music')) db.createObjectStore('music', { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('The asset library could not be opened.'));
