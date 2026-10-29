@@ -1,5 +1,7 @@
 package com.quantaedge.bajaj.security;
 
+import com.quantaedge.bajaj.system.DealershipLicenseService;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,9 +22,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class StaffBearerTokenFilter extends OncePerRequestFilter {
   private final JdbcTemplate jdbc;
+  private final DealershipLicenseService licenses;
 
-  public StaffBearerTokenFilter(JdbcTemplate jdbc) {
+  public StaffBearerTokenFilter(JdbcTemplate jdbc, DealershipLicenseService licenses) {
     this.jdbc = jdbc;
+    this.licenses = licenses;
   }
 
   @Override
@@ -95,6 +99,19 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
         String.valueOf(row.get("full_name")),
         Set.copyOf(roles),
         Set.copyOf(permissions));
+
+    DealershipLicenseService.LicenseRestriction restriction = licenses.restrictionFor(
+        principal.dealershipId(), request.getMethod(), request.getServletPath());
+    if (restriction != null) {
+      response.setStatus(restriction.httpStatus());
+      response.setContentType("application/json");
+      response.setCharacterEncoding("UTF-8");
+      response.getWriter().write("{\"error\":\"license_restricted\",\"code\":\""
+          + restriction.code() + "\",\"licenseStatus\":\""
+          + restriction.state() + "\",\"message\":\""
+          + restriction.message() + "\"}");
+      return;
+    }
 
     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
     roles.forEach(role -> authorities.add(new SimpleGrantedAuthority("ROLE_" + role)));
