@@ -58,7 +58,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 
 ## Configuration and release gates
 
-Keep provider secrets out of source control and browser responses. Production sending/publishing remains disabled until provider credentials, account permissions, privacy/security review, webhook verification, durable media storage and end-to-end acceptance are complete. CI must use fake accounts and provider mocks; no live posts/messages are permitted in tests.
+Keep provider secrets out of source control and browser responses. Provider message delivery and publishing are allowed operating costs when configured and authorized; the application does not require a separate paid media-storage service. Production sending/publishing remains disabled until provider credentials, account permissions, privacy/security review, webhook verification, persistence/capacity checks for the existing PostgreSQL database and end-to-end acceptance are complete. CI must use fake accounts and provider mocks; no live posts/messages are permitted in tests.
 
 ## Current implementation checkpoint
 
@@ -74,6 +74,7 @@ Keep provider secrets out of source control and browser responses. Production se
 - [ ] Confirm the existing production PostgreSQL database is persistent and has sufficient capacity; validate image put/read/delete and signed-URL fetching.
 - [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
+- [x] Add unit coverage for exact WhatsApp webhook HMAC verification, altered request bodies, missing/invalid signatures, disabled configuration and webhook challenge tokens.
 - [x] Keep one centrally configured WhatsApp Business connection for the Lucky Bajaj dealership; provider credentials remain backend-only.
 - [x] Add the assignable `SOCIAL_MEDIA_COORDINATOR` staff role for social publishing and consent-checked WhatsApp messaging without Meta connection administration; integration test verifies permissions are present in the activated staff session.
 - [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.
