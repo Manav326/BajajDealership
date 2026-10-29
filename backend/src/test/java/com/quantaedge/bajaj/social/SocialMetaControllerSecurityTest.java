@@ -34,6 +34,14 @@ class SocialMetaControllerSecurityTest {
   }
 
   @Test
+  void disconnectRequiresSocialMediaManagePermission() throws Exception {
+    mvc.perform(post("/api/v1/admin/social/meta/disconnect")
+            .with(user("notification-reader")
+                .authorities(new SimpleGrantedAuthority("social_media.read"))))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void callbackDoesNotRequireAnExistingStaffBrowserSession() throws Exception {
     // An invalid state must be rejected by the one-time state check, not by the bearer filter.
     mvc.perform(get("/api/v1/social/meta/callback")

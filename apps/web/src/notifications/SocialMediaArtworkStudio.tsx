@@ -224,6 +224,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null);
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaConnecting, setMetaConnecting] = useState(false);
+  const [metaDisconnecting, setMetaDisconnecting] = useState(false);
   const [metaError, setMetaError] = useState('');
   const [publishDestinationId, setPublishDestinationId] = useState('');
   const [publishingBusy, setPublishingBusy] = useState(false);
@@ -474,6 +475,39 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       else if(result.status==='FAILED')setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+').');
       else if(result.status==='UNKNOWN')setMetaError('The provider result is uncertain. Do not repost until reconciled.');
     }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish status could not be refreshed.');}
+  }
+
+  async function disconnectMeta() {
+    const activeDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE').length ?? 0;
+    if (!canManage || activeDestinations === 0) return;
+    if (!window.confirm('Disconnect all linked Facebook/Instagram accounts from this app? Future publishing will stop. Meta revocation will be attempted; if Meta does not confirm it, remove the app in Meta Business settings too.')) return;
+
+    setMetaDisconnecting(true);
+    setMetaError('');
+    setNotice('');
+    try {
+      const response = await apiFetch('/api/v1/admin/social/meta/disconnect', { method: 'POST' });
+      const result = await response.json().catch(() => ({})) as {
+        connectionsDisconnected?: number;
+        destinationsDisabled?: number;
+        providerRevocationsConfirmed?: number;
+        message?: string;
+        detail?: string;
+      };
+      if (!response.ok || result.connectionsDisconnected === undefined)
+        throw new Error(result.message ?? result.detail ?? 'Meta disconnect could not be completed.');
+      setNotice(result.message ?? 'Meta accounts disconnected.');
+      const statusResponse = await apiFetch('/api/v1/admin/social/meta/status', { cache: 'no-store' });
+      const nextStatus = await statusResponse.json().catch(() => ({})) as MetaStatus & { message?: string; detail?: string };
+      if (!statusResponse.ok) throw new Error(nextStatus.message ?? nextStatus.detail ?? 'Disconnect succeeded, but status could not be refreshed.');
+      setMetaStatus(nextStatus);
+      setPublishJob(null);
+      setPendingPublishAssetId(null);
+    } catch (cause) {
+      setMetaError(cause instanceof Error ? cause.message : 'Meta disconnect could not be completed.');
+    } finally {
+      setMetaDisconnecting(false);
+    }
   }
 
   async function connectMeta() {
@@ -727,6 +761,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               ))}
             </div>
           ) : null}
+          {canManage && metaStatus?.destinations?.some((destination) => destination.status === 'ACTIVE') && <button type="button" className={styles.textButton} disabled={metaDisconnecting || metaConnecting} onClick={() => void disconnectMeta()}>{metaDisconnecting ? 'Disconnecting accounts…' : 'Disconnect all Meta accounts'}</button>}
           <p className={styles.metaFootnote}>{metaStatus?.publishingReady ? 'Direct publishing is configured. Each post needs confirmation and a provider-backed result.' : 'Publishing needs a public HTTPS media URL and asset-signing key. Connecting an account alone never publishes content.'}</p>
         </section>
         <div className={styles.content}>

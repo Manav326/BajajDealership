@@ -105,6 +105,59 @@ public class SocialMetaService {
         destinations);
   }
 
+  /** Disconnect linked Meta identities; always disable local publishing if remote revocation is uncertain. */
+  public DisconnectResult disconnect(StaffPrincipal actor) {
+    List<MetaConnectionRow> connections = jdbc.query("""
+        select id, public_id, user_access_token_ciphertext
+        from social_media_connection
+        where dealership_id = ? and provider = 'META' and status = 'ACTIVE'
+        order by id
+        """, (rs, rowNum) -> new MetaConnectionRow(
+            rs.getLong("id"), rs.getObject("public_id", UUID.class),
+            rs.getString("user_access_token_ciphertext")), actor.dealershipId());
+
+    int providerRevocationsConfirmed = 0;
+    int destinationsDisabled = 0;
+    for (MetaConnectionRow connection : connections) {
+      boolean providerRevoked = false;
+      String revokeOutcome = "not_confirmed";
+      try {
+        String token = decryptTokenForPublishing(connection.tokenCiphertext());
+        JsonNode response = graphDelete("me/permissions", Map.of("access_token", token));
+        providerRevoked = response.isBoolean() && response.booleanValue();
+        revokeOutcome = providerRevoked ? "confirmed" : "not_confirmed";
+      } catch (Exception failure) {
+        revokeOutcome = safeFailureCode(failure);
+      }
+
+      int disabledForConnection = jdbc.update("""
+          update social_media_destination
+          set status = 'DISCONNECTED', page_access_token_ciphertext = 'REVOKED', updated_at = now()
+          where dealership_id = ? and connection_id = ? and status = 'ACTIVE'
+          """, actor.dealershipId(), connection.id());
+      destinationsDisabled += disabledForConnection;
+      jdbc.update("""
+          update social_media_connection
+          set status = 'DISCONNECTED', user_access_token_ciphertext = 'REVOKED', updated_at = now()
+          where dealership_id = ? and id = ? and status = 'ACTIVE'
+          """, actor.dealershipId(), connection.id());
+
+      if (providerRevoked) providerRevocationsConfirmed++;
+      audit(actor.dealershipId(), actor.staffUserId(), connection.id(), null,
+          "META_OAUTH_DISCONNECTED",
+          Map.of("connectionPublicId", connection.publicId().toString(),
+              "destinationsDisabled", disabledForConnection,
+              "providerRevocation", revokeOutcome));
+    }
+
+    String message = connections.isEmpty()
+        ? "There are no active Meta connections for this dealership."
+        : providerRevocationsConfirmed == connections.size()
+            ? "Meta accounts disconnected. Meta confirmed revoking this app's authorization."
+            : "Local Meta publishing has been disabled and stored tokens cleared. Meta did not confirm every remote revocation; review the app's access in Meta Business settings.";
+    return new DisconnectResult(connections.size(), destinationsDisabled, providerRevocationsConfirmed, message);
+  }
+
   public ConnectResponse beginAuthorization(StaffPrincipal actor) {
     requireConfigured();
     byte[] randomState = new byte[32];
@@ -367,6 +420,30 @@ public class SocialMetaService {
     }
   }
 
+  private JsonNode graphDelete(String resource, Map<String, String> query) {
+    URI uri = UriComponentsBuilder.fromUriString("https://graph.facebook.com/" + graphApiVersion + "/" + resource)
+        .queryParams(toQueryParams(query)).build().encode().toUri();
+    HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20))
+        .header("Accept", "application/json").DELETE().build();
+    try {
+      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      if (response.statusCode() < 200 || response.statusCode() >= 300)
+        throw new MetaProviderException("meta_http_" + response.statusCode());
+      JsonNode body = mapper.readTree(response.body());
+      if (body == null) throw new MetaProviderException("meta_empty_response");
+      if (body.has("error"))
+        throw new MetaProviderException("meta_api_" + safeCode(body.path("error").path("code").asText("provider_error")));
+      return body;
+    } catch (JsonProcessingException failure) {
+      throw new MetaProviderException("meta_invalid_json");
+    } catch (IOException failure) {
+      throw new MetaProviderException("meta_network_error");
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new MetaProviderException("meta_request_interrupted");
+    }
+  }
+
   JsonNode graphPost(String resource,Map<String,String> form){
     URI uri=URI.create("https://graph.facebook.com/"+graphApiVersion+"/"+resource);
     String body=form.entrySet().stream().map(e->java.net.URLEncoder.encode(e.getKey(),StandardCharsets.UTF_8)+"="+java.net.URLEncoder.encode(e.getValue(),StandardCharsets.UTF_8)).collect(java.util.stream.Collectors.joining("&"));
@@ -465,6 +542,8 @@ public class SocialMetaService {
   public record StatusView(boolean configured, boolean publishingReady, String code, String message, List<DestinationView> destinations) {}
   public record DestinationView(UUID publicId, String type, String displayName, String username, String status) {}
   public record ConnectResponse(String authorizationUrl, Instant stateExpiresAt) {}
+  public record DisconnectResult(int connectionsDisconnected, int destinationsDisabled, int providerRevocationsConfirmed, String message) {}
+  private record MetaConnectionRow(long id, UUID publicId, String tokenCiphertext) {}
   private record OAuthAttempt(long dealershipId, long staffUserId) {}
   private record TokenInfo(String value, Instant expiresAt) {}
   private record PageAccount(String id, String name, String accessToken, String instagramId, String instagramUsername) {}

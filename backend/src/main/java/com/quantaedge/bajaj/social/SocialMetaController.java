@@ -29,6 +29,12 @@ public class SocialMetaController {
     return meta.status(principal);
   }
 
+  @PostMapping("/api/v1/admin/social/meta/disconnect")
+  @PreAuthorize("hasAuthority('social_media.manage')")
+  public SocialMetaService.DisconnectResult disconnect(@AuthenticationPrincipal StaffPrincipal principal) {
+    return meta.disconnect(principal);
+  }
+
   @PostMapping("/api/v1/admin/social/meta/connect")
   @PreAuthorize("hasAuthority('social_media.manage')")
   public SocialMetaService.ConnectResponse connect(@AuthenticationPrincipal StaffPrincipal principal) {

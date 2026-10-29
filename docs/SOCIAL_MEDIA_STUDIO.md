@@ -69,6 +69,7 @@ Keep provider secrets out of source control and browser responses. Production se
 - [ ] Confirm web typecheck/build and full CI on the current main-synced revision.
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
 - [x] Add Facebook Page photo posts and Instagram feed media-container publishing with expiring signed media URLs, idempotent jobs and status polling (live Meta E2E still pending).
+- [x] Add dealership-scoped Meta disconnect: attempt provider permission revocation, disable local destinations and clear locally stored token ciphertext; report when Meta does not confirm remote revocation.
 - [ ] Complete authorized-account E2E tests, destination disconnect/revocation and production durable object storage.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [ ] Expand the initial single-dealership environment mapping into per-dealership encrypted WABA connections before multi-account deployment.
