@@ -153,6 +153,60 @@ class CustomerSalesRequestServiceIntegrationTest {
   }
 
   @Test
+  void convertingAShowroomRequestIsIdempotentAndCreatesOnlyOneEnquiry() {
+    Fixture fixture = createFixture();
+    var request = requests.create(fixture.customer(), new CustomerSalesRequestService.CreateRequest(
+        "PURCHASE", MODEL_CODE, null, "Synthetic conversion replay test",
+        "convert-showroom-" + UUID.randomUUID()));
+
+    var converted = requests.convertToEnquiry(fixture.owner(), request.publicId());
+    var replay = requests.convertToEnquiry(fixture.owner(), request.publicId());
+
+    assertThat(converted.status()).isEqualTo("CONVERTED");
+    assertThat(replay.status()).isEqualTo("CONVERTED");
+    assertThat(replay.convertedEnquiryPublicId()).isEqualTo(converted.convertedEnquiryPublicId());
+    assertThat(jdbc.queryForObject("""
+        select count(*) from sales_enquiry
+        where dealership_id = ? and public_id = ?
+        """, Integer.class, fixture.owner().dealershipId(), converted.convertedEnquiryPublicId()))
+        .isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from customer_sales_request
+        where dealership_id = ? and public_id = ? and status = 'CONVERTED'
+          and converted_enquiry_id is not null
+        """, Integer.class, fixture.owner().dealershipId(), request.publicId())).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from audit_event
+        where dealership_id = ? and entity_type = 'CUSTOMER_SALES_REQUEST'
+          and entity_id = ? and action = 'CUSTOMER_SALES_REQUEST_CONVERTED'
+        """, Integer.class, fixture.owner().dealershipId(), request.publicId().toString())).isEqualTo(1);
+  }
+
+  @Test
+  void staffAndCustomerCannotReadOrConvertAnotherDealershipWebsiteRequest() {
+    Fixture first = createFixture();
+    Fixture second = createFixture();
+    var request = requests.create(first.customer(), new CustomerSalesRequestService.CreateRequest(
+        "TEST_RIDE", MODEL_CODE, Instant.now().plus(2, ChronoUnit.DAYS),
+        "Synthetic dealership isolation test", "isolation-showroom-" + UUID.randomUUID()));
+
+    assertThat(requests.listForCustomer(second.customer()))
+        .noneMatch(item -> item.publicId().equals(request.publicId()));
+    assertThat(requests.listForStaff(second.owner(), 100, null))
+        .noneMatch(item -> item.publicId().equals(request.publicId()));
+    assertThatThrownBy(() -> requests.convertToEnquiry(second.owner(), request.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+    assertThat(requests.listForCustomer(first.customer()))
+        .anySatisfy(item -> {
+          assertThat(item.publicId()).isEqualTo(request.publicId());
+          assertThat(item.status()).isEqualTo("REQUESTED");
+          assertThat(item.convertedEnquiryPublicId()).isNull();
+        });
+  }
+
+  @Test
   void preferredTimeMustBeFutureAndCanOnlyBeUsedForTestRideRequests() {
     Fixture fixture = createFixture();
 
