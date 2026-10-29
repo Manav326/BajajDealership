@@ -72,9 +72,9 @@ Keep provider secrets out of source control and browser responses. Provider mess
 - [x] Add dealership-scoped Meta disconnect: attempt provider permission revocation, disable local destinations and clear locally stored token ciphertext; report when Meta does not confirm remote revocation.
 - [x] Add filesystem/database storage behind the signed media route; PostgreSQL is the default shared store and filesystem mode remains for local development.
 - [ ] Confirm the existing production PostgreSQL database is persistent and has sufficient capacity; validate image put/read/delete and signed-URL fetching.
-- [x] Persisted, auditable publishing approval/rejection workflow with dealership-scoped review queue.
-- [x] Backend-scheduled Meta publishing (2-minute minimum lead, 90-day horizon), lock-based dispatch and stale/uncertain outcome reconciliation.
-- [x] Backend-scheduled WhatsApp sends with lock-based dispatch, manager-only cancellation while still scheduled, current opt-in/phone/template and current-role revalidation, webhook delivery states, and safe uncertain-outcome recovery.
+- [x] Persisted, auditable publishing approval/rejection workflow with a dealership-scoped review queue; an authenticated private artwork preview must load before approving.
+- [x] Backend-scheduled Meta publishing (2-minute minimum lead, 90-day horizon), lock-based dispatch, audited stale-lock recovery and no-blind-retry handling for uncertain outcomes.
+- [x] Backend-scheduled WhatsApp sends with lock-based dispatch, manager-only cancellation while still scheduled, current opt-in/phone/template and current-role revalidation, webhook delivery states, and audited safe uncertain-outcome recovery.
 - [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [x] Add unit coverage for exact WhatsApp webhook HMAC verification, altered request bodies, missing/invalid signatures, disabled configuration and webhook challenge tokens.

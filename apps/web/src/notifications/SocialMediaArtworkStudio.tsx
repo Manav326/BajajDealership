@@ -901,12 +901,12 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                     alt={'Submitted campaign artwork for '+request.destinationName}
                     style={{maxWidth:'100%',maxHeight:360,display:'block',objectFit:'contain',marginTop:8}} />}
                   {canManage&&request.status==='PENDING_APPROVAL'&&!publishPreviewUrls[request.publicId]&&
-                    <p className={styles.note}>Load the submitted artwork preview before approving or rejecting this post.</p>}
+                    <p className={styles.note}>Load the submitted artwork preview before approving. If it cannot be loaded, reject the request and ask for a fresh submission.</p>}
                   {request.externalPostId&&<p>Provider post ID: {request.externalPostId}</p>}
                   {request.errorCode&&<p>Error: {request.errorCode}</p>}
                   {canManage&&request.status==='PENDING_APPROVAL'&&<div className={styles.actions}>
                     <button type="button" className={styles.primary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
-                    <button type="button" className={styles.secondary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
+                    <button type="button" className={styles.secondary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
                   </div>}
                   {canManage&&request.status==='SCHEDULED'&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void (async()=>{try{const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/cancel',{method:'POST'});const result=await response.json() as MetaPublishRequest;if(!response.ok)throw new Error('Cancel request failed.');setPublishRequests(old=>old.map(item=>item.publicId===result.publicId?result:item));}catch(cause){setMetaError(cause instanceof Error?cause.message:'Cancel request failed.');}})()}>Cancel scheduled post</button>}
                 </article>)}

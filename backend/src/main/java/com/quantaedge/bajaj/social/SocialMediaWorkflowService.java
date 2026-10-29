@@ -170,19 +170,37 @@ public class SocialMediaWorkflowService {
   @Scheduled(fixedDelayString = "${app.social.meta.publish-dispatch-interval-ms:10000}")
   public void dispatchDueRequests() {
     jdbc.update("""
-        update social_media_publish_request r set status='UNKNOWN',error_code='dispatch_lock_expired',
-          dispatch_lock_until=null,updated_at=now()
-        where r.status='DISPATCHING' and r.dispatch_lock_until < now()
-          and not exists(select 1 from social_media_publish_job j
-            where j.dealership_id=r.dealership_id and j.idempotency_key=('workflow-' || r.public_id::text))
+        with expired as (
+          update social_media_publish_request r set status='UNKNOWN',error_code='dispatch_lock_expired',
+            dispatch_lock_until=null,updated_at=now()
+          where r.status='DISPATCHING' and r.dispatch_lock_until < now()
+            and not exists(select 1 from social_media_publish_job j
+              where j.dealership_id=r.dealership_id and j.idempotency_key=('workflow-' || r.public_id::text))
+          returning r.id,r.dealership_id,r.public_id
+        )
+        insert into social_media_publish_approval_event(dealership_id,request_id,actor_staff_user_id,action,details)
+        select dealership_id,id,null,'UNKNOWN',
+          jsonb_build_object('requestPublicId',public_id::text,'reason','dispatch_lock_expired')
+        from expired
         """);
     jdbc.update("""
-        update social_media_publish_request r set publish_job_public_id=j.public_id,
-          status=case when j.status in('FAILED','UNKNOWN') then j.status else 'DISPATCHED' end,
-          error_code=j.error_code,dispatch_lock_until=null,dispatched_at=coalesce(r.dispatched_at,now()),updated_at=now()
-        from social_media_publish_job j
-        where r.status='UNKNOWN' and j.dealership_id=r.dealership_id
-          and j.idempotency_key=('workflow-' || r.public_id::text)
+        with recovered as (
+          update social_media_publish_request r set publish_job_public_id=j.public_id,
+            status=case when j.status in('FAILED','UNKNOWN') then j.status else 'DISPATCHED' end,
+            error_code=j.error_code,dispatch_lock_until=null,
+            dispatched_at=coalesce(r.dispatched_at,now()),updated_at=now()
+          from social_media_publish_job j
+          where r.publish_job_public_id is null
+            and (r.status='UNKNOWN' or (r.status='DISPATCHING' and r.dispatch_lock_until < now()))
+            and j.dealership_id=r.dealership_id
+            and j.idempotency_key=('workflow-' || r.public_id::text)
+          returning r.id,r.dealership_id,r.public_id,r.status,r.publish_job_public_id,r.error_code
+        )
+        insert into social_media_publish_approval_event(dealership_id,request_id,actor_staff_user_id,action,details)
+        select dealership_id,id,null,'RECOVERED',
+          jsonb_build_object('requestPublicId',public_id::text,'status',status,
+            'publishJobPublicId',publish_job_public_id::text,'errorCode',coalesce(error_code,''))
+        from recovered
         """);
     List<UUID> due = jdbc.query("""
         with candidates as (

@@ -167,22 +167,38 @@ public class SocialWhatsappScheduleService {
   public void dispatchDueMessages() {
     // Recover jobs created by a worker that stopped after the provider-send row was persisted.
     jdbc.update("""
-        update whatsapp_scheduled_send s set message_send_id=m.id,
-          status=case when m.status in('FAILED','UNKNOWN') then m.status else 'DISPATCHED' end,
-          dispatch_lock_until=null,error_code=m.error_code,
-          dispatched_at=coalesce(s.dispatched_at,now()),updated_at=now()
-        from whatsapp_message_send m
-        where s.status in('DISPATCHING','UNKNOWN') and s.dealership_id=m.dealership_id
-          and m.idempotency_key=('schedule-' || s.public_id::text)
-          and s.message_send_id is null
+        with recovered as (
+          update whatsapp_scheduled_send s set message_send_id=m.id,
+            status=case when m.status in('FAILED','UNKNOWN') then m.status else 'DISPATCHED' end,
+            dispatch_lock_until=null,error_code=m.error_code,
+            dispatched_at=coalesce(s.dispatched_at,now()),updated_at=now()
+          from whatsapp_message_send m
+          where s.status in('DISPATCHING','UNKNOWN') and s.dealership_id=m.dealership_id
+            and m.idempotency_key=('schedule-' || s.public_id::text)
+            and s.message_send_id is null
+          returning s.dealership_id,s.public_id,s.status,s.message_send_id,s.error_code
+        )
+        insert into whatsapp_audit_event(dealership_id,actor_staff_user_id,action,details)
+        select dealership_id,null,'SCHEDULED_MESSAGE_RECOVERED',
+          jsonb_build_object('scheduledPublicId',public_id::text,'status',status,
+            'messageSendId',message_send_id,'errorCode',coalesce(error_code,''))
+        from recovered
         """);
     // A stale lock without a durable provider-send row is uncertain: never blindly send it twice.
     jdbc.update("""
-        update whatsapp_scheduled_send s set status='UNKNOWN',error_code='dispatch_lock_expired',
-          dispatch_lock_until=null,updated_at=now()
-        where s.status='DISPATCHING' and s.dispatch_lock_until < now()
-          and not exists(select 1 from whatsapp_message_send m
-            where m.dealership_id=s.dealership_id and m.idempotency_key=('schedule-' || s.public_id::text))
+        with expired as (
+          update whatsapp_scheduled_send s set status='UNKNOWN',error_code='dispatch_lock_expired',
+            dispatch_lock_until=null,updated_at=now()
+          where s.status='DISPATCHING' and s.dispatch_lock_until < now()
+            and not exists(select 1 from whatsapp_message_send m
+              where m.dealership_id=s.dealership_id and m.idempotency_key=('schedule-' || s.public_id::text))
+          returning s.dealership_id,s.public_id,s.error_code
+        )
+        insert into whatsapp_audit_event(dealership_id,actor_staff_user_id,action,details)
+        select dealership_id,null,'SCHEDULED_MESSAGE_UNKNOWN',
+          jsonb_build_object('scheduledPublicId',public_id::text,'reason','dispatch_lock_expired',
+            'errorCode',error_code)
+        from expired
         """);
     List<UUID> due = jdbc.query("""
         with candidates as (
