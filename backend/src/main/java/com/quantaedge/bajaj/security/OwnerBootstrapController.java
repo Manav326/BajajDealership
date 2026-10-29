@@ -45,10 +45,16 @@ public class OwnerBootstrapController {
         join role r on r.id = ur.role_id
         where r.code = 'OWNER'
         """, Integer.class);
-    boolean available = configuredBootstrapToken != null
-        && !configuredBootstrapToken.isBlank()
-        && (provisionedOwners == null || provisionedOwners == 0);
-    return new BootstrapStatus(available);
+    boolean tokenConfigured = configuredBootstrapToken != null && !configuredBootstrapToken.isBlank();
+    boolean ownerAlreadyProvisioned = provisionedOwners != null && provisionedOwners > 0;
+    boolean available = tokenConfigured && !ownerAlreadyProvisioned;
+    java.util.List<String> missing = tokenConfigured ? java.util.List.of() : java.util.List.of("APP_BOOTSTRAP_TOKEN");
+    String message = !tokenConfigured
+        ? "Initial owner setup is unavailable because APP_BOOTSTRAP_TOKEN is not configured on the API."
+        : ownerAlreadyProvisioned
+            ? "Initial owner setup has already been completed."
+            : "Initial owner setup is ready.";
+    return new BootstrapStatus(available, message, missing);
   }
 
   @PostMapping("/bootstrap")
@@ -97,9 +103,6 @@ public class OwnerBootstrapController {
       dealershipId = ((Number) dealer.get("id")).longValue();
     }
 
-    seedBajajCatalogueModels(dealershipId);
-
-
     Integer ownerCount = jdbc.queryForObject("""
         select count(*) from staff_user_role ur
         join role r on r.id = ur.role_id
@@ -127,6 +130,8 @@ public class OwnerBootstrapController {
         insert into audit_event(dealership_id, actor_kind, action, entity_type, entity_id, details)
         values (?, 'SYSTEM', 'OWNER_BOOTSTRAPPED', 'STAFF_USER', ?, jsonb_build_object('role', 'OWNER'))
         """, dealershipId, Long.toString(staffId));
+
+    seedBajajCatalogueModels(dealershipId);
 
     return new BootstrapResponse("created", code,
         request.ownerName().trim(), "OWNER");
@@ -160,7 +165,7 @@ public class OwnerBootstrapController {
       @Size(max = 32) String phone,
       @NotBlank @Size(min = 12, max = 72) String password) {}
 
-  public record BootstrapStatus(boolean available) {}
+  public record BootstrapStatus(boolean available, String message, java.util.List<String> missingConfigurationKeys) {}
 
   public record BootstrapResponse(String status, String dealershipCode, String ownerName, String role) {}
 }

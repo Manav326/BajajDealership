@@ -39,10 +39,21 @@ public class SocialMediaAssetService {
   this.jdbc=jdbc;this.mapper=mapper;this.storage=storage;
   this.publicBaseUrl=trimSlash(publicBaseUrl==null?"":publicBaseUrl.trim());this.signingKeyBase64=signingKeyBase64==null?"":signingKeyBase64.trim();
  }
- public boolean isConfigured(){
-  if(!isSafeOrigin(publicBaseUrl)||!storage.isConfigured())return false;
-  try{return Base64.getDecoder().decode(signingKeyBase64).length==32;}catch(IllegalArgumentException e){return false;}
+ public List<String> missingConfigurationKeys(){
+  java.util.ArrayList<String> missing = new java.util.ArrayList<>();
+  if(!isSafeOrigin(publicBaseUrl))
+   missing.add("SOCIAL_MEDIA_PUBLIC_BASE_URL (must be a public HTTPS origin; localhost HTTP is allowed for development)");
+  if(!storage.isConfigured())
+   missing.add("SOCIAL_MEDIA_STORAGE_BACKEND (must be database or filesystem)");
+  try {
+   if(Base64.getDecoder().decode(signingKeyBase64).length!=32)
+    missing.add("SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64 (must decode to 32 bytes)");
+  } catch(IllegalArgumentException e) {
+   missing.add("SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64 (must decode to 32 bytes)");
+  }
+  return List.copyOf(missing);
  }
+ public boolean isConfigured(){return missingConfigurationKeys().isEmpty();}
  public UploadedAsset upload(StaffPrincipal actor,MultipartFile file){
   requireConfigured();if(file==null||file.isEmpty())throw badRequest("Choose campaign artwork to publish.");
   if(file.getSize()>MAX_BYTES)throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,"Artwork must be 4.5 MB or smaller.");
@@ -76,7 +87,8 @@ public class SocialMediaAssetService {
   return new PreparedAsset(asset.id(),asset.publicId(),asset.mimeType(),publicBaseUrl+"/api/v1/social/media/"+asset.publicId()+"?expires="+exp+"&signature="+sign(asset.publicId(),exp));
  }
  public PublicAsset readForDealership(long dealershipId,UUID assetId){
-  if(!storage.isConfigured())throw notFound();
+  if(!storage.isConfigured())throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+   "Social artwork storage is not configured. Set or correct SOCIAL_MEDIA_STORAGE_BACKEND (must be database or filesystem).");
   List<StoredAsset> rows=jdbc.query("select id,public_id,mime_type,storage_key,status,byte_length,sha256 from social_media_asset where dealership_id=? and public_id=? and status='ACTIVE'",
    (rs,n)->new StoredAsset(rs.getLong("id"),rs.getObject("public_id",UUID.class),rs.getString("mime_type"),rs.getString("storage_key"),rs.getString("status"),rs.getLong("byte_length"),rs.getString("sha256")),dealershipId,assetId);
   if(rows.isEmpty())throw notFound();
@@ -95,7 +107,11 @@ public class SocialMediaAssetService {
   if(bytes.length!=asset.byteLength()||!sha256(bytes).equals(asset.sha256())||!"image/jpeg".equals(imageType(bytes)))throw notFound();
   return new PublicAsset(bytes,"image/jpeg");
  }
- private void requireConfigured(){if(!isConfigured())throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Publishing needs a public HTTPS media URL and 32-byte asset-signing key.");}
+ private void requireConfigured(){
+  List<String> missing = missingConfigurationKeys();
+  if(!missing.isEmpty()) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+    "Social artwork publishing is not configured. Set or correct: " + String.join(", ", missing) + ".");
+ }
  private String sign(UUID id,long exp){
   try{Mac mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(Base64.getDecoder().decode(signingKeyBase64),"HmacSHA256"));return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal((SIGN_CONTEXT+"\n"+id+"\n"+exp).getBytes(StandardCharsets.UTF_8)));}
   catch(Exception e){throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Artwork signing is unavailable.");}

@@ -48,6 +48,7 @@ public class SocialMediaWorkflowService {
 
   @Transactional
   public PublishRequestView requestApproval(StaffPrincipal actor, PublishRequest request) {
+    requirePublishConfiguration();
     if (request == null || request.destinationPublicId() == null || request.assetId() == null) {
       throw badRequest("Choose an active destination and campaign artwork.");
     }
@@ -115,6 +116,7 @@ public class SocialMediaWorkflowService {
   public PublishRequestView approve(StaffPrincipal actor, UUID publicId, DecisionRequest decision) {
     RequestRow row = load(actor.dealershipId(), publicId);
     if (!"PENDING_APPROVAL".equals(row.status())) throw conflict("Only requests awaiting approval can be approved.");
+    requirePublishConfiguration();
     Instant now = Instant.now();
     boolean scheduled = row.scheduledAt() != null && row.scheduledAt().isAfter(now);
     String next = scheduled ? "SCHEDULED" : "DISPATCHING";
@@ -396,6 +398,16 @@ public class SocialMediaWorkflowService {
     String result = value == null ? "" : value.replaceAll("[^a-zA-Z0-9_-]", "");
     return result.isBlank() ? "publish_dispatch_error" : result.substring(0, Math.min(100, result.length()));
   }
+  private void requirePublishConfiguration() {
+    List<String> missing = java.util.stream.Stream.concat(
+        meta.missingConnectionSettings().stream(),
+        assets.missingConfigurationKeys().stream()).distinct().toList();
+    if (!missing.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+          "Meta publishing is not configured. Set or correct: " + String.join(", ", missing) + ".");
+    }
+  }
+
   private static ResponseStatusException badRequest(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
   private static ResponseStatusException conflict(String message) { return new ResponseStatusException(HttpStatus.CONFLICT, message); }
   private static ResponseStatusException notFound() { return new ResponseStatusException(HttpStatus.NOT_FOUND, "Publish request was not found."); }

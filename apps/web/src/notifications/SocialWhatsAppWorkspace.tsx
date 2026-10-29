@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
 import styles from './SocialWhatsAppWorkspace.module.css';
 
-type Status = { configured: boolean; webhookConfigured: boolean; message: string; webhookMessage: string };
+type Status = { configured: boolean; webhookConfigured: boolean; message: string; webhookMessage: string; missingConfigurationKeys: string[]; missingWebhookConfigurationKeys: string[] };
 type Customer = { publicId: string; customerCode: string; fullName: string; maskedPhone: string; validPhone: boolean; consentStatus: string; consentSource: string | null; consentUpdatedAt: string | null };
 type Template = { name: string; language: string; status: string; category: string | null; bodyParameterCount: number; headerFormat: string; supported: boolean; unsupportedReason: string | null };
 type Consent = { customerPublicId: string; customerName: string; maskedPhone: string; status: string; source: string; consentedAt: string | null; optedOutAt: string | null };
@@ -229,7 +229,9 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     {status && <div className={status.configured ? styles.configured : styles.unconfigured}>
       <strong>{status.configured ? 'Cloud API configured' : 'Cloud API not configured'}</strong>
       <p>{status.message}</p>
+      {!!status.missingConfigurationKeys?.length && <small><strong>Required messaging settings not configured:</strong> {status.missingConfigurationKeys.join(', ')}</small>}
       <small>{status.webhookMessage}</small>
+      {!!status.missingWebhookConfigurationKeys?.length && <small><strong>Required webhook settings not configured:</strong> {status.missingWebhookConfigurationKeys.join(', ')}</small>}
     </div>}
     {error && <div role="alert" className={styles.error}>{error}</div>}
     {notice && <div role="status" className={styles.notice}>{notice}</div>}
