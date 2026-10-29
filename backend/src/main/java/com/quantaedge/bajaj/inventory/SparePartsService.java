@@ -725,10 +725,12 @@ public class SparePartsService {
         select movement.public_id, movement.movement_type, movement.quantity_delta,
           movement.reserved_delta, movement.quantity_on_hand_after, movement.quantity_reserved_after,
           movement.unit_cost, movement.reference_type, movement.reference_id, movement.operation_key,
-          movement.created_at, staff.full_name as actor_name
+          movement.created_at, coalesce(staff.full_name, customer.full_name, 'Customer') as actor_name
         from spare_part_stock_movement movement
-        join staff_user staff on staff.dealership_id = movement.dealership_id
+        left join staff_user staff on staff.dealership_id = movement.dealership_id
           and staff.id = movement.actor_staff_user_id
+        left join customer on customer.dealership_id = movement.dealership_id
+          and customer.id = movement.actor_customer_id
         where movement.dealership_id = ? and movement.part_id = ?
         order by movement.created_at desc, movement.id desc limit ? offset ?
         """, (rs, rowNum) -> new StockMovementView(

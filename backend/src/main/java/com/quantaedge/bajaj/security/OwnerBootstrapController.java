@@ -131,8 +131,30 @@ public class OwnerBootstrapController {
         values (?, 'SYSTEM', 'OWNER_BOOTSTRAPPED', 'STAFF_USER', ?, jsonb_build_object('role', 'OWNER'))
         """, dealershipId, Long.toString(staffId));
 
+    seedBajajCatalogueModels(dealershipId);
+
     return new BootstrapResponse("created", code,
         request.ownerName().trim(), "OWNER");
+  }
+
+  /** Add model definitions only. Physical stock units are entered through the audited receiving flow. */
+  private void seedBajajCatalogueModels(long dealershipId) {
+    jdbc.update("""
+        insert into vehicle_model(
+          dealership_id, model_code, model_name, variant_name, colour_name, model_year, active)
+        select ?, catalogue.model_code, catalogue.model_name, null, null, null, true
+        from bajaj_catalogue_model catalogue
+        where catalogue.active = true
+          and not exists (
+            select 1 from vehicle_model existing
+            where existing.dealership_id = ? and existing.model_code = catalogue.model_code)
+        """, dealershipId, dealershipId);
+    jdbc.update("""
+        insert into bajaj_catalogue_dealership_model(dealership_id, model_code, is_published)
+        select ?, c.model_code, true from bajaj_catalogue_model c
+        where c.active = true and c.manufacturer = 'BAJAJ'
+        on conflict (dealership_id, model_code) do nothing
+        """, dealershipId);
   }
 
   public record BootstrapRequest(

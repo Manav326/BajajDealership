@@ -20,12 +20,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -34,13 +39,16 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 public class NotificationManagementService {
+  private static final Logger LOGGER = LoggerFactory.getLogger(NotificationManagementService.class);
   private static final int MAX_RECIPIENTS = 10_000;
+  private static final int MAX_AUTOMATIC_DISPATCH_ATTEMPTS = 5;
   private static final int MAX_PAGE_SIZE = 100;
   private static final long PREVIEW_LIFETIME_SECONDS = 600;
   private static final List<String> RECIPIENT_KINDS = List.of("CUSTOMER", "STAFF");
   private final JdbcTemplate jdbc;
   private final ObjectMapper mapper;
   private final NotificationContentValidator validator;
+  private final TransactionTemplate dispatchTransactionTemplate;
   private final SecureRandom secureRandom = new SecureRandom();
 
   private static final RowMapper<TemplateView> TEMPLATE_ROW = (rs, rowNum) -> new TemplateView(
@@ -61,14 +69,18 @@ public class NotificationManagementService {
       instant(rs.getTimestamp("preview_consumed_at")), instant(rs.getTimestamp("scheduled_at")),
       instant(rs.getTimestamp("expires_at")), rs.getInt("resolved_recipient_count"),
       instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("dispatched_at")),
-      instant(rs.getTimestamp("cancelled_at")));
+      instant(rs.getTimestamp("cancelled_at")), instant(rs.getTimestamp("approved_at")),
+      rs.getInt("dispatch_attempt_count"), instant(rs.getTimestamp("last_dispatch_attempt_at")),
+      instant(rs.getTimestamp("next_dispatch_attempt_at")), rs.getString("last_dispatch_error"));
 
   private static final RowMapper<CampaignView> CAMPAIGN_VIEW_ROW = (rs, rowNum) -> new CampaignView(
       rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("scope"), rs.getString("title"),
       rs.getString("summary"), rs.getString("status"), rs.getInt("resolved_recipient_count"),
       instant(rs.getTimestamp("scheduled_at")), instant(rs.getTimestamp("expires_at")),
       instant(rs.getTimestamp("created_at")), instant(rs.getTimestamp("dispatched_at")),
-      instant(rs.getTimestamp("cancelled_at")));
+      instant(rs.getTimestamp("cancelled_at")), rs.getInt("dispatch_attempt_count"),
+      instant(rs.getTimestamp("last_dispatch_attempt_at")), instant(rs.getTimestamp("next_dispatch_attempt_at")),
+      rs.getString("last_dispatch_error"));
 
   private static final RowMapper<InboxItem> INBOX_ROW = (rs, rowNum) -> new InboxItem(
       rs.getObject("recipient_public_id", UUID.class),
@@ -80,10 +92,13 @@ public class NotificationManagementService {
       instant(rs.getTimestamp("dismissed_at")));
 
   public NotificationManagementService(
-      JdbcTemplate jdbc, ObjectMapper mapper, NotificationContentValidator validator) {
+      JdbcTemplate jdbc, ObjectMapper mapper, NotificationContentValidator validator,
+      PlatformTransactionManager transactionManager) {
     this.jdbc = jdbc;
     this.mapper = mapper;
     this.validator = validator;
+    this.dispatchTransactionTemplate = new TransactionTemplate(transactionManager);
+    this.dispatchTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   public List<TemplateView> listTemplates(StaffPrincipal actor) {
@@ -468,10 +483,60 @@ public class NotificationManagementService {
     int limit = Math.max(1, Math.min(requestedLimit, MAX_PAGE_SIZE));
     return jdbc.query("""
         select id, public_id, scope, title, summary, status, resolved_recipient_count,
-          scheduled_at, expires_at, created_at, dispatched_at, cancelled_at
+          scheduled_at, expires_at, created_at, dispatched_at, cancelled_at,
+          dispatch_attempt_count, last_dispatch_attempt_at, next_dispatch_attempt_at, last_dispatch_error
         from notification_campaign where dealership_id = ?
         order by created_at desc, id desc limit ?
         """, CAMPAIGN_VIEW_ROW, actor.dealershipId(), limit);
+  }
+
+  /** Return the saved document plus a privacy-safe summary of its original audience snapshot. */
+  public SavedCampaignPreview savedPreview(StaffPrincipal actor, UUID publicId) {
+    CampaignRecord campaign = loadCampaign(actor.dealershipId(), publicId, false);
+    ObjectNode snapshot = parseObject(campaign.audienceSnapshotJson());
+    Map<String, Integer> recipientCounts = new LinkedHashMap<>();
+    JsonNode recipients = snapshot.path("recipients");
+    if (recipients.isArray()) {
+      for (JsonNode recipient : recipients) {
+        String kind = recipient.path("kind").asText("").trim().toUpperCase(Locale.ROOT);
+        if (RECIPIENT_KINDS.contains(kind)) recipientCounts.merge(kind, 1, Integer::sum);
+      }
+    }
+    String stage = snapshot.path("stage").asText("UNKNOWN");
+    Instant resolvedAt = null;
+    String resolvedAtText = snapshot.path("resolvedAt").asText("");
+    if (!resolvedAtText.isBlank()) {
+      try { resolvedAt = Instant.parse(resolvedAtText); }
+      catch (java.time.format.DateTimeParseException ignored) { /* Older snapshots remain viewable. */ }
+    }
+    ObjectNode filter = parseObject(campaign.audienceFilterJson());
+    List<RecipientCandidate> currentlyEligible = resolveCurrentSavedAudience(actor, campaign.scope(), filter);
+    Map<String, Integer> currentCounts = new LinkedHashMap<>();
+    for (RecipientCandidate recipient : currentlyEligible) {
+      currentCounts.merge(recipient.kind(), 1, Integer::sum);
+    }
+    Instant eligibilityCheckedAt = Instant.now();
+    return new SavedCampaignPreview(
+        toView(campaign), readDocument(campaign.contentDocumentJson()), stage, resolvedAt,
+        snapshot.path("recipientCount").asInt(campaign.resolvedRecipientCount()), Map.copyOf(recipientCounts),
+        currentlyEligible.size(), Map.copyOf(currentCounts), eligibilityCheckedAt,
+        campaign.previewExpiresAt(), campaign.previewConsumedAt(), campaign.approvedAt());
+  }
+
+  /**
+   * Re-resolve the saved audience against current active/consent records without exposing names.
+   * A previously selected recipient who is no longer eligible is counted as unavailable rather
+   * than making the historical preview unreadable; dispatch still performs its strict check.
+   */
+  private List<RecipientCandidate> resolveCurrentSavedAudience(
+      StaffPrincipal actor, String scope, ObjectNode savedFilter) {
+    boolean selectedOnly = "SELECTED".equals(savedFilter.path("selectionMode").asText("ALL"));
+    Set<String> selectedKeys = selectedRecipientKeys(savedFilter);
+    ObjectNode allEligibleFilter = savedFilter.deepCopy();
+    allEligibleFilter.put("selectionMode", "ALL");
+    List<RecipientCandidate> currentlyEligible = resolveAudience(actor, scope, allEligibleFilter);
+    if (selectedOnly) currentlyEligible.removeIf(candidate -> !selectedKeys.contains(candidate.key()));
+    return excludeRecipients(currentlyEligible, savedFilter);
   }
 
   @Transactional
@@ -489,30 +554,53 @@ public class NotificationManagementService {
     return toView(loadCampaign(actor.dealershipId(), publicId, false));
   }
 
-  @Transactional
+  /**
+   * Run each scheduled campaign in its own transaction. A malformed campaign must not roll back
+   * unrelated deliveries in the same polling batch.
+   */
   public int dispatchDueScheduledCampaigns() {
     List<UUID> dueCampaigns = jdbc.query("""
         select public_id from notification_campaign
         where status = 'SCHEDULED' and scheduled_at <= now()
+          and coalesce(next_dispatch_attempt_at, scheduled_at) <= now()
         order by scheduled_at, id limit 25
         """, (rs, rowNum) -> rs.getObject(1, UUID.class));
     int dispatched = 0;
     for (UUID campaignId : dueCampaigns) {
-      if (dispatchScheduledCampaign(campaignId)) dispatched++;
+      try {
+        Boolean result = dispatchTransactionTemplate.execute(
+            status -> dispatchScheduledCampaignInTransaction(campaignId));
+        if (Boolean.TRUE.equals(result)) dispatched++;
+      } catch (RuntimeException failure) {
+        recordDispatchFailure(campaignId, failure);
+      }
     }
     return dispatched;
   }
 
   @Transactional
   public boolean dispatchScheduledCampaign(UUID publicId) {
+    return dispatchScheduledCampaignInTransaction(publicId);
+  }
+
+  private boolean dispatchScheduledCampaignInTransaction(UUID publicId) {
     List<CampaignRecord> rows = jdbc.query("""
-        select """ + CAMPAIGN_COLUMNS + """
+        select
+        """ + CAMPAIGN_COLUMNS + """
         from notification_campaign
         where public_id = ? and status = 'SCHEDULED' and scheduled_at <= now()
+          and coalesce(next_dispatch_attempt_at, scheduled_at) <= now()
         for update skip locked
         """, CAMPAIGN_ROW, publicId);
     if (rows.isEmpty()) return false;
     CampaignRecord campaign = rows.getFirst();
+    jdbc.update("""
+        update notification_campaign
+        set dispatch_attempt_count = dispatch_attempt_count + 1,
+            last_dispatch_attempt_at = now(), next_dispatch_attempt_at = null,
+            last_dispatch_error = null, updated_at = now()
+        where id = ? and status = 'SCHEDULED'
+        """, campaign.id());
     if (campaign.expiresAt() != null && !campaign.expiresAt().isAfter(Instant.now())) {
       jdbc.update("""
           update notification_campaign set status = 'EXPIRED', updated_at = now()
@@ -540,6 +628,126 @@ public class NotificationManagementService {
     auditSystem(campaign, "CAMPAIGN_SENT", Map.of(
         "resolvedRecipientCount", currentAudience.size(), "channel", "IN_APP", "scheduled", true));
     return true;
+  }
+
+  /** Dispatch an already-approved scheduled campaign immediately, sharing the scheduler's transaction boundary. */
+  public SendNowResult sendNow(StaffPrincipal actor, UUID publicId) {
+    java.util.concurrent.atomic.AtomicBoolean attemptClaimed = new java.util.concurrent.atomic.AtomicBoolean();
+    try {
+      SendNowResult result = dispatchTransactionTemplate.execute(
+          status -> sendNowInTransaction(actor, publicId, attemptClaimed));
+      if (result == null) throw new IllegalStateException("Send now transaction returned no result.");
+      return result;
+    } catch (RuntimeException failure) {
+      // The dispatch transaction has rolled back here, so persist retry state independently.
+      // Validation/state errors raised before PROCESSING is claimed must not count as dispatch attempts.
+      if (attemptClaimed.get()) {
+        try {
+          recordDispatchFailure(publicId, failure);
+        } catch (RuntimeException persistenceFailure) {
+          failure.addSuppressed(persistenceFailure);
+        }
+      }
+      throw failure;
+    }
+  }
+
+  private SendNowResult sendNowInTransaction(
+      StaffPrincipal actor, UUID publicId,
+      java.util.concurrent.atomic.AtomicBoolean attemptClaimed) {
+    CampaignRecord campaign = loadCampaign(actor.dealershipId(), publicId, true);
+    if ("SENT".equals(campaign.status())) return new SendNowResult(toView(campaign), true);
+    boolean retryableFailure = "FAILED".equals(campaign.status())
+        && campaign.lastDispatchError() != null;
+    boolean approvedOrScheduled = List.of("APPROVED", "SCHEDULED").contains(campaign.status());
+    if (!approvedOrScheduled && !retryableFailure) {
+      throw conflict("Only a scheduled campaign, or one whose automatic dispatch retries were exhausted, can be sent now.");
+    }
+    if (campaign.expiresAt() != null && !campaign.expiresAt().isAfter(Instant.now())) {
+      jdbc.update("""
+          update notification_campaign set status = 'EXPIRED', updated_at = now(),
+            next_dispatch_attempt_at = null
+          where id = ? and dealership_id = ?
+          """, campaign.id(), actor.dealershipId());
+      audit(actor, "CAMPAIGN_EXPIRED", campaign.id(), campaign.templateId(),
+          Map.of("reason", "The campaign expired before manual dispatch."));
+      return new SendNowResult(toView(loadCampaign(actor.dealershipId(), publicId, false)), false);
+    }
+    if (campaign.approvedAt() == null || campaign.previewFingerprint() == null
+        || !constantTimeEquals(campaign.previewFingerprint(), fingerprint(campaign))) {
+      throw conflict("Approved content no longer matches the saved preview. Create and approve a fresh campaign.");
+    }
+
+    int claimed = jdbc.update("""
+        update notification_campaign
+        set status = 'PROCESSING', dispatch_attempt_count = dispatch_attempt_count + 1,
+            last_dispatch_attempt_at = now(), next_dispatch_attempt_at = null,
+            last_dispatch_error = null, updated_at = now()
+        where id = ? and dealership_id = ? and status = ?
+        """, campaign.id(), actor.dealershipId(), campaign.status());
+    if (claimed != 1) throw conflict("Campaign state changed while Send now was being confirmed.");
+    attemptClaimed.set(true);
+
+    List<RecipientCandidate> currentAudience = resolveAudience(
+        actor, campaign.scope(), parseObject(campaign.audienceFilterJson()));
+    currentAudience = excludeRecipients(currentAudience, parseObject(campaign.audienceFilterJson()));
+    if (currentAudience.size() > MAX_RECIPIENTS) throw badRequest("The audience now exceeds the recipient limit.");
+    if (currentAudience.isEmpty()) {
+      jdbc.update("""
+          update notification_campaign set status = 'FAILED', next_dispatch_attempt_at = null,
+            last_dispatch_error = null, updated_at = now()
+          where id = ? and dealership_id = ? and status = 'PROCESSING'
+          """, campaign.id(), actor.dealershipId());
+      audit(actor, "CAMPAIGN_FAILED_NO_RECIPIENTS", campaign.id(), campaign.templateId(),
+          Map.of("reason", "No eligible recipients remained at Send now."));
+      return new SendNowResult(toView(loadCampaign(actor.dealershipId(), publicId, false)), false);
+    }
+
+    dispatchRecipients(actor.dealershipId(), campaign, currentAudience);
+    recordSnapshotAndStatus(campaign, currentAudience, "SENT");
+    audit(actor, "CAMPAIGN_SENT_NOW", campaign.id(), campaign.templateId(),
+        Map.of("resolvedRecipientCount", currentAudience.size(),
+          "previousStatus", campaign.status(), "channel", "IN_APP"));
+    return new SendNowResult(toView(loadCampaign(actor.dealershipId(), publicId, false)), false);
+  }
+
+  /** Persist bounded retry state only after a campaign's dispatch transaction has rolled back. */
+  private void recordDispatchFailure(UUID publicId, RuntimeException failure) {
+    String reason = "Dispatch error: " + failure.getClass().getSimpleName();
+    dispatchTransactionTemplate.executeWithoutResult(status -> {
+      List<CampaignRecord> rows = jdbc.query("""
+          select
+          """ + CAMPAIGN_COLUMNS + """
+          from notification_campaign
+          where public_id = ? and status in ('APPROVED', 'SCHEDULED', 'FAILED')
+          for update
+          """, CAMPAIGN_ROW, publicId);
+      if (rows.isEmpty()) return;
+      CampaignRecord campaign = rows.getFirst();
+      boolean previouslyFailed = "FAILED".equals(campaign.status());
+      boolean directApprovedSend = "APPROVED".equals(campaign.status());
+      int nextAttempt = campaign.dispatchAttemptCount() + 1;
+      // Direct sends have no scheduler lease to retry against; expose a manual retry after failure.
+      boolean terminal = previouslyFailed || directApprovedSend || nextAttempt >= MAX_AUTOMATIC_DISPATCH_ATTEMPTS;
+      long retrySeconds = Math.min(300L, 15L << Math.min(campaign.dispatchAttemptCount(), 4));
+      String savedError = reason.length() > 300 ? reason.substring(0, 300) : reason;
+      jdbc.update("""
+          update notification_campaign set dispatch_attempt_count = ?,
+            last_dispatch_attempt_at = now(),
+            next_dispatch_attempt_at = case when ? then null else now() + (? * interval '1 second') end,
+            last_dispatch_error = ?, status = case when ? then 'FAILED' else status end,
+            updated_at = now()
+          where id = ? and dealership_id = ? and status in ('APPROVED', 'SCHEDULED', 'FAILED')
+          """, nextAttempt, terminal, retrySeconds, savedError, terminal, campaign.id(), campaign.dealershipId());
+      auditSystem(campaign,
+          previouslyFailed ? "CAMPAIGN_SEND_NOW_RETRY_FAILED"
+              : terminal ? "CAMPAIGN_DISPATCH_FAILED" : "CAMPAIGN_DISPATCH_RETRY_SCHEDULED",
+          Map.of("attempt", nextAttempt, "automaticRetryLimit", MAX_AUTOMATIC_DISPATCH_ATTEMPTS,
+            "reason", savedError, "retryInSeconds", terminal ? 0 : retrySeconds));
+    });
+    // Deliberately log only the sanitized campaign identifier and exception class, never content/recipient data.
+    LOGGER.error("Notification dispatch failed for campaign {} ({})",
+        publicId, failure.getClass().getSimpleName());
   }
 
   public Page<InboxItem> inbox(StaffPrincipal actor, int requestedPage, int requestedSize, boolean unreadOnly) {
@@ -617,7 +825,8 @@ public class NotificationManagementService {
       audience_filter::text as audience_filter_json, audience_snapshot::text as audience_snapshot_json,
       content_document::text as content_document_json, template_id, template_version, status,
       idempotency_key, preview_token_hash, preview_fingerprint, preview_expires_at, preview_consumed_at,
-      scheduled_at, expires_at, resolved_recipient_count, created_at, dispatched_at, cancelled_at
+      scheduled_at, expires_at, resolved_recipient_count, created_at, dispatched_at, cancelled_at,
+      approved_at, dispatch_attempt_count, last_dispatch_attempt_at, next_dispatch_attempt_at, last_dispatch_error
       """;
 
   private CampaignRecord loadCampaign(long dealershipId, UUID publicId, boolean lock) {
@@ -668,7 +877,8 @@ public class NotificationManagementService {
     jdbc.update("""
         update notification_campaign
         set status = ?, audience_snapshot = ?::jsonb, resolved_recipient_count = ?,
-            dispatched_at = now(), updated_at = now()
+            dispatched_at = now(), updated_at = now(), next_dispatch_attempt_at = null,
+            last_dispatch_error = null
         where id = ? and dealership_id = ?
         """, status, snapshot, recipients.size(), campaign.id(), campaign.dealershipId());
   }
@@ -1021,7 +1231,8 @@ public class NotificationManagementService {
   private CampaignView toView(CampaignRecord campaign) {
     return new CampaignView(campaign.id(), campaign.publicId(), campaign.scope(), campaign.title(), campaign.summary(),
         campaign.status(), campaign.resolvedRecipientCount(), campaign.scheduledAt(), campaign.expiresAt(),
-        campaign.createdAt(), campaign.dispatchedAt(), campaign.cancelledAt());
+        campaign.createdAt(), campaign.dispatchedAt(), campaign.cancelledAt(), campaign.dispatchAttemptCount(),
+        campaign.lastDispatchAttemptAt(), campaign.nextDispatchAttemptAt(), campaign.lastDispatchError());
   }
 
   private static String writeJson(Object value) {
@@ -1092,10 +1303,17 @@ public class NotificationManagementService {
       int recipientCount, Map<String, Integer> recipientCounts,
       List<RecipientOption> recipients, String message) {}
   public record CampaignResult(CampaignView campaign, boolean idempotentReplay) {}
+  public record SendNowResult(CampaignView campaign, boolean alreadySent) {}
+  public record SavedCampaignPreview(
+      CampaignView campaign, JsonNode contentDocument, String audienceStage, Instant audienceResolvedAt,
+      int previewedRecipientCount, Map<String, Integer> recipientCounts,
+      int currentEligibleRecipientCount, Map<String, Integer> currentEligibleRecipientCounts,
+      Instant eligibilityCheckedAt, Instant previewExpiresAt, Instant previewConsumedAt, Instant approvedAt) {}
   public record CampaignView(
       long id, UUID publicId, String scope, String title, String summary, String status,
       int resolvedRecipientCount, Instant scheduledAt, Instant expiresAt, Instant createdAt,
-      Instant dispatchedAt, Instant cancelledAt) {}
+      Instant dispatchedAt, Instant cancelledAt, int dispatchAttemptCount,
+      Instant lastDispatchAttemptAt, Instant nextDispatchAttemptAt, String lastDispatchError) {}
   public record InboxItem(
       UUID recipientPublicId, UUID campaignPublicId, String title, String summary,
       JsonNode contentDocument, String senderName, String status, Instant createdAt,
@@ -1112,5 +1330,7 @@ public class NotificationManagementService {
       String contentDocumentJson, Long templateId, Integer templateVersion, String status,
       String idempotencyKey, String previewTokenHash, String previewFingerprint,
       Instant previewExpiresAt, Instant previewConsumedAt, Instant scheduledAt, Instant expiresAt,
-      int resolvedRecipientCount, Instant createdAt, Instant dispatchedAt, Instant cancelledAt) {}
+      int resolvedRecipientCount, Instant createdAt, Instant dispatchedAt, Instant cancelledAt,
+      Instant approvedAt, int dispatchAttemptCount, Instant lastDispatchAttemptAt,
+      Instant nextDispatchAttemptAt, String lastDispatchError) {}
 }

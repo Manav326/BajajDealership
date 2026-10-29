@@ -7,6 +7,35 @@ type VehicleModel = {
   colourName: string | null; modelYear: number | null; active: boolean;
   expectedCount: number; availableCount: number; reservedCount: number; soldCount: number;
 };
+type CatalogueModel = {
+  modelCode: string; modelName: string; family: string; category: string;
+  published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string | null;
+  internalNote: string | null; updatedAt: string | null;
+  availableUnits: number; expectedUnits: number; reservedUnits: number;
+};
+type CatalogueDraft = {
+  published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string; internalNote: string;
+};
+type LocationPriceProfile = {
+  publicId: string; modelCode: string; modelName: string; city: string; state: string;
+  effectiveFrom: string; effectiveTo: string | null; exShowroomPrice: number;
+  registrationFee: number; roadTaxPercent: number; insuranceFee: number; handlingFee: number;
+  otherCharges: number; otherChargesLabel: string | null; sourceUrl: string; priceNote: string | null;
+  updatedAt: string;
+};
+type LocationPriceDraft = {
+  modelCode: string; city: string; state: string; effectiveFrom: string; effectiveTo: string;
+  exShowroomPrice: string; registrationFee: string; roadTaxPercent: string; insuranceFee: string;
+  handlingFee: string; otherCharges: string; otherChargesLabel: string; sourceUrl: string; priceNote: string;
+};
+type ShowroomPromotion = {
+  publicId: string; modelCode: string | null; modelName: string | null; title: string; summary: string;
+  terms: string | null; startsOn: string; endsOn: string | null; sourceUrl: string; published: boolean; disclaimer: string;
+};
+type PromotionDraft = {
+  modelCode: string; title: string; summary: string; terms: string;
+  startsOn: string; endsOn: string; sourceUrl: string; isPublished: boolean;
+};
 type VehicleUnit = {
   publicId: string; modelPublicId: string; modelCode: string; modelName: string;
   variantName: string | null; colourName: string | null; chassisNumber: string;
@@ -19,12 +48,34 @@ type UnitForm = { modelPublicId: string; chassisNumber: string; engineNumber: st
 
 const emptyModel: ModelForm = { modelCode: '', modelName: '', variantName: '', colourName: '', modelYear: '' };
 const emptyUnit: UnitForm = { modelPublicId: '', chassisNumber: '', engineNumber: '', supplierReference: '', purchaseCost: '' };
+const todayInIndia = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+const emptyPriceDraft: LocationPriceDraft = {
+  modelCode: '', city: '', state: '', effectiveFrom: todayInIndia(), effectiveTo: '',
+  exShowroomPrice: '', registrationFee: '0', roadTaxPercent: '0', insuranceFee: '0',
+  handlingFee: '0', otherCharges: '0', otherChargesLabel: '', sourceUrl: '', priceNote: '',
+};
+const emptyPromotionDraft: PromotionDraft = {
+  modelCode: '', title: '', summary: '', terms: '', startsOn: todayInIndia(),
+  endsOn: '', sourceUrl: '', isPublished: false,
+};
 
 export default function VehicleInventoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canManage = staff.permissions.includes('vehicle.manage');
+  const canReadCatalogue = staff.permissions.includes('catalogue.read');
+  const canManageCatalogue = staff.permissions.includes('catalogue.manage');
   const [activeTab, setActiveTab] = useState<'models' | 'units'>('units');
   const [models, setModels] = useState<VehicleModel[]>([]);
   const [units, setUnits] = useState<VehicleUnit[]>([]);
+  const [catalogueModels, setCatalogueModels] = useState<CatalogueModel[]>([]);
+  const [catalogueDrafts, setCatalogueDrafts] = useState<Record<string, CatalogueDraft>>({});
+  const [priceProfiles, setPriceProfiles] = useState<LocationPriceProfile[]>([]);
+  const [priceDraft, setPriceDraft] = useState<LocationPriceDraft>(emptyPriceDraft);
+  const [editingPriceProfileId, setEditingPriceProfileId] = useState<string | null>(null);
+  const [promotions, setPromotions] = useState<ShowroomPromotion[]>([]);
+  const [promotionDraft, setPromotionDraft] = useState<PromotionDraft>(emptyPromotionDraft);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModel);
   const [unitForm, setUnitForm] = useState<UnitForm>(emptyUnit);
   const [showModelForm, setShowModelForm] = useState(false);
@@ -44,18 +95,36 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     try {
       const modelParams = new URLSearchParams({ page: '0', pageSize: '100' });
       if (searchValue) modelParams.set('q', searchValue);
-      const [modelPage, unitPage] = await Promise.all([
+      const [modelPage, unitPage, catalogueResult, pricingResult, promotionResult] = await Promise.all([
         apiFetch<Page<VehicleModel>>(`/api/v1/admin/vehicle-models?${modelParams.toString()}`, token),
         apiFetch<Page<VehicleUnit>>('/api/v1/admin/vehicle-units?page=0&pageSize=100', token),
+        canReadCatalogue
+          ? apiFetch<{ models: CatalogueModel[] }>('/api/v1/admin/catalogue/models', token)
+          : Promise.resolve(null),
+        canReadCatalogue
+          ? apiFetch<{ profiles: LocationPriceProfile[] }>('/api/v1/admin/catalogue/pricing-profiles', token)
+          : Promise.resolve(null),
+        canReadCatalogue
+          ? apiFetch<{ promotions: ShowroomPromotion[] }>('/api/v1/admin/catalogue/promotions', token)
+          : Promise.resolve(null),
       ]);
       setModels(modelPage.items);
       setUnits(unitPage.items);
+      if (catalogueResult) {
+        setCatalogueModels(catalogueResult.models ?? []);
+        setCatalogueDrafts(Object.fromEntries((catalogueResult.models ?? []).map((model) => [model.modelCode, {
+          published: model.published, markedOutOfStock: model.markedOutOfStock,
+          expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
+        }])));
+      }
+      if (pricingResult) setPriceProfiles(pricingResult.profiles ?? []);
+      if (promotionResult) setPromotions(promotionResult.promotions ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load vehicle inventory.');
     } finally {
       setLoading(false);
     }
-  }, [token, activeSearch]);
+  }, [token, activeSearch, canReadCatalogue]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -118,6 +187,145 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to receive this vehicle.');
     } finally { setReceivingId(''); }
+  }
+
+  function updateCatalogueDraft(modelCode: string, patch: Partial<CatalogueDraft>) {
+    setCatalogueDrafts((current) => ({
+      ...current,
+      [modelCode]: {
+        ...(current[modelCode] ?? { published: false, markedOutOfStock: false, expectedAvailableOn: '', internalNote: '' }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveCatalogueSettings(modelCode: string) {
+    if (!canManageCatalogue) return;
+    const draft = catalogueDrafts[modelCode];
+    if (!draft) return;
+    if (!draft.markedOutOfStock && draft.expectedAvailableOn) {
+      setError('Set an expected date only when the model is marked out of stock.');
+      return;
+    }
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      const saved = await apiFetch<CatalogueModel>(
+        `/api/v1/admin/catalogue/models/${encodeURIComponent(modelCode)}`, token, {
+          method: 'PUT',
+          body: JSON.stringify({
+            published: draft.published, markedOutOfStock: draft.markedOutOfStock,
+            expectedAvailableOn: draft.expectedAvailableOn || null,
+            internalNote: draft.internalNote.trim() || null,
+          }),
+        });
+      setCatalogueModels((current) => current.map((model) => model.modelCode === modelCode ? saved : model));
+      setCatalogueDrafts((current) => ({ ...current, [modelCode]: {
+        published: saved.published, markedOutOfStock: saved.markedOutOfStock,
+        expectedAvailableOn: saved.expectedAvailableOn ?? '', internalNote: saved.internalNote ?? '',
+      }}));
+      setSuccess(`${saved.modelName}: showroom settings saved.`);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to update showroom publication or availability.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePriceProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageCatalogue) return;
+    setSaving(true); setError(''); setSuccess('');
+    const payload = {
+      modelCode: priceDraft.modelCode,
+      city: priceDraft.city.trim(),
+      state: priceDraft.state.trim(),
+      effectiveFrom: priceDraft.effectiveFrom,
+      effectiveTo: priceDraft.effectiveTo || null,
+      exShowroomPrice: Number(priceDraft.exShowroomPrice),
+      registrationFee: Number(priceDraft.registrationFee),
+      roadTaxPercent: Number(priceDraft.roadTaxPercent),
+      insuranceFee: Number(priceDraft.insuranceFee),
+      handlingFee: Number(priceDraft.handlingFee),
+      otherCharges: Number(priceDraft.otherCharges),
+      otherChargesLabel: priceDraft.otherChargesLabel.trim() || null,
+      sourceUrl: priceDraft.sourceUrl.trim(),
+      priceNote: priceDraft.priceNote.trim() || null,
+    };
+    try {
+      const saved = await apiFetch<LocationPriceProfile>(
+        editingPriceProfileId
+          ? `/api/v1/admin/catalogue/pricing-profiles/${editingPriceProfileId}`
+          : '/api/v1/admin/catalogue/pricing-profiles',
+        token,
+        { method: editingPriceProfileId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      );
+      setSuccess(`Saved sourced estimate inputs for ${saved.modelName} — ${saved.city}, ${saved.state}.`);
+      setPriceDraft(emptyPriceDraft);
+      setEditingPriceProfileId(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save location pricing inputs.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editPriceProfile(profile: LocationPriceProfile) {
+    setEditingPriceProfileId(profile.publicId);
+    setPriceDraft({
+      modelCode: profile.modelCode, city: profile.city, state: profile.state,
+      effectiveFrom: profile.effectiveFrom, effectiveTo: profile.effectiveTo ?? '',
+      exShowroomPrice: String(profile.exShowroomPrice), registrationFee: String(profile.registrationFee),
+      roadTaxPercent: String(profile.roadTaxPercent), insuranceFee: String(profile.insuranceFee),
+      handlingFee: String(profile.handlingFee), otherCharges: String(profile.otherCharges),
+      otherChargesLabel: profile.otherChargesLabel ?? '', sourceUrl: profile.sourceUrl,
+      priceNote: profile.priceNote ?? '',
+    });
+    setError('');
+    setSuccess('');
+  }
+
+  async function savePromotion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageCatalogue) return;
+    setSaving(true); setError(''); setSuccess('');
+    const payload = {
+      modelCode: promotionDraft.modelCode || null,
+      title: promotionDraft.title.trim(),
+      summary: promotionDraft.summary.trim(),
+      terms: promotionDraft.terms.trim() || null,
+      startsOn: promotionDraft.startsOn,
+      endsOn: promotionDraft.endsOn || null,
+      sourceUrl: promotionDraft.sourceUrl.trim(),
+      isPublished: promotionDraft.isPublished,
+    };
+    try {
+      const saved = await apiFetch<ShowroomPromotion>(
+        editingPromotionId
+          ? `/api/v1/admin/catalogue/promotions/${editingPromotionId}`
+          : '/api/v1/admin/catalogue/promotions',
+        token,
+        { method: editingPromotionId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      );
+      setSuccess(`${saved.published ? 'Published' : 'Saved as draft'} promotion: ${saved.title}.`);
+      setPromotionDraft(emptyPromotionDraft);
+      setEditingPromotionId(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save the promotion.');
+    } finally { setSaving(false); }
+  }
+
+  function editPromotion(promotion: ShowroomPromotion) {
+    setEditingPromotionId(promotion.publicId);
+    setPromotionDraft({
+      modelCode: promotion.modelCode ?? '', title: promotion.title, summary: promotion.summary,
+      terms: promotion.terms ?? '', startsOn: promotion.startsOn, endsOn: promotion.endsOn ?? '',
+      sourceUrl: promotion.sourceUrl, isPublished: promotion.published,
+    });
+    setError('');
+    setSuccess('');
   }
 
   function searchModels(event: FormEvent<HTMLFormElement>) {
@@ -209,6 +417,141 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
         </div>
         <div className="inventory-footnote"><span className="status-dot" /> Stock totals are from saved vehicle-unit records. Reservation and sale transitions are enabled only through the corresponding verified sales workflow.</div>
       </div>
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">PUBLIC SHOWROOM CONTENT</div><h2>Active promotions and dealer announcements</h2>
+            <p>Publish only current, sourced announcements. Text here does not automatically change prices or create a discount.</p></div>
+          <span className="inventory-count-pill">{promotions.filter((promotion) => promotion.published).length} published</span>
+        </div>
+        {canManageCatalogue && <form className="customer-form-card location-price-form" onSubmit={(event) => void savePromotion(event)}>
+          <div className="form-card-heading"><div><h2>{editingPromotionId ? 'Edit promotion' : 'Create showroom promotion'}</h2>
+            <p>Choose all Bajaj models or one specific model. The promotion is visible only during its dates and when published.</p></div><span className="form-step">PROMOTION</span></div>
+          <div className="customer-form-grid">
+            <label>Scope<select value={promotionDraft.modelCode} onChange={(e) => setPromotionDraft((v) => ({ ...v, modelCode: e.target.value }))}>
+              <option value="">All published Bajaj models</option>
+              {catalogueModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName} · {model.modelCode}</option>)}
+            </select></label>
+            <label>Title *<input required maxLength={120} value={promotionDraft.title} onChange={(e) => setPromotionDraft((v) => ({ ...v, title: e.target.value }))} placeholder="Short, factual announcement" /></label>
+            <label className="field-span-two">Summary *<input required maxLength={400} value={promotionDraft.summary} onChange={(e) => setPromotionDraft((v) => ({ ...v, summary: e.target.value }))} placeholder="State the eligible offer/benefit and any important limitation" /></label>
+            <label>Starts on *<input required type="date" value={promotionDraft.startsOn} onChange={(e) => setPromotionDraft((v) => ({ ...v, startsOn: e.target.value }))} /></label>
+            <label>Ends on<input type="date" min={promotionDraft.startsOn} value={promotionDraft.endsOn} onChange={(e) => setPromotionDraft((v) => ({ ...v, endsOn: e.target.value }))} /></label>
+            <label className="field-span-two">Terms and exclusions<textarea rows={3} maxLength={2000} value={promotionDraft.terms} onChange={(e) => setPromotionDraft((v) => ({ ...v, terms: e.target.value }))} placeholder="Eligibility, location, validity, exclusions and redemption steps" /></label>
+            <label className="field-span-two">Source URL (HTTPS) *<input type="url" required maxLength={1000} value={promotionDraft.sourceUrl} onChange={(e) => setPromotionDraft((v) => ({ ...v, sourceUrl: e.target.value }))} placeholder="Official Bajaj / insurer / dealership offer source" /></label>
+            <label className="promotion-publish-toggle"><input type="checkbox" checked={promotionDraft.isPublished} onChange={(e) => setPromotionDraft((v) => ({ ...v, isPublished: e.target.checked }))} /> Publish on public showroom</label>
+          </div>
+          <div className="form-actions">
+            {editingPromotionId && <button type="button" className="secondary-button" onClick={() => { setEditingPromotionId(null); setPromotionDraft(emptyPromotionDraft); }}>Cancel edit</button>}
+            <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving…' : editingPromotionId ? 'Save promotion' : 'Add promotion'}</button>
+          </div>
+        </form>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Promotion</th><th>Scope / validity</th><th>Source</th><th>Status</th>{canManageCatalogue && <th>Action</th>}</tr></thead>
+            <tbody>{promotions.map((promotion) => <tr key={promotion.publicId}>
+              <td><div className="customer-name-cell"><span className="vehicle-model-mark">%</span><div><strong>{promotion.title}</strong><span>{promotion.summary}</span><small className="vehicle-serial">{promotion.terms || 'No additional terms recorded'}</small></div></div></td>
+              <td>{promotion.modelName || 'All published models'}<small className="vehicle-serial">{promotion.startsOn} – {promotion.endsOn ?? 'No end date'}</small></td>
+              <td><a href={promotion.sourceUrl} target="_blank" rel="noreferrer">Open source ↗</a></td>
+              <td><span className={promotion.published ? 'status-chip status-available' : 'status-chip status-expected'}>{promotion.published ? 'PUBLISHED' : 'DRAFT'}</span><small className="vehicle-serial">{promotion.disclaimer}</small></td>
+              {canManageCatalogue && <td><button type="button" className="secondary-button showroom-save-row" disabled={saving} onClick={() => editPromotion(promotion)}>Edit</button></td>}
+            </tr>)}{promotions.length === 0 && <tr><td colSpan={canManageCatalogue ? 5 : 4} className="table-empty">No promotion data configured. No offer is being advertised.</td></tr>}</tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote">Promotions are not applied as automatic discounts or guaranteed prices. Public visibility requires publication, a valid effective date, and a source URL.</div>
+      </section>}
+
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">SOURCED PRICE CONTROL</div><h2>Location on-road estimate profiles</h2>
+            <p>Configure verified model-specific prices and fee inputs. No profile means the customer sees no calculated on-road amount; overlapping effective dates are rejected.</p></div>
+          <span className="inventory-count-pill">{priceProfiles.length} profiles</span>
+        </div>
+        {canManageCatalogue ? <form className="customer-form-card location-price-form" onSubmit={(event) => void savePriceProfile(event)}>
+          <div className="form-card-heading"><div><h2>{editingPriceProfileId ? 'Edit pricing profile' : 'Add effective-dated price profile'}</h2>
+            <p>Use sourced dealership/OEM/authority amounts for the selected city and state. Percent road tax is calculated against the local ex-showroom price you enter.</p></div><span className="form-step">PRICING INPUTS</span></div>
+          <div className="customer-form-grid">
+            <label>Bajaj model *<select required value={priceDraft.modelCode} onChange={(e) => setPriceDraft((v) => ({ ...v, modelCode: e.target.value }))}>
+              <option value="">Choose a catalogue model…</option>
+              {catalogueModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName} · {model.modelCode}</option>)}
+            </select></label>
+            <label>City *<input required maxLength={80} value={priceDraft.city} onChange={(e) => setPriceDraft((v) => ({ ...v, city: e.target.value }))} placeholder="e.g. Bettiah" /></label>
+            <label>State *<input required maxLength={80} value={priceDraft.state} onChange={(e) => setPriceDraft((v) => ({ ...v, state: e.target.value }))} placeholder="e.g. Bihar" /></label>
+            <label>Effective from *<input required type="date" value={priceDraft.effectiveFrom} onChange={(e) => setPriceDraft((v) => ({ ...v, effectiveFrom: e.target.value }))} /></label>
+            <label>Effective to<input type="date" min={priceDraft.effectiveFrom} value={priceDraft.effectiveTo} onChange={(e) => setPriceDraft((v) => ({ ...v, effectiveTo: e.target.value }))} /></label>
+            <label>Local ex-showroom (₹) *<input required type="number" min="0.01" step="0.01" value={priceDraft.exShowroomPrice} onChange={(e) => setPriceDraft((v) => ({ ...v, exShowroomPrice: e.target.value }))} /></label>
+            <label>Registration fee (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.registrationFee} onChange={(e) => setPriceDraft((v) => ({ ...v, registrationFee: e.target.value }))} /></label>
+            <label>Road tax (% of local ex-showroom) *<input required type="number" min="0" max="100" step="0.0001" value={priceDraft.roadTaxPercent} onChange={(e) => setPriceDraft((v) => ({ ...v, roadTaxPercent: e.target.value }))} /></label>
+            <label>Insurance estimate (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.insuranceFee} onChange={(e) => setPriceDraft((v) => ({ ...v, insuranceFee: e.target.value }))} /></label>
+            <label>Handling fee (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.handlingFee} onChange={(e) => setPriceDraft((v) => ({ ...v, handlingFee: e.target.value }))} /></label>
+            <label>Other charges (₹) *<input required type="number" min="0" step="0.01" value={priceDraft.otherCharges} onChange={(e) => setPriceDraft((v) => ({ ...v, otherCharges: e.target.value }))} /></label>
+            <label>Other charges label<input maxLength={120} value={priceDraft.otherChargesLabel} onChange={(e) => setPriceDraft((v) => ({ ...v, otherChargesLabel: e.target.value }))} placeholder="Required when other charges > ₹0" /></label>
+            <label className="field-span-two">Source URL (HTTPS) *<input type="url" required maxLength={1000} value={priceDraft.sourceUrl} onChange={(e) => setPriceDraft((v) => ({ ...v, sourceUrl: e.target.value }))} placeholder="Authority / insurer / dealership source" /></label>
+            <label className="field-span-two">Pricing note<input maxLength={500} value={priceDraft.priceNote} onChange={(e) => setPriceDraft((v) => ({ ...v, priceNote: e.target.value }))} placeholder="Optional caveat or scope of estimate" /></label>
+          </div>
+          <div className="form-actions">
+            {editingPriceProfileId && <button type="button" className="secondary-button" onClick={() => { setEditingPriceProfileId(null); setPriceDraft(emptyPriceDraft); }}>Cancel edit</button>}
+            <button type="submit" className="primary-button" disabled={saving || catalogueModels.length === 0}>{saving ? 'Saving…' : editingPriceProfileId ? 'Save profile' : 'Add price profile'}</button>
+          </div>
+        </form> : <div className="inventory-footnote">Price profile creation and editing require catalogue management permission.</div>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Model / location</th><th>Effective dates</th><th>Local ex-showroom</th><th>Fee inputs</th><th>Source</th>{canManageCatalogue && <th>Action</th>}</tr></thead>
+            <tbody>
+              {priceProfiles.map((profile) => <tr key={profile.publicId}>
+                <td><div className="customer-name-cell"><span className="vehicle-model-mark">₹</span><div><strong>{profile.modelName}</strong><span>{profile.city}, {profile.state}</span><small className="vehicle-serial">{profile.modelCode}</small></div></div></td>
+                <td>{profile.effectiveFrom} – {profile.effectiveTo ?? 'No end date'}</td>
+                <td><strong>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(profile.exShowroomPrice)}</strong></td>
+                <td><div className="showroom-stock-facts"><span>Registration: ₹{profile.registrationFee}</span><span>Road tax: {profile.roadTaxPercent}%</span><span>Insurance: ₹{profile.insuranceFee}</span><span>Handling: ₹{profile.handlingFee}</span><span>{profile.otherChargesLabel || 'Other'}: ₹{profile.otherCharges}</span></div></td>
+                <td><a href={profile.sourceUrl} target="_blank" rel="noreferrer">Open source ↗</a><small className="vehicle-serial">{profile.priceNote || 'No note'}</small></td>
+                {canManageCatalogue && <td><button type="button" className="secondary-button showroom-save-row" disabled={saving} onClick={() => editPriceProfile(profile)}>Edit</button></td>}
+              </tr>)}
+              {priceProfiles.length === 0 && <tr><td colSpan={canManageCatalogue ? 6 : 5} className="table-empty">No location estimates are configured. Customers will be asked to request a dealer quote.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote"><span className="status-dot" /> Public estimates are calculated from these saved inputs only. The source and effective dates are retained; the final amount must be confirmed by Lucky Bajaj and is not a guaranteed offer.</div>
+      </section>}
+
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">PUBLIC SHOWROOM CONTROL</div><h2>Bajaj catalogue visibility</h2>
+            <p>Publish models individually and manage an out-of-stock forecast. Forecasts never add physical stock.</p></div>
+          <span className="inventory-count-pill">{catalogueModels.filter((model) => catalogueDrafts[model.modelCode]?.published ?? model.published).length} published</span>
+        </div>
+        {!canManageCatalogue && <div className="inventory-footnote">Your role can view this catalogue. Publishing and restock forecasts require catalogue management permission.</div>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Bajaj model</th><th>Physical stock</th><th>Publish</th><th>Out-of-stock forecast</th><th>Internal note</th><th>Save</th></tr></thead>
+            <tbody>
+              {catalogueModels.map((model) => {
+                const draft = catalogueDrafts[model.modelCode] ?? {
+                  published: model.published, markedOutOfStock: model.markedOutOfStock,
+                  expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
+                };
+                const formId = `catalogue-settings-${model.modelCode.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+                return <tr key={model.modelCode}>
+                  <td><div className="customer-name-cell"><span className="vehicle-model-mark">B</span><div><strong>{model.modelName}</strong><span>{model.family} · {model.category}</span><small className="vehicle-serial">{model.modelCode}</small></div></div></td>
+                  <td><div className="showroom-stock-facts"><strong>{model.availableUnits} available</strong><span>{model.expectedUnits} expected · {model.reservedUnits} reserved</span>
+                    <span className={model.availableUnits > 0 ? 'showroom-state showroom-state-in' : draft.expectedAvailableOn ? 'showroom-state' : 'showroom-state showroom-state-out'}>{model.availableUnits > 0 ? 'IN STOCK' : draft.expectedAvailableOn ? 'EXPECTED' : model.expectedUnits > 0 ? 'EXPECTED · DATE TBD' : 'OUT OF STOCK'}</span></div></td>
+                  <td><label className="showroom-publish-control"><input form={formId} aria-label={`Publish ${model.modelName} to public showroom`} type="checkbox" checked={draft.published} disabled={!canManageCatalogue || saving} onChange={(event) => updateCatalogueDraft(model.modelCode, { published: event.target.checked })} /><span>{draft.published ? 'Published' : 'Unpublished'}</span></label></td>
+                  <td><div className="showroom-forecast-fields">
+                    <label><input form={formId} type="checkbox" aria-label={`Mark ${model.modelName} out of stock`} checked={draft.markedOutOfStock} disabled={!canManageCatalogue || saving || model.availableUnits > 0} onChange={(event) => updateCatalogueDraft(model.modelCode, { markedOutOfStock: event.target.checked, expectedAvailableOn: event.target.checked ? draft.expectedAvailableOn : '' })} /> Mark out of stock</label>
+                    <label className="showroom-expected-date">Expected availability
+                      <input form={formId} type="date" value={draft.expectedAvailableOn} min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())} disabled={!canManageCatalogue || saving || !draft.markedOutOfStock} onChange={(event) => updateCatalogueDraft(model.modelCode, { expectedAvailableOn: event.target.value })} />
+                    </label>
+                    {model.availableUnits > 0 && <small className="showroom-field-help">Physical stock is available. Use inventory workflows to correct stock first.</small>}
+                  </div></td>
+                  <td><textarea form={formId} aria-label={`Internal stock note for ${model.modelName}`} maxLength={500} rows={2} value={draft.internalNote} disabled={!canManageCatalogue || saving} onChange={(event) => updateCatalogueDraft(model.modelCode, { internalNote: event.target.value })} placeholder="Internal note (not public)" /></td>
+                  <td>{canManageCatalogue ? <form id={formId} onSubmit={(event) => { event.preventDefault(); void saveCatalogueSettings(model.modelCode); }}>
+                    <button type="submit" className="secondary-button showroom-save-row" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+                  </form> : '—'}</td>
+                </tr>;
+              })}
+              {catalogueModels.length === 0 && <tr><td colSpan={6} className="table-empty">No Bajaj catalogue records are available.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote"><span className="status-dot" /> Publish controls only affect public visibility. Physical availability remains sourced from received vehicle units. Expected date and internal note are dealership-maintained forecasts; only the expected date is public.</div>
+      </section>}
     </section>
   );
 }

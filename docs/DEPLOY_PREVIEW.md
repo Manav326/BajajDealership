@@ -71,3 +71,66 @@ This Blueprint intentionally uses free-tier resources to provide a low-cost prev
 - Public website URLs do not make authenticated pages or private API records public; API permission and dealership-isolation checks still apply.
 
 References: [Render Blueprint specification](https://render.com/docs/blueprint-spec), [Render free-tier limitations](https://render.com/docs/free), and [Render static sites](https://render.com/docs/static-sites).
+
+## Read-only local-stack smoke check
+
+Run this on the same machine where Docker Compose services are running. Defaults match `scripts/start.ps1` and `scripts/start.sh`: customer web `http://localhost:3000`, staff portal `http://localhost:3001`, API `http://localhost:8080`. The script verifies each frontend's same-origin Nginx `/api/` proxy, as the browser uses it:
+
+```bash
+node scripts/smoke-test-local.mjs
+```
+
+It performs only GET requests and does not log in, mutate records, send notifications/social posts or move money. It checks API health, both static-site HTML shells and their JavaScript/CSS assets, at least ten published Bajaj models, source/date consistency for displayed prices and promotions, Google sign-in configuration, both same-origin API proxies, and unauthenticated customer/staff-data denial. It exits non-zero for any failed check and prints missing configuration explicitly.
+
+Optional host overrides for an environment with different assigned URLs:
+
+```bash
+LOCAL_API_URL=http://localhost:8080 \
+LOCAL_CUSTOMER_URL=http://localhost:3000 \
+LOCAL_STAFF_URL=http://localhost:3001 \
+node scripts/smoke-test-local.mjs
+```
+
+A passing local result is not production approval. Hosted deployments still require separate public smoke testing. Before applying schema changes to a persistent database, inspect its `flyway_schema_history`.
+
+## Persistent database: read-only Flyway preflight
+
+Before applying the showroom branch to any persistent PostgreSQL database, connect through an approved secure session using the database credentials stored in the hosting dashboard. Do not paste the database URL/password into a GitHub issue or commit it.
+
+First confirm that Flyway history exists:
+
+```sql
+SELECT to_regclass('public.flyway_schema_history') AS flyway_history_table;
+```
+
+If it returns `public.flyway_schema_history`, inspect the showroom/auth versions and their exact migration filenames/checksums:
+
+```sql
+SELECT installed_rank, version, description, script, checksum, installed_on, success
+FROM public.flyway_schema_history
+WHERE version IS NULL
+   OR version IN ('30','31','32','33','34','35','36','37','38','39','40','41')
+ORDER BY installed_rank;
+
+SELECT installed_rank, version, description, script, checksum, installed_on
+FROM public.flyway_schema_history
+WHERE success = false
+ORDER BY installed_rank;
+
+SELECT version, count(*) AS history_rows
+FROM public.flyway_schema_history
+GROUP BY version
+HAVING count(*) > 1
+ORDER BY version;
+```
+
+These queries are read-only. Save their output with the environment name and capture time. A clean CI database passing all 41 migrations does **not** establish the state of this persistent database.
+
+### V30 collision decision
+
+- Current code reserves V30 for `V30__customer_portal_google_identity.sql`; showroom catalogue migrations start at V31 and continue through V41.
+- If history shows an earlier showroom V30 script such as `V30__bajaj_public_catalogue.sql`, **stop before deploying**: the current V31 catalogue migration may repeat table/data creation. Do not delete history rows, change checksums, rename old files to disguise the applied migration, or run `flyway repair` as a guess.
+- Compare the recorded script/checksum to the exact historical release, verify that the expected catalogue tables/data exist, take a restorable backup, and rehearse a deliberately scoped transition against a database clone. The transition must preserve the old history as evidence and be reviewed against the actual schema/data; it cannot be safely generated without inspecting that target.
+- Proceed only after the recorded history and deployed schema agree with the chosen transition plan. If the history is unexpected or contains failed/duplicate entries, keep deployment blocked until reconciled.
+
+Do not run write statements copied from a generic checklist to change `flyway_schema_history`. The transition, if needed, depends on what has actually been applied to that database.

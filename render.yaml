@@ -44,6 +44,9 @@ services:
       # Reuse the public Google OAuth web client ID configured for QuantaEdge.
       - key: GOOGLE_WEB_CLIENT_ID
         sync: false
+      # Required when this API serves more than one active dealership.
+      - key: APP_PUBLIC_DEALERSHIP_CODE
+        sync: false
       - key: APP_NOTIFICATION_MEDIA_DIR
         value: /app/var/private-notification-media
       - key: NOTIFICATION_DISPATCH_INTERVAL_MS

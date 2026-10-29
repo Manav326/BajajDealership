@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'apps/web/**'
+      - 'apps/customer-web/**'
       - '.github/workflows/notification-studio-browser.yml'
   workflow_dispatch:
 
@@ -30,6 +31,9 @@ jobs:
         with:
           node-version: "24"
       - name: Install web and browser test dependencies
+        run: npm install
+      - name: Install customer showroom dependencies
+        working-directory: apps/customer-web
         run: npm install
       - name: Install Chromium
         run: npx playwright install --with-deps chromium

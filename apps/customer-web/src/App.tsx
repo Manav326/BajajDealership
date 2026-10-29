@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import BajajShowroom, { type ShowroomAction, type ShowroomBike } from './BajajShowroom';
 import GoogleSignInButton, { type CustomerGoogleSession } from './auth/GoogleSignInButton';
 
 type CustomerProfile = {
@@ -32,9 +33,46 @@ type NotificationPage = {
   items: CustomerNotification[]; page: number; pageSize: number; total: number; unreadCount: number;
 };
 
+type CustomerSalesRequest = {
+  publicId: string; requestCode: string; requestType: 'TEST_RIDE' | 'PURCHASE';
+  modelCode: string; modelName: string; preferredAt: string | null; notes: string | null;
+  status: 'REQUESTED' | 'CONVERTED' | 'CANCELLED'; createdAt: string; updatedAt: string;
+  convertedEnquiryPublicId: string | null; customerPublicId: string; customerCode: string;
+  customerName: string; customerPhone: string | null; customerEmail: string | null;
+  enquiryCode: string | null; enquiryStatus: string | null;
+  testRideCode: string | null; testRideStatus: string | null; testRideScheduledStart: string | null;
+  bookingCode: string | null; bookingStatus: string | null;
+  invoiceNumber: string | null; invoiceStatus: string | null; invoiceTotal: number | null;
+  paidAmount: number; creditedAmount: number | null; balanceDue: number | null; deliveredAt: string | null;
+};
+
+type PendingShowroomIntent = {
+  action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
+  preferredAt?: string | null;
+};
+type RetailPart = {
+  publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
+  retailPrice: number; fitmentModelCodes: string[]; imageUrl: string | null;
+  quantityAvailable: number; available: boolean;
+};
+type RetailOrderLine = {
+  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type RetailOrder = {
+  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
+  orderTotal: number; fulfillmentMethod: 'PICKUP' | 'DELIVERY'; deliveryAddress: string | null;
+  deliveryFee: number; deliveryQuoteStatus: string; deliveryQuoteNote: string | null; deliveryQuotedAt: string | null;
+  customerNote: string | null; createdAt: string; updatedAt: string;
+  cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
+  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
+  customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
+};
+type CartLine = { partPublicId: string; quantity: string };
+
 type AuthMode = 'login' | 'activate';
 type LoginIdentifierMode = 'customerCode' | 'username';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications';
+type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
 const SESSION_KEY = 'qe_customer_portal_token';
 
@@ -96,6 +134,7 @@ export default function App() {
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [loginIdentifierMode, setLoginIdentifierMode] = useState<LoginIdentifierMode>('customerCode');
+  const [showStorefront, setShowStorefront] = useState(true);
   const [tab, setTab] = useState<PortalTab>('home');
   const [loadingSession, setLoadingSession] = useState(Boolean(window.sessionStorage.getItem(SESSION_KEY)));
   const [loadingData, setLoadingData] = useState(false);
@@ -105,6 +144,15 @@ export default function App() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [history, setHistory] = useState<ServiceHistory[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [salesRequests, setSalesRequests] = useState<CustomerSalesRequest[]>([]);
+  const [retailParts, setRetailParts] = useState<RetailPart[]>([]);
+  const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
+  const [retailCart, setRetailCart] = useState<CartLine[]>([]);
+  const [fitmentModelCode, setFitmentModelCode] = useState('');
+  const [partsOrderNote, setPartsOrderNote] = useState('');
+  const [retailFulfillmentMethod, setRetailFulfillmentMethod] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
+  const [retailDeliveryAddress, setRetailDeliveryAddress] = useState('');
+  const [partsOrderKey, setPartsOrderKey] = useState(() => globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}`);
   const [notificationPage, setNotificationPage] = useState<NotificationPage>({
     items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0,
   });
@@ -123,25 +171,38 @@ export default function App() {
     setVehicles([]);
     setHistory([]);
     setAppointments([]);
+    setSalesRequests([]);
+    setRetailParts([]);
+    setRetailOrders([]);
+    setRetailCart([]);
+    setRetailFulfillmentMethod('PICKUP');
+    setRetailDeliveryAddress('');
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
   }, []);
 
   const loadPortalData = useCallback(async (sessionToken: string) => {
     setLoadingData(true);
-    setError('');
+    // Keep action-specific recovery feedback visible while a saved showroom intent is unresolved.
+    if (!window.sessionStorage.getItem('qe_bajaj_pending_intent')) setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
         api<Appointment[]>('/api/v1/customer/appointments', sessionToken),
         api<NotificationPage>('/api/v1/customer/notifications?page=0&pageSize=50', sessionToken),
+        api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken),
+        api<RetailPart[]>('/api/v1/customer/parts', sessionToken),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', sessionToken),
       ]);
       setCustomer(profile);
       setVehicles(ownedVehicles);
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
+      setSalesRequests(customerRequests);
+      setRetailParts(parts);
+      setRetailOrders(orders);
       setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
@@ -157,6 +218,57 @@ export default function App() {
       setLoadingData(false);
     }
   }, [clearSession]);
+
+  const resumePendingShowroomIntent = useCallback(async (sessionToken: string): Promise<boolean | null> => {
+    const raw = window.sessionStorage.getItem('qe_bajaj_pending_intent');
+    if (!raw) return null;
+    let intent: PendingShowroomIntent;
+    try {
+      const parsed = JSON.parse(raw) as Partial<PendingShowroomIntent>;
+      if ((parsed.action !== 'TEST_RIDE' && parsed.action !== 'PURCHASE')
+        || typeof parsed.modelCode !== 'string' || typeof parsed.modelName !== 'string'
+        || typeof parsed.idempotencyKey !== 'string'
+        || (parsed.preferredAt != null && (typeof parsed.preferredAt !== 'string'
+          || !Number.isFinite(Date.parse(parsed.preferredAt))))) {
+        throw new Error('The saved showroom selection is incomplete. Please select the Bajaj model again.');
+      }
+      intent = parsed as PendingShowroomIntent;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The saved showroom selection could not be read.');
+      setTab('requests');
+      return false;
+    }
+    try {
+      await api<CustomerSalesRequest>('/api/v1/customer/sales-requests', sessionToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestType: intent.action,
+          modelCode: intent.modelCode,
+          preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt ?? null : null,
+          notes: 'Request started from the public Bajaj showroom.',
+          idempotencyKey: intent.idempotencyKey,
+        }),
+      });
+      // Keep the original idempotency key until the request can be confirmed in the refreshed list.
+      // A failed GET after a successful POST must remain safely retryable without creating duplicates.
+      const current = await api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken);
+      window.sessionStorage.removeItem('qe_bajaj_pending_intent');
+      setSalesRequests(current);
+      setTab('requests');
+      setSuccess(intent.action === 'TEST_RIDE'
+        ? intent.preferredAt
+          ? `Your test-ride request for ${intent.modelName}, with preferred time ${new Date(intent.preferredAt).toLocaleString('en-IN')}, was sent to Lucky Bajaj. The team must confirm the bike and slot.`
+          : `Your test-ride request for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm the bike and time.`
+        : `Your purchase enquiry for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm availability and the next steps.`);
+      return true;
+    } catch (cause) {
+      setTab('requests');
+      setError(cause instanceof Error
+        ? `${cause.message} Your selected bike is saved; retry the request from this screen.`
+        : 'The request could not be submitted. Your selected bike remains saved.');
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -178,20 +290,24 @@ export default function App() {
     return () => { cancelled = true; };
   }, [token, clearSession, loadPortalData]);
 
-  const acceptGoogleSession = useCallback((session: CustomerGoogleSession) => {
+  const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-    setToken(session.accessToken);
-    setCustomer(session.customer);
     setError('');
-    setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
-  }, []);
+    setSuccess('');
+    // Submit a saved showroom intent before the token effect refreshes portal data.
+    // This prevents a slower initial GET from replacing the newly created request with a stale list.
+    const resumed = await resumePendingShowroomIntent(session.accessToken);
+    setCustomer(session.customer);
+    setToken(session.accessToken);
+    if (resumed === null) setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
+  }, [resumePendingShowroomIntent]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true); setError(''); setSuccess('');
     try {
       const dealershipCode = loginForm.dealershipCode.trim().toUpperCase();
-      // Keep the established customer-code endpoint as the default; username login is an explicit alternative.
+      // Existing customer-code login remains the default; username is an explicit alternative.
       const useUsername = loginIdentifierMode === 'username';
       const session = await api<PortalSession>(
         useUsername ? '/api/v1/customer/auth/username-login' : '/api/v1/customer/auth/login',
@@ -203,10 +319,11 @@ export default function App() {
             : { dealershipCode, customerCode: loginForm.customerCode.trim().toUpperCase(), password: loginForm.password }),
         });
       window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-      setToken(session.accessToken);
-      setCustomer(session.customer);
       setLoginForm((current) => ({ ...current, password: '' }));
-      setSuccess('You are signed in securely.');
+      const resumed = await resumePendingShowroomIntent(session.accessToken);
+      setCustomer(session.customer);
+      setToken(session.accessToken);
+      if (resumed === null) setSuccess('You are signed in securely.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
     } finally { setSaving(false); }
@@ -230,13 +347,154 @@ export default function App() {
         }),
       });
       window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-      setToken(session.accessToken);
-      setCustomer(session.customer);
       setActivationForm({ activationToken: '', username: '', password: '', confirmPassword: '' });
-      setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
+      const resumed = await resumePendingShowroomIntent(session.accessToken);
+      setCustomer(session.customer);
+      setToken(session.accessToken);
+      if (resumed === null) setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
     } finally { setSaving(false); }
+  }
+
+  function updateRetailCart(part: RetailPart, delta: number) {
+    setRetailCart((current) => {
+      const existing = current.find((line) => line.partPublicId === part.publicId);
+      const quantity = Math.max(0, Number(existing?.quantity ?? 0) + delta);
+      if (quantity > Number(part.quantityAvailable)) return current;
+      if (quantity === 0) return current.filter((line) => line.partPublicId !== part.publicId);
+      if (existing) return current.map((line) => line.partPublicId === part.publicId
+        ? { ...line, quantity: String(quantity) } : line);
+      return [...current, { partPublicId: part.publicId, quantity: String(quantity) }];
+    });
+  }
+
+  async function placeRetailOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!retailCart.length) {
+      setError('Add at least one available spare part to your cart.');
+      return;
+    }
+    if (retailFulfillmentMethod === 'DELIVERY' && !retailDeliveryAddress.trim()) {
+      setError('Enter the delivery address before requesting delivery.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const order = await api<RetailOrder>('/api/v1/customer/parts/orders', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          lines: retailCart.map((line) => ({ partPublicId: line.partPublicId, quantity: Number(line.quantity) })),
+          fitmentModelCode: fitmentModelCode || null,
+          customerNote: partsOrderNote.trim() || null,
+          fulfillmentMethod: retailFulfillmentMethod,
+          deliveryAddress: retailFulfillmentMethod === 'DELIVERY' ? retailDeliveryAddress.trim() : null,
+          idempotencyKey: partsOrderKey,
+        }),
+      });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setRetailCart([]);
+      setPartsOrderNote('');
+      setRetailFulfillmentMethod('PICKUP');
+      setRetailDeliveryAddress('');
+      setPartsOrderKey(globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      setSuccess(order.fulfillmentMethod === 'DELIVERY'
+        ? `Delivery request ${order.orderCode} saved. Lucky Bajaj must quote delivery before you accept it; no online payment has been taken.`
+        : `Pickup order ${order.orderCode} placed. Pay at dealership pickup; no online payment has been taken.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The spare-parts order could not be placed.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelRetailOrder(order: RetailOrder) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<RetailOrder>(`/api/v1/customer/parts/orders/${order.publicId}/cancel`, token, { method: 'POST' });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setSuccess(`Order ${order.orderCode} was cancelled and its stock reservation released.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The order could not be cancelled.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function respondToDeliveryQuote(order: RetailOrder, accept: boolean) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<RetailOrder>(`/api/v1/customer/parts/orders/${order.publicId}/delivery-quote-response`, token, {
+        method: 'POST',
+        body: JSON.stringify({ accept }),
+      });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setSuccess(accept
+        ? `Delivery quote for ${order.orderCode} accepted. Lucky Bajaj can now arrange delivery; payment is still due on delivery.`
+        : `Delivery quote declined. Order ${order.orderCode} was cancelled and its stock reservation released.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Your delivery quote response could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function retrySavedShowroomRequest() {
+    if (!token) {
+      setError('Sign in again before retrying the saved showroom request.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const resumed = await resumePendingShowroomIntent(token);
+      if (resumed === null) setError('There is no saved showroom request to retry.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function discardSavedShowroomRequest() {
+    window.sessionStorage.removeItem('qe_bajaj_pending_intent');
+    setError('');
+    setSuccess('Saved showroom selection cleared. Choose a motorcycle again from the public showroom.');
+  }
+
+  async function cancelCustomerSalesRequest(request: CustomerSalesRequest) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<CustomerSalesRequest>(`/api/v1/customer/sales-requests/${request.publicId}/cancel`, token, { method: 'POST' });
+      const refreshed = await api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', token);
+      setSalesRequests(refreshed);
+      setSuccess(`Request ${request.requestCode} was cancelled.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The request could not be cancelled.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function updateNotification(item: CustomerNotification, action: 'read' | 'unread' | 'dismiss') {
@@ -366,12 +624,31 @@ export default function App() {
     .slice().sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())[0];
   const outstanding = history.reduce((sum, job) => sum + Number(job.balanceDue ?? 0), 0);
   const mostRecentService = history[0];
+  const hasPendingShowroomIntent = Boolean(window.sessionStorage.getItem('qe_bajaj_pending_intent'));
 
   if (loadingSession) {
     return <main className="portal-loading"><div className="brand-mark">Q</div><h1>Opening your customer space</h1><p>Checking your secure session…</p></main>;
   }
 
   if (!token || !customer) {
+    if (showStorefront && authMode === 'login') {
+      return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => {
+        if (bike && action) {
+          sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
+            action, modelCode: bike.modelCode, modelName: bike.modelName,
+            preferredAt: action === 'TEST_RIDE' ? preferredAt ?? null : null,
+            selectedAt: new Date().toISOString(),
+            idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `qe-sales-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          }));
+          setSuccess(`${bike.modelName} selected. Sign in to continue your request.`);
+        } else {
+          setSuccess('');
+        }
+        setError('');
+        setAuthMode('login');
+        setShowStorefront(false);
+      }} />;
+    }
     return (
       <main className="portal-auth-screen">
         <div className="auth-orb orb-one" /><div className="auth-orb orb-two" /><div className="auth-orb orb-three" />
@@ -393,7 +670,7 @@ export default function App() {
             <div className="auth-card-top"><span className="portal-icon">✦</span><span className="secure-label">PRIVATE CUSTOMER PORTAL</span></div>
             <h2>{authMode === 'login' ? 'Welcome back' : 'Activate your account'}</h2>
             <p className="auth-subtitle">{authMode === 'login'
-              ? 'Sign in with your username and password, or continue securely with Google.'
+              ? 'Sign in with your username and password, customer code, or continue securely with Google.'
               : 'Use your one-time dealership invitation token to activate your account, or continue with Google.'}</p>
             {error && <div className="portal-alert alert-error" role="alert">{error}</div>}
             {success && <div className="portal-alert alert-success" role="status">{success}</div>}
@@ -426,8 +703,9 @@ export default function App() {
             <div className="auth-divider"><span>OR CONTINUE WITH</span></div>
             <div className="google-auth-panel">
               <div className="google-auth-panel__heading"><span className="google-auth-panel__spark">G</span><div><strong>{authMode === 'login' ? 'A simpler way to sign in' : 'Create access with Google'}</strong><small>Verified by Google · protected by QuantaEdge</small></div></div>
-              <GoogleSignInButton requestUrl={apiRequestUrl} dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={acceptGoogleSession} />
+              <GoogleSignInButton requestUrl={apiRequestUrl} dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={(session) => void acceptGoogleSession(session)} />
             </div>
+            <button type="button" className="showroom-back-link" onClick={() => { setShowStorefront(true); setAuthMode('login'); setError(''); setSuccess(''); }}>← Back to Bajaj showroom</button>
             <div className="invite-note"><strong>Need portal access?</strong><span>Ask Lucky Bajaj Agency to verify your customer record and issue an invitation. No account is created from public phone/email matching alone.</span></div>
             <div className="portal-auth-footer">Protected by QuantaEdge <span>•</span> Lucky Bajaj Agency</div>
           </section>
@@ -465,6 +743,8 @@ export default function App() {
             ['vehicles', 'My bikes', '♧'],
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
+            ['requests', 'Bike requests', '↗'],
+            ['parts', 'Spare parts', '▦'],
             ['notifications', 'Updates', '✦'],
           ] as const).map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'portal-tab active' : 'portal-tab'} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span>{icon}</span>{label}{key === 'notifications' && notificationPage.unreadCount > 0 && <b className="notification-tab-badge">{notificationPage.unreadCount > 99 ? '99+' : notificationPage.unreadCount}</b>}</button>)}
         </nav>
@@ -493,6 +773,167 @@ export default function App() {
           {!loadingData && tab === 'service' && <>
             <div className="portal-section-heading"><div><h2>Service history</h2><p>Job-card status and recorded operational bill balances from your saved customer records.</p></div><span className="section-mark">{history.length} RECORDS</span></div>
             {history.length === 0 ? <div className="glass-panel inline-empty">Your recorded workshop history will appear here when a job card is linked to your customer profile.</div> : <div className="service-history-list">{history.map((job) => <article className="glass-panel service-history-card" key={job.jobCardPublicId}><div className="service-history-top"><div><span className="history-job-code">{job.jobCardCode}</span><h3>{job.modelName}{job.variantName ? ' · ' + job.variantName : ''}</h3><p>{job.customerConcern}</p></div><span className={`status-pill status-${job.status.toLowerCase()}`}>{pretty(job.status)}</span></div><div className="history-timeline"><div><small>Checked in</small><strong>{dateTime(job.checkedInAt)}</strong></div><div><small>Completed</small><strong>{dateTime(job.completedAt)}</strong></div><div><small>Vehicle handover</small><strong>{dateTime(job.deliveredAt)}</strong></div></div>{job.invoiceNumber ? <div className="service-invoice-summary"><div><small>Operational invoice</small><strong>{job.invoiceNumber}</strong><span>{job.invoiceNotice}</span></div><div><small>Invoice total</small><strong>{money(job.invoiceTotal)}</strong></div><div><small>Recorded paid</small><strong>{money(job.paidAmount)}</strong></div><div><small>Balance due</small><strong className={job.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(job.balanceDue)}</strong></div></div> : <div className="service-invoice-unavailable">No issued operational invoice is recorded for this job card.</div>}</article>)}</div>}
+          </>}
+          {!loadingData && tab === 'requests' && <>
+            <div className="portal-section-heading"><div><h2>My Bajaj requests</h2><p>Requests from the showroom stay connected to your account. A request is not yet a confirmed test-ride slot or vehicle booking.</p></div><span className="section-mark">{salesRequests.length} REQUESTS</span></div>
+            {hasPendingShowroomIntent && <section className="glass-panel pending-showroom-retry" role="region" aria-label="Saved showroom request not submitted">
+              <div><strong>Your request result is not confirmed yet</strong><p>The connection did not confirm whether the dealership saved your request. Retry with the same safe request key to avoid creating a duplicate, or discard the saved selection.</p></div>
+              <div className="pending-showroom-retry-actions">
+                <button type="button" className="primary-button" disabled={saving} onClick={() => void retrySavedShowroomRequest()}>{saving ? 'Retrying…' : 'Retry saved request'}</button>
+                <button type="button" className="secondary-button" disabled={saving} onClick={discardSavedShowroomRequest}>Discard selection</button>
+              </div>
+            </section>}
+            {salesRequests.length === 0
+              ? <div className="glass-panel inline-empty"><strong>No bike requests yet.</strong><span>Browse the Bajaj showroom to choose a motorcycle and start a test-ride or purchase enquiry.</span></div>
+              : <div className="appointment-list">{salesRequests.map((request) => <article className="glass-panel customer-appointment-card" key={request.publicId}>
+                  <div className="appointment-date-card"><strong>{request.requestCode.slice(-4)}</strong><span>{request.requestType === 'TEST_RIDE' ? 'RIDE' : 'BUY'}</span></div>
+                  <div className="customer-appointment-copy">
+                    <div className="customer-appointment-top"><strong>{request.requestCode}</strong><span className={`status-pill status-${request.status.toLowerCase()}`}>{pretty(request.status)}</span></div>
+                    <h4>{request.modelName}</h4>
+                    <span>{request.requestType === 'TEST_RIDE' ? 'Test-ride request' : 'Purchase enquiry'} · {dateTime(request.createdAt)}</span>
+                    {request.preferredAt && <p>Preferred time: {dateTime(request.preferredAt)}</p>}
+                    {request.notes && <p className="customer-request-note"><strong>Your note:</strong> {request.notes}</p>}
+                    <p>{request.status === 'CONVERTED'
+                      ? 'The dealership has added this request to its sales pipeline. Progress below reflects saved dealership transactions.'
+                      : request.status === 'CANCELLED' ? 'You cancelled this request.'
+                      : 'Received by the dealership. A request is not a confirmed test-ride slot, booking, quote, or payment.'}</p>
+                    <div className="history-timeline sales-journey-timeline" aria-label={`Sales journey for ${request.requestCode}`}>
+                      <div><small>Sales enquiry</small><strong>{request.enquiryCode ? `${request.enquiryCode} · ${pretty(request.enquiryStatus || 'NEW')}` : 'Awaiting review'}</strong></div>
+                      {request.requestType === 'TEST_RIDE' && <div><small>Test ride</small><strong>{request.testRideCode ? `${pretty(request.testRideStatus || 'SCHEDULED')} · ${dateTime(request.testRideScheduledStart)}` : 'Slot not confirmed'}</strong></div>}
+                      <div><small>Vehicle booking</small><strong>{request.bookingCode ? `${request.bookingCode} · ${pretty(request.bookingStatus || 'ACTIVE')}` : 'Not booked'}</strong></div>
+                      <div><small>Operational invoice</small><strong>{request.invoiceNumber ? `${request.invoiceNumber} · ${pretty(request.invoiceStatus || 'DRAFT')}` : 'Not issued'}</strong></div>
+                      <div><small>Net recorded payment</small><strong>{request.invoiceTotal == null ? 'Awaiting invoice' : `${money(request.paidAmount)} of ${money(request.invoiceTotal)}`}</strong></div>
+                      {request.creditedAmount != null && request.creditedAmount > 0 && <div><small>Approved credit notes</small><strong>{money(request.creditedAmount)}</strong></div>}
+                      {request.invoiceTotal != null && <div><small>Balance due after credits</small><strong className={request.balanceDue != null && request.balanceDue > 0 ? 'balance-due' : 'balance-paid'}>{money(request.balanceDue)}</strong></div>}
+                      <div><small>Vehicle handover</small><strong>{request.deliveredAt ? dateTime(request.deliveredAt) : 'Not recorded'}</strong></div>
+                    </div>
+                    {request.invoiceNumber && <small className="sales-invoice-disclaimer">Operational sales invoice only; this is not a statutory GST invoice.</small>}
+                    {request.status === 'REQUESTED' && <button type="button" className="text-link danger-link" onClick={() => void cancelCustomerSalesRequest(request)} disabled={saving}>Cancel request</button>}
+                  </div>
+                </article>)}</div>}
+          </>}
+          {!loadingData && tab === 'parts' && <>
+            <div className="portal-section-heading">
+              <div><h2>Bajaj spare-parts shop</h2><p>Shop items the dealership has explicitly listed for retail. Availability excludes stock already reserved for workshop jobs and other customers.</p></div>
+              <span className="section-mark">{retailParts.length} LISTED</span>
+            </div>
+            <div className="retail-shop-layout">
+              <section className="retail-shop-main">
+                {retailParts.length === 0
+                  ? <div className="glass-panel inline-empty"><strong>No retail parts listed yet.</strong><span>Only parts published by Lucky Bajaj will appear here. Ask the dealership if a part is missing.</span></div>
+                  : <div className="retail-parts-grid">{retailParts.map((part) => {
+                    const selectedLine = retailCart.find((line) => line.partPublicId === part.publicId);
+                    const quantity = Number(selectedLine?.quantity ?? 0);
+                    return <article className="glass-panel retail-part-card" key={part.publicId}>
+                      {part.imageUrl
+                        ? <div className="retail-part-image"><img src={part.imageUrl} alt={part.partName} loading="lazy" /></div>
+                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>GENUINE PARTS</strong></div>}
+                      <div className="retail-part-copy">
+                        <span className="vehicle-overline">{part.skuCode}</span>
+                        <h3>{part.partName}</h3>
+                        <p>{part.description || 'Dealership-listed spare part.'}</p>
+                        {part.fitmentModelCodes.length > 0 && <small>Fitment restricted to selected Bajaj model</small>}
+                        <div className="retail-part-price-row"><strong>{money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{part.available ? `${part.quantityAvailable} ${part.unitOfMeasure} available` : 'Currently unavailable'}</span></div>
+                        <div className="retail-part-cart-row">
+                          <div className="retail-quantity-stepper">
+                            <button type="button" aria-label={`Remove one ${part.partName}`} disabled={!quantity || saving} onClick={() => updateRetailCart(part, -1)}>−</button>
+                            <strong>{quantity}</strong>
+                            <button type="button" aria-label={`Add one ${part.partName}`} disabled={!part.available || saving || quantity >= Number(part.quantityAvailable)} onClick={() => updateRetailCart(part, 1)}>+</button>
+                          </div>
+                          <button type="button" className="secondary-button" disabled={!part.available || saving || quantity >= Number(part.quantityAvailable)} onClick={() => updateRetailCart(part, 1)}>{quantity ? 'Add another' : 'Add to cart'}</button>
+                        </div>
+                      </div>
+                    </article>;
+                  })}</div>}
+              </section>
+              <aside className="glass-panel retail-cart-panel">
+                <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · {retailFulfillmentMethod === 'PICKUP' ? 'pickup at dealership' : 'delivery request'}</p></div><span className="next-visit-icon">▦</span></div>
+                {retailCart.length === 0
+                  ? <div className="inline-empty">Choose a part to start an order.</div>
+                  : <>
+                    {retailCart.map((line) => {
+                      const part = retailParts.find((item) => item.publicId === line.partPublicId);
+                      if (!part) return null;
+                      return <div className="retail-cart-line" key={line.partPublicId}>
+                        <div><strong>{part.partName}</strong><small>{line.quantity} × {money(part.retailPrice)}</small></div>
+                        <strong>{money(Number(line.quantity) * part.retailPrice)}</strong>
+                        <button type="button" className="text-link danger-link" onClick={() => setRetailCart((current) => current.filter((item) => item.partPublicId !== line.partPublicId))}>Remove</button>
+                      </div>;
+                    })}
+                    <div className="retail-cart-total"><span>Order total</span><strong>{money(retailCart.reduce((sum, line) => {
+                      const part = retailParts.find((item) => item.publicId === line.partPublicId);
+                      return sum + Number(line.quantity) * Number(part?.retailPrice ?? 0);
+                    }, 0))}</strong></div>
+                    <form className="retail-checkout-form" onSubmit={placeRetailOrder}>
+                      <label>Bike fitment (if applicable)
+                        <input maxLength={60} value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value.toUpperCase())} placeholder="Model code, e.g. BAJAJ_PULSAR_N160" />
+                      </label>
+                      <label>Fulfillment method
+                        <select value={retailFulfillmentMethod} onChange={(event) => {
+                          const method = event.target.value as 'PICKUP' | 'DELIVERY';
+                          setRetailFulfillmentMethod(method);
+                          if (method === 'PICKUP') setRetailDeliveryAddress('');
+                        }}>
+                          <option value="PICKUP">Pickup at Lucky Bajaj</option>
+                          <option value="DELIVERY">Request delivery (fee quoted separately)</option>
+                        </select>
+                      </label>
+                      {retailFulfillmentMethod === 'DELIVERY' && <label>Delivery address *
+                        <textarea required rows={3} maxLength={1500} value={retailDeliveryAddress}
+                          onChange={(event) => setRetailDeliveryAddress(event.target.value)}
+                          placeholder="House / street, locality, city, state and PIN code" />
+                      </label>}
+                      <label>{retailFulfillmentMethod === 'PICKUP' ? 'Pickup note (optional)' : 'Delivery instructions (optional)'}
+                        <textarea rows={2} maxLength={1000} value={partsOrderNote} onChange={(event) => setPartsOrderNote(event.target.value)}
+                          placeholder={retailFulfillmentMethod === 'PICKUP' ? 'Preferred pickup details' : 'Landmark or safe delivery instructions'} />
+                      </label>
+                      <p className="retail-payment-note">{retailFulfillmentMethod === 'PICKUP'
+                        ? 'Reserve stock now; pay when collecting from Lucky Bajaj. This checkout does not charge a bank account or UPI wallet.'
+                        : 'This is a delivery request, not a confirmed delivery. Lucky Bajaj will quote the delivery fee separately; the order total currently shows parts only. Payment is due on delivery and no online charge is taken.'}</p>
+                      <button type="submit" className="primary-button wide-button" disabled={saving || retailCart.length === 0}>
+                        {saving ? 'Saving order…' : retailFulfillmentMethod === 'PICKUP' ? 'Place pickup order' : 'Request delivery quote'}
+                      </button>
+                    </form>
+                  </>}
+              </aside>
+            </div>
+            <section className="glass-panel retail-order-history">
+              <div className="portal-section-heading"><div><h2>My parts orders</h2><p>Saved orders and their pickup/collection status.</p></div><span className="section-mark">{retailOrders.length} ORDERS</span></div>
+              {retailOrders.length === 0
+                ? <div className="inline-empty">Your spare-parts orders will appear here.</div>
+                : <div className="retail-order-list">{retailOrders.map((order) => <article className="retail-order-row" key={order.publicId}>
+                    <div><strong>{order.orderCode}</strong><small>{dateTime(order.createdAt)} · {order.lines.length} line(s)</small><p>{order.lines.map((line) => `${line.quantity} × ${line.partName}`).join(' · ')}</p></div>
+                    <div className="retail-order-state">
+                      <strong>{money(order.orderTotal)}</strong>
+                      <span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span>
+                      <small>{order.status === 'CANCELLED' ? 'Order cancelled; reserved stock released'
+                        : order.paymentStatus === 'PAID_AT_PICKUP' ? 'Payment recorded at pickup (staff-attested)'
+                        : order.paymentStatus === 'PAID_ON_DELIVERY' ? 'Payment recorded on delivery (staff-attested)'
+                        : order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)'
+                        : order.fulfillmentMethod === 'DELIVERY'
+                          ? order.deliveryQuoteStatus === 'ACCEPTED' ? 'Pay on delivery when it arrives' : 'Pay on delivery after accepting the quoted fee'
+                          : 'Pay at dealership pickup'}</small>
+                      {order.fulfillmentMethod === 'DELIVERY' && <small>Delivery address: {order.deliveryAddress}</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_STAFF_QUOTE' && order.status === 'PLACED' &&
+                        <small>Awaiting Lucky Bajaj delivery quote. Current total is the parts subtotal only; the delivery fee is not set yet.</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' && order.status === 'PLACED' &&
+                        <><small>Delivery fee: {money(order.deliveryFee)} · quoted {dateTime(order.deliveryQuotedAt)}</small>
+                          {order.deliveryQuoteNote && <small>Quote note: {order.deliveryQuoteNote}</small>}
+                          <small>Review the delivery fee. Accept to proceed or decline to cancel and release the reserved stock.</small>
+                          <div className="retail-delivery-quote-actions">
+                            <button type="button" className="primary-button" disabled={saving} onClick={() => void respondToDeliveryQuote(order, true)}>Accept delivery quote</button>
+                            <button type="button" className="secondary-button" disabled={saving} onClick={() => void respondToDeliveryQuote(order, false)}>Decline and cancel order</button>
+                          </div>
+                        </>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'ACCEPTED' && order.status === 'PLACED' &&
+                        <small>Delivery fee accepted: {money(order.deliveryFee)}. Lucky Bajaj can now arrange delivery; pay when it arrives.</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.status === 'CANCELLED' &&
+                        <small>Delivery request cancelled; stock reservation was released.</small>}
+                      {order.status === 'RETURNED' && order.returnReason && <small>Return reason: {order.returnReason}. Returned quantity {order.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</small>}
+                    </div>
+                    {order.status === 'PLACED' && <button type="button" className="text-link danger-link" disabled={saving} onClick={() => void cancelRetailOrder(order)}>Cancel and release stock</button>}
+                  </article>)}</div>}
+            </section>
           </>}
           {!loadingData && tab === 'notifications' && <>
             <div className="portal-section-heading"><div><h2>Updates from Lucky Bajaj</h2><p>Service messages and dealership updates delivered through the QuantaEdge Notification Studio.</p></div><span className="section-mark">{notificationPage.unreadCount} UNREAD</span></div>
