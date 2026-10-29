@@ -870,11 +870,13 @@ export default function App() {
                     <div className="retail-order-state">
                       <strong>{money(order.orderTotal)}</strong>
                       <span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span>
-                      <small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Payment recorded at pickup (staff-attested)'
+                      <small>{order.status === 'CANCELLED' ? 'Order cancelled; reserved stock released'
+                        : order.paymentStatus === 'PAID_AT_PICKUP' ? 'Payment recorded at pickup (staff-attested)'
                         : order.paymentStatus === 'PAID_ON_DELIVERY' ? 'Payment recorded on delivery (staff-attested)'
                         : order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)'
-                        : order.fulfillmentMethod === 'DELIVERY' ? 'Pay on delivery after accepting the quoted fee'
-                        : 'Pay at dealership pickup'}</small>
+                        : order.fulfillmentMethod === 'DELIVERY'
+                          ? order.deliveryQuoteStatus === 'ACCEPTED' ? 'Pay on delivery when it arrives' : 'Pay on delivery after accepting the quoted fee'
+                          : 'Pay at dealership pickup'}</small>
                       {order.fulfillmentMethod === 'DELIVERY' && <small>Delivery address: {order.deliveryAddress}</small>}
                       {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_STAFF_QUOTE' && order.status === 'PLACED' &&
                         <small>Awaiting Lucky Bajaj delivery quote. Current total is the parts subtotal only; the delivery fee is not set yet.</small>}
@@ -889,8 +891,8 @@ export default function App() {
                         </>}
                       {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'ACCEPTED' && order.status === 'PLACED' &&
                         <small>Delivery fee accepted: {money(order.deliveryFee)}. Lucky Bajaj can now arrange delivery; pay when it arrives.</small>}
-                      {order.fulfillmentMethod === 'DELIVERY' && order.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' && order.status === 'CANCELLED' &&
-                        <small>The order was cancelled; its pending delivery quote is no longer active.</small>}
+                      {order.fulfillmentMethod === 'DELIVERY' && order.status === 'CANCELLED' &&
+                        <small>Delivery request cancelled; stock reservation was released.</small>}
                       {order.status === 'RETURNED' && order.returnReason && <small>Return reason: {order.returnReason}. Returned quantity {order.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</small>}
                     </div>
                     {order.status === 'PLACED' && <button type="button" className="text-link danger-link" disabled={saving} onClick={() => void cancelRetailOrder(order)}>Cancel and release stock</button>}

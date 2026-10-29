@@ -73,6 +73,157 @@ async function mockShowroomApi(page: Page, promotions: unknown[] = []) {
   });
 }
 
+const retailPartFixture = {
+  publicId: 'part-retail-e2e-1',
+  skuCode: 'BRK-PAD-01',
+  partName: 'Front brake pad',
+  description: 'Genuine listed replacement part.',
+  unitOfMeasure: 'EACH',
+  retailPrice: 199,
+  fitmentModelCodes: [],
+  imageUrl: null,
+  quantityAvailable: 4,
+  available: true,
+};
+
+function deliveryOrderFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    publicId: 'retail-order-e2e-1',
+    orderCode: 'RPO-E2E-001',
+    status: 'PLACED',
+    paymentMethod: 'PAY_ON_DELIVERY',
+    paymentStatus: 'PAY_ON_DELIVERY',
+    orderTotal: 249,
+    fulfillmentMethod: 'DELIVERY',
+    deliveryAddress: '12 Sample Road, Bettiah, Bihar 845438',
+    deliveryFee: 50,
+    deliveryQuoteStatus: 'AWAITING_CUSTOMER_CONFIRMATION',
+    deliveryQuoteNote: 'Local delivery to the requested address',
+    deliveryQuotedAt: '2026-10-29T07:00:00Z',
+    customerNote: null,
+    createdAt: '2026-10-29T06:45:00Z',
+    updatedAt: '2026-10-29T07:00:00Z',
+    cancelledAt: null,
+    fulfilledAt: null,
+    returnedAt: null,
+    returnReason: null,
+    restockedOnReturn: null,
+    customerName: 'Manav Test Customer',
+    customerCode: 'CUS-E2E-001',
+    customerPhone: '9000000001',
+    lines: [{
+      partPublicId: retailPartFixture.publicId,
+      skuCode: retailPartFixture.skuCode,
+      partName: retailPartFixture.partName,
+      unitOfMeasure: retailPartFixture.unitOfMeasure,
+      quantity: 1,
+      unitPrice: 199,
+      lineTotal: 199,
+    }],
+    ...overrides,
+  };
+}
+
+type CustomerRetailE2EState = {
+  checkoutPayload: Record<string, unknown> | null;
+  quoteAcceptance: boolean | null;
+  cancellationRequested: boolean;
+  currentOrder: Record<string, unknown> | null;
+};
+
+async function mockSignedInCustomerPortal(
+  page: Page,
+  initialOrder: Record<string, unknown> | null = null,
+): Promise<CustomerRetailE2EState> {
+  const state: CustomerRetailE2EState = {
+    checkoutPayload: null,
+    quoteAcceptance: null,
+    cancellationRequested: false,
+    currentOrder: initialOrder ? { ...initialOrder } : null,
+  };
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('qe_customer_portal_token', 'synthetic-customer-token');
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const method = request.method();
+    const json = (payload: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    });
+
+    if (path === '/api/v1/customer/auth/me') {
+      return json({
+        publicId: 'customer-public-e2e-1',
+        customerCode: 'CUS-E2E-001',
+        fullName: 'Manav Test Customer',
+        phone: '9000000001',
+        email: null,
+        preferredLanguage: 'en',
+        dealershipCode: 'LBA',
+        dealershipName: 'Lucky Bajaj Agency',
+      });
+    }
+    if (path === '/api/v1/customer/vehicles'
+      || path === '/api/v1/customer/service-history'
+      || path === '/api/v1/customer/appointments'
+      || path === '/api/v1/customer/sales-requests') {
+      return json([]);
+    }
+    if (path === '/api/v1/customer/notifications') {
+      return json({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+    }
+    if (path === '/api/v1/customer/parts' && method === 'GET') return json([retailPartFixture]);
+    if (path === '/api/v1/customer/parts/orders' && method === 'GET') {
+      return json(state.currentOrder ? [state.currentOrder] : []);
+    }
+    if (path === '/api/v1/customer/parts/orders' && method === 'POST') {
+      state.checkoutPayload = request.postDataJSON() as Record<string, unknown>;
+      const delivery = state.checkoutPayload.fulfillmentMethod === 'DELIVERY';
+      state.currentOrder = deliveryOrderFixture({
+        publicId: 'retail-order-e2e-created',
+        orderCode: 'RPO-E2E-NEW',
+        orderTotal: 199,
+        fulfillmentMethod: delivery ? 'DELIVERY' : 'PICKUP',
+        paymentMethod: delivery ? 'PAY_ON_DELIVERY' : 'PAY_AT_PICKUP',
+        paymentStatus: delivery ? 'PAY_ON_DELIVERY' : 'PAY_ON_PICKUP',
+        deliveryAddress: delivery ? state.checkoutPayload.deliveryAddress : null,
+        deliveryFee: 0,
+        deliveryQuoteStatus: delivery ? 'AWAITING_STAFF_QUOTE' : 'NOT_REQUIRED',
+        deliveryQuoteNote: null,
+        deliveryQuotedAt: null,
+      });
+      return json(state.currentOrder);
+    }
+    if (path.endsWith('/delivery-quote-response') && method === 'POST') {
+      const body = request.postDataJSON() as { accept: boolean };
+      state.quoteAcceptance = body.accept;
+      state.currentOrder = deliveryOrderFixture({
+        ...(state.currentOrder ?? {}),
+        status: body.accept ? 'PLACED' : 'CANCELLED',
+        deliveryQuoteStatus: body.accept ? 'ACCEPTED' : 'DECLINED',
+        cancelledAt: body.accept ? null : new Date().toISOString(),
+      });
+      return json(state.currentOrder);
+    }
+    if (/\/api\/v1\/customer\/parts\/orders\/[^/]+\/cancel$/.test(path) && method === 'POST') {
+      state.cancellationRequested = true;
+      state.currentOrder = deliveryOrderFixture({
+        ...(state.currentOrder ?? {}),
+        status: 'CANCELLED',
+        deliveryQuoteStatus: (state.currentOrder?.fulfillmentMethod === 'DELIVERY') ? 'CANCELLED' : 'NOT_REQUIRED',
+        cancelledAt: new Date().toISOString(),
+      });
+      return json(state.currentOrder);
+    }
+    if (path === '/api/v1/customer/auth/logout' && method === 'POST') return json({ success: true });
+    return json({});
+  });
+  return state;
+}
+
 
 test('public catalogue renders at least 20 Bajaj model cards and searches the returned catalogue', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -224,4 +375,88 @@ test('bike details dialog supports Escape and restores keyboard focus', async ({
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
+});
+
+
+test('signed-in customer can request delivery with an address without inventing a delivery fee', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  const state = await mockSignedInCustomerPortal(page);
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Add to cart' }).click();
+  await page.getByLabel('Fulfillment method').selectOption('DELIVERY');
+  const address = '12 Sample Road, Bettiah, Bihar 845438';
+  await page.getByPlaceholder('House / street, locality, city, state and PIN code').fill(address);
+  await expect(page.getByText(/the order total currently shows parts only/i)).toBeVisible();
+  await page.getByRole('button', { name: 'Request delivery quote' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Delivery request RPO-E2E-NEW saved.');
+  await expect(page.getByText('Awaiting Lucky Bajaj delivery quote.', { exact: false })).toBeVisible();
+  expect(state.checkoutPayload).toMatchObject({
+    fulfillmentMethod: 'DELIVERY',
+    deliveryAddress: address,
+    fitmentModelCode: null,
+  });
+  expect(state.currentOrder).toMatchObject({
+    fulfillmentMethod: 'DELIVERY',
+    deliveryAddress: address,
+    deliveryFee: 0,
+    deliveryQuoteStatus: 'AWAITING_STAFF_QUOTE',
+    orderTotal: 199,
+    paymentStatus: 'PAY_ON_DELIVERY',
+  });
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('customer explicitly accepts a quoted delivery fee before delivery can proceed', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture());
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await expect(page.getByText('Delivery fee: ₹50.00', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Accept delivery quote' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Delivery quote for RPO-E2E-001 accepted.');
+  await expect(page.getByText('Delivery fee accepted: ₹50.00', { exact: false })).toBeVisible();
+  await expect(page.getByText('Pay on delivery when it arrives', { exact: true })).toBeVisible();
+  expect(state.quoteAcceptance).toBe(true);
+  expect(state.currentOrder).toMatchObject({ status: 'PLACED', deliveryQuoteStatus: 'ACCEPTED' });
+  await expect(page.getByRole('button', { name: 'Accept delivery quote' })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('declining a delivery quote cancels the order and shows that stock was released', async ({ page }) => {
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture());
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Decline and cancel order' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Delivery quote declined. Order RPO-E2E-001 was cancelled');
+  await expect(page.getByText('Delivery request cancelled; stock reservation was released.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Order cancelled; reserved stock released', { exact: true })).toBeVisible();
+  expect(state.quoteAcceptance).toBe(false);
+  expect(state.currentOrder).toMatchObject({ status: 'CANCELLED', deliveryQuoteStatus: 'DECLINED' });
+  await expect(page.getByRole('button', { name: 'Accept delivery quote' })).toHaveCount(0);
+});
+
+test('customer cancellation before a delivery quote marks the request cancelled and prevents stale quote prompts', async ({ page }) => {
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture({
+    deliveryFee: 0,
+    deliveryQuoteStatus: 'AWAITING_STAFF_QUOTE',
+    deliveryQuoteNote: null,
+    deliveryQuotedAt: null,
+    orderTotal: 199,
+  }));
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Cancel and release stock' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Order RPO-E2E-001 was cancelled and its stock reservation released.');
+  await expect(page.getByText('Delivery request cancelled; stock reservation was released.', { exact: true })).toBeVisible();
+  expect(state.cancellationRequested).toBe(true);
+  expect(state.currentOrder).toMatchObject({ status: 'CANCELLED', deliveryQuoteStatus: 'CANCELLED' });
+  await expect(page.getByText('Awaiting Lucky Bajaj delivery quote.', { exact: false })).toHaveCount(0);
 });
