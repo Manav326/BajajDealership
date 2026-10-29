@@ -690,6 +690,7 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
       browserDiagnostics.push(message.type() + ': ' + message.text());
     }
   });
+  await mockApi(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
