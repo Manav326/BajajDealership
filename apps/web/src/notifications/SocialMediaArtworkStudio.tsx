@@ -463,7 +463,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     return () => { cancelled = true; };
   }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility]);
 
-  async function refreshArtworkAssets() {
+  async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
     const assets = await loadArtworkAssets();
     Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
     const previews: Record<string, string> = {};
@@ -480,6 +480,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     assetPreviewUrlsRef.current = createdUrls;
     setArtworkAssets(assets);
     setAssetPreviewSources(previews);
+    return assets;
   }
 
   async function selectArtworkAsset(asset: ArtworkAsset) {
@@ -513,8 +514,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setNotice('');
     let asset = artworkAssets.find((item) => item.id === template.assetId);
     if (!asset) {
-      await refreshArtworkAssets();
-      asset = artworkAssets.find((item) => item.id === template.assetId);
+      const refreshedAssets = await refreshArtworkAssets();
+      asset = refreshedAssets.find((item) => item.id === template.assetId);
     }
     if (!asset) {
       setError('The template image is missing from the asset library. Refresh the studio and try again.');
@@ -555,7 +556,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
     const asset: ArtworkAsset = {
       id: newDraftId(),
-      name: file.name.replace(/\\.[^.]+$/, '').slice(0, 100) || 'Uploaded image',
+      name: file.name.replace(/\.[^.]+$/, '').slice(0, 100) || 'Uploaded image',
       category: 'Uploaded',
       sourceUrl: null,
       sourcePage: 'Uploaded locally by an authorized staff user',
@@ -568,7 +569,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setAssetBusyId(asset.id);
     try {
       await addArtworkAsset(asset);
-      setPhotoSource(await blobToDataUrl(asset.fileData));
+      setPhotoSource(await blobToDataUrl(asset.fileData!));
       setSelectedAssetId(asset.id);
       await refreshArtworkAssets();
       setAssetLibraryOpen(true);
