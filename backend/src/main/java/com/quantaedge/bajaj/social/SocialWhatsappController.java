@@ -22,22 +22,22 @@ public class SocialWhatsappController {
  private final SocialWhatsappService whatsapp;
  public SocialWhatsappController(SocialWhatsappService whatsapp){this.whatsapp=whatsapp;}
  @GetMapping("/api/v1/admin/social/whatsapp/status")
- @PreAuthorize("hasAuthority('social_media.whatsapp.read')")
+ @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.manage','social_media.whatsapp.send')")
  public SocialWhatsappService.StatusView status(@AuthenticationPrincipal StaffPrincipal principal){return whatsapp.status(principal);}
  @GetMapping("/api/v1/admin/social/whatsapp/customers")
- @PreAuthorize("hasAnyAuthority('social_media.whatsapp.manage','social_media.whatsapp.send')")
+ @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.manage','social_media.whatsapp.send')")
  public List<SocialWhatsappService.CustomerOption> customers(@AuthenticationPrincipal StaffPrincipal principal,@RequestParam(defaultValue="") String q,@RequestParam(defaultValue="50") int limit){return whatsapp.customers(principal,q,limit);}
  @PostMapping("/api/v1/admin/social/whatsapp/customers/{customerPublicId}/consent")
  @PreAuthorize("hasAuthority('social_media.whatsapp.manage')")
  public SocialWhatsappService.ConsentView consent(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID customerPublicId,@Valid @RequestBody SocialWhatsappService.ConsentRequest request){return whatsapp.recordConsent(principal,customerPublicId,request);}
  @GetMapping("/api/v1/admin/social/whatsapp/templates")
- @PreAuthorize("hasAuthority('social_media.whatsapp.read')")
+ @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.send')")
  public List<SocialWhatsappService.TemplateView> templates(@AuthenticationPrincipal StaffPrincipal principal){return whatsapp.templates(principal);}
  @PostMapping("/api/v1/admin/social/whatsapp/send")
  @PreAuthorize("hasAuthority('social_media.whatsapp.send')")
  public SocialWhatsappService.MessageView send(@AuthenticationPrincipal StaffPrincipal principal,@RequestBody SocialWhatsappService.SendRequest request){return whatsapp.send(principal,request);}
  @GetMapping("/api/v1/admin/social/whatsapp/messages/{publicId}")
- @PreAuthorize("hasAuthority('social_media.whatsapp.read')")
+ @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.send')")
  public SocialWhatsappService.MessageView message(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return whatsapp.messageStatus(principal,publicId);}
  @GetMapping("/api/v1/social/whatsapp/webhook")
  public ResponseEntity<String> verify(@RequestParam(name="hub.mode",required=false) String mode,@RequestParam(name="hub.verify_token",required=false) String token,@RequestParam(name="hub.challenge",required=false) String challenge){

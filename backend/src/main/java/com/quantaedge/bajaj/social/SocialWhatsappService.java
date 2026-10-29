@@ -131,7 +131,7 @@ public class SocialWhatsappService {
   if(key.length()<8||key.length()>120)throw badRequest("A valid idempotency key is required.");
   if(parameters.size()>20||parameters.stream().anyMatch(p->p==null||p.length()>1024))throw badRequest("Template parameters exceed supported limits.");
   String paramsJson=writeJson(parameters),assetMarker=request.assetId()==null?"":request.assetId().toString();
-  String fingerprint=TokenDigests.sha256(request.customerPublicId()+"\\n"+name+"\\n"+language+"\\n"+paramsJson+"\\n"+assetMarker);
+  String fingerprint=TokenDigests.sha256(request.customerPublicId()+"\n"+name+"\\n"+language+"\\n"+paramsJson+"\\n"+assetMarker);
   MessageRow prior=findByKey(actor.dealershipId(),key);
   if(prior!=null){if(!prior.fingerprint().equals(fingerprint))throw new ResponseStatusException(HttpStatus.CONFLICT,"This idempotency key belongs to a different message.");return toView(prior);}
 
@@ -143,7 +143,7 @@ public class SocialWhatsappService {
 
   TemplateView template=templates(actor).stream().filter(t->t.name().equals(name)&&t.language().equalsIgnoreCase(language))
     .findFirst().orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,"Template is not currently approved for this language."));
-  if(!template.supported())throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,template.reason());
+  if(!template.supported())throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,template.unsupportedReason());
   if(parameters.size()!=template.bodyParameterCount())throw badRequest("This template requires exactly "+template.bodyParameterCount()+" body parameter(s).");
   if(parameters.stream().anyMatch(String::isBlank))throw badRequest("Fill in every required template parameter.");
   SocialMediaAssetService.PreparedAsset asset=null;

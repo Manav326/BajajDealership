@@ -4,6 +4,28 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 
+usage() {
+  echo "Usage: sh ./scripts/start.sh [build|pull] [image-tag]"
+  echo "  build  Build the API and both web images locally (default)."
+  echo "  pull   Pull prebuilt API/web images from GHCR, then run them."
+  echo "  tag    Optional GHCR tag; defaults to latest (for example sha-<commit>)."
+}
+
+MODE="${1:-build}"
+IMAGE_TAG="${2:-latest}"
+case "$MODE" in
+  build|pull) ;;
+  -h|--help|help) usage; exit 0 ;;
+  *) echo "Unknown mode: $MODE" >&2; usage >&2; exit 2 ;;
+esac
+case "$IMAGE_TAG" in
+  ""|[!A-Za-z0-9_]*|*[!A-Za-z0-9_.-]*)
+    echo "Invalid Docker image tag: $IMAGE_TAG" >&2
+    exit 2
+    ;;
+esac
+export BAJAJ_IMAGE_TAG="$IMAGE_TAG"
+
 command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
@@ -87,7 +109,20 @@ echo "Backend API  : http://localhost:8080"
 echo "Android API  : $ANDROID_BASE_URL"
 
 docker compose -f compose.yaml config --quiet
-docker compose -f compose.yaml up --build -d
+if [ "$MODE" = "pull" ]; then
+  echo "Pulling prebuilt GHCR images (tag: $BAJAJ_IMAGE_TAG)…"
+  if ! docker compose -f compose.yaml pull api customer-web staff-web; then
+    echo "Could not pull GHCR images for the selected tag." >&2
+    echo "If the packages are private, authenticate first with: docker login ghcr.io" >&2
+    echo "Then rerun: sh ./scripts/start.sh pull $BAJAJ_IMAGE_TAG" >&2
+    exit 1
+  fi
+  docker compose -f compose.yaml up --no-build -d
+else
+  echo "Building API and both web images locally (tag: $BAJAJ_IMAGE_TAG)…"
+  docker compose -f compose.yaml up --build -d
+fi
+
 
 echo "Waiting for the API and both websites…"
 i=0

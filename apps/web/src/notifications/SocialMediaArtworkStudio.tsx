@@ -802,7 +802,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <p className={styles.note}>Facebook/Instagram posts and WhatsApp Business template messages use separate, permission-gated API workflows. WhatsApp Status is still manual export/share.</p>
           </main>
         </div>
-        <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />
+        {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />}
       </section>
     </div>
   );
