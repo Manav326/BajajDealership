@@ -3,8 +3,11 @@ package com.quantaedge.bajaj.commerce;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.quantaedge.bajaj.customers.CustomerPortalService;
+import com.quantaedge.bajaj.customers.CustomerService;
 import com.quantaedge.bajaj.inventory.SparePartsService;
 import com.quantaedge.bajaj.security.CustomerPrincipal;
+import com.quantaedge.bajaj.security.TokenDigests;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import java.math.BigDecimal;
 import java.util.List;
@@ -32,6 +35,8 @@ class RetailPartsServiceIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private SparePartsService spareParts;
   @Autowired private RetailPartsService retailParts;
+  @Autowired private CustomerService customers;
+  @Autowired private CustomerPortalService portal;
 
   @Test
   void updatingRetailSettingsReturnsTheSavedDealershipScopedListing() {
@@ -165,7 +170,7 @@ class RetailPartsServiceIntegrationTest {
           and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
         """, manager.dealershipId(), manager.dealershipId(), part.publicId());
 
-    CustomerPrincipal customer = customerIn(manager);
+    CustomerPrincipal customer = registeredCustomerIn(manager);
     String firstKey = "race-a-" + UUID.randomUUID();
     String secondKey = "race-b-" + UUID.randomUUID();
     CountDownLatch ready = new CountDownLatch(2);
@@ -216,6 +221,164 @@ class RetailPartsServiceIntegrationTest {
         select count(*) from retail_part_order
         where dealership_id = ? and customer_id = ?
         """, Integer.class, manager.dealershipId(), customer.customerId())).isEqualTo(1);
+  }
+
+  @Test
+  void repeatedCheckoutWithSameKeyReturnsSameOrderAndDoesNotReserveTwice() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("REPLAY-" + UUID.randomUUID().toString().substring(0, 8),
+            "Spark plug", "Replay-safe order test", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("210.00"),
+            "Bajaj-compatible spark plug", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 5.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    String key = "same-checkout-" + UUID.randomUUID();
+    var request = new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), new BigDecimal("2.000"))),
+        null, "Idempotency regression", key);
+
+    var first = retailParts.placeOrder(customer, request);
+    var replay = retailParts.placeOrder(customer, request);
+
+    assertThat(replay.publicId()).isEqualTo(first.publicId());
+    assertThat(replay.orderTotal()).isEqualByComparingTo("420.00");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from retail_part_order where dealership_id = ? and idempotency_key = ?
+        """, Integer.class, manager.dealershipId(), key)).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("2.000");
+    assertThatThrownBy(() -> retailParts.placeOrder(customer,
+        new RetailPartsService.PlaceOrderRequest(
+            List.of(new RetailPartsService.OrderLineRequest(part.publicId(), new BigDecimal("1.000"))),
+            null, "Different payload with same key", key)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  @Test
+  void cancellingPlacedRetailOrderReleasesItsReservationExactlyOnce() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("CANCEL-" + UUID.randomUUID().toString().substring(0, 8),
+            "Air filter", "Cancellation release regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("310.00"),
+            "Bajaj-compatible air filter", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 4.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), new BigDecimal("2.000"))),
+        null, "Cancel stock release", "cancel-order-" + UUID.randomUUID()));
+
+    var cancelled = retailParts.cancelOrder(customer, placed.publicId());
+    assertThat(cancelled.status()).isEqualTo("CANCELLED");
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("4.000");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+    assertThatThrownBy(() -> retailParts.cancelOrder(customer, placed.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  @Test
+  void collectionFulfilmentConsumesReservedStockAndRecordsPaymentOnlyAfterStaffAction() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("FULFIL-" + UUID.randomUUID().toString().substring(0, 8),
+            "Brake pad set", "Collection state regression", "SET"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("599.00"),
+            "Bajaj-compatible brake pad set", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 3.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Fulfilment state", "fulfil-order-" + UUID.randomUUID()));
+    assertThat(placed.paymentStatus()).isEqualTo("PAY_ON_PICKUP");
+
+    var fulfilled = retailParts.fulfillOrder(manager, placed.publicId(),
+        new RetailPartsService.FulfillRequest("UPI", "TEST-COLLECTION-REF", "Synthetic test collection",
+            "collection-" + UUID.randomUUID()));
+
+    assertThat(fulfilled.status()).isEqualTo("FULFILLED");
+    assertThat(fulfilled.paymentStatus()).isEqualTo("PAID_AT_PICKUP");
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("2.000");
+    assertThat(jdbc.queryForObject("""
+        select quantity_reserved from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("0.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from retail_part_order_collection
+        where dealership_id = ? and order_id = (select id from retail_part_order where dealership_id = ? and public_id = ?)
+        """, Integer.class, manager.dealershipId(), manager.dealershipId(), placed.publicId())).isEqualTo(1);
+  }
+
+  private CustomerPrincipal registeredCustomerIn(StaffPrincipal manager) {
+    String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
+    StaffPrincipal owner = new StaffPrincipal(
+        manager.sessionId(), manager.staffUserId(), manager.staffPublicId(), manager.dealershipId(),
+        manager.dealershipPublicId(), manager.dealershipCode(), manager.fullName(), Set.of("OWNER"),
+        Set.of("customer.read", "customer.create", "customer.update", "parts.read", "parts.manage"));
+    CustomerService.CustomerView customer = customers.create(owner,
+        new CustomerService.CustomerRequest(
+            "Retail Test Customer " + suffix,
+            "9188" + String.format("%06d", Math.abs(UUID.randomUUID().hashCode()) % 1_000_000),
+            null, "retail-customer-" + suffix.toLowerCase(java.util.Locale.ROOT) + "@example.test",
+            "en", false, null, "Created for retail-order integration test."));
+    var invitation = portal.issueInvitation(owner, customer.publicId());
+    var session = portal.activate(
+        new CustomerPortalService.ActivationRequest(invitation.activationToken(), "Strong-Customer-Password-123"),
+        "203.0.113.41", "retail-order-test-agent");
+    return principalForToken(session.accessToken());
+  }
+
+  private CustomerPrincipal principalForToken(String rawToken) {
+    return jdbc.queryForObject("""
+        select session.id as session_id, account.id as account_id, account.public_id as account_public_id,
+          customer.id as customer_id, customer.public_id as customer_public_id,
+          dealership.id as dealership_id, dealership.public_id as dealership_public_id,
+          dealership.code as dealership_code, dealership.name as dealership_name,
+          customer.customer_code, customer.full_name, customer.preferred_language, customer.phone, customer.email
+        from customer_portal_session session
+        join customer_portal_account account
+          on account.dealership_id = session.dealership_id and account.id = session.account_id
+        join customer on customer.dealership_id = account.dealership_id and customer.id = account.customer_id
+        join dealership on dealership.id = session.dealership_id
+        where session.token_hash = ?
+        """, (rs, rowNum) -> new CustomerPrincipal(
+            rs.getLong("session_id"), rs.getLong("account_id"), rs.getString("account_public_id"),
+            rs.getLong("customer_id"), rs.getString("customer_public_id"), rs.getLong("dealership_id"),
+            rs.getString("dealership_public_id"), rs.getString("dealership_code"), rs.getString("dealership_name"),
+            rs.getString("customer_code"), rs.getString("full_name"), rs.getString("preferred_language"),
+            rs.getString("phone"), rs.getString("email")), TokenDigests.sha256(rawToken));
   }
 
   private CustomerPrincipal customerIn(StaffPrincipal manager) {
