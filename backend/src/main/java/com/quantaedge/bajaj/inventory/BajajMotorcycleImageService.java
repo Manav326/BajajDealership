@@ -24,7 +24,7 @@ public class BajajMotorcycleImageService {
 
   @Transactional
   public UploadedImage upload(StaffPrincipal actor, String rawModelCode, MultipartFile file) {
-    String code = normalize(rawModelCode); requireModel(code);
+    String code = normalize(rawModelCode); requireModel(actor.dealershipId(), code);
     if (file == null || file.isEmpty()) throw bad("Choose a JPEG, PNG or WebP image.");
     if (file.getSize() > MAX_BYTES) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Images must be 4.5 MiB or smaller.");
     byte[] bytes;
@@ -92,9 +92,14 @@ public class BajajMotorcycleImageService {
     return image;
   }
 
-  private void requireModel(String code) {
-    Integer count=jdbc.queryForObject("select count(*) from bajaj_motorcycle_catalog where model_code=? and published=true",Integer.class,code);
-    if(count==null||count!=1) throw notFound("Bajaj motorcycle model was not found.");
+  private void requireModel(long dealershipId, String code) {
+    Integer count = jdbc.queryForObject("""
+      select count(*) from bajaj_catalogue_model c
+      join bajaj_catalogue_dealership_model settings on settings.model_code = c.model_code
+      where c.model_code = ? and c.manufacturer = 'BAJAJ' and c.active = true
+        and settings.dealership_id = ?
+      """, Integer.class, code, dealershipId);
+    if (count == null || count != 1) throw notFound("Bajaj catalogue model was not found for this dealership.");
   }
   private static String normalize(String raw) {
     if(raw==null||!raw.trim().matches("(?i)[a-z0-9][a-z0-9._-]{0,59}")) throw bad("A valid model code is required.");
