@@ -150,6 +150,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [selectedRecipients, setSelectedRecipients] = useState<Recipient[]>([]);
   const [excludedRecipients, setExcludedRecipients] = useState<Recipient[]>([]);
   const [document, setDocument] = useState<DocumentV1>(defaultDocument);
+  const [previewMode, setPreviewMode] = useState<'mobile' | 'inbox' | 'push'>('mobile');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [approvedCampaignPublicId, setApprovedCampaignPublicId] = useState('');
   const [scheduleValue, setScheduleValue] = useState('');
@@ -660,9 +661,35 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
           <aside className="studio-preview-column">
             <section className="studio-preview-panel">
               <div className="preview-panel-header"><div><span className="panel-step">04</span><div><h2>Preview</h2><p>Preview is not delivery.</p></div></div><button type="button" className="primary-button" onClick={() => void previewCampaign()} disabled={saving || !title.trim() || !summary.trim()}>{saving ? 'Validating…' : 'Preview audience'}</button></div>
+              <div className="preview-view-controls" role="group" aria-label="Choose notification preview format">
+                {([
+                  ['mobile', 'Mobile app'],
+                  ['inbox', 'Desktop inbox'],
+                  ['push', 'Push'],
+                ] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={previewMode === mode ? 'preview-view-button active' : 'preview-view-button'}
+                    aria-pressed={previewMode === mode}
+                    onClick={() => setPreviewMode(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className="preview-summary"><span className="preview-summary-icon">◎</span><div><strong>{title || 'Your campaign title'}</strong><span>{summary || 'Your inbox summary'}</span><small>Draft · {document.blocks.length} content blocks</small></div></div>
-              <div className="rich-preview-frame"><div className="preview-device-top"><span /><span /><span /></div><RichNotificationRenderer document={document} surface="admin" mode="mobile" /></div>
-              {preview && <div className="preview-result" role="status">
+              <div className="rich-preview-frame" data-preview-mode={previewMode}>
+                <div className="preview-frame-heading">
+                  <span>MESSAGE CONTENT</span>
+                  <span>{previewMode === 'mobile' ? 'Mobile app' : previewMode === 'inbox' ? 'Desktop inbox' : 'Push notification'}</span>
+                </div>
+                <div className="preview-device-screen">
+                  <RichNotificationRenderer document={document} surface="admin" mode={previewMode} />
+                </div>
+              </div>
+            </section>
+            {preview && <div className="preview-result" role="status">
                 <div className="preview-result-top"><span className="preview-success-icon">✓</span><div><strong>Audience validated</strong><span>{preview.recipientCount.toLocaleString('en-IN')} recipients after exclusions</span></div></div>
                 <div className="preview-counts">{Object.entries(preview.recipientCounts).map(([kind, count]) => <div key={kind}><span>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</span><strong>{count.toLocaleString('en-IN')}</strong></div>)}</div>
                 <p>{preview.message}</p>
@@ -674,7 +701,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   {approvedCampaignPublicId !== preview.campaignPublicId && !canApprove && <span className="approval-permission-note">Your role does not include approval.</span>}
                 </div>
               </div>}
-              <form className="send-panel" onSubmit={sendCampaign}>
+              <form className="send-panel send-panel-card" onSubmit={sendCampaign}>
                 <h3>Send or schedule</h3>
                 <p>The server must record approval of the same unexpired preview before sending or scheduling.</p>
                 <label>Schedule for later <span className="optional-label">Optional</span><input type="datetime-local" value={scheduleValue} onChange={(event) => setScheduleValue(event.target.value)} /></label>
@@ -682,7 +709,6 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
                 <div className="send-channel-note">{!canSend && <><strong>Send permission required:</strong> Your role can prepare previews but cannot send or schedule notifications yet. </>}<strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
               </form>
-            </section>
             <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign approval is audited, recipient changes invalidate approval, and sends use one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
           </aside>
         </div>
