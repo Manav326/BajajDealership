@@ -763,6 +763,7 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await mockShowroomApi(page);
   await page.goto('http://127.0.0.1:4173');
 
+  await page.getByRole('button', { name: 'Toggle navigation' }).click();
   await page.getByRole('button', { name: 'My account' }).click();
   await expect(page).toHaveURL(/\/\?view=signin$/);
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
@@ -772,6 +773,7 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await expect(page.locator('.bajaj-showroom')).toBeVisible();
 
   await page.goto('http://127.0.0.1:4173/?view=signup');
+  await page.reload();
   await expect(page).toHaveURL(/\/\?view=signup$/);
   await expect(page.getByRole('tab', { name: 'Activate account' })).toHaveAttribute('aria-selected', 'true');
 
@@ -791,6 +793,9 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await page.getByRole('button', { name: '← Back to showroom' }).click();
   await expect(page).toHaveURL('http://127.0.0.1:4173/');
   await expect(page.locator('.bajaj-showroom')).toBeVisible();
+  const showroomLogo = page.locator('.showroom-footer .quantaedge-attribution img');
+  await showroomLogo.scrollIntoViewIfNeeded();
+  await expect(showroomLogo).toBeVisible();
 
   await page.getByRole('button', { name: 'Privacy policy' }).scrollIntoViewIfNeeded();
   await page.getByRole('button', { name: 'Privacy policy' }).click();
