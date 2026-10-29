@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 export type ShowroomAction = 'TEST_RIDE' | 'PURCHASE';
 
@@ -104,6 +104,7 @@ export default function BajajShowroom({
 }) {
   const Wrapper = mode === 'portal' ? 'div' : 'main';
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
+  const [heroSelectionCode, setHeroSelectionCode] = useState('BAJAJ_PULSAR_NS400Z');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [catalogueAttempt, setCatalogueAttempt] = useState(0);
@@ -339,8 +340,39 @@ export default function BajajShowroom({
     return matchesCategory && matchesQuery;
   }), [catalogue, category, query]);
 
-  const featured = (catalogue?.bikes ?? []).find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z')
+  // Keep the orbital stage small: only the first seven image-ready catalogue bikes
+  // are mounted in the hero, rather than rendering the full catalogue above the fold.
+  const heroBikes = useMemo(() => {
+    const available = (catalogue?.bikes ?? []).filter((bike) => Boolean(bike.heroImageUrl));
+    const preferred = available.find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z');
+    const ordered = preferred
+      ? [preferred, ...available.filter((bike) => bike.modelCode !== preferred.modelCode)]
+      : available;
+    return ordered.slice(0, 7);
+  }, [catalogue]);
+  const heroSelectedIndex = Math.max(0, heroBikes.findIndex((bike) => bike.modelCode === heroSelectionCode));
+  const activeHeroBike = heroBikes[heroSelectedIndex] ?? (catalogue?.bikes ?? []).find((bike) => bike.modelCode === 'BAJAJ_PULSAR_NS400Z')
     ?? catalogue?.bikes?.[0];
+  const featured = activeHeroBike;
+
+  // Low-frequency state updates only; CSS handles interpolation between positions.
+  // Automatic movement pauses in hidden tabs and respects reduced-motion preferences.
+  useEffect(() => {
+    if (heroBikes.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const rotate = () => {
+      if (document.visibilityState !== 'visible') return;
+      setHeroSelectionCode((current) => {
+        const currentIndex = heroBikes.findIndex((bike) => bike.modelCode === current);
+        return heroBikes[(Math.max(0, currentIndex) + 1) % heroBikes.length].modelCode;
+      });
+    };
+    const timer = window.setInterval(rotate, 5600);
+    document.addEventListener('visibilitychange', rotate);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', rotate);
+    };
+  }, [heroBikes, heroSelectionCode]);
 
   const comparedBikes = useMemo(
     () => compareModelCodes.map((code) => catalogue?.bikes.find((bike) => bike.modelCode === code))
@@ -466,14 +498,49 @@ export default function BajajShowroom({
           </div>
           <div className="showroom-hero-proof"><span>01 <i> / </i>BAJAJ ONLY</span><span>02 <i> / </i>REAL INVENTORY</span><span>03 <i> / </i>YOUR NEXT RIDE</span></div>
         </div>
-        <div className="showroom-hero-stage" aria-label={featured ? `Bajaj ${featured.modelName}` : 'Bajaj motorcycle showcase'}>
+        <div className="showroom-hero-stage showroom-orbital-stage" aria-label="Interactive 3D-style Bajaj motorcycle orbit">
           <div className="showroom-stage-disc" aria-hidden="true" />
           <div className="showroom-stage-ring ring-one" aria-hidden="true" />
           <div className="showroom-stage-ring ring-two" aria-hidden="true" />
-          {featured && <img src={catalogueAssetUrl(featured.heroImageUrl)} alt={`Bajaj ${featured.modelName}`} fetchPriority="high"
-            onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />}
-          {featured && <div className="showroom-stage-label"><span>FEATURED MACHINE</span><strong>{featured.modelName}</strong><small>{featured.engineCc} cc · {featured.maxPower}</small></div>}
-          <span className="showroom-stage-index" aria-hidden="true">B / 01</span>
+          <div className="showroom-orbit-track" aria-hidden="true" />
+          {heroBikes.map((bike, index) => {
+            const angle = ((index - heroSelectedIndex) / Math.max(heroBikes.length, 1)) * Math.PI * 2;
+            const depth = Math.cos(angle);
+            const x = Math.sin(angle) * 31;
+            const y = Math.sin(angle * 2) * 14;
+            const scale = 0.64 + ((depth + 1) / 2) * 0.36;
+            const style = {
+              '--orbit-x': `${x}%`,
+              '--orbit-y': `${y}px`,
+              '--orbit-depth': `${depth * 105}px`,
+              '--orbit-scale': scale,
+              '--orbit-depth-order': Math.round((depth + 1) * 10),
+            } as CSSProperties;
+            const isActive = bike.modelCode === activeHeroBike?.modelCode;
+            return <button
+              key={bike.modelCode}
+              type="button"
+              className={`showroom-orbit-bike${isActive ? ' is-active' : ''}`}
+              style={style}
+              aria-label={`Bring ${bike.modelName} to the front`}
+              aria-pressed={isActive}
+              onClick={() => setHeroSelectionCode(bike.modelCode)}
+            >
+              <img src={catalogueAssetUrl(bike.heroImageUrl)} alt="" loading={isActive ? 'eager' : 'lazy'}
+                fetchPriority={isActive ? 'high' : 'auto'} decoding="async"
+                onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />
+              <span>{bike.modelName}</span>
+            </button>;
+          })}
+          {featured && <div className="showroom-stage-label" aria-live="polite"><span>FEATURED MACHINE</span><strong>{featured.modelName}</strong><small>{featured.engineCc} cc · {featured.maxPower}</small></div>}
+          <span className="showroom-stage-index" aria-hidden="true">B / {String(heroSelectedIndex + 1).padStart(2, '0')}</span>
+          {heroBikes.length > 1 && <div className="showroom-orbit-controls" aria-label="Choose a motorcycle">
+            {heroBikes.map((bike) => <button key={bike.modelCode} type="button"
+              className={bike.modelCode === activeHeroBike?.modelCode ? 'is-active' : ''}
+              aria-label={`Show ${bike.modelName} in front`}
+              aria-pressed={bike.modelCode === activeHeroBike?.modelCode}
+              onClick={() => setHeroSelectionCode(bike.modelCode)} />)}
+          </div>}
         </div>
         <a className="showroom-scroll-cue" href="#collection"><span /> SCROLL TO DISCOVER</a>
       </section>

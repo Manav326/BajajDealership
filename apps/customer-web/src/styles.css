@@ -1577,3 +1577,26 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .purchase-history-icon { width:36px; height:36px; }
   .purchase-history-amount { grid-column:2; align-items:flex-start; text-align:left; padding-top:3px; }
 }
+
+
+/* Lightweight 3D-style orbital showroom: transforms are GPU-composited and
+   positions are recalculated only when the selected model changes. */
+.showroom-orbital-stage{overflow:hidden;transform-style:preserve-3d;contain:layout paint}
+.showroom-orbit-track{position:absolute;z-index:0;left:50%;top:55%;width:min(88%,620px);height:min(46%,220px);border:1px solid rgba(226,238,248,.13);border-radius:50%;transform:translate(-50%,-50%) rotateX(68deg);box-shadow:0 0 28px rgba(83,208,203,.045);pointer-events:none}
+.showroom-orbit-bike{--orbit-x:0px;--orbit-y:0px;--orbit-depth:0px;--orbit-scale:1;position:absolute;z-index:var(--orbit-depth-order,1);top:48%;width:clamp(150px,24vw,300px);height:clamp(120px,21vw,235px);padding:0;border:0;background:transparent;color:#eef3f9;display:grid;place-items:center;gap:0;cursor:pointer;left:calc(50% + var(--orbit-x));transform:translate3d(-50%,calc(-50% + var(--orbit-y)),var(--orbit-depth)) scale(var(--orbit-scale));transform-origin:center center;transition:transform 900ms cubic-bezier(.2,.75,.2,1),filter 650ms ease,opacity 650ms ease;backface-visibility:hidden;filter:saturate(.76) brightness(.72);opacity:.78}
+.showroom-orbit-bike img{display:block;width:100%;height:calc(100% - 22px);object-fit:contain;mix-blend-mode:lighten;filter:drop-shadow(0 24px 20px rgba(0,0,0,.5));pointer-events:none}
+.showroom-orbit-bike span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;letter-spacing:.7px;font-weight:750;color:#9eacbc;opacity:.9}
+.showroom-orbit-bike.is-active{filter:saturate(1.12) brightness(1.08);opacity:1}
+.showroom-orbit-bike.is-active img{filter:drop-shadow(0 30px 27px rgba(0,0,0,.58)) saturate(1.12) contrast(1.04)}
+.showroom-orbit-bike.is-active span{color:#f6f8fc;font-size:10px}
+.showroom-orbit-bike:focus-visible{outline:2px solid #ff8b69;outline-offset:3px;border-radius:14px}
+.showroom-orbit-bike img[data-failed="true"]{visibility:hidden}
+.showroom-orbit-controls{position:absolute;z-index:12;left:50%;bottom:2%;display:flex;align-items:center;justify-content:center;gap:8px;transform:translateX(-50%)}
+.showroom-orbit-controls button{width:6px;height:6px;padding:0;border:1px solid rgba(232,241,250,.65);border-radius:99px;background:rgba(232,241,250,.24);transition:width 250ms ease,background 250ms ease}
+.showroom-orbit-controls button.is-active{width:22px;background:#ff7959;border-color:#ff7959}
+.showroom-orbital-stage .showroom-stage-label{z-index:14;right:0;bottom:7%}
+.showroom-orbital-stage .showroom-stage-index{z-index:12}
+@media(max-width:1000px){.showroom-orbit-bike{width:clamp(145px,25vw,240px);height:clamp(120px,22vw,205px)}}
+@media(max-width:720px){.showroom-orbital-stage{min-height:320px}.showroom-orbit-bike{width:clamp(145px,43vw,220px);height:clamp(120px,37vw,180px)}.showroom-orbit-track{width:94%;height:45%;top:54%}.showroom-orbital-stage .showroom-stage-label{right:0;bottom:9%;min-width:132px}.showroom-orbit-controls{bottom:0}.showroom-orbit-bike span{font-size:8px}}
+@media(max-width:380px){.showroom-orbit-bike{width:150px;height:128px}.showroom-orbital-stage .showroom-stage-label{min-width:118px;padding:8px 10px}.showroom-orbit-bike span{font-size:7px}}
+@media(prefers-reduced-motion:reduce){.showroom-orbit-bike,.showroom-orbit-controls button{transition:none!important}}
