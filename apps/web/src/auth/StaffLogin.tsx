@@ -23,6 +23,27 @@ type ActivationResult = {
   loginIdentifier: string;
 };
 
+/** Read JSON responses safely while preserving plain-text proxy/server errors. */
+async function readResponseBody(response: Response): Promise<unknown> {
+  const body = await response.text();
+  if (!body.trim()) return null;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return body;
+  }
+}
+
+function responseErrorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === 'string' && payload.trim()) return payload.trim();
+  if (typeof payload === 'object' && payload !== null) {
+    const failure = payload as { message?: unknown; detail?: unknown };
+    if (typeof failure.message === 'string' && failure.message.trim()) return failure.message;
+    if (typeof failure.detail === 'string' && failure.detail.trim()) return failure.detail;
+  }
+  return fallback;
+}
+
 export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult) => void }) {
   const [dealershipCode, setDealershipCode] = useState('');
   const [login, setLogin] = useState('');
@@ -45,12 +66,15 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ dealershipCode, login, password }),
       });
-      const result = await response.json() as LoginResult | { message?: string; detail?: string };
+      const payload = await readResponseBody(response);
       if (!response.ok) {
-        const failure = result as { message?: string; detail?: string };
-        throw new Error(failure.message ?? failure.detail ?? 'Sign-in failed. Check your details and try again.');
+        throw new Error(responseErrorMessage(
+          payload, 'Sign-in failed. Check your details and try again.'));
       }
-      const successful = result as LoginResult;
+      if (typeof payload !== 'object' || payload === null) {
+        throw new Error('The server returned an unexpected response. Please try again.');
+      }
+      const successful = payload as LoginResult;
       if (!successful.accessToken || !successful.staff) {
         throw new Error('The server returned an incomplete sign-in response.');
       }
@@ -77,12 +101,15 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ activationToken: activationToken.trim(), password }),
       });
-      const result = await response.json() as ActivationResult | { message?: string; detail?: string };
+      const payload = await readResponseBody(response);
       if (!response.ok) {
-        const failure = result as { message?: string; detail?: string };
-        throw new Error(failure.message ?? failure.detail ?? 'Activation failed. Check your invitation token.');
+        throw new Error(responseErrorMessage(
+          payload, 'Activation failed. Check your invitation token.'));
       }
-      const activated = result as ActivationResult;
+      if (typeof payload !== 'object' || payload === null) {
+        throw new Error('The server returned an unexpected response. Please try again.');
+      }
+      const activated = payload as ActivationResult;
       if (!activated.dealershipCode || !activated.loginIdentifier) {
         throw new Error('The server returned an incomplete activation response.');
       }
