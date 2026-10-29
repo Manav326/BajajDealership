@@ -75,6 +75,45 @@ class BajajMotorcycleCatalogueControllerIntegrationTest {
         .andExpect(jsonPath("$.bikes[0].chassisNumber").doesNotExist());
   }
 
+
+  @Test
+  void currentPublicLineupUsesSpecificOfficialSourcesAndExcludesDiscontinuedAvengerStreet() throws Exception {
+    String body = mvc.perform(get("/api/v1/public/catalogue/bikes"))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+    com.fasterxml.jackson.databind.JsonNode bikes =
+        new com.fasterxml.jackson.databind.ObjectMapper().readTree(body).path("bikes");
+    java.util.List<com.fasterxml.jackson.databind.JsonNode> models = new java.util.ArrayList<>();
+    bikes.forEach(models::add);
+
+    assertThat(models).hasSizeGreaterThanOrEqualTo(20);
+    assertThat(models.stream().map(model -> model.path("modelCode").asText()).toList())
+        .doesNotContain("BAJAJ_AVENGER_220_STREET")
+        .contains("BAJAJ_FREEDOM_125_NG04_DRUM_LED");
+
+    var freedomDrumLed = models.stream()
+        .filter(model -> model.path("modelCode").asText().equals("BAJAJ_FREEDOM_125_NG04_DRUM_LED"))
+        .findFirst().orElseThrow();
+    assertThat(freedomDrumLed.path("modelName").asText()).isEqualTo("Freedom 125 NG04 Drum LED");
+    assertThat(freedomDrumLed.path("exShowroomPrice").decimalValue()).isEqualByComparingTo("104058.00");
+    assertThat(freedomDrumLed.path("priceSourceUrl").asText())
+        .isEqualTo("https://www.bajajauto.com/bikes/bajaj-freedom");
+
+    assertThat(models).allSatisfy(model -> {
+      assertThat(model.path("officialModelUrl").asText()).startsWith("https://www.bajajauto.com/bikes/");
+      assertThat(model.path("officialSpecsUrl").asText()).startsWith("https://www.bajajauto.com/bikes/");
+      String source = model.path("priceSourceUrl").asText();
+      assertThat(source).startsWith("https://www.bajajauto.com/bikes/");
+      assertThat(source).isNotEqualTo("https://www.bajajauto.com/bikes");
+      if (model.path("modelCode").asText().equals("BAJAJ_DOMINAR_400")) {
+        assertThat(model.path("exShowroomPrice").isNull()).isTrue();
+        assertThat(model.path("priceVerifiedAt").isNull()).isTrue();
+      }
+    });
+  }
+
   @Test
   void categoryFilterOnlyReturnsPublishedBajajModels() throws Exception {
     mvc.perform(get("/api/v1/public/catalogue/bikes").param("category", "TOURING"))
