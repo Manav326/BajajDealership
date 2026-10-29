@@ -6,6 +6,7 @@
  */
 export const ARTWORK_MUSIC_LIMIT = 50;
 export const ARTWORK_MUSIC_MAX_BYTES = 25 * 1024 * 1024;
+export const ARTWORK_MUSIC_LIBRARY_MAX_BYTES = 250 * 1024 * 1024;
 export const MUSIC_CLIP_MIN_SECONDS = 20;
 export const MUSIC_CLIP_MAX_SECONDS = 120;
 export const MUSIC_CLIP_DEFAULT_SECONDS = 30;
@@ -110,16 +111,24 @@ export async function addArtworkMusicAsset(asset: ArtworkMusicAsset): Promise<vo
     const transaction = db.transaction('music', 'readwrite');
     const store = transaction.objectStore('music');
     let limitError: Error | null = null;
-    const countRequest = store.count();
-    countRequest.onsuccess = () => {
-      if (countRequest.result >= ARTWORK_MUSIC_LIMIT) {
+    const allRequest = store.getAll();
+    allRequest.onsuccess = () => {
+      const existing = allRequest.result as ArtworkMusicAsset[];
+      if (existing.length >= ARTWORK_MUSIC_LIMIT) {
         limitError = new Error('The music library is full. Remove a user-uploaded track before adding another (maximum 50).');
+        transaction.abort();
+        return;
+      }
+      const storedBytes = existing.reduce((total, item) => total + (item.fileData?.size ?? 0), 0);
+      const nextBytes = asset.fileData?.size ?? 0;
+      if (storedBytes + nextBytes > ARTWORK_MUSIC_LIBRARY_MAX_BYTES) {
+        limitError = new Error('The music library has reached its 250 MB storage limit. Remove an uploaded track before adding another.');
         transaction.abort();
         return;
       }
       store.add(asset);
     };
-    countRequest.onerror = () => transaction.abort();
+    allRequest.onerror = () => transaction.abort();
     transaction.oncomplete = () => { db.close(); resolve(); };
     transaction.onerror = () => { db.close(); reject(limitError ?? transaction.error ?? new Error('The music track could not be added.')); };
     transaction.onabort = () => { db.close(); reject(limitError ?? transaction.error ?? new Error('The music track could not be added.')); };
@@ -130,10 +139,25 @@ export async function updateArtworkMusicAsset(asset: ArtworkMusicAsset): Promise
   const db = await openArtworkMusicDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('music', 'readwrite');
-    transaction.objectStore('music').put(asset);
+    const store = transaction.objectStore('music');
+    let limitError: Error | null = null;
+    const allRequest = store.getAll();
+    allRequest.onsuccess = () => {
+      const existing = allRequest.result as ArtworkMusicAsset[];
+      const storedBytesWithoutThisTrack = existing
+        .filter((item) => item.id !== asset.id)
+        .reduce((total, item) => total + (item.fileData?.size ?? 0), 0);
+      if (storedBytesWithoutThisTrack + (asset.fileData?.size ?? 0) > ARTWORK_MUSIC_LIBRARY_MAX_BYTES) {
+        limitError = new Error('The music library has reached its 250 MB storage limit. Remove an uploaded track before replacing this one.');
+        transaction.abort();
+        return;
+      }
+      store.put(asset);
+    };
+    allRequest.onerror = () => transaction.abort();
     transaction.oncomplete = () => { db.close(); resolve(); };
-    transaction.onerror = () => { db.close(); reject(transaction.error ?? new Error('The music track could not be saved.')); };
-    transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('Saving the music track was cancelled.')); };
+    transaction.onerror = () => { db.close(); reject(limitError ?? transaction.error ?? new Error('The music track could not be saved.')); };
+    transaction.onabort = () => { db.close(); reject(limitError ?? transaction.error ?? new Error('Saving the music track was cancelled.')); };
   });
 }
 
