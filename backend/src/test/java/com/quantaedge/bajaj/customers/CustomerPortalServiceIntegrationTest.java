@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -152,6 +153,55 @@ class CustomerPortalServiceIntegrationTest {
         .containsExactly(secondAgencyCustomer.vehiclePublicId());
     assertThat(portal.vehicles(principal)).extracting(CustomerPortalService.VehicleView::publicId)
         .doesNotContain(firstAgencyCustomer.vehiclePublicId());
+  }
+
+
+  @Test
+  void customerCanMaintainProfilePhotoAndMultipleAddressesWithoutChangingPurchaseHistory() {
+    Fixture fixture = createFixture("PROFILE");
+    var invitation = portal.issueInvitation(fixture.owner(), fixture.customerPublicId());
+    var session = portal.activate(
+        new CustomerPortalService.ActivationRequest(invitation.activationToken(), "Strong-Customer-Password-123"),
+        "203.0.113.40", "portal-profile-test");
+    CustomerPrincipal principal = principalForToken(session.accessToken());
+
+    var updatedProfile = portal.updateProfile(principal, new CustomerPortalService.CustomerProfileUpdate(
+        "Updated Portal Customer", "919812345678", "919876543210", "customer-profile@example.test", "en"));
+    assertThat(updatedProfile.fullName()).isEqualTo("Updated Portal Customer");
+    assertThat(updatedProfile.alternatePhone()).isEqualTo("919876543210");
+
+    var home = portal.createAddress(principal, new CustomerPortalService.AddressRequest(
+        "HOME", "Updated Portal Customer", "919812345678", "12 Example Street", "Floor 2",
+        "Near the post office", "Station Road", "Bettiah", "West Champaran", "Bihar", "845438", "India", true));
+    var work = portal.createAddress(principal, new CustomerPortalService.AddressRequest(
+        "WORK", "Updated Portal Customer", "919812345678", "Office 4", null, null,
+        "Main Market", "Bettiah", "West Champaran", "Bihar", "845438", "India", false));
+    assertThat(portal.addresses(principal)).hasSize(2);
+    assertThat(portal.addresses(principal)).filteredOn(CustomerPortalService.CustomerAddressView::isDefaultDelivery)
+        .extracting(CustomerPortalService.CustomerAddressView::publicId).containsExactly(home.publicId());
+
+    var updatedHome = portal.updateAddress(principal, home.publicId(), new CustomerPortalService.AddressRequest(
+        "HOME", "Updated Portal Customer", "919812345678", "99 New Street", null,
+        "Opposite the park", "Station Road", "Bettiah", "West Champaran", "Bihar", "845438", "India", true));
+    assertThat(updatedHome.addressLine1()).isEqualTo("99 New Street");
+    var remaining = portal.deleteAddress(principal, work.publicId());
+    assertThat(remaining).hasSize(1);
+    assertThat(remaining.getFirst().isDefaultDelivery()).isTrue();
+
+    byte[] tinyJpegHeader = new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    var uploaded = portal.uploadProfilePhoto(principal,
+        new MockMultipartFile("file", "profile.jpg", "image/jpeg", tinyJpegHeader));
+    assertThat(uploaded.contentType()).isEqualTo("image/jpeg");
+    assertThat(portal.profile(principal).profilePhotoAvailable()).isTrue();
+    assertThat(portal.readProfilePhoto(principal).bytes()).containsExactly(tinyJpegHeader);
+    assertThat(portal.motorcyclePurchases(principal)).isEmpty();
+
+    portal.deleteProfilePhoto(principal);
+    assertThat(portal.profile(principal).profilePhotoAvailable()).isFalse();
+    assertThatThrownBy(() -> portal.readProfilePhoto(principal))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
   }
 
   private CustomerPrincipal principalForToken(String rawToken) {

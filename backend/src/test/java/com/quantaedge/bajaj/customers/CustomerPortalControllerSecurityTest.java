@@ -28,6 +28,12 @@ class CustomerPortalControllerSecurityTest {
         .andExpect(status().isUnauthorized());
     mvc.perform(get("/api/v1/customer/service-history"))
         .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/customer/addresses"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/customer/purchase-history/motorcycles"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/customer/profile/photo"))
+        .andExpect(status().isUnauthorized());
   }
 
   @Test
