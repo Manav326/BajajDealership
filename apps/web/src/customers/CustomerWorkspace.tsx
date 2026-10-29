@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { apiFetch } from '../apiClient';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { apiFetch, apiRequestUrl } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
 
 type Customer = {
@@ -16,6 +16,24 @@ type Customer = {
 };
 
 type CustomerPage = { items: Customer[]; page: number; pageSize: number; total: number };
+type CustomerAddress = {
+  publicId: string;
+  label: 'HOME' | 'WORK' | 'OTHER';
+  recipientName: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  landmark: string | null;
+  locality: string | null;
+  city: string;
+  district: string | null;
+  state: string;
+  postalCode: string;
+  country: string;
+  isDefaultDelivery: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 type PortalInvitation = {
   customerPublicId: string;
   customerName: string;
@@ -54,6 +72,12 @@ export default function CustomerWorkspace({
   const [portalInvitation, setPortalInvitation] = useState<PortalInvitation | null>(null);
   const [portalInvitationBusyId, setPortalInvitationBusyId] = useState('');
   const [portalTokenCopied, setPortalTokenCopied] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedAddresses, setSelectedAddresses] = useState<CustomerAddress[]>([]);
+  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState('');
+  const [selectedProfileLoading, setSelectedProfileLoading] = useState(false);
+  const [selectedProfileError, setSelectedProfileError] = useState('');
+  const selectedProfileRequestId = useRef(0);
 
   const canCreate = staff.permissions.includes('customer.create');
   const canRead = staff.permissions.includes('customer.read');
@@ -143,6 +167,50 @@ export default function CustomerWorkspace({
     }
   }
 
+
+  async function openCustomerProfile(customer: Customer) {
+    const requestId = ++selectedProfileRequestId.current;
+    if (selectedPhotoUrl) URL.revokeObjectURL(selectedPhotoUrl);
+    setSelectedPhotoUrl('');
+    setSelectedCustomer(customer);
+    setSelectedAddresses([]);
+    setSelectedProfileError('');
+    setSelectedProfileLoading(true);
+    try {
+      const [detail, addresses] = await Promise.all([
+        apiFetch<Customer>(`/api/v1/admin/customers/${customer.publicId}`, token),
+        apiFetch<CustomerAddress[]>(`/api/v1/admin/customers/${customer.publicId}/saved-addresses`, token),
+      ]);
+      if (requestId !== selectedProfileRequestId.current) return;
+      setSelectedCustomer(detail);
+      setSelectedAddresses(Array.isArray(addresses) ? addresses : []);
+      const response = await fetch(apiRequestUrl(`/api/v1/admin/customers/${customer.publicId}/profile-photo`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const url = URL.createObjectURL(await response.blob());
+        if (requestId === selectedProfileRequestId.current) setSelectedPhotoUrl(url);
+        else URL.revokeObjectURL(url);
+      }
+    } catch (cause) {
+      if (requestId === selectedProfileRequestId.current) {
+        setSelectedProfileError(cause instanceof Error ? cause.message : 'Customer profile details could not be loaded.');
+      }
+    } finally {
+      if (requestId === selectedProfileRequestId.current) setSelectedProfileLoading(false);
+    }
+  }
+
+  function closeCustomerProfile() {
+    selectedProfileRequestId.current += 1;
+    if (selectedPhotoUrl) URL.revokeObjectURL(selectedPhotoUrl);
+    setSelectedPhotoUrl('');
+    setSelectedCustomer(null);
+    setSelectedAddresses([]);
+    setSelectedProfileError('');
+    setSelectedProfileLoading(false);
+  }
+
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = query.trim();
@@ -228,17 +296,18 @@ export default function CustomerWorkspace({
 
         <div className="customer-table-scroll">
           <table className="customer-table">
-            <thead><tr><th>Customer</th><th>Contact</th><th>Language</th><th>Status</th><th>Added</th>{canUpdate && <th>Portal access</th>}</tr></thead>
+            <thead><tr><th>Customer</th><th>Contact</th><th>Language</th><th>Status</th><th>Added</th><th>Profile</th>{canUpdate && <th>Portal access</th>}</tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={canUpdate ? 6 : 5} className="table-empty"><span className="loading-dot" /> Loading customer records…</td></tr>
-                : page.items.length === 0 ? <tr><td colSpan={5} className="table-empty">{activeQuery ? 'No customers match this search.' : 'No customers yet. Add the first customer to begin.'}</td></tr>
+              {loading ? <tr><td colSpan={canUpdate ? 7 : 6} className="table-empty"><span className="loading-dot" /> Loading customer records…</td></tr>
+                : page.items.length === 0 ? <tr><td colSpan={canUpdate ? 7 : 6} className="table-empty">{activeQuery ? 'No customers match this search.' : 'No customers yet. Add the first customer to begin.'}</td></tr>
                 : page.items.map((customer) => (
                   <tr key={customer.publicId}>
-                    <td><div className="customer-name-cell"><span className="customer-initial">{customer.fullName.trim().slice(0, 1).toUpperCase()}</span><div><strong>{customer.fullName}</strong><span>{customer.customerCode}</span></div></div></td>
+                    <td><div className="customer-name-cell"><span className="customer-initial" aria-hidden="true">{customer.fullName.trim().slice(0, 1).toUpperCase()}</span><div><strong>{customer.fullName}</strong><span>{customer.customerCode}</span></div></div></td>
                     <td><div className="contact-cell">{customer.phone && <span>{customer.phone}</span>}{customer.email && <span>{customer.email}</span>}{!customer.phone && !customer.email && <span>—</span>}</div></td>
                     <td><span className="language-chip">{customer.preferredLanguage === 'hi' ? 'हिन्दी' : customer.preferredLanguage === 'en' ? 'English' : 'Hinglish'}</span></td>
                     <td><span className={customer.status === 'ACTIVE' ? 'status-chip status-active' : 'status-chip'}>{customer.status}</span></td>
                     <td className="date-cell">{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(customer.createdAt))}</td>
+                    <td><button type="button" className="customer-profile-open" onClick={() => void openCustomerProfile(customer)} aria-label={`View profile for ${customer.fullName}`}>View profile <span aria-hidden="true">↗</span></button></td>
                     {canUpdate && <td><button type="button" className="text-button portal-invite-button" disabled={portalInvitationBusyId === customer.publicId || customer.status !== 'ACTIVE'} onClick={() => void issuePortalInvitation(customer)}>{portalInvitationBusyId === customer.publicId ? 'Issuing…' : 'Issue access'}</button></td>}
                   </tr>
                 ))}
@@ -254,6 +323,39 @@ export default function CustomerWorkspace({
           </div>
         </div>
       </div>
+
+      {selectedCustomer && <div className="customer-profile-backdrop" role="presentation" onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeCustomerProfile();
+      }}>
+        <section className="customer-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-profile-title">
+          <div className="customer-profile-dialog-head">
+            <div><div className="eyebrow">CUSTOMER RECORD</div><h2 id="customer-profile-title">Customer profile</h2><p>Contact details and saved delivery destinations for dealership service.</p></div>
+            <button type="button" className="customer-profile-close" onClick={closeCustomerProfile} aria-label="Close customer profile">×</button>
+          </div>
+          {selectedProfileError && <div className="notice notice-error" role="alert">{selectedProfileError}</div>}
+          {selectedProfileLoading ? <div className="customer-profile-loading"><span className="loading-dot" /> Loading customer profile…</div> : <>
+            <div className="customer-profile-summary">
+              <div className="customer-profile-photo">{selectedPhotoUrl
+                ? <img src={selectedPhotoUrl} alt={selectedCustomer.fullName + ' profile photo'} />
+                : <span>{selectedCustomer.fullName.trim().slice(0, 1).toUpperCase()}</span>}</div>
+              <div className="customer-profile-summary-main"><span className="customer-profile-code">{selectedCustomer.customerCode} · {selectedCustomer.status}</span><h3>{selectedCustomer.fullName}</h3>
+                <div className="customer-profile-contact">{selectedCustomer.phone && <span>Mobile · {selectedCustomer.phone}</span>}{selectedCustomer.alternatePhone && <span>Alternate · {selectedCustomer.alternatePhone}</span>}{selectedCustomer.email && <span>Email · {selectedCustomer.email}</span>}</div>
+                <span className="language-chip">{selectedCustomer.preferredLanguage === 'hi' ? 'हिन्दी' : selectedCustomer.preferredLanguage === 'en' ? 'English' : 'Hinglish'}</span>
+              </div>
+            </div>
+            <div className="customer-profile-address-heading"><div><h3>Saved addresses</h3><p>Customer-managed addresses for delivery and contact.</p></div><span>{selectedAddresses.length} saved</span></div>
+            {selectedAddresses.length === 0 ? <div className="customer-profile-address-empty">No saved addresses have been added to the customer portal yet. Confirm the destination with the customer before arranging delivery.</div>
+              : <div className="customer-profile-address-grid">{selectedAddresses.map((address) => <article className="customer-profile-address" key={address.publicId}>
+                  <div className="customer-profile-address-top"><span className="customer-profile-address-icon">{address.label === 'HOME' ? '⌂' : address.label === 'WORK' ? '▦' : '⌖'}</span><div><span>{address.label}</span><strong>{address.recipientName}</strong></div>{address.isDefaultDelivery && <span className="customer-profile-default">Default</span>}</div>
+                  <p>{[address.addressLine1, address.addressLine2, address.landmark ? 'Near ' + address.landmark : null,
+                    address.locality, address.city, address.district, address.state, address.postalCode, address.country]
+                    .filter((part): part is string => Boolean(part && part.trim())).join(', ')}</p>
+                  <small>Contact at this address: {address.phone}</small>
+                </article>)}</div>}
+            <div className="customer-profile-dialog-footer"><span>Address book changes do not overwrite the delivery address saved on previous orders.</span><button type="button" className="primary-button" onClick={closeCustomerProfile}>Done</button></div>
+          </>}
+        </section>
+      </div>}
     </section>
   );
 }

@@ -194,6 +194,16 @@ class CustomerPortalServiceIntegrationTest {
     assertThat(uploaded.contentType()).isEqualTo("image/jpeg");
     assertThat(portal.profile(principal).profilePhotoAvailable()).isTrue();
     assertThat(portal.readProfilePhoto(principal).bytes()).containsExactly(tinyJpegHeader);
+    assertThat(portal.addressesForStaff(fixture.owner(), fixture.customerPublicId()))
+        .extracting(CustomerPortalService.CustomerAddressView::publicId)
+        .containsExactly(home.publicId());
+    assertThat(portal.readProfilePhotoForStaff(fixture.owner(), fixture.customerPublicId()).bytes())
+        .containsExactly(tinyJpegHeader);
+    Fixture otherDealership = createFixture("OTHERPROFILE");
+    assertThatThrownBy(() -> portal.addressesForStaff(otherDealership.owner(), fixture.customerPublicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
     assertThat(portal.motorcyclePurchases(principal)).isEmpty();
 
     portal.deleteProfilePhoto(principal);

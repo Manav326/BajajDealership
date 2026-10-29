@@ -551,3 +551,63 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
   await page.getByRole('button', { name: 'Remove image' }).click();
   await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
 });
+
+
+test('staff can open a customer profile and view the saved delivery address and private photo', async ({ page }) => {
+  await mockApi(page);
+  const customer = {
+    publicId: '00000000-0000-0000-0000-000000000321',
+    customerCode: 'CUS-E2E-0321',
+    fullName: 'Asha Customer',
+    phone: '9000000032',
+    alternatePhone: '9000000033',
+    email: 'asha@example.test',
+    preferredLanguage: 'hi',
+    status: 'ACTIVE',
+    createdAt: '2026-10-20T10:00:00Z',
+    updatedAt: '2026-10-29T10:00:00Z',
+  };
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    const json = (payload: unknown, status = 200) => route.fulfill({
+      status, contentType: 'application/json', body: JSON.stringify(payload),
+    });
+    if (path === '/api/v1/admin/customers' && method === 'GET') {
+      return json({ items: [customer], page: 0, pageSize: 25, total: 1 });
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'GET') return json(customer);
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/saved-addresses' && method === 'GET') {
+      return json([{
+        publicId: 'address-e2e-0321', label: 'HOME', recipientName: 'Asha Customer',
+        phone: '9000000032', addressLine1: '12 Station Road', addressLine2: 'Flat 3B',
+        landmark: 'Near the post office', locality: 'Town Centre', city: 'Bettiah',
+        district: 'West Champaran', state: 'Bihar', postalCode: '845438', country: 'India',
+        isDefaultDelivery: true, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T10:00:00Z',
+      }]);
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/profile-photo' && method === 'GET') {
+      return route.fulfill({
+        status: 200, contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64'),
+      });
+    }
+    return route.fallback();
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Customers', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: 'CUS-E2E-0321' })).toBeVisible();
+  await page.getByRole('button', { name: 'View profile for Asha Customer' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Customer profile' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Asha Customer' })).toBeVisible();
+  await expect(dialog.locator('.customer-profile-photo img')).toBeVisible();
+  await expect(dialog.getByText('12 Station Road', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Near the post office', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Default', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

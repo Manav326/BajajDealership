@@ -451,6 +451,53 @@ public class CustomerPortalService {
         """, actor.dealershipId(), actor.customerId(), actor.customerPublicId());
   }
 
+
+  public List<CustomerAddressView> addressesForStaff(StaffPrincipal actor, UUID customerPublicId) {
+    List<Long> customers = jdbc.query("""
+        select id from customer where dealership_id = ? and public_id = ?
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), customerPublicId);
+    if (customers.isEmpty()) throw notFound("Customer was not found in this dealership.");
+    long customerId = customers.getFirst();
+    return jdbc.query("""
+        select address.public_id, address.label, address.recipient_name, address.phone,
+          address.address_line1, address.address_line2, address.landmark, address.locality,
+          address.city, address.district, address.state, address.postal_code, address.country,
+          address.is_default_delivery, address.created_at, address.updated_at
+        from customer_address address
+        join customer on customer.dealership_id = address.dealership_id
+          and customer.id = address.customer_id
+        where address.dealership_id = ? and address.customer_id = ?
+          and customer.public_id = ?
+        order by address.is_default_delivery desc, lower(address.label), address.updated_at desc, address.id desc
+        """, (rs, rowNum) -> new CustomerAddressView(
+            rs.getObject("public_id", UUID.class), rs.getString("label"), rs.getString("recipient_name"),
+            rs.getString("phone"), rs.getString("address_line1"), rs.getString("address_line2"),
+            rs.getString("landmark"), rs.getString("locality"), rs.getString("city"),
+            rs.getString("district"), rs.getString("state"), rs.getString("postal_code"),
+            rs.getString("country"), rs.getBoolean("is_default_delivery"),
+            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+        actor.dealershipId(), customerId, customerPublicId);
+  }
+
+  public ProfilePhoto readProfilePhotoForStaff(StaffPrincipal actor, UUID customerPublicId) {
+    List<ProfilePhoto> photos = jdbc.query("""
+        select photo.content_type, photo.image_bytes
+        from customer_profile_photo photo
+        join customer on customer.dealership_id = photo.dealership_id
+          and customer.id = photo.customer_id
+        where photo.dealership_id = ? and customer.public_id = ?
+        """, (rs, rowNum) -> new ProfilePhoto(rs.getString("content_type"), rs.getBytes("image_bytes")),
+        actor.dealershipId(), customerPublicId);
+    if (photos.isEmpty()) throw notFound("Customer profile photo was not found.");
+    ProfilePhoto photo = photos.getFirst();
+    if (photo.bytes() == null || photo.bytes().length == 0 || photo.bytes().length > MAX_PROFILE_PHOTO_BYTES
+        || !List.of("image/jpeg", "image/png", "image/webp").contains(photo.contentType())
+        || !photo.contentType().equals(detectProfileImageType(photo.bytes()))) {
+      throw notFound("Customer profile photo is unavailable. Ask the customer to upload it again.");
+    }
+    return photo;
+  }
+
   public List<MotorcyclePurchaseView> motorcyclePurchases(CustomerPrincipal actor) {
     return jdbc.query("""
         select handover.public_id, invoice.invoice_number, invoice.invoice_total,
