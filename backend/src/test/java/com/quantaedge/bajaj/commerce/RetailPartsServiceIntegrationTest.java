@@ -320,8 +320,8 @@ class RetailPartsServiceIntegrationTest {
     assertThat(placed.paymentStatus()).isEqualTo("PAY_ON_PICKUP");
 
     var fulfilled = retailParts.fulfillOrder(manager, placed.publicId(),
-        new RetailPartsService.FulfillRequest("UPI", "TEST-COLLECTION-REF", "Synthetic test collection",
-            "collection-" + UUID.randomUUID()));
+        new RetailPartsService.FulfillRequest("UPI", "TEST-COLLECTION-REF",
+            "collection-" + UUID.randomUUID(), "Synthetic test collection"));
 
     assertThat(fulfilled.status()).isEqualTo("FULFILLED");
     assertThat(fulfilled.paymentStatus()).isEqualTo("PAID_AT_PICKUP");
