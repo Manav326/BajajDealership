@@ -19,6 +19,7 @@ services:
     restart: unless-stopped
 
   api:
+    image: ghcr.io/manav326/bajajdealership-api:${BAJAJ_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -47,6 +48,7 @@ services:
     restart: unless-stopped
 
   customer-web:
+    image: ghcr.io/manav326/bajajdealership-customer-web:${BAJAJ_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/customer-web/Dockerfile
@@ -63,6 +65,7 @@ services:
     restart: unless-stopped
 
   staff-web:
+    image: ghcr.io/manav326/bajajdealership-staff-web:${BAJAJ_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/web/Dockerfile
