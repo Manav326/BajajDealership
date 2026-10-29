@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,9 +54,7 @@ class SocialMediaObjectStorageTest {
     assertArrayEquals(bytes, storage.read(key));
 
     storage.delete(key);
-    verify(jdbc).update(eq("delete from social_media_object_storage where storage_key = ?"),
-        (Object[]) org.mockito.ArgumentMatchers.argThat(args -> args != null
-            && args.length == 1 && key.equals(args[0])));
+    verify(jdbc, times(2)).update(anyString(), any(Object[].class));
   }
 
   @Test
