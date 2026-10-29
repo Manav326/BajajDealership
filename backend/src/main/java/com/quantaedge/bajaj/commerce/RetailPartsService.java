@@ -337,12 +337,12 @@ public class RetailPartsService {
     String status = optional(rawStatus, 20);
     if (status != null) {
       status = status.toUpperCase(Locale.ROOT);
-      if (!List.of("PLACED", "CANCELLED", "FULFILLED").contains(status)) throw badRequest("Unknown retail order status.");
+      if (!List.of("PLACED", "CANCELLED", "FULFILLED", "RETURNED").contains(status)) throw badRequest("Unknown retail order status.");
     }
     List<UUID> ids = status == null
         ? jdbc.query("""
             select public_id from retail_part_order where dealership_id = ?
-            order by case status when 'PLACED' then 0 when 'FULFILLED' then 1 else 2 end, created_at desc, id desc limit ?
+            order by case status when 'PLACED' then 0 when 'FULFILLED' then 1 when 'RETURNED' then 2 else 3 end, created_at desc, id desc limit ?
             """, (rs, rowNum) -> rs.getObject(1, UUID.class), actor.dealershipId(), limit)
         : jdbc.query("""
             select public_id from retail_part_order where dealership_id = ? and status = ?
@@ -440,6 +440,100 @@ public class RetailPartsService {
     return getOrderForCustomer(actor, (UUID) rows.getFirst().get("public_id"));
   }
 
+
+  /**
+   * Records a full-order return after pickup collection. No automated refund is issued.
+   * Stock returns to sellable quantity only when staff attest every returned line is inspected
+   * and resaleable; otherwise it remains excluded from the available balance.
+   */
+  @Transactional
+  public RetailOrderView returnOrder(StaffPrincipal actor, UUID orderPublicId, ReturnRequest request) {
+    if (request == null) throw badRequest("Return details are required.");
+    String reason = required(request.reason(), "Return reason", 1000);
+    if (request.restockable() == null) throw badRequest("Confirm whether returned items are resaleable after inspection.");
+    String key = required(request.idempotencyKey(), "Return idempotency key", 120);
+    boolean restockable = request.restockable();
+    String fingerprint = TokenDigests.sha256(orderPublicId + "|" + reason + "|" + restockable);
+
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select id, order_code, status, order_total from retail_part_order
+        where dealership_id = ? and public_id = ? for update
+        """, actor.dealershipId(), orderPublicId);
+    if (rows.isEmpty()) throw notFound("Retail parts order was not found.");
+    Map<String, Object> row = rows.getFirst();
+    RetailOrderView replay = findStaffReturnReplay(actor, key, fingerprint, orderPublicId);
+    if (replay != null) return replay;
+    if (!"FULFILLED".equals(String.valueOf(row.get("status")))) {
+      throw conflict("Only a collected order can be returned once. Placed orders must be cancelled instead.");
+    }
+
+    Long orderId = ((Number) row.get("id")).longValue();
+    List<OrderStockLine> lines = getOrderStockLines(actor.dealershipId(), orderId, true);
+    for (OrderStockLine line : lines) {
+      StockPart part = lockPartById(actor.dealershipId(), line.partId());
+      if (part == null) throw conflict("A returned part could not be reconciled to this dealership's stock.");
+      if (!restockable) continue;
+      BigDecimal onHandAfter = part.quantityOnHand().add(line.quantity()).setScale(3, RoundingMode.HALF_UP);
+      int updated = jdbc.update("""
+          update spare_part_balance
+          set quantity_on_hand = quantity_on_hand + ?, updated_at = now()
+          where dealership_id = ? and part_id = ?
+          """, line.quantity(), actor.dealershipId(), line.partId());
+      if (updated != 1) throw conflict("Stock changed while recording the return. Refresh and reconcile.");
+      insertMovement(actor.dealershipId(), part, "RETAIL_ORDER_RETURNED", line.quantity(),
+          BigDecimal.ZERO.setScale(3, RoundingMode.UNNECESSARY), onHandAfter, part.quantityReserved(),
+          orderPublicId.toString(), "RET-RET:" + orderPublicId + ":" + part.publicId(),
+          TokenDigests.sha256(orderPublicId + "|return|" + part.publicId()), actor.staffUserId(), null);
+    }
+
+    String returnCode = "RPR-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    BigDecimal amountReviewRequired = (BigDecimal) row.get("order_total");
+    jdbc.update("""
+        insert into retail_part_order_return(
+          dealership_id, order_id, return_code, idempotency_key, request_fingerprint,
+          reason, restocked, amount_review_required, recorded_by_staff_user_id)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, actor.dealershipId(), orderId, returnCode, key, fingerprint, reason,
+        restockable, amountReviewRequired, actor.staffUserId());
+
+    int updated = jdbc.update("""
+        update retail_part_order
+        set status = 'RETURNED', payment_status = 'REFUND_REVIEW_REQUIRED',
+          returned_by_staff_user_id = ?, returned_at = now(), returned_reason = ?,
+          returned_restocked = ?, updated_at = now()
+        where dealership_id = ? and id = ? and status = 'FULFILLED'
+        """, actor.staffUserId(), reason, restockable, actor.dealershipId(), orderId);
+    if (updated != 1) throw conflict("The order changed while recording the return. Refresh and retry.");
+
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
+          action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, 'RETAIL_PART_ORDER_RETURNED', 'RETAIL_PART_ORDER', ?,
+          jsonb_build_object('orderCode', ?, 'returnCode', ?, 'restocked', ?,
+            'reason', ?, 'amountReviewRequired', ?, 'automaticRefundIssued', false))
+        """, actor.dealershipId(), actor.staffUserId(), orderPublicId.toString(),
+        String.valueOf(row.get("order_code")), returnCode, restockable, reason, amountReviewRequired);
+    return getOrderForStaff(actor, orderPublicId);
+  }
+
+  private RetailOrderView findStaffReturnReplay(
+      StaffPrincipal actor, String key, String fingerprint, UUID orderPublicId) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select returns.request_fingerprint, order_record.public_id as order_public_id
+        from retail_part_order_return returns
+        join retail_part_order order_record
+          on order_record.dealership_id = returns.dealership_id and order_record.id = returns.order_id
+        where returns.dealership_id = ? and returns.idempotency_key = ?
+        """, actor.dealershipId(), key);
+    if (rows.isEmpty()) return null;
+    Map<String, Object> row = rows.getFirst();
+    if (!orderPublicId.equals(row.get("order_public_id"))
+        || !fingerprint.equals(String.valueOf(row.get("request_fingerprint")).trim())) {
+      throw conflict("This return key was already used for different order details.");
+    }
+    return getOrderForStaff(actor, orderPublicId);
+  }
+
   private RetailOrderView findStaffCollectionReplay(
       StaffPrincipal actor, String key, String fingerprint, UUID orderPublicId) {
     List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -481,7 +575,8 @@ public class RetailPartsService {
         select order_record.id as order_id, order_record.public_id, order_record.order_code,
           order_record.status, order_record.payment_method, order_record.payment_status, order_record.order_total,
           order_record.customer_note, order_record.created_at, order_record.updated_at,
-          order_record.cancelled_at, order_record.fulfilled_at, customer.full_name as customer_name,
+          order_record.cancelled_at, order_record.fulfilled_at, order_record.returned_at,
+          order_record.returned_reason, order_record.returned_restocked, customer.full_name as customer_name,
           customer.customer_code, customer.phone as customer_phone
         from retail_part_order order_record
         join customer on customer.dealership_id = order_record.dealership_id and customer.id = order_record.customer_id
@@ -491,12 +586,15 @@ public class RetailPartsService {
   private RetailOrderView orderView(java.sql.ResultSet rs, List<RetailOrderLineView> lines) throws java.sql.SQLException {
     Timestamp cancelled = rs.getTimestamp("cancelled_at");
     Timestamp fulfilled = rs.getTimestamp("fulfilled_at");
+    Timestamp returned = rs.getTimestamp("returned_at");
+    Boolean restocked = (Boolean) rs.getObject("returned_restocked");
     return new RetailOrderView(
         rs.getObject("public_id", UUID.class), rs.getString("order_code"), rs.getString("status"),
         rs.getString("payment_method"), rs.getString("payment_status"), rs.getBigDecimal("order_total"),
         rs.getString("customer_note"), rs.getTimestamp("created_at").toInstant(),
         rs.getTimestamp("updated_at").toInstant(), cancelled == null ? null : cancelled.toInstant(),
-        fulfilled == null ? null : fulfilled.toInstant(), rs.getString("customer_name"),
+        fulfilled == null ? null : fulfilled.toInstant(), returned == null ? null : returned.toInstant(),
+        rs.getString("returned_reason"), restocked, rs.getString("customer_name"),
         rs.getString("customer_code"), rs.getString("customer_phone"), lines);
   }
 
@@ -687,13 +785,15 @@ public class RetailPartsService {
       String customerNote, String idempotencyKey) {}
   public record FulfillRequest(String collectionMethod, String externalReference,
       String idempotencyKey, String note) {}
+  public record ReturnRequest(String reason, Boolean restockable, String idempotencyKey) {}
   public record RetailOrderLineView(
       UUID partPublicId, String skuCode, String partName, String unitOfMeasure,
       BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
   public record RetailOrderView(
       UUID publicId, String orderCode, String status, String paymentMethod, String paymentStatus,
       BigDecimal orderTotal, String customerNote, Instant createdAt, Instant updatedAt,
-      Instant cancelledAt, Instant fulfilledAt, String customerName, String customerCode,
+      Instant cancelledAt, Instant fulfilledAt, Instant returnedAt, String returnReason,
+      Boolean restockedOnReturn, String customerName, String customerCode,
       String customerPhone, List<RetailOrderLineView> lines) {}
   private record OrderStockLine(long partId, BigDecimal quantity) {}
   private record StockPart(

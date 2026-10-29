@@ -74,9 +74,23 @@ public class RetailPartsAdminController {
       @Size(max = 40) List<@NotBlank @Size(max = 60) String> fitmentModelCodes,
       @Size(max = 1000) String imageUrl) {}
 
+  @PostMapping("/retail-part-orders/{publicId}/return")
+  @PreAuthorize("hasAuthority('parts.manage')")
+  public RetailPartsService.RetailOrderView returnOrder(
+      @AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID publicId,
+      @Valid @RequestBody ReturnRequest request) {
+    return retail.returnOrder(principal, publicId,
+        new RetailPartsService.ReturnRequest(request.reason(), request.restockable(), request.idempotencyKey()));
+  }
+
   public record FulfillRequest(
       @NotBlank @Size(max = 24) String collectionMethod,
       @Size(max = 160) String externalReference,
       @NotBlank @Size(max = 120) String idempotencyKey,
       @Size(max = 1000) String note) {}
+  public record ReturnRequest(
+      @NotBlank @Size(max = 1000) String reason,
+      @NotNull Boolean restockable,
+      @NotBlank @Size(max = 120) String idempotencyKey) {}
 }
