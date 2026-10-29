@@ -1079,3 +1079,234 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
 @media (prefers-reduced-motion: reduce) {
   .portal-auth-screen .auth-return-link { transition: none; }
 }
+
+
+/* Stable public-screen footer: dealership information, accessible policy links and canonical developer lockup. */
+.showroom-footer.showroom-footer--composed {
+  display: grid;
+  grid-template-columns: minmax(165px, 1fr) minmax(180px, 1.2fr) auto minmax(170px, .9fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 28px clamp(22px, 5.5vw, 86px);
+}
+.showroom-footer--composed > .showroom-brand { min-width: 0; }
+.showroom-footer--composed > p {
+  max-width: 290px;
+  margin: 0;
+  color: #8795a7;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.showroom-footer-links,
+.customer-legal-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+.showroom-footer-links button,
+.customer-legal-links button {
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #c0cad6;
+  font-size: 10px;
+  line-height: 1.6;
+  font-weight: 700;
+  text-align: left;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.showroom-footer-links button:hover,
+.customer-legal-links button:hover { color: #7af0dc; text-decoration: underline; }
+.showroom-footer--composed .quantaedge-attribution,
+.quantaedge-attribution {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  color: #8f9daf;
+  text-decoration: none;
+}
+.quantaedge-attribution > span {
+  color: #8f9daf;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.quantaedge-attribution img {
+  display: block;
+  width: clamp(145px, 15vw, 184px);
+  max-width: 100%;
+  height: auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(229, 234, 243, .95);
+  border-radius: 8px;
+  background: #f5f7fc;
+}
+.showroom-footer--composed .showroom-footer-signin {
+  padding: 9px 0;
+  border: 0;
+  background: transparent;
+  color: #edf2f7;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.showroom-footer--composed .showroom-footer-signin:hover { color: #7af0dc; }
+
+.customer-legal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  width: min(1230px, calc(100% - 56px));
+  margin: 20px auto 0;
+  padding: 22px 0 8px;
+  border-top: 1px solid rgba(255, 255, 255, .10);
+}
+.customer-legal-footer .customer-footer-copyright {
+  color: #8998aa;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.customer-legal-footer .customer-legal-links { justify-content: flex-start; gap: 8px 18px; }
+.customer-legal-footer .quantaedge-attribution { margin-left: auto; }
+.customer-legal-footer .customer-legal-links button { color: #b6c1ce; }
+.customer-legal-footer .customer-legal-links button:hover { color: #7af0dc; }
+
+.public-legal-screen {
+  min-height: 100vh;
+  color: #f5f7fb;
+  background:
+    radial-gradient(ellipse at 10% 2%, rgba(240, 75, 50, .12), transparent 30rem),
+    radial-gradient(ellipse at 94% 16%, rgba(122, 240, 220, .075), transparent 30rem),
+    #080c13;
+}
+.public-legal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 21px clamp(20px, 5.5vw, 78px);
+  border-bottom: 1px solid rgba(255, 255, 255, .09);
+  background: rgba(8, 12, 19, .86);
+}
+.public-legal-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  color: #f5f7fb;
+  text-decoration: none;
+}
+.public-legal-brand > span:last-child { display: grid; gap: 4px; }
+.public-legal-brand strong { font-size: 12px; letter-spacing: 1.8px; font-weight: 900; }
+.public-legal-brand small { color: #8492a4; font-size: 8px; letter-spacing: 1.3px; font-weight: 800; }
+.public-legal-back,
+.public-legal-signin {
+  padding: 10px 13px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .045);
+  color: #dbe4ee;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.public-legal-back:hover,
+.public-legal-signin:hover { border-color: rgba(122, 240, 220, .4); color: #fff; }
+.public-legal-content {
+  width: min(900px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: clamp(38px, 7vw, 78px) 0 46px;
+}
+.public-legal-eyebrow {
+  color: #7af0dc;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .14em;
+}
+.public-legal-content h1 {
+  margin: 14px 0 8px;
+  color: #f5f7fb;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.04;
+  letter-spacing: -.045em;
+}
+.public-legal-updated { margin: 12px 0 23px; color: #8291a4; font-size: 11px; }
+.public-legal-intro {
+  margin: 0 0 30px;
+  color: #c6d0dc;
+  font-size: 15px;
+  line-height: 1.85;
+}
+.public-legal-section {
+  padding: 22px 0;
+  border-top: 1px solid rgba(255, 255, 255, .09);
+}
+.public-legal-section h2 { margin: 0 0 10px; color: #f2f5f9; font-size: 17px; letter-spacing: -.02em; }
+.public-legal-section p { margin: 8px 0 0; color: #a6b3c2; font-size: 13px; line-height: 1.85; }
+.public-legal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.public-legal-actions .showroom-primary-action { cursor: pointer; }
+.public-legal-actions .public-legal-signin { min-height: 44px; padding: 10px 16px; }
+.public-legal-screen .customer-legal-footer { margin-top: 0; padding-bottom: 22px; }
+
+@media (max-width: 1050px) {
+  .showroom-footer.showroom-footer--composed {
+    grid-template-columns: minmax(155px, 1fr) minmax(160px, 1.1fr) auto;
+    gap: 20px 25px;
+  }
+  .showroom-footer--composed > p { max-width: 360px; }
+  .showroom-footer--composed .quantaedge-attribution { grid-column: 2; grid-row: 2; }
+  .showroom-footer--composed .showroom-footer-signin { justify-self: end; grid-column: 3; grid-row: 2; }
+  .showroom-footer-links { justify-content: flex-start; }
+}
+@media (max-width: 720px) {
+  .showroom-footer.showroom-footer--composed {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 19px 14px;
+    padding: 24px 18px;
+  }
+  .showroom-footer--composed > .showroom-brand { grid-column: 1; }
+  .showroom-footer--composed > p { grid-column: 1 / -1; max-width: none; font-size: 11px; }
+  .showroom-footer--composed .showroom-footer-links { grid-column: 1 / -1; justify-content: flex-start; gap: 8px 22px; }
+  .showroom-footer--composed .quantaedge-attribution { grid-column: 1; grid-row: auto; }
+  .showroom-footer--composed .showroom-footer-signin { grid-column: 2; grid-row: auto; align-self: end; }
+  .customer-legal-footer {
+    width: calc(100% - 36px);
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 18px;
+    padding-top: 18px;
+  }
+  .customer-legal-footer .quantaedge-attribution { margin-left: 0; }
+  .customer-legal-footer .quantaedge-attribution img { width: 172px; }
+  .public-legal-header { padding: 17px 18px; }
+  .public-legal-brand strong { font-size: 10px; letter-spacing: 1.25px; }
+  .public-legal-brand small { font-size: 7px; letter-spacing: .75px; }
+  .public-legal-brand .showroom-brand-mark { width: 37px; height: 37px; }
+  .public-legal-back { padding: 9px 10px; font-size: 10px; }
+  .public-legal-content { width: calc(100% - 36px); padding-top: 36px; }
+  .public-legal-intro { font-size: 13px; }
+  .public-legal-section h2 { font-size: 15px; }
+  .public-legal-section p { font-size: 12px; }
+}
+@media (max-width: 390px) {
+  .showroom-footer.showroom-footer--composed { grid-template-columns: minmax(0, 1fr); }
+  .showroom-footer--composed .showroom-footer-signin { grid-column: 1; justify-self: start; }
+  .public-legal-header { gap: 8px; }
+  .public-legal-brand { gap: 7px; }
+  .public-legal-brand strong { font-size: 9px; letter-spacing: .8px; }
+  .public-legal-brand small { font-size: 6px; letter-spacing: .5px; }
+  .public-legal-back { padding: 8px; font-size: 9px; }
+}
