@@ -336,7 +336,16 @@ export default function BajajShowroom({ onSignIn }: {
         {promotionsLoading
           ? <p className="showroom-offers-empty" role="status">Checking current dealer announcements…</p>
           : promotions.length === 0
-            ? <p className="showroom-offers-empty">No public offers are currently published. Contact Lucky Bajaj for current availability and dealer-confirmed terms.</p>
+            ? <div className="showroom-offers-empty">
+                <p>No public offers are currently published. Contact Lucky Bajaj for current availability and dealer-confirmed terms.</p>
+                <article className="showroom-offer-card showroom-official-site-card">
+                  <div className="showroom-offer-card-overline"><span>BAJAJ AUTO</span><span>OFFICIAL WEBSITE</span></div>
+                  <h3>Explore the official Bajaj range</h3>
+                  <p>Review manufacturer-published model information, then confirm local availability and any applicable benefits directly with Lucky Bajaj.</p>
+                  <a href="https://www.bajajauto.com/" target="_blank" rel="noreferrer">Open official Bajaj Auto website ↗</a>
+                  <small>This is not a dealer quote, discount, loan approval, guaranteed EMI or confirmed offer.</small>
+                </article>
+              </div>
             : <div className="showroom-offers-grid">
               {promotions.map((promotion) => <article key={promotion.publicId} className="showroom-offer-card">
                 <div className="showroom-offer-card-overline"><span>LUCKY BAJAJ</span><span>{promotion.modelName || 'BAJAJ RANGE'}</span></div>
