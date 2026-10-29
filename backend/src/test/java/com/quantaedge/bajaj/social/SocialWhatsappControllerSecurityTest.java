@@ -24,4 +24,11 @@ class SocialWhatsappControllerSecurityTest {
   mvc.perform(get("/api/v1/social/whatsapp/webhook").queryParam("hub.mode","subscribe").queryParam("hub.verify_token","wrong").queryParam("hub.challenge","123"))
    .andExpect(status().isForbidden());
  }
+ @Test void readPermissionCannotScheduleWhatsAppMessages() throws Exception {
+  mvc.perform(post("/api/v1/admin/social/whatsapp/schedule")
+    .with(user("social-reader").authorities(new SimpleGrantedAuthority("social_media.whatsapp.read")))
+    .contentType(MediaType.APPLICATION_JSON)
+    .content("{\"customerPublicId\":\"00000000-0000-0000-0000-000000000001\",\"templateName\":\"approved_template\",\"languageCode\":\"en\",\"bodyParameters\":[],\"idempotencyKey\":\"schedule-test-123\",\"scheduledAt\":\"2026-12-01T10:00:00Z\"}"))
+   .andExpect(status().isForbidden());
+ }
 }

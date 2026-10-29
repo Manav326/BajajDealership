@@ -147,7 +147,7 @@ public class SocialMediaWorkflowService {
     return findView(actor.dealershipId(), publicId);
   }
 
-  @Scheduled(fixedDelayString = "\${app.social.meta.publish-dispatch-interval-ms:10000}")
+  @Scheduled(fixedDelayString = "${app.social.meta.publish-dispatch-interval-ms:10000}")
   public void dispatchDueRequests() {
     jdbc.update("""
         update social_media_publish_request r set status='UNKNOWN',error_code='dispatch_lock_expired',

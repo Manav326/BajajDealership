@@ -142,7 +142,7 @@ public class SocialWhatsappScheduleService {
     return view(actor.dealershipId(), publicId);
   }
 
-  @Scheduled(fixedDelayString = "\${app.social.whatsapp.dispatch-interval-ms:15000}")
+  @Scheduled(fixedDelayString = "${app.social.whatsapp.dispatch-interval-ms:15000}")
   public void dispatchDueMessages() {
     // Recover jobs created by a worker that stopped after the provider-send row was persisted.
     jdbc.update("""
@@ -332,8 +332,8 @@ public class SocialWhatsappScheduleService {
   }
   private static String writeJson(Object value) { try { return new ObjectMapper().writeValueAsString(value); } catch (JsonProcessingException e) { throw new IllegalArgumentException("WhatsApp data could not be serialized."); } }
   private static String normalizeE164(String raw) {
-    if(raw==null)return null;String v=raw.replaceAll("[\\\\s() .-]","");
-    return v.matches("\\\\+[1-9][0-9]{7,14}")?v:null;
+    if(raw==null)return null;String v=raw.replaceAll("[\\s() .-]","");
+    return v.matches("\\+[1-9][0-9]{7,14}")?v:null;
   }
   private static String clean(String value) { return value == null ? "" : value.trim(); }
   private static String safeCode(String raw) { String v=raw==null?"":raw.replaceAll("[^a-zA-Z0-9_-]","");return v.isBlank()?"dispatch_error":v.substring(0,Math.min(100,v.length())); }

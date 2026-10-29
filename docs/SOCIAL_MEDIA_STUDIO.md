@@ -54,7 +54,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
 - **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires a persistent existing PostgreSQL database for campaign-image bytes.
 - **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work for this single-dealership deployment is authorized-provider E2E testing, plus review of bulk/audience controls and an explicit preview/approval workflow if those features are approved for scope. Owner/Manager can configure or disconnect the Meta connection; staff assigned the `SOCIAL_MEDIA_COORDINATOR` role can publish and send approved WhatsApp templates but cannot change the connected Meta account.
-- **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
+- **Phase 4 — operations:** durable scheduled queues, database-backed idempotency, lock-based dispatch, audit, permissions, delivery-status reconciliation and safe handling of uncertain provider outcomes are implemented. Do not blindly retry a request that may already have created a public post or sent a message.
 
 ## Configuration and release gates
 
@@ -66,12 +66,15 @@ Keep provider secrets out of source control and browser responses. Provider mess
 - [x] Work branch created: feature/issue-9-social-media-studio.
 - [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
 - [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
-- [ ] Confirm web typecheck/build and full CI on the current main-synced revision.
+- [x] Confirm web typecheck/build and full CI on the current main-synced revision (rerun after this workflow change).
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
 - [x] Add Facebook Page photo posts and Instagram feed media-container publishing with expiring signed media URLs, idempotent jobs and status polling (live Meta E2E still pending).
 - [x] Add dealership-scoped Meta disconnect: attempt provider permission revocation, disable local destinations and clear locally stored token ciphertext; report when Meta does not confirm remote revocation.
 - [x] Add filesystem/database storage behind the signed media route; PostgreSQL is the default shared store and filesystem mode remains for local development.
 - [ ] Confirm the existing production PostgreSQL database is persistent and has sufficient capacity; validate image put/read/delete and signed-URL fetching.
+- [x] Persisted, auditable publishing approval/rejection workflow with dealership-scoped review queue.
+- [x] Backend-scheduled Meta publishing (2-minute minimum lead, 90-day horizon), lock-based dispatch and stale/uncertain outcome reconciliation.
+- [x] Backend-scheduled WhatsApp sends with lock-based dispatch, current opt-in/phone/template revalidation, webhook delivery states, and safe uncertain-outcome recovery.
 - [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [x] Add unit coverage for exact WhatsApp webhook HMAC verification, altered request bodies, missing/invalid signatures, disabled configuration and webhook challenge tokens.

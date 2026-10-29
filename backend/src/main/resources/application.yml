@@ -56,6 +56,7 @@ app:
       asset-signing-key-base64: ${SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64:}
     meta:
       publish-poll-interval-ms: ${SOCIAL_MEDIA_PUBLISH_POLL_INTERVAL_MS:15000}
+      publish-dispatch-interval-ms: ${SOCIAL_MEDIA_PUBLISH_DISPATCH_INTERVAL_MS:10000}
       enabled: ${SOCIAL_META_ENABLED:false}
       app-id: ${SOCIAL_META_APP_ID:}
       app-secret: ${SOCIAL_META_APP_SECRET:}
@@ -65,6 +66,7 @@ app:
       token-encryption-key-base64: ${SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64:}
     whatsapp:
       enabled: ${SOCIAL_WHATSAPP_ENABLED:false}
+      dispatch-interval-ms: ${SOCIAL_WHATSAPP_DISPATCH_INTERVAL_MS:15000}
       phone-number-id: ${SOCIAL_WHATSAPP_PHONE_NUMBER_ID:}
       business-account-id: ${SOCIAL_WHATSAPP_BUSINESS_ACCOUNT_ID:}
       access-token: ${SOCIAL_WHATSAPP_ACCESS_TOKEN:}
