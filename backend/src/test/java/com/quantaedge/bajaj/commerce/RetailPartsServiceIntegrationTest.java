@@ -121,11 +121,11 @@ class RetailPartsServiceIntegrationTest {
   }
 
   private CustomerPrincipal customerIn(StaffPrincipal manager) {
-    String dealershipPublicId = jdbc.queryForObject(
-        "select public_id from dealership where id = ?", String.class, manager.dealershipId());
+    UUID dealershipPublicId = jdbc.queryForObject(
+        "select public_id from dealership where id = ?", UUID.class, manager.dealershipId());
     return new CustomerPrincipal(
         1, 88001, "TEST-ACCOUNT-NOT-PERSISTED", 88002, "TEST-CUSTOMER-NOT-PERSISTED",
-        manager.dealershipId(), dealershipPublicId, manager.dealershipCode(),
+        manager.dealershipId(), dealershipPublicId.toString(), manager.dealershipCode(),
         "Retail Parts Test Dealership", "CUST-NOT-PERSISTED", "Test Customer",
         "en", null, null);
   }
