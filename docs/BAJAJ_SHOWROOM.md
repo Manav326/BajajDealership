@@ -29,6 +29,12 @@ Set `app.dealership.public-code` to the exact active dealership code on deployme
 - Notification Send now/scheduler safety and retail parts reservation/cancellation/fulfilment paths have implementation and integration tests; current-head CI and the full synthetic end-to-end acceptance gate still need to pass. Full customer purchase execution and journey QA remain tracked in issues #17, #20, #21 and #22 and must not be claimed complete until evidence is recorded.
 
 
+### Sourced public promotions
+
+Staff can manage date-effective showroom announcements at `/api/v1/admin/catalogue/promotions` using the existing `catalogue.read` / `catalogue.manage` permission boundary. Each record may cover all published Bajaj models or one dealership-configured Bajaj model and includes a title, factual summary, terms/exclusions, validity dates and an HTTPS source URL. A record appears on the public showroom only when it is published and its effective dates include today's India date. No promotions are seeded. These announcements are not automatic price adjustments, guaranteed discounts or substitute statutory terms; staff must verify the underlying source and eligibility.
+
+The public endpoint is `/api/v1/public/catalogue/promotions`. Empty data explicitly displays that no offer is currently published; the storefront does not create filler promotions. Admin edits and publication changes are audited.
+
 ### Public dealership selection
 
 The public on-road estimate endpoint has no customer-supplied dealership selector. Set `APP_PUBLIC_DEALERSHIP_CODE` to the configured `dealership.code` when an API runtime hosts multiple active dealerships. If it is blank, the service only serves estimates when exactly one active dealership exists; it refuses to guess when multiple active dealerships are present. This selector does not grant customer or staff access and never accepts a code from the browser as authorization.
