@@ -107,6 +107,7 @@ type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; destinations: MetaDestination[] };
 type MetaPublishJob = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; externalPostId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; publishedAt: string | null };
+type MetaPublishRequest = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -231,6 +232,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [publishJob, setPublishJob] = useState<MetaPublishJob | null>(null);
   const [pendingPublishAssetId, setPendingPublishAssetId] = useState<string | null>(null);
   const [publishIdempotencyKey, setPublishIdempotencyKey] = useState(() => newDraftId());
+  const [publishRequests, setPublishRequests] = useState<MetaPublishRequest[]>([]);
+  const [scheduleLocal, setScheduleLocal] = useState('');
+
+  useEffect(() => { void refreshPublishRequests(); }, []);
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
@@ -437,10 +442,14 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   async function publishArtwork(){
     const destination=activeMetaDestinations.find(item=>item.publicId===publishDestinationId);
-    if(!metaStatus?.publishingReady){setMetaError('Publishing is not configured yet. Configure public media URL and signing key first.');return;}
+    if(!metaStatus?.publishingReady){setMetaError('Publishing is not configured yet. Configure the public media URL and signing key first.');return;}
     if(!destination){setMetaError('Choose an active Facebook Page or Instagram professional account.');return;}
-    if(publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'){setMetaError('This request is processing or uncertain. Refresh its status before attempting another post.');return;}
-    if(!window.confirm('Publish this artwork and caption to '+destination.displayName+'? This creates a public social post.'))return;
+    if(scheduleLocal && Number.isNaN(new Date(scheduleLocal).getTime())){setMetaError('Choose a valid local date and time.');return;}
+    const scheduledAt=scheduleLocal?new Date(scheduleLocal).toISOString():null;
+    const prompt=scheduledAt
+      ? 'Request approval to publish to '+destination.displayName+' at '+new Date(scheduledAt).toLocaleString()+'? An Owner or Manager must approve it before dispatch.'
+      : 'Submit this artwork to '+destination.displayName+' for approval? An Owner or Manager must approve it before a public post is made.';
+    if(!window.confirm(prompt))return;
     setPublishingBusy(true);setMetaError('');setError('');setNotice('');
     try{
       let assetId=pendingPublishAssetId;
@@ -453,16 +462,17 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         if(!upload.ok||!stored.assetId)throw new Error(stored.message??stored.detail??'Artwork upload failed.');
         assetId=stored.assetId;setPendingPublishAssetId(assetId);
       }
-      const response=await apiFetch('/api/v1/admin/social/meta/publish',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({destinationPublicId:destination.publicId,assetId,caption:fullCaption.slice(0,2200),idempotencyKey:publishIdempotencyKey})});
-      const result=await response.json().catch(()=>({})) as MetaPublishJob&{message?:string;detail?:string};
-      if(!response.ok||!result.publicId)throw new Error(result.message??result.detail??'Publish request could not be confirmed.');
-      setPublishJob(result);
-      if(result.status==='PUBLISHED'){setNotice('Published to '+destination.displayName+'. Provider post ID: '+(result.externalPostId??'recorded')+'.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
-      else if(result.status==='PROCESSING'){setNotice('Meta accepted the Instagram container. Publication will complete after provider readiness checks.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
-      else if(result.status==='FAILED'){setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+'). Check account permissions.');setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());}
-      else setMetaError('Provider outcome is uncertain. The system will not automatically repost; refresh job status before acting.');
-    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish request could not be confirmed.');}
+      const response=await apiFetch('/api/v1/admin/social/meta/publish-requests',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({destinationPublicId:destination.publicId,assetId,caption:fullCaption.slice(0,2200),idempotencyKey:publishIdempotencyKey,scheduledAt})});
+      const result=await response.json().catch(()=>({})) as MetaPublishRequest&{message?:string;detail?:string};
+      if(!response.ok||!result.publicId)throw new Error(result.message??result.detail??'Approval request could not be saved.');
+      setPublishRequests(old=>[result,...old.filter(item=>item.publicId!==result.publicId)]);
+      setPendingPublishAssetId(null);setPublishIdempotencyKey(newDraftId());setScheduleLocal('');
+      setNotice(scheduledAt
+        ? 'Scheduled publish request saved. It will not publish until an Owner or Manager approves it.'
+        : 'Approval request saved. The post will not be sent until an Owner or Manager approves it.');
+      await refreshPublishRequests();
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Approval request could not be saved.');}
     finally{setPublishingBusy(false);}
   }
   async function refreshPublishJob(){
@@ -476,6 +486,36 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       else if(result.status==='FAILED')setMetaError('Publishing failed ('+(result.errorCode??'provider_error')+').');
       else if(result.status==='UNKNOWN')setMetaError('The provider result is uncertain. Do not repost until reconciled.');
     }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish status could not be refreshed.');}
+  }
+
+  async function refreshPublishRequests(){
+    try{
+      const response=await apiFetch('/api/v1/admin/social/meta/publish-requests?limit=50',{cache:'no-store'});
+      const result=await response.json().catch(()=>[]) as MetaPublishRequest[]|{message?:string};
+      if(!response.ok||!Array.isArray(result))throw new Error(('message' in result && result.message)||'Publish approval queue could not be loaded.');
+      setPublishRequests(result);
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Publish approval queue could not be loaded.');}
+  }
+
+  async function decidePublishRequest(request:MetaPublishRequest,decision:'approve'|'reject'){
+    const prompt=decision==='approve'
+      ? (request.scheduledAt?'Approve this campaign for scheduled publishing?':'Approve and publish this campaign now? This creates a public post.')
+      : 'Reject this campaign request? No post will be published.';
+    if(!window.confirm(prompt))return;
+    setPublishingBusy(true);setMetaError('');setNotice('');
+    try{
+      const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/'+decision,{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:''})});
+      const result=await response.json().catch(()=>({})) as MetaPublishRequest&{message?:string;detail?:string};
+      if(!response.ok||!result.publicId)throw new Error(result.message??result.detail??'Approval decision could not be saved.');
+      setPublishRequests(old=>[result,...old.filter(item=>item.publicId!==result.publicId)]);
+      setNotice(decision==='reject'?'Campaign request rejected.':result.status==='SCHEDULED'
+        ?'Campaign approved and scheduled. The backend will dispatch it at the chosen time.'
+        :result.publishStatus==='PUBLISHED'?'Campaign approved and published. Provider post ID: '+(result.externalPostId??'recorded')+'.'
+        :'Campaign approved. Provider status: '+(result.publishStatus||result.status)+'.');
+      await refreshPublishRequests();
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Approval decision could not be saved.');}
+    finally{setPublishingBusy(false);}
   }
 
   async function disconnectMeta() {
@@ -802,7 +842,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
               <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
             </div>
-            <p className={styles.privacy}>Artwork remains browser-local until you choose to upload, publish or share it. Publishing uploads the rendered JPEG only after you confirm the action.</p>
+            <p className={styles.privacy}>Artwork remains browser-local until you choose to upload, publish or share it. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
           </aside>
           <main className={styles.previewColumn}>
             <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
@@ -819,14 +859,30 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
                 </select>
               </label>
-              <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Publish now':'Choose a feed format to publish'}</button>
-              {publishJob&&<div className={styles.publishResult}>
-                <div><strong>Latest publish job</strong><span className={publishJob.status==='PUBLISHED'?styles.connectedState:publishJob.status==='FAILED'?styles.disconnectedState:styles.publishPendingState}>{publishJob.status}</span></div>
-                <p>{publishJob.destinationName}{publishJob.externalPostId?' · Post ID '+publishJob.externalPostId:''}{publishJob.errorCode?' · '+publishJob.errorCode:''}</p>
-                {(publishJob.status==='PROCESSING'||publishJob.status==='UNKNOWN')&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishJob()}>Refresh publish status</button>}
-              </div>}
+              <label>Schedule for (optional)
+                <input type="datetime-local" value={scheduleLocal} min={new Date(Date.now()+120000).toISOString().slice(0,16)} onChange={(event)=>setScheduleLocal(event.target.value)} disabled={publishingBusy}/>
+              </label>
+              <p className={styles.note}>Leave blank for immediate publishing after approval. Scheduled posts must be at least two minutes ahead and within 90 days.</p>
+              <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy} onClick={()=>void publishArtwork()}>{publishingBusy?'Saving approval request…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Request approval':'Choose a feed format to request approval'}</button>
+              <div className={styles.publishResult}>
+                <div><strong>Approval and schedule queue</strong><button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishRequests()}>Refresh</button></div>
+                {publishRequests.length===0&&<p>No publish requests yet.</p>}
+                {publishRequests.map(request=><article key={request.publicId} className={styles.publishResult}>
+                  <div><strong>{request.destinationName}</strong><span className={request.publishStatus==='PUBLISHED'?styles.connectedState:request.publishStatus==='FAILED'||request.publishStatus==='REJECTED'?styles.disconnectedState:styles.publishPendingState}>{request.publishStatus||request.status}</span></div>
+                  <p>{request.status.replaceAll('_',' ')} · requested by {request.requestedBy}{request.approvedBy?' · approved by '+request.approvedBy:''}</p>
+                  {request.scheduledAt&&<p>Scheduled: {new Date(request.scheduledAt).toLocaleString()}</p>}
+                  <p>{request.caption}</p>
+                  {request.externalPostId&&<p>Provider post ID: {request.externalPostId}</p>}
+                  {request.errorCode&&<p>Error: {request.errorCode}</p>}
+                  {canManage&&request.status==='PENDING_APPROVAL'&&<div className={styles.actions}>
+                    <button type="button" className={styles.primary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
+                    <button type="button" className={styles.secondary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
+                  </div>}
+                  {canManage&&request.status==='SCHEDULED'&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void (async()=>{try{const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/cancel',{method:'POST'});const result=await response.json() as MetaPublishRequest;if(!response.ok)throw new Error('Cancel request failed.');setPublishRequests(old=>old.map(item=>item.publicId===result.publicId?result:item));}catch(cause){setMetaError(cause instanceof Error?cause.message:'Cancel request failed.');}})()}>Cancel scheduled post</button>}
+                </article>)}
+              </div>
               {!canPublishSelectedFormat && <p className={styles.note}>Story / Status artwork is export/share-only in this version. Choose Facebook Feed, Square Feed or Instagram Feed to publish directly.</p>}
-              <p className={styles.note}>Publishing creates a real post. Final confirmation is required; uncertain outcomes are not automatically retried.</p>
+              <p className={styles.note}>Requests are saved in the backend for approval. The scheduler dispatches approved posts; uncertain provider outcomes are reconciled and never blindly reposted.</p>
             </section>
             {error && <div className={styles.error} role="alert">{error}</div>}
             {notice && <div className={styles.notice} role="status">{notice}</div>}
