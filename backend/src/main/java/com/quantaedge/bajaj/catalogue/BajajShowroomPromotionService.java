@@ -83,7 +83,7 @@ public class BajajShowroomPromotionService {
     if (request == null) throw badRequest("Promotion details are required.");
     String title = required(request.title(), "Promotion title", 120);
     String summary = required(request.summary(), "Promotion summary", 400);
-    String terms = optional(request.terms(), 2000);
+    String terms = optionalMultiline(request.terms(), 2000);
     String modelCode = optional(request.modelCode(), 60);
     if (modelCode != null) modelCode = modelCode.toUpperCase(Locale.ROOT);
     if (request.startsOn() == null) throw badRequest("Promotion start date is required.");
@@ -194,6 +194,16 @@ public class BajajShowroomPromotionService {
 
   private static String optional(String raw, int max) {
     return optional(raw, "Value", max);
+  }
+
+  private static String optionalMultiline(String raw, int max) {
+    if (raw == null || raw.isBlank()) return null;
+    String value = raw.trim();
+    if (value.length() > max || value.chars().anyMatch(ch ->
+        Character.isISOControl(ch) && ch != '\\n' && ch != '\\r' && ch != '\\t')) {
+      throw badRequest("Promotion terms are invalid.");
+    }
+    return value;
   }
 
   private static String optional(String raw, String label, int max) {
