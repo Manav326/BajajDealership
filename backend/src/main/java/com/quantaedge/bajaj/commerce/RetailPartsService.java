@@ -319,6 +319,10 @@ public class RetailPartsService {
         """, actor.dealershipId(), actor.customerId(), actor.accountId(), orderPublicId);
     if (rows.isEmpty()) throw notFound("That parts order was not found in your account.");
     Map<String, Object> row = rows.getFirst();
+    // Idempotent replay: the first cancellation may have committed even if the client lost its response.
+    if ("CANCELLED".equals(String.valueOf(row.get("status")))) {
+      return getOrderForCustomer(actor, orderPublicId);
+    }
     if (!"PLACED".equals(String.valueOf(row.get("status")))) {
       throw conflict("Only an order that has not been fulfilled can be cancelled.");
     }

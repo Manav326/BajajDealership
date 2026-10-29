@@ -340,10 +340,18 @@ class RetailPartsServiceIntegrationTest {
         where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
         """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
         .isEqualByComparingTo("0.000");
-    assertThatThrownBy(() -> retailParts.cancelOrder(customer, placed.publicId()))
-        .isInstanceOf(ResponseStatusException.class)
-        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-            .isEqualTo(HttpStatus.CONFLICT));
+    var replay = retailParts.cancelOrder(customer, placed.publicId());
+    assertThat(replay.status()).isEqualTo("CANCELLED");
+    assertThat(replay.publicId()).isEqualTo(cancelled.publicId());
+    assertThat(jdbc.queryForObject("""
+        select count(*) from spare_part_stock_movement
+        where dealership_id = ? and reference_id = ? and movement_type = 'RETAIL_ORDER_RELEASED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from audit_event
+        where dealership_id = ? and entity_type = 'RETAIL_PART_ORDER' and entity_id = ?
+          and action = 'RETAIL_PART_ORDER_CANCELLED'
+        """, Integer.class, manager.dealershipId(), placed.publicId().toString())).isEqualTo(1);
   }
 
   @Test
