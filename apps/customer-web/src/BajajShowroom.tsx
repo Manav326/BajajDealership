@@ -42,6 +42,19 @@ type Catalogue = {
   servedAt: string;
   bikes: ShowroomBike[];
 };
+type OnRoadQuote = {
+  quoteType: 'ESTIMATE'; modelCode: string; modelName: string; city: string; state: string;
+  calculatedFor: string; effectiveFrom: string; effectiveTo: string | null;
+  breakdown: { label: string; amount: number; calculation: string }[];
+  estimatedOnRoadTotal: number; sourceUrl: string; note: string | null; disclaimer: string;
+};
+function splitPriceLocation(raw: string): { city: string; state: string } | null {
+  const comma = raw.lastIndexOf(',');
+  if (comma < 1) return null;
+  const city = raw.slice(0, comma).trim();
+  const state = raw.slice(comma + 1).trim();
+  return city && state ? { city, state } : null;
+}
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 function endpoint(path: string): string {
@@ -75,6 +88,10 @@ export default function BajajShowroom({ onSignIn }: {
   const [preferredRideAt, setPreferredRideAt] = useState('');
   const [actionError, setActionError] = useState('');
   const [priceLocation, setPriceLocation] = useState('Bettiah, Bihar');
+  const [onRoadQuote, setOnRoadQuote] = useState<OnRoadQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [quoteLocationKey, setQuoteLocationKey] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -122,7 +139,46 @@ export default function BajajShowroom({ onSignIn }: {
     setSelected(bike);
     setPreferredRideAt('');
     setActionError('');
+    setOnRoadQuote(null);
+    setQuoteError('');
+    setQuoteLocationKey('');
   };
+
+  async function loadOnRoadQuote(bike: ShowroomBike) {
+    const location = splitPriceLocation(priceLocation);
+    if (!location) {
+      setOnRoadQuote(null);
+      setQuoteError('Enter the location as City, State before checking an estimate.');
+      return;
+    }
+    setQuoteLoading(true);
+    setQuoteError('');
+    setOnRoadQuote(null);
+    try {
+      const params = new URLSearchParams({
+        modelCode: bike.modelCode,
+        city: location.city,
+        state: location.state,
+      });
+      const response = await fetch(endpoint(`/api/v1/public/catalogue/quotes?${params.toString()}`), {
+        headers: { Accept: 'application/json' },
+      });
+      const payload = await response.json().catch(() => null) as OnRoadQuote | { message?: string } | null;
+      if (!response.ok) {
+        const message = payload && 'message' in payload ? payload.message : null;
+        throw new Error(message || 'No configured estimate is available. Please request a dealer quote.');
+      }
+      if (!payload || !('estimatedOnRoadTotal' in payload) || payload.quoteType !== 'ESTIMATE') {
+        throw new Error('The pricing service returned an unexpected response.');
+      }
+      setOnRoadQuote(payload);
+      setQuoteLocationKey(`${location.city.toLocaleLowerCase()}|${location.state.toLocaleLowerCase()}`);
+    } catch (cause) {
+      setQuoteError(cause instanceof Error ? cause.message : 'The location estimate could not be loaded.');
+    } finally {
+      setQuoteLoading(false);
+    }
+  }
 
   const chooseAction = (bike: ShowroomBike, action: ShowroomAction) => {
     setActionError('');
@@ -206,7 +262,7 @@ export default function BajajShowroom({ onSignIn }: {
               <input id="bajaj-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Bajaj bikes" />
             </div>
             <label className="showroom-price-city"><span>ON-ROAD QUOTE CITY</span>
-              <input value={priceLocation} onChange={(event) => setPriceLocation(event.target.value)} maxLength={80} aria-label="City for on-road quote" />
+              <input value={priceLocation} onChange={(event) => { setPriceLocation(event.target.value); setOnRoadQuote(null); setQuoteError(''); setQuoteLocationKey(''); }} maxLength={160} aria-label="City and state for on-road estimate" />
             </label>
           </div>
         </div>
@@ -239,7 +295,7 @@ export default function BajajShowroom({ onSignIn }: {
                 <div className="showroom-card-price"><div><small>EX-SHOWROOM · {bike.priceCity.toUpperCase()}</small><strong>{money(bike.exShowroomPrice)}</strong></div>
                   <span className={bike.availabilityStatus === 'IN_STOCK' ? 'showroom-stock in-stock' : 'showroom-stock'}>{bike.availabilityStatus === 'IN_STOCK' ? 'In stock' : bike.availabilityStatus === 'EXPECTED' ? 'Expected' : 'Out of stock'}</span></div>
                 {bike.availabilityStatus !== 'IN_STOCK' && <p className="showroom-availability-note">{bike.availabilityStatus === 'EXPECTED' ? (bike.expectedAvailableOn ? `Expected availability: ${dateLabel(bike.expectedAvailableOn)}` : 'Expected availability date not confirmed') : 'Currently out of stock — ask Lucky Bajaj about the next delivery.'}</p>}
-                <p className="showroom-onroad-note">On-road in {priceLocation || 'your city'} <strong>Request a quote ↗</strong></p>
+                <button type="button" className="showroom-onroad-note" onClick={() => openDetails(bike)}>On-road in {priceLocation || 'your city'} <strong>Check estimate ↗</strong></button>
                 <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => openDetails(bike)}>Explore specs</button>
                   <button type="button" className="showroom-card-primary" onClick={() => openDetails(bike)}>Test ride <span>↗</span></button></div>
               </div>
@@ -283,7 +339,23 @@ export default function BajajShowroom({ onSignIn }: {
             </div>
             <ul className="showroom-highlight-list">{selected.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}</ul>
             <p className="showroom-modal-stock">{selected.availableUnits > 0 ? `${selected.availableUnits} physical unit(s) currently marked available in dealership inventory.` : selected.availabilityStatus === 'EXPECTED' ? `Expected availability: ${selected.expectedAvailableOn ? dateLabel(selected.expectedAvailableOn) : 'date not confirmed'}.` : 'Currently out of stock; contact Lucky Bajaj to confirm availability.'}</p>
-            <p className="showroom-modal-stock">On-road price for {priceLocation || 'your location'}: request a current, location-specific quote.</p>
+            <div className="showroom-quote-panel">
+              <div className="showroom-quote-heading"><strong>On-road estimate</strong><span>{priceLocation || 'Enter City, State'}</span></div>
+              <p>Only shown when Lucky Bajaj has saved a sourced profile for this model and location. This is an estimate, not a guaranteed offer.</p>
+              <button type="button" className="showroom-card-secondary" disabled={quoteLoading} onClick={() => void loadOnRoadQuote(selected)}>
+                {quoteLoading ? 'Calculating…' : 'Check configured estimate'}
+              </button>
+              {quoteError && <p className="showroom-ride-time-error" role="alert">{quoteError}</p>}
+              {onRoadQuote && onRoadQuote.modelCode === selected.modelCode && quoteLocationKey === (splitPriceLocation(priceLocation) ? `${splitPriceLocation(priceLocation)!.city.toLocaleLowerCase()}|${splitPriceLocation(priceLocation)!.state.toLocaleLowerCase()}` : '') &&
+                <div className="showroom-quote-result">
+                  <small>Estimate valid from {dateLabel(onRoadQuote.effectiveFrom)}{onRoadQuote.effectiveTo ? ` to ${dateLabel(onRoadQuote.effectiveTo)}` : ''}</small>
+                  {onRoadQuote.breakdown.map((line) => <div className="showroom-quote-line" key={line.label}><span>{line.label}</span><strong>{money(line.amount)}</strong></div>)}
+                  <div className="showroom-quote-total"><span>Estimated on-road total</span><strong>{money(onRoadQuote.estimatedOnRoadTotal)}</strong></div>
+                  <a href={onRoadQuote.sourceUrl} target="_blank" rel="noreferrer">Pricing source ↗</a>
+                  {onRoadQuote.note && <p>{onRoadQuote.note}</p>}
+                  <p className="showroom-quote-disclaimer">{onRoadQuote.disclaimer}</p>
+                </div>}
+            </div>
             <label className="showroom-preferred-time">
               <span>Preferred test-ride date &amp; time <small>Optional</small></span>
               <input type="datetime-local" value={preferredRideAt} min={minRideDateTime}
