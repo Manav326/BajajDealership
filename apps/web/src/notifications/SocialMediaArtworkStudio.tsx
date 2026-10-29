@@ -1544,7 +1544,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 </button>
               </div>
               <label className={styles.assetUpload}>Upload image to library
-                <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} />
+                <input data-testid="artwork-image-upload" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} />
               </label>
               <p className={styles.panelFootnote}>Maximum 50 assets total; each upload is limited to 4.5 MB and 20 megapixels. Starter images are imported and kept in this browser when selected. Uploaded files are browser-local and are not synced to other staff devices.</p>
               {assetLibraryOpen && <div className={styles.assetGrid}>
