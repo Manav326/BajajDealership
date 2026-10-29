@@ -48,5 +48,14 @@ app:
   notifications:
     dispatch-interval-ms: ${NOTIFICATION_DISPATCH_INTERVAL_MS:15000}
     media-root: ${APP_NOTIFICATION_MEDIA_DIR:./var/private-notification-media}
+  social:
+    meta:
+      enabled: ${SOCIAL_META_ENABLED:false}
+      app-id: ${SOCIAL_META_APP_ID:}
+      app-secret: ${SOCIAL_META_APP_SECRET:}
+      graph-api-version: ${SOCIAL_META_GRAPH_API_VERSION:}
+      redirect-uri: ${SOCIAL_META_REDIRECT_URI:}
+      completion-url: ${SOCIAL_META_COMPLETION_URL:}
+      token-encryption-key-base64: ${SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64:}
   bootstrap:
     token: ${APP_BOOTSTRAP_TOKEN:}
