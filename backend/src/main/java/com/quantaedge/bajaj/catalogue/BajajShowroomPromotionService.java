@@ -45,7 +45,11 @@ public class BajajShowroomPromotionService {
         left join bajaj_catalogue_model c on c.model_code = p.model_code and c.manufacturer = 'BAJAJ'
         where p.dealership_id = ? and p.is_published = true
           and p.starts_on <= ? and (p.ends_on is null or p.ends_on >= ?)
-          and (p.model_code is null or (c.active = true and c.manufacturer = 'BAJAJ'))
+          and (p.model_code is null or (c.active = true and c.manufacturer = 'BAJAJ'
+            and exists (
+              select 1 from bajaj_catalogue_dealership_model scoped_model
+              where scoped_model.dealership_id = p.dealership_id
+                and scoped_model.model_code = p.model_code and scoped_model.is_published = true)))
         order by p.starts_on desc, lower(p.title), p.id desc
         limit 50
         """, (rs, rowNum) -> new PromotionView(
