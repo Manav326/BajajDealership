@@ -70,6 +70,8 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
   });
   const [activationMessage, setActivationMessage] = useState('');
   const [ownerSetupAvailable, setOwnerSetupAvailable] = useState<boolean | null>(null);
+  const [ownerSetupStatusMessage, setOwnerSetupStatusMessage] = useState('');
+  const [ownerSetupMissingKeys, setOwnerSetupMissingKeys] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -79,11 +81,23 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
           headers: { Accept: 'application/json' },
         });
         const payload = await readResponseBody(response);
-        const available = typeof payload === 'object' && payload !== null
-          && 'available' in payload && (payload as { available?: unknown }).available === true;
-        if (active) setOwnerSetupAvailable(response.ok && available);
+        const status = typeof payload === 'object' && payload !== null
+          ? payload as { available?: unknown; message?: unknown; missingConfigurationKeys?: unknown }
+          : {};
+        const available = status.available === true;
+        if (active) {
+          setOwnerSetupAvailable(response.ok && available);
+          setOwnerSetupStatusMessage(typeof status.message === 'string' ? status.message : '');
+          setOwnerSetupMissingKeys(Array.isArray(status.missingConfigurationKeys)
+            ? status.missingConfigurationKeys.filter((key): key is string => typeof key === 'string')
+            : []);
+        }
       } catch {
-        if (active) setOwnerSetupAvailable(false);
+        if (active) {
+          setOwnerSetupAvailable(false);
+          setOwnerSetupStatusMessage('Initial owner setup status could not be checked. Check API connectivity and configuration.');
+          setOwnerSetupMissingKeys([]);
+        }
       }
     })();
     return () => { active = false; };
@@ -257,6 +271,13 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
             ? 'Paste the single-use staff invitation token from your dealership owner, then create a strong password.'
             : 'Sign in to your dealership workspace to manage sales, servicing and customer care.'}</p>
         {activationMessage && <div className="notice notice-success" role="status">{activationMessage}</div>}
+        {authMode === 'login' && ownerSetupAvailable === false && ownerSetupMissingKeys.length > 0 && (
+          <div className="form-error" role="status">
+            {ownerSetupStatusMessage || 'Initial owner setup is unavailable.'}
+            {' '}Missing configuration: {ownerSetupMissingKeys.join(', ')}.
+            {' '}For local Docker, use the startup script to generate the one-time token; for hosted deployments, configure it as an API secret.
+          </div>
+        )}
         <form
           onSubmit={authMode === 'owner-setup' ? setupOwner : authMode === 'staff-activate' ? activate : submit}
           className="auth-form"
