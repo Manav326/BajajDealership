@@ -28,6 +28,9 @@ class CustomerServiceIntegrationTest {
   @Autowired
   private CustomerPortalService portal;
 
+  @Autowired
+  private CustomerController customerController;
+
   @Test
   void createsCustomerWithDefaultHindiAndAuditableChange() {
     StaffPrincipal owner = createOwner("A");
@@ -152,6 +155,15 @@ class CustomerServiceIntegrationTest {
     var photo = portal.readProfilePhotoForStaff(owner, created.publicId());
     assertThat(photo.contentType()).isEqualTo("image/png");
     assertThat(photo.bytes()).containsExactly(png);
+    // Exercise the same staff-facing handlers called by the profile UI.
+    assertThat(customerController.savedAddresses(owner, created.publicId()))
+        .extracting(CustomerPortalService.CustomerAddressView::addressLine1)
+        .containsExactly("12 Sample Road");
+    var photoResponse = customerController.profilePhoto(owner, created.publicId());
+    assertThat(photoResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(photoResponse.getHeaders().getContentType()).isEqualTo(org.springframework.http.MediaType.IMAGE_PNG);
+    assertThat(photoResponse.getHeaders().getCacheControl()).contains("no-store");
+    assertThat(photoResponse.getBody()).containsExactly(png);
 
     StaffPrincipal anotherDealership = createOwner("PROFILE_OTHER");
     assertThatThrownBy(() -> portal.addressesForStaff(anotherDealership, created.publicId()))

@@ -6,7 +6,12 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/admin/customers")
 public class CustomerController {
   private final CustomerService customers;
+  private final CustomerPortalService customerPortal;
 
-  public CustomerController(CustomerService customers) {
+  public CustomerController(CustomerService customers, CustomerPortalService customerPortal) {
     this.customers = customers;
+    this.customerPortal = customerPortal;
   }
 
   @GetMapping
@@ -49,6 +56,26 @@ public class CustomerController {
   public CustomerService.CustomerHistoryView history(
       @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
     return customers.history(principal, publicId);
+  }
+  @GetMapping("/{publicId}/saved-addresses")
+  @PreAuthorize("hasAuthority('customer.read')")
+  public List<CustomerPortalService.CustomerAddressView> savedAddresses(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    return customerPortal.addressesForStaff(principal, publicId);
+  }
+
+  @GetMapping("/{publicId}/profile-photo")
+  @PreAuthorize("hasAuthority('customer.read')")
+  public ResponseEntity<byte[]> profilePhoto(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    CustomerPortalService.ProfilePhoto photo = customerPortal.readProfilePhotoForStaff(principal, publicId);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(photo.contentType()))
+        .contentLength(photo.bytes().length)
+        .cacheControl(CacheControl.noStore())
+        .header(HttpHeaders.CONTENT_DISPOSITION, "inline")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(photo.bytes());
   }
 
   @PostMapping
