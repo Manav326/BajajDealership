@@ -599,7 +599,7 @@ test('staff can open a customer profile and view the saved delivery address and 
       return json({
         customer, notes: customerNotes,
         marketingConsentAt: null, marketingConsentSource: null,
-        motorcyclePurchases: [], sparePartOrders: [], websiteRequests: [],
+        motorcyclePurchases: [], sparePartOrders: [], salesEnquiries: [], websiteRequests: [],
       });
     }
     if (path === '/api/v1/admin/customers/' + customer.publicId + '/profile-photo' && method === 'GET') {

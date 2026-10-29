@@ -568,12 +568,12 @@ export default function CustomerWorkspace({
                   </article>)}</div>}
               </section>
               <section className="customer-profile-history-section">
-                <div className="customer-profile-address-heading"><div><h3>Sales enquiries · all channels</h3><p>Walk-ins, phone leads, referrals, campaigns and online enquiries retained in the dealership CRM.</p></div><span>{selectedHistory?.salesEnquiries.length ?? 0}</span></div>
+                <div className="customer-profile-address-heading"><div><h3>Sales enquiries · all channels</h3><p>Walk-ins, phone leads, referrals, campaigns and online enquiries retained in the dealership CRM.</p></div><span>{selectedHistory?.salesEnquiries?.length ?? 0}</span></div>
                 {!selectedHistory
                   ? <div className="customer-profile-address-empty">Sales enquiry history could not be loaded. Reopen the profile to retry.</div>
-                  : selectedHistory.salesEnquiries.length === 0
+                  : (selectedHistory.salesEnquiries ?? []).length === 0
                     ? <div className="customer-profile-address-empty">No dealership sales enquiries are linked to this customer yet.</div>
-                    : <div className="customer-history-list">{selectedHistory.salesEnquiries.map((enquiry) => <article className="customer-history-record" key={enquiry.publicId}>
+                    : <div className="customer-history-list">{(selectedHistory.salesEnquiries ?? []).map((enquiry) => <article className="customer-history-record" key={enquiry.publicId}>
                       <span className="customer-history-record-icon request-history-icon">E</span>
                       <div className="customer-history-record-main"><div className="customer-history-title"><strong>{enquiry.modelName || "Motorcycle enquiry"}</strong><span className="customer-history-status">{enquiry.status.replaceAll("_"," ")}</span></div>
                         <p>{enquiry.enquiryCode} · {enquiry.leadSource.replaceAll("_"," ")} · {enquiry.contactPreference.replaceAll("_"," ")}</p>
