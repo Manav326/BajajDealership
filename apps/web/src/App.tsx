@@ -31,7 +31,7 @@ const navigation = [
   { label: 'Billing & expenses', group: 'Business control', icon: '₹', permission: 'finance.read' },
   { label: 'Team & access', group: 'Business control', icon: '♙', permission: 'staff.read' },
   { label: 'Notification Studio', group: 'Engagement', icon: '✳', permission: 'notification.read' },
-  { label: 'Social Media Studio', group: 'Engagement', icon: '▧', permission: 'notification.read' },
+  { label: 'Social Media Studio', group: 'Engagement', icon: '▧', permission: 'social_media.read' },
   { label: 'Reports', group: 'Engagement', icon: '▥', permission: 'report.read' },
 ];
 
