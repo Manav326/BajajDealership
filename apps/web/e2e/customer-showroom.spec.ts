@@ -165,7 +165,7 @@ test('selecting a bike preserves the preferred test ride time through sign-in ha
     const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
     date.setSeconds(0, 0);
     const pad = (value: number) => String(value).padStart(2, '0');
-    return \`\${date.getFullYear()}-\${pad(date.getMonth() + 1)}-\${pad(date.getDate())}T\${pad(date.getHours())}:\${pad(date.getMinutes())}\`;
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
   });
   await page.locator('.showroom-preferred-time input').fill(preferredTime);
   const expectedPreferredAt = await page.locator('.showroom-preferred-time input').evaluate((element) =>
