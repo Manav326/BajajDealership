@@ -645,3 +645,41 @@ test('staff can open a customer profile and view the saved delivery address and 
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+
+test('Social Media Artwork Studio offers festival templates, a bounded asset library, and layer transforms', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await page.getByRole('button', { name: 'Social Media Studio', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Social Media Artwork Studio' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use Shubh Deepawali template' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use Chhath Puja · Sunrise template' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use Eid Mubarak · Elegant template' })).toBeVisible();
+  await expect(dialog.getByText(/12 \/ 50 images · JPEG or PNG/)).toBeVisible();
+  await expect(dialog.getByRole('slider', { name: /Position X/ })).toBeVisible();
+  await expect(dialog.getByLabel('Headline colour')).toBeVisible();
+
+  // Keep image selection deterministic and offline in CI; the real asset flow still validates
+  // JPEG/PNG signatures, dimensions, size and IndexedDB persistence.
+  await page.route('https://images.unsplash.com/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+    });
+  });
+  await dialog.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
+  await expect(dialog.getByLabel('Headline')).toHaveValue('शुभ दीपावली');
+  await expect(dialog.getByText(/template loaded/)).toBeVisible();
+
+  await dialog.locator('.assetUpload input[type="file"]').setInputFiles({
+    name: 'dealer-logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+  });
+  await expect(dialog.getByText(/13 \/ 50 images · JPEG or PNG/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use as logo' }).first()).toBeVisible();
+});
