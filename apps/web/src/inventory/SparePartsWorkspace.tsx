@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
+import RetailPartsCommercePanel from './RetailPartsCommercePanel';
 
 type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
 type Part = {
@@ -78,7 +79,7 @@ export default function SparePartsWorkspace({ token, staff }: { token: string; s
   const canIssue = staff.permissions.includes('parts.issue');
   const canReturn = staff.permissions.includes('parts.return');
 
-  const [activeTab, setActiveTab] = useState<'stock' | 'receiving' | 'jobCards'>('stock');
+  const [activeTab, setActiveTab] = useState<'stock' | 'receiving' | 'jobCards' | 'retail'>('stock');
   const [partsList, setPartsList] = useState<Part[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [receipts, setReceipts] = useState<ReceiptSummary[]>([]);
@@ -415,7 +416,10 @@ export default function SparePartsWorkspace({ token, staff }: { token: string; s
         <button type="button" className={activeTab === 'stock' ? 'spare-parts-tab active' : 'spare-parts-tab'} onClick={() => setActiveTab('stock')}>Stock & catalogue <span>{partsList.length}</span></button>
         <button type="button" className={activeTab === 'receiving' ? 'spare-parts-tab active' : 'spare-parts-tab'} onClick={() => setActiveTab('receiving')}>Suppliers & receipts <span>{receipts.length}</span></button>
         <button type="button" className={activeTab === 'jobCards' ? 'spare-parts-tab active' : 'spare-parts-tab'} onClick={() => setActiveTab('jobCards')}>Job-card parts <span>{reservations.length}</span></button>
+        <button type="button" className={activeTab === 'retail' ? 'spare-parts-tab active' : 'spare-parts-tab'} onClick={() => setActiveTab('retail')}>Customer retail shop</button>
       </div>
+
+      {activeTab === 'retail' && <RetailPartsCommercePanel token={token} staff={staff} />}
 
       {activeTab === 'stock' && <>
         <div className="spare-parts-panel">
