@@ -421,6 +421,67 @@ class NotificationManagementServiceIntegrationTest {
         """, Integer.class, healthyPreview.campaignPublicId())).isEqualTo(1);
   }
 
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void automaticRetryStateBecomesTerminalAfterTheConfiguredAttemptLimit() {
+    StaffPrincipal owner = createNotificationOperator();
+    String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    Long customerId = jdbc.queryForObject("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Retry Exhaustion Customer', '9240000001', 'ACTIVE') returning id
+        """, Long.class, owner.dealershipId(), code);
+
+    NotificationManagementService.PreviewResult preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "CUSTOMER", "Retry exhaustion test", "Repeated stale-recipient dispatch must become terminal",
+            Map.of("recipientTypes", List.of("CUSTOMER"), "marketingOnly", false,
+                "selectionMode", "SELECTED",
+                "selectedRecipients", List.of(Map.of("kind", "CUSTOMER", "id", customerId)),
+                "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        preview.campaignPublicId(), preview.previewToken(), "exhaust-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+    jdbc.update("update customer set status = 'INACTIVE' where dealership_id = ? and id = ?",
+        owner.dealershipId(), customerId);
+
+    for (int attempt = 1; attempt <= 5; attempt++) {
+      assertThatThrownBy(() -> notifications.sendNow(owner, preview.campaignPublicId()))
+          .isInstanceOf(ResponseStatusException.class)
+          .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+              .isEqualTo(HttpStatus.BAD_REQUEST));
+
+      var saved = jdbc.queryForMap("""
+          select status, dispatch_attempt_count, last_dispatch_error, next_dispatch_attempt_at
+          from notification_campaign where dealership_id = ? and public_id = ?
+          """, owner.dealershipId(), preview.campaignPublicId());
+      assertThat(((Number) saved.get("dispatch_attempt_count")).intValue()).isEqualTo(attempt);
+      assertThat(String.valueOf(saved.get("last_dispatch_error")))
+          .contains("Dispatch error: ResponseStatusException");
+      if (attempt < 5) {
+        assertThat(saved.get("status")).isEqualTo("SCHEDULED");
+        assertThat((Timestamp) saved.get("next_dispatch_attempt_at")).isNotNull();
+      } else {
+        assertThat(saved.get("status")).isEqualTo("FAILED");
+        assertThat(saved.get("next_dispatch_attempt_at")).isNull();
+      }
+    }
+
+    assertThat(jdbc.queryForList("""
+        select action from notification_audit
+        where dealership_id = ?
+          and campaign_id = (select id from notification_campaign where public_id = ?)
+        order by id
+        """, String.class, owner.dealershipId(), preview.campaignPublicId()))
+        .contains("CAMPAIGN_DISPATCH_RETRY_SCHEDULED", "CAMPAIGN_DISPATCH_FAILED");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isZero();
+  }
+
   @Test
   void marketingAudienceIncludesOnlyCustomersWithRecordedConsent() {
     StaffPrincipal owner = createOwner();

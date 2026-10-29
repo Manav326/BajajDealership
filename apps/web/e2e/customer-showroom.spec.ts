@@ -79,7 +79,7 @@ test('public showroom remains responsive and truthful when no dealer offer or re
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
-    await page.locator('.showroom-bike-card').getByRole('button', { name: 'Explore specs' }).click();
+    await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByText('Reference price checked')).toBeVisible();
     await page.getByRole('textbox', { name: 'City and state for on-road estimate' }).fill('Bettiah, Bihar');
@@ -126,7 +126,7 @@ test('selecting a bike preserves the requested test ride intent through sign-in 
   await page.setViewportSize({ width: 390, height: 844 });
   await mockShowroomApi(page);
   await page.goto('http://127.0.0.1:4173');
-  await page.locator('.showroom-bike-card').getByRole('button', { name: 'Explore specs' }).click();
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
   await page.getByRole('button', { name: /Request test ride/ }).click();
   await expect(page.locator('.portal-auth-screen')).toBeVisible();
 
@@ -149,7 +149,7 @@ test('bike details dialog supports Escape and restores keyboard focus', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await mockShowroomApi(page);
   await page.goto('http://127.0.0.1:4173');
-  const trigger = page.locator('.showroom-bike-card').getByRole('button', { name: 'Explore specs' });
+  const trigger = page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' });
   await trigger.click();
 
   const dialog = page.getByRole('dialog');
