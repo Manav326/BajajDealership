@@ -37,6 +37,17 @@ public class RetailPartsAdminController {
     return retail.listRetailSettings(principal);
   }
 
+  @GetMapping("/retail-part-stock-options")
+  @PreAuthorize("hasAuthority('parts.read')")
+  public List<RetailPartsService.StockOption> stockOptions(@AuthenticationPrincipal StaffPrincipal principal) {
+    return retail.listRetailStockOptions(principal);
+  }
+  @PutMapping("/retail-parts/{cataloguePublicId}/inventory-map")
+  @PreAuthorize("hasAuthority('parts.manage')")
+  public RetailPartsService.AdminPartView mapInventory(@AuthenticationPrincipal StaffPrincipal principal,
+      @PathVariable UUID cataloguePublicId, @Valid @RequestBody InventoryMapRequest request) {
+    return retail.mapRetailCatalogueStock(principal, cataloguePublicId, request.stockPartPublicId());
+  }
   @PutMapping("/retail-parts/{partPublicId}")
   @PreAuthorize("hasAuthority('parts.manage')")
   public RetailPartsService.AdminPartView updateSettings(
@@ -45,7 +56,7 @@ public class RetailPartsAdminController {
       @Valid @RequestBody RetailSettingsRequest request) {
     return retail.updateRetailSettings(principal, partPublicId, new RetailPartsService.RetailSettingsRequest(
         request.retailEnabled(), request.retailPrice(), request.retailDescription(),
-        request.fitmentModelCodes(), request.imageUrl()));
+        request.fitmentModelCodes(), request.imageUrl(), request.fitmentVerified()));
   }
 
   @GetMapping("/retail-part-orders")
@@ -82,7 +93,9 @@ public class RetailPartsAdminController {
       BigDecimal retailPrice,
       @Size(max = 1000) String retailDescription,
       @Size(max = 40) List<@NotBlank @Size(max = 60) String> fitmentModelCodes,
-      @Size(max = 1000) String imageUrl) {}
+      @Size(max = 1000) String imageUrl,
+      Boolean fitmentVerified) { }
+  public record InventoryMapRequest(UUID stockPartPublicId) { }
 
   @PostMapping("/retail-part-orders/{publicId}/return")
   @PreAuthorize("hasAuthority('parts.manage')")

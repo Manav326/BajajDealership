@@ -53,8 +53,14 @@ type PendingShowroomIntent = {
 };
 type RetailPart = {
   publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
-  retailPrice: number; fitmentModelCodes: string[]; imageUrl: string | null;
-  quantityAvailable: number; available: boolean;
+  retailPrice: number | null; fitmentModelCodes: string[]; imageUrl: string | null;
+  quantityAvailable: number; available: boolean; availabilityStatus: 'AVAILABLE' | 'OUT_OF_STOCK' | 'CHECK_WITH_DEALER';
+  fitmentVerified: boolean; category: string; partNumber: string | null; sourceUrl: string | null;
+  sourceVerifiedAt: string | null; sourceDataStatus: string;
+};
+type RetailPartFilters = {
+  categories: string[];
+  motorcycleModels: Array<{ modelCode: string; modelName: string; family: string; category: string }>;
 };
 type RetailOrderLine = {
   partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
@@ -310,6 +316,15 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [salesRequests, setSalesRequests] = useState<CustomerSalesRequest[]>([]);
   const [retailParts, setRetailParts] = useState<RetailPart[]>([]);
+  const [retailPartFilters, setRetailPartFilters] = useState<RetailPartFilters>({ categories: [], motorcycleModels: [] });
+  const [partSearch, setPartSearch] = useState('');
+  const [partCategoryFilter, setPartCategoryFilter] = useState('ALL');
+  const [partModelFilter, setPartModelFilter] = useState('');
+  const [partBikeTypeFilter, setPartBikeTypeFilter] = useState('');
+  const [partAvailabilityFilter, setPartAvailabilityFilter] = useState('ALL');
+  const [partMinPrice, setPartMinPrice] = useState('');
+  const [partMaxPrice, setPartMaxPrice] = useState('');
+  const [partSort, setPartSort] = useState('CATEGORY');
   const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
   const [retailCart, setRetailCart] = useState<CartLine[]>([]);
   const [fitmentModelCode, setFitmentModelCode] = useState('');
@@ -355,6 +370,14 @@ export default function App() {
     setAppointments([]);
     setSalesRequests([]);
     setRetailParts([]);
+    setRetailPartFilters({ categories: [], motorcycleModels: [] });
+    setPartSearch('');
+    setPartCategoryFilter('ALL');
+    setPartModelFilter('');
+    setPartBikeTypeFilter('');
+    setPartAvailabilityFilter('ALL');
+    setPartMinPrice('');
+    setPartMaxPrice('');
     setRetailOrders([]);
     setRetailCart([]);
     setRetailFulfillmentMethod('PICKUP');
@@ -369,7 +392,7 @@ export default function App() {
     // Keep action-specific recovery feedback visible while a saved showroom intent is unresolved.
     if (!window.sessionStorage.getItem('qe_bajaj_pending_intent')) setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders, partFilters] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
@@ -378,6 +401,7 @@ export default function App() {
         api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken),
         api<RetailPart[]>('/api/v1/customer/parts', sessionToken),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', sessionToken),
+        api<RetailPartFilters>('/api/v1/customer/parts/filters', sessionToken),
       ]);
       setCustomer(profile);
       setVehicles(ownedVehicles);
@@ -386,6 +410,7 @@ export default function App() {
       setSalesRequests(customerRequests);
       setRetailParts(parts);
       setRetailOrders(orders);
+      setRetailPartFilters(partFilters);
       setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
@@ -577,6 +602,7 @@ export default function App() {
   }
 
   function updateRetailCart(part: RetailPart, delta: number) {
+    if (!part.available) return;
     setRetailCart((current) => {
       const existing = current.find((line) => line.partPublicId === part.publicId);
       const quantity = Math.max(0, Number(existing?.quantity ?? 0) + delta);
@@ -945,6 +971,37 @@ export default function App() {
     );
   }
 
+  const selectedTypeModelCodes = new Set(
+    retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter)
+      .map((model) => model.modelCode),
+  );
+  const displayedRetailParts = retailParts.filter((part) => {
+    const query = partSearch.trim().toLocaleLowerCase();
+    const matchesQuery = !query || [part.partName, part.skuCode, part.partNumber ?? '', part.category]
+      .some((value) => value.toLocaleLowerCase().includes(query));
+    const matchesCategory = partCategoryFilter === 'ALL' || part.category === partCategoryFilter;
+    const matchesModel = !partModelFilter
+      || part.fitmentModelCodes.includes(partModelFilter)
+      || (part.fitmentVerified && part.fitmentModelCodes.length === 0);
+    const matchesType = !partBikeTypeFilter
+      || (part.fitmentModelCodes.some((code) => selectedTypeModelCodes.has(code))
+        || (part.fitmentVerified && part.fitmentModelCodes.length === 0));
+    const matchesAvailability = partAvailabilityFilter === 'ALL' || part.availabilityStatus === partAvailabilityFilter;
+    const price = part.retailPrice;
+    const min = partMinPrice.trim() ? Number(partMinPrice) : null;
+    const max = partMaxPrice.trim() ? Number(partMaxPrice) : null;
+    const matchesPrice = price == null
+      ? min == null && max == null
+      : (min == null || (Number.isFinite(min) && price >= min))
+        && (max == null || (Number.isFinite(max) && price <= max));
+    return matchesQuery && matchesCategory && matchesModel && matchesType && matchesAvailability && matchesPrice;
+  }).sort((left, right) => {
+    if (partSort === 'NAME') return left.partName.localeCompare(right.partName);
+    if (partSort === 'PRICE_LOW') return (left.retailPrice ?? Number.POSITIVE_INFINITY) - (right.retailPrice ?? Number.POSITIVE_INFINITY);
+    if (partSort === 'PRICE_HIGH') return (right.retailPrice ?? -1) - (left.retailPrice ?? -1);
+    return left.category.localeCompare(right.category) || left.partName.localeCompare(right.partName);
+  });
+
   return (
     <main className="portal-app">
       <header className="portal-topbar">
@@ -1050,26 +1107,47 @@ export default function App() {
           </>}
           {!loadingData && tab === 'parts' && <>
             <div className="portal-section-heading">
-              <div><h2>Bajaj spare-parts shop</h2><p>Shop items the dealership has explicitly listed for retail. Availability excludes stock already reserved for workshop jobs and other customers.</p></div>
-              <span className="section-mark">{retailParts.length} LISTED</span>
+              <div><h2>Bajaj spare-parts shop</h2><p>Browse common spare-part references across categories. Prices, exact OEM numbers and motorcycle compatibility are confirmed by Lucky Bajaj; items can only be ordered when the matching stock SKU is linked and sellable inventory is available.</p></div>
+              <span className="section-mark">{displayedRetailParts.length} OF {retailParts.length} PARTS</span>
             </div>
+            <section className="retail-catalogue-filters glass-panel" aria-label="Filter spare parts">
+              <div className="retail-catalogue-search"><label htmlFor="retail-parts-search">Search by name or part reference</label><input id="retail-parts-search" value={partSearch} onChange={(event) => setPartSearch(event.target.value)} placeholder="e.g. brake shoe, oil filter, BGP-0001" /></div>
+              <div className="retail-catalogue-filter-grid">
+                <label>Part category<select value={partCategoryFilter} onChange={(event) => setPartCategoryFilter(event.target.value)}><option value="ALL">All categories</option>{retailPartFilters.categories.map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                <label>Motorcycle type<select value={partBikeTypeFilter} onChange={(event) => { setPartBikeTypeFilter(event.target.value); setPartModelFilter(''); }}><option value="">All motorcycle types</option>{[...new Set(retailPartFilters.motorcycleModels.map((model) => model.category))].sort().map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                <label>Motorcycle model<select value={partModelFilter} onChange={(event) => setPartModelFilter(event.target.value)}><option value="">All models</option>{retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter).map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}</select></label>
+                <label>Availability<select value={partAvailabilityFilter} onChange={(event) => setPartAvailabilityFilter(event.target.value)}><option value="ALL">Any status</option><option value="AVAILABLE">In stock and orderable</option><option value="OUT_OF_STOCK">Out of stock</option><option value="CHECK_WITH_DEALER">Check with dealership</option></select></label>
+                <label>Minimum price (₹)<input type="number" min="0" step="1" value={partMinPrice} onChange={(event) => setPartMinPrice(event.target.value)} placeholder="No minimum" /></label>
+                <label>Maximum price (₹)<input type="number" min="0" step="1" value={partMaxPrice} onChange={(event) => setPartMaxPrice(event.target.value)} placeholder="No maximum" /></label>
+                <label>Sort by<select value={partSort} onChange={(event) => setPartSort(event.target.value)}><option value="CATEGORY">Category, then name</option><option value="NAME">Name</option><option value="PRICE_LOW">Price: low to high</option><option value="PRICE_HIGH">Price: high to low</option></select></label>
+                <div className="retail-catalogue-filter-actions"><span>{displayedRetailParts.length} matching item(s)</span><button type="button" className="text-link" onClick={() => { setPartSearch(''); setPartCategoryFilter('ALL'); setPartModelFilter(''); setPartBikeTypeFilter(''); setPartAvailabilityFilter('ALL'); setPartMinPrice(''); setPartMaxPrice(''); setPartSort('CATEGORY'); }}>Clear filters</button></div>
+              </div>
+            </section>
             <div className="retail-shop-layout">
               <section className="retail-shop-main">
-                {retailParts.length === 0
-                  ? <div className="glass-panel inline-empty"><strong>No retail parts listed yet.</strong><span>Only parts published by Lucky Bajaj will appear here. Ask the dealership if a part is missing.</span></div>
-                  : <div className="retail-parts-grid">{retailParts.map((part) => {
+                {displayedRetailParts.length === 0
+                  ? <div className="glass-panel inline-empty"><strong>No spare parts match these filters.</strong><span>Clear some filters or search another part category.</span></div>
+                  : <div className="retail-parts-grid">{displayedRetailParts.map((part) => {
                     const selectedLine = retailCart.find((line) => line.partPublicId === part.publicId);
                     const quantity = Number(selectedLine?.quantity ?? 0);
+                    const statusText = part.available
+                      ? `${part.quantityAvailable} ${part.unitOfMeasure.toLowerCase()} available`
+                      : part.availabilityStatus === 'OUT_OF_STOCK' ? 'Out of stock'
+                        : 'Availability to be confirmed';
                     return <article className="glass-panel retail-part-card" key={part.publicId}>
                       {part.imageUrl
                         ? <div className="retail-part-image"><img src={part.imageUrl} alt={part.partName} loading="lazy" /></div>
-                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>GENUINE PARTS</strong></div>}
+                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>SPARE PARTS</strong></div>}
                       <div className="retail-part-copy">
-                        <span className="vehicle-overline">{part.skuCode}</span>
+                        <span className="vehicle-overline">{part.skuCode} · {pretty(part.category)}</span>
                         <h3>{part.partName}</h3>
-                        <p>{part.description || 'Dealership-listed spare part.'}</p>
-                        {part.fitmentModelCodes.length > 0 && <small>Fitment restricted to selected Bajaj model</small>}
-                        <div className="retail-part-price-row"><strong>{money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{part.available ? `${part.quantityAvailable} ${part.unitOfMeasure} available` : 'Currently unavailable'}</span></div>
+                        <p>{part.description || 'General spare-parts reference. Ask the dealership to confirm the exact part for your motorcycle.'}</p>
+                        {part.partNumber && <small>OEM part number: {part.partNumber}</small>}
+                        <small>{part.fitmentVerified
+                          ? part.fitmentModelCodes.length > 0 ? `Verified for ${part.fitmentModelCodes.map((code) => retailPartFilters.motorcycleModels.find((model) => model.modelCode === code)?.modelName ?? code).join(', ')}` : 'Dealership-confirmed universal fitment'
+                          : 'Exact model compatibility must be confirmed by Lucky Bajaj.'}</small>
+                        {part.sourceUrl && <a className="retail-part-source-link" href={part.sourceUrl} target="_blank" rel="noreferrer">Bajaj spares reference ↗</a>}
+                        <div className="retail-part-price-row"><strong>{part.retailPrice == null ? 'Price to be confirmed' : money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{statusText}</span></div>
                         <div className="retail-part-cart-row">
                           <div className="retail-quantity-stepper">
                             <button type="button" aria-label={`Remove one ${part.partName}`} disabled={!quantity || saving} onClick={() => updateRetailCart(part, -1)}>−</button>
@@ -1085,11 +1163,11 @@ export default function App() {
               <aside className="glass-panel retail-cart-panel">
                 <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · {retailFulfillmentMethod === 'PICKUP' ? 'pickup at dealership' : 'delivery request'}</p></div><span className="next-visit-icon">▦</span></div>
                 {retailCart.length === 0
-                  ? <div className="inline-empty">Choose a part to start an order.</div>
+                  ? <div className="inline-empty">Choose an in-stock, published part to start an order.</div>
                   : <>
                     {retailCart.map((line) => {
                       const part = retailParts.find((item) => item.publicId === line.partPublicId);
-                      if (!part) return null;
+                      if (!part || part.retailPrice == null) return null;
                       return <div className="retail-cart-line" key={line.partPublicId}>
                         <div><strong>{part.partName}</strong><small>{line.quantity} × {money(part.retailPrice)}</small></div>
                         <strong>{money(Number(line.quantity) * part.retailPrice)}</strong>
@@ -1101,8 +1179,11 @@ export default function App() {
                       return sum + Number(line.quantity) * Number(part?.retailPrice ?? 0);
                     }, 0))}</strong></div>
                     <form className="retail-checkout-form" onSubmit={placeRetailOrder}>
-                      <label>Bike fitment (if applicable)
-                        <input maxLength={60} value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value.toUpperCase())} placeholder="Model code, e.g. BAJAJ_PULSAR_N160" />
+                      <label>Motorcycle model for fitment (if applicable)
+                        <select value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value)}>
+                          <option value="">Choose model if requested by the part</option>
+                          {retailPartFilters.motorcycleModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}
+                        </select>
                       </label>
                       <label>Fulfillment method
                         <select value={retailFulfillmentMethod} onChange={(event) => {

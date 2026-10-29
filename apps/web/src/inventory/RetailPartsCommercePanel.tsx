@@ -6,7 +6,13 @@ type RetailPartSetting = {
   publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
   active: boolean; retailEnabled: boolean; retailPrice: number | null; retailDescription: string | null;
   fitmentModelCodes: string[]; imageUrl: string | null; quantityOnHand: number; quantityReserved: number;
-  quantityAvailable: number; averageUnitCost: number;
+  quantityAvailable: number; averageUnitCost: number; category: string; sourceUrl: string | null;
+  sourceVerifiedAt: string | null; partNumber: string | null; fitmentVerified: boolean;
+  stockPartPublicId: string | null; stockSkuCode: string | null;
+};
+type StockOption = {
+  publicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantityOnHand: number; quantityReserved: number; quantityAvailable: number;
 };
 type RetailOrderLine = {
   partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
@@ -23,7 +29,7 @@ type RetailOrder = {
 };
 type SettingsDraft = {
   retailEnabled: boolean; retailPrice: string; retailDescription: string;
-  fitmentModelCodes: string; imageUrl: string;
+  fitmentModelCodes: string; imageUrl: string; fitmentVerified: boolean; stockPartPublicId: string;
 };
 type CollectionDraft = {
   collectionMethod: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER';
@@ -47,12 +53,15 @@ function toDraft(part: RetailPartSetting): SettingsDraft {
     retailDescription: part.retailDescription ?? '',
     fitmentModelCodes: part.fitmentModelCodes.join(', '),
     imageUrl: part.imageUrl ?? '',
+    fitmentVerified: part.fitmentVerified,
+    stockPartPublicId: part.stockPartPublicId ?? '',
   };
 }
 
 export default function RetailPartsCommercePanel({ token, staff }: { token: string; staff: StaffSummary }) {
   const canManage = staff.permissions.includes('parts.manage');
   const [parts, setParts] = useState<RetailPartSetting[]>([]);
+  const [stockOptions, setStockOptions] = useState<StockOption[]>([]);
   const [orders, setOrders] = useState<RetailOrder[]>([]);
   const [drafts, setDrafts] = useState<Record<string, SettingsDraft>>({});
   const [openEditor, setOpenEditor] = useState('');
@@ -68,11 +77,13 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
     setLoading(true);
     setError('');
     try {
-      const [loadedParts, loadedOrders] = await Promise.all([
+      const [loadedParts, loadedOrders, loadedStockOptions] = await Promise.all([
         apiFetch<RetailPartSetting[]>('/api/v1/admin/retail-parts', token),
         apiFetch<RetailOrder[]>('/api/v1/admin/retail-part-orders?limit=100', token),
+        apiFetch<StockOption[]>('/api/v1/admin/retail-part-stock-options', token),
       ]);
       setParts(loadedParts ?? []);
+      setStockOptions(loadedStockOptions ?? []);
       setOrders(loadedOrders ?? []);
       setDrafts((current) => {
         const next = { ...current };
@@ -115,7 +126,11 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
     const draft = drafts[part.publicId] ?? toDraft(part);
     const price = draft.retailPrice.trim();
     if (draft.retailEnabled && (!price || !Number.isFinite(Number(price)) || Number(price) <= 0)) {
-      setError('Enter a positive retail price before publishing a part.');
+      setError('Enter a positive retail price before enabling customer ordering.');
+      return;
+    }
+    if (draft.retailEnabled && !draft.fitmentVerified) {
+      setError('Confirm the exact Bajaj motorcycle fitment in dealership parts records before enabling ordering.');
       return;
     }
     const fitments = draft.fitmentModelCodes.split(',').map((code) => code.trim().toUpperCase()).filter(Boolean);
@@ -130,6 +145,7 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
             retailDescription: draft.retailDescription.trim() || null,
             fitmentModelCodes: fitments,
             imageUrl: draft.imageUrl.trim() || null,
+            fitmentVerified: draft.fitmentVerified,
           }),
         });
       setParts((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
@@ -138,6 +154,28 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
       setMessage(`${updated.skuCode} ${updated.retailEnabled ? 'is now published in' : 'was removed from'} the customer retail shop.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Retail listing settings could not be saved.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function saveInventoryMapping(part: RetailPartSetting) {
+    const draft = drafts[part.publicId] ?? toDraft(part);
+    setBusyId(part.publicId); setError(''); setMessage('');
+    try {
+      const updated = await apiFetch<RetailPartSetting>(
+        `/api/v1/admin/retail-parts/${part.publicId}/inventory-map`, token, {
+          method: 'PUT',
+          body: JSON.stringify({ stockPartPublicId: draft.stockPartPublicId || null }),
+        });
+      setParts((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+      setDrafts((current) => ({ ...current, [updated.publicId]: { ...(current[updated.publicId] ?? toDraft(updated)),
+        stockPartPublicId: updated.stockPartPublicId ?? '', fitmentVerified: updated.fitmentVerified } }));
+      setMessage(updated.stockSkuCode
+        ? `Catalogue item linked to inventory SKU ${updated.stockSkuCode}. Current sellable quantity: ${updated.quantityAvailable} ${updated.unitOfMeasure.toLowerCase()}.`
+        : 'The catalogue item is now unlinked from inventory and cannot be ordered until a stock SKU is mapped.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The catalogue-to-inventory link could not be saved.');
     } finally {
       setBusyId('');
     }
@@ -258,33 +296,58 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
     </div>
 
     <section className="spare-parts-panel">
-      <div className="spare-parts-section-heading"><div><h2>Retail catalogue settings</h2><p>Only retail-enabled parts with an explicit price appear to customers. The listed price is separate from average purchase cost.</p></div><span className="spare-parts-count">{parts.length} SKU(s)</span></div>
-      {loading ? <div className="studio-empty">Loading retail SKU settings…</div>
-        : parts.length === 0 ? <div className="studio-empty">Create a spare-part SKU and receive stock before enabling it for retail.</div>
+      <div className="spare-parts-section-heading"><div><h2>Catalogue and inventory mapping</h2><p>These are persistent catalogue products. Link each one explicitly to the matching existing inventory SKU; stock and workshop reservations remain the source of truth for orderability. Reference-only entries do not contain guessed OEM numbers or fitment.</p></div><span className="spare-parts-count">{parts.length} catalogue item(s)</span></div>
+      {loading ? <div className="studio-empty">Loading catalogue and inventory SKUs…</div>
+        : parts.length === 0 ? <div className="studio-empty">No spare-part catalogue items were found.</div>
         : <div className="retail-admin-list">{parts.map((part) => {
           const draft = drafts[part.publicId] ?? toDraft(part);
           const open = openEditor === part.publicId;
           return <article className="retail-admin-part" key={part.publicId}>
             <div className="retail-admin-part-summary">
               {part.imageUrl ? <img src={part.imageUrl} alt="" loading="lazy" /> : <div className="retail-admin-part-mark">LB</div>}
-              <div className="retail-admin-part-copy"><strong>{part.partName}</strong><small>{part.skuCode} · {part.unitOfMeasure}</small><span>On hand {part.quantityOnHand} · Reserved {part.quantityReserved} · Available {part.quantityAvailable}</span></div>
-              <div className="retail-admin-part-right"><strong>{part.retailPrice == null ? 'Price not set' : money(part.retailPrice)}</strong><span className={part.retailEnabled ? 'retail-admin-badge enabled' : 'retail-admin-badge'}>{part.retailEnabled ? 'Published' : 'Hidden'}</span><button className="secondary-button" type="button" onClick={() => setOpenEditor(open ? '' : part.publicId)}>{open ? 'Close editor' : 'Edit listing'}</button></div>
+              <div className="retail-admin-part-copy">
+                <strong>{part.partName}</strong>
+                <small>{part.skuCode} · {pretty(part.category)} · {part.unitOfMeasure}</small>
+                <span>{part.stockSkuCode
+                  ? `Linked SKU ${part.stockSkuCode} · On hand ${part.quantityOnHand} · Reserved ${part.quantityReserved} · Sellable ${part.quantityAvailable}`
+                  : 'No inventory SKU linked — customer ordering is blocked.'}</span>
+                {part.partNumber ? <small>OEM part number: {part.partNumber}</small> : <small>OEM part number not verified</small>}
+              </div>
+              <div className="retail-admin-part-right">
+                <strong>{part.retailPrice == null ? 'Price not set' : money(part.retailPrice)}</strong>
+                <span className={part.retailEnabled && part.fitmentVerified && part.stockPartPublicId ? 'retail-admin-badge enabled' : 'retail-admin-badge'}>
+                  {part.retailEnabled && part.fitmentVerified && part.stockPartPublicId ? 'Order-ready setup' : 'Needs setup'}
+                </span>
+                <button className="secondary-button" type="button" onClick={() => setOpenEditor(open ? '' : part.publicId)}>{open ? 'Close editor' : 'Manage product'}</button>
+              </div>
             </div>
             {open && <form className="retail-admin-editor" onSubmit={(event) => { event.preventDefault(); void saveSettings(part); }}>
-              <label className="retail-admin-enable"><input type="checkbox" checked={draft.retailEnabled} onChange={(event) => updateDraft(part, { retailEnabled: event.target.checked })} /> Show this part in the customer shop</label>
+              <div className="retail-stock-link-box">
+                <div><strong>Link to existing inventory</strong><p>Choose the precise SKU already used for receiving, stock movements and workshop reservations. This does not create inventory or stock.</p></div>
+                <label>Inventory SKU<select value={draft.stockPartPublicId} onChange={(event) => updateDraft(part, { stockPartPublicId: event.target.value })} disabled={!canManage || busyId === part.publicId}>
+                  <option value="">Not linked</option>
+                  {stockOptions.map((option) => <option key={option.publicId} value={option.publicId}>
+                    {option.skuCode} · {option.partName} · {option.quantityAvailable} available
+                  </option>)}
+                </select></label>
+                <button type="button" className="secondary-button" disabled={!canManage || busyId === part.publicId || draft.stockPartPublicId === (part.stockPartPublicId ?? '')}
+                  onClick={() => void saveInventoryMapping(part)}>{busyId === part.publicId ? 'Saving…' : 'Save inventory link'}</button>
+                {part.stockSkuCode && <small className="retail-stock-link-current">Current mapping: {part.stockSkuCode} · On hand {part.quantityOnHand} · Reserved {part.quantityReserved} · Available {part.quantityAvailable}</small>}
+              </div>
+              <label className="retail-admin-enable"><input type="checkbox" checked={draft.retailEnabled} onChange={(event) => updateDraft(part, { retailEnabled: event.target.checked })} /> Enable customer ordering for this catalogue item</label>
               <div className="spare-parts-form-grid">
                 <label>Retail price (₹) *<input type="number" min="0.01" step="0.01" value={draft.retailPrice} onChange={(event) => updateDraft(part, { retailPrice: event.target.value })} required={draft.retailEnabled} placeholder="Customer selling price" /></label>
-                <label>Image URL (HTTPS)<input type="url" maxLength={1000} value={draft.imageUrl} onChange={(event) => updateDraft(part, { imageUrl: event.target.value })} placeholder="https://…" /></label>
-                <label className="spare-full-label">Customer-facing description<textarea rows={2} maxLength={1000} value={draft.retailDescription} onChange={(event) => updateDraft(part, { retailDescription: event.target.value })} placeholder={part.description ?? 'Describe the part clearly'} /></label>
-                <label className="spare-full-label">Compatible Bajaj model codes (comma-separated, optional)<input maxLength={2400} value={draft.fitmentModelCodes} onChange={(event) => updateDraft(part, { fitmentModelCodes: event.target.value })} placeholder="BAJAJ_PULSAR_NS160, BAJAJ_PULSAR_N160" /><small>Leave empty only for a genuinely universal fit. Model codes are validated against the published Bajaj catalogue.</small></label>
+                <label>Customer image URL (HTTPS)<input type="url" maxLength={1000} value={draft.imageUrl} onChange={(event) => updateDraft(part, { imageUrl: event.target.value })} placeholder="Optional verified product image" /></label>
+                <label className="spare-full-label">Customer-facing description<textarea rows={2} maxLength={1000} value={draft.retailDescription} onChange={(event) => updateDraft(part, { retailDescription: event.target.value })} placeholder={part.description ?? 'Describe the catalogue item and the verified version'} /></label>
+                <label className="spare-full-label">Compatible Bajaj model codes (comma-separated)<input maxLength={2400} value={draft.fitmentModelCodes} onChange={(event) => updateDraft(part, { fitmentModelCodes: event.target.value })} placeholder="BAJAJ_PULSAR_N160, BAJAJ_PULSAR_NS160" /><small>Only add codes confirmed by the parts catalogue or dealership parts records. Empty means universal only if separately verified below.</small></label>
               </div>
-              <div className="retail-admin-editor-actions"><span>Supplier cost stays staff-only and is never returned by the customer catalogue.</span><button type="button" className="secondary-button" onClick={() => { setDrafts((current) => ({ ...current, [part.publicId]: toDraft(part) })); setOpenEditor(''); }}>Discard</button><button type="submit" className="primary-button" disabled={!canManage || busyId === part.publicId}>{busyId === part.publicId ? 'Saving…' : 'Save retail listing'}</button></div>
+              <label className="retail-fitment-verified"><input type="checkbox" checked={draft.fitmentVerified} onChange={(event) => updateDraft(part, { fitmentVerified: event.target.checked })} /> I verified the exact model compatibility or confirmed this item is genuinely universal using parts records.</label>
+              {part.sourceUrl && <div className="retail-admin-source-note">Source reference: <a href={part.sourceUrl} target="_blank" rel="noreferrer">Bajaj Auto genuine spares page ↗</a>{part.sourceVerifiedAt ? ` · checked ${part.sourceVerifiedAt}` : ''}. The source is category-level where OEM part numbers are not shown.</div>}
+              <div className="retail-admin-editor-actions"><span>Supplier cost remains staff-only. Catalogue item identity is independent of this optional stock link.</span><button type="button" className="secondary-button" onClick={() => { setDrafts((current) => ({ ...current, [part.publicId]: toDraft(part) })); setOpenEditor(''); }}>Discard</button><button type="submit" className="primary-button" disabled={!canManage || busyId === part.publicId}>{busyId === part.publicId ? 'Saving…' : 'Save product settings'}</button></div>
             </form>}
           </article>;
         })}</div>}
-    </section>
-
-    <section className="spare-parts-panel">
+    </section>    <section className="spare-parts-panel">
       <div className="spare-parts-section-heading"><div><h2>Pickup orders</h2><p>Fulfil a placed order only after the customer has paid at pickup. This action records a staff-attested operational collection, not gateway verification.</p></div><span className="spare-parts-count">{orders.filter((order) => order.status === 'PLACED').length} pending</span></div>
       {orders.length === 0 ? <div className="studio-empty">No retail pickup orders yet.</div>
         : <div className="retail-admin-order-list">{orders.map((order) => {

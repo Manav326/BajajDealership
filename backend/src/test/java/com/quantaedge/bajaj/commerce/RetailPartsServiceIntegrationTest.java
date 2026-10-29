@@ -111,6 +111,78 @@ class RetailPartsServiceIntegrationTest {
   }
 
   @Test
+  void durableReferenceCatalogueListsFiftyProductsWithoutPricesOrInventory() {
+    StaffPrincipal manager = createManager();
+    CustomerPrincipal customer = customerIn(manager);
+
+    var catalogue = retailParts.listCustomerCatalogue(customer);
+    var references = catalogue.stream().filter(item -> item.skuCode().startsWith("BGP-")).toList();
+
+    assertThat(references).hasSize(50);
+    assertThat(references).allSatisfy(item -> {
+      assertThat(item.retailPrice()).isNull();
+      assertThat(item.quantityAvailable()).isEqualByComparingTo(BigDecimal.ZERO);
+      assertThat(item.available()).isFalse();
+      assertThat(item.fitmentVerified()).isFalse();
+      assertThat(item.availabilityStatus()).isEqualTo("CHECK_WITH_DEALER");
+    });
+    assertThat(jdbc.queryForObject("""
+        select count(*) from bajaj_spare_part_catalogue
+        where is_global_catalogue = true and catalogue_code like 'BGP-%'
+        """, Integer.class)).isEqualTo(50);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from retail_part_catalogue_stock_map
+        where dealership_id = ?
+          and catalogue_product_id = (select id from bajaj_spare_part_catalogue where catalogue_code = 'BGP-0001')
+        """, Integer.class, manager.dealershipId())).isZero();
+  }
+
+  @Test
+  void checkoutRequiresAnExplicitStockLinkAndOrderHistoryUsesTheDurableCatalogueIdentity() {
+    StaffPrincipal manager = createManager();
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var publicBrakeShoe = retailParts.listCustomerCatalogue(customer).stream()
+        .filter(item -> item.skuCode().equals("BGP-0001")).findFirst().orElseThrow();
+
+    retailParts.updateRetailSettings(manager, publicBrakeShoe.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("199.00"),
+            "Brake shoe - dealership verified", List.of(), null, true));
+
+    assertThatThrownBy(() -> retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(publicBrakeShoe.publicId(), BigDecimal.ONE)),
+        null, "No stock mapping yet", "catalogue-unlinked-" + UUID.randomUUID())))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+
+    var inventorySku = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("MATCH-" + UUID.randomUUID().toString().substring(0, 8),
+            "Brake shoe stock SKU", "Inventory item for catalogue-mapping regression", "SET"));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 3.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (
+          select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), inventorySku.publicId());
+
+    var mapped = retailParts.mapRetailCatalogueStock(manager, publicBrakeShoe.publicId(), inventorySku.publicId());
+    assertThat(mapped.stockPartPublicId()).isEqualTo(inventorySku.publicId());
+    assertThat(mapped.stockSkuCode()).isEqualTo(inventorySku.skuCode());
+    assertThat(mapped.quantityAvailable()).isEqualByComparingTo("3.000");
+
+    var order = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(publicBrakeShoe.publicId(), BigDecimal.ONE)),
+        null, "Catalogue identity history check", "catalogue-linked-" + UUID.randomUUID()));
+    assertThat(order.lines()).hasSize(1);
+    assertThat(order.lines().getFirst().partPublicId()).isEqualTo(publicBrakeShoe.publicId());
+    assertThat(order.lines().getFirst().partName()).isEqualTo("Brake shoe");
+
+    retailParts.mapRetailCatalogueStock(manager, publicBrakeShoe.publicId(), null);
+    var persisted = retailParts.listOrdersForCustomer(customer).getFirst();
+    assertThat(persisted.lines().getFirst().partPublicId()).isEqualTo(publicBrakeShoe.publicId());
+    assertThat(persisted.lines().getFirst().partName()).isEqualTo("Brake shoe");
+    assertThat(persisted.lines().getFirst().unitPrice()).isEqualByComparingTo("199.00");
+  }
+
+  @Test
   void unknownOrderCannotBeCancelledByAnotherCustomerIdentity() {
     StaffPrincipal manager = createManager();
     CustomerPrincipal customer = customerIn(manager);

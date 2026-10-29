@@ -1363,3 +1363,87 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .bajaj-showroom-embedded .showroom-collection { padding: 22px 14px; }
   .bajaj-showroom-embedded .showroom-card-visual { height: 205px; }
 }
+
+
+/* Spare-parts catalogue discovery: filters share the customer portal's dark, understated glass surfaces. */
+.retail-catalogue-filters {
+  display: grid;
+  gap: 15px;
+  margin: 0 0 18px;
+  padding: clamp(14px, 2.2vw, 21px);
+  border: 1px solid rgba(255,255,255,.11);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(18,29,42,.91), rgba(10,17,26,.92));
+  box-shadow: inset 0 1px rgba(255,255,255,.035), 0 12px 34px rgba(0,0,0,.08);
+}
+.retail-catalogue-search,
+.retail-catalogue-filter-grid > label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: #dfe7f0;
+  font-size: 10px;
+  font-weight: 750;
+}
+.retail-catalogue-search label,
+.retail-catalogue-filter-grid > label { letter-spacing: .015em; }
+.retail-catalogue-search input,
+.retail-catalogue-filter-grid input,
+.retail-catalogue-filter-grid select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 10px 11px;
+  border: 1px solid rgba(203,218,234,.16);
+  border-radius: 10px;
+  outline: none;
+  background: rgba(4,10,17,.58);
+  color: #f2f6fb;
+  color-scheme: dark;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+}
+.retail-catalogue-search input::placeholder,
+.retail-catalogue-filter-grid input::placeholder { color: #748498; }
+.retail-catalogue-search input:focus-visible,
+.retail-catalogue-filter-grid input:focus-visible,
+.retail-catalogue-filter-grid select:focus-visible {
+  border-color: rgba(122,240,220,.7);
+  box-shadow: 0 0 0 3px rgba(122,240,220,.11);
+}
+.retail-catalogue-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+.retail-catalogue-filter-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 1px;
+}
+.retail-catalogue-filter-actions span { padding-bottom: 11px; color: #8f9eb0; font-size: 10px; }
+.retail-catalogue-filter-actions .text-link { white-space: nowrap; }
+.retail-part-source-link {
+  width: fit-content;
+  color: #7af0dc;
+  font-size: 10px;
+  font-weight: 750;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.retail-part-source-link:hover { text-decoration: underline; }
+.retail-part-copy > small { color: #93a3b6; font-size: 9px; line-height: 1.55; }
+@media (max-width: 1050px) {
+  .retail-catalogue-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .retail-catalogue-filters { padding: 13px; border-radius: 16px; }
+  .retail-catalogue-filter-grid { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  .retail-catalogue-filter-actions { align-items: center; }
+  .retail-catalogue-filter-actions span { padding-bottom: 0; }
+  .retail-catalogue-filter-actions .text-link { font-size: 10px; }
+}

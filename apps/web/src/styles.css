@@ -2580,3 +2580,63 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 .app-shell .sales-enquiry-context>div>strong,
 .app-shell .sales-enquiry-context>p,
 .app-shell .sales-customer-request-note { font-size: 10px; line-height: 1.6; }
+
+
+/* Staff-only permanent catalogue ↔ inventory SKU mapping controls. */
+.retail-stock-link-box {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.2fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid rgba(148,163,184,.27);
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(240,245,252,.92), rgba(249,251,254,.96));
+}
+.retail-stock-link-box > div { min-width: 0; }
+.retail-stock-link-box > div strong { display: block; color: #182b47; font-size: 12px; font-weight: 850; }
+.retail-stock-link-box > div p { margin: 5px 0 0; color: #69788d; font-size: 10px; line-height: 1.65; }
+.retail-stock-link-box label { display: grid; gap: 6px; min-width: 0; color: #34445d; font-size: 10px; font-weight: 800; }
+.retail-stock-link-box select {
+  width: 100%;
+  min-width: 0;
+  min-height: 39px;
+  padding: 9px 10px;
+  border: 1px solid #d6deea;
+  border-radius: 9px;
+  background: #fff;
+  color: #1d2b42;
+  font: inherit;
+  font-size: 11px;
+}
+.retail-stock-link-box > button { white-space: nowrap; }
+.retail-stock-link-current { grid-column: 1 / -1; color: #52657d; font-size: 10px; line-height: 1.55; }
+.retail-fitment-verified {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(22,163,74,.22);
+  border-radius: 10px;
+  background: rgba(236,253,243,.8);
+  color: #255f42;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.6;
+}
+.retail-fitment-verified input { margin-top: 2px; accent-color: #159957; }
+.retail-admin-source-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(148,163,184,.22);
+  border-radius: 9px;
+  background: rgba(247,249,252,.88);
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.65;
+}
+.retail-admin-source-note a { color: #215f9c; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 820px) {
+  .retail-stock-link-box { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .retail-stock-link-current { grid-column: 1; }
+  .retail-stock-link-box > button { width: 100%; }
+}

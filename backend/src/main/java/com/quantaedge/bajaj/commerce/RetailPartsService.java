@@ -44,121 +44,164 @@ public class RetailPartsService {
   }
 
   public List<AdminPartView> listRetailSettings(StaffPrincipal actor) {
-    return jdbc.query("""
-        select part.public_id, part.sku_code, part.part_name, part.description, part.unit_of_measure,
-          part.active, part.retail_enabled, part.retail_price, part.retail_description,
-          part.fitment_model_codes::text as fitment_model_codes, part.retail_image_url,
-          balance.quantity_on_hand, balance.quantity_reserved,
-          balance.quantity_on_hand - balance.quantity_reserved as quantity_available,
-          balance.average_unit_cost
-        from spare_part part
-        join spare_part_balance balance
-          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ?
-        order by part.active desc, lower(part.part_name), part.id
-        """, (rs, rowNum) -> new AdminPartView(
-            rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
-            rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
-            rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
-            rs.getString("retail_description"), readStringList(rs.getString("fitment_model_codes")),
-            rs.getString("retail_image_url"), rs.getBigDecimal("quantity_on_hand"),
-            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available"),
-            rs.getBigDecimal("average_unit_cost")), actor.dealershipId());
+    return jdbc.query(adminPartsSql() + """
+        where (catalogue.is_global_catalogue = true or listing.dealership_id = ?)
+        order by catalogue.category, lower(catalogue.part_name), catalogue.catalogue_code
+        """, this::mapAdminPart, actor.dealershipId(), actor.dealershipId(), actor.dealershipId(), actor.dealershipId());
   }
-
+  private String adminPartsSql() {
+    return """
+        select catalogue.id as catalogue_id, catalogue.public_id, catalogue.catalogue_code as sku_code,
+          catalogue.part_name, catalogue.description, catalogue.unit_of_measure, catalogue.active,
+          coalesce(listing.retail_enabled, false) as retail_enabled, listing.retail_price, listing.retail_description,
+          coalesce(listing.fitment_model_codes, catalogue.fitment_model_codes, '[]'::jsonb)::text as fitment_model_codes,
+          coalesce(listing.retail_image_url, catalogue.image_url) as retail_image_url,
+          coalesce(balance.quantity_on_hand, 0) as quantity_on_hand, coalesce(balance.quantity_reserved, 0) as quantity_reserved,
+          coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available,
+          coalesce(balance.average_unit_cost, 0) as average_unit_cost, catalogue.category, catalogue.source_url,
+          catalogue.source_verified_at::text as source_verified_at, catalogue.oem_part_number,
+          coalesce(listing.fitment_verified, false) as fitment_verified, stock.public_id as stock_part_public_id, stock.sku_code as stock_sku_code
+        from bajaj_spare_part_catalogue catalogue
+        left join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        left join retail_part_catalogue_stock_map stock_map on stock_map.catalogue_product_id = catalogue.id and stock_map.dealership_id = ?
+        left join spare_part stock on stock.dealership_id = ? and stock.id = stock_map.stock_part_id
+        left join spare_part_balance balance on balance.dealership_id = stock_map.dealership_id and balance.part_id = stock_map.stock_part_id
+        """;
+  }
+  private AdminPartView mapAdminPart(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+    return new AdminPartView(rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+        rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"), rs.getBoolean("retail_enabled"),
+        rs.getBigDecimal("retail_price"), rs.getString("retail_description"), readStringList(rs.getString("fitment_model_codes")),
+        rs.getString("retail_image_url"), rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"),
+        rs.getBigDecimal("quantity_available"), rs.getBigDecimal("average_unit_cost"), rs.getString("category"),
+        rs.getString("source_url"), rs.getString("source_verified_at"), rs.getString("oem_part_number"),
+        rs.getBoolean("fitment_verified"), rs.getObject("stock_part_public_id", UUID.class), rs.getString("stock_sku_code"));
+  }
   @Transactional
-  public AdminPartView updateRetailSettings(
-      StaffPrincipal actor, UUID partPublicId, RetailSettingsRequest request) {
+  public AdminPartView updateRetailSettings(StaffPrincipal actor, UUID partPublicId, RetailSettingsRequest request) {
     if (request == null) throw badRequest("Retail listing settings are required.");
-    boolean enabled = Boolean.TRUE.equals(request.retailEnabled());
+    boolean enabled = Boolean.TRUE.equals(request.retailEnabled()), fitmentVerified = Boolean.TRUE.equals(request.fitmentVerified());
     BigDecimal price = request.retailPrice();
-    if (enabled && (price == null || price.compareTo(BigDecimal.ZERO) <= 0)) {
-      throw badRequest("A positive retail price is required before a part can be published to customers.");
-    }
+    if (enabled && (price == null || price.compareTo(BigDecimal.ZERO) <= 0)) throw badRequest("A positive retail price is required before publishing a part.");
+    if (enabled && !fitmentVerified) throw badRequest("Confirm exact motorcycle fitment (or genuinely universal application) before enabling ordering.");
     if (price != null) {
-      if (price.compareTo(BigDecimal.ZERO) <= 0 || price.scale() > 2) {
-        throw badRequest("Retail price must be a positive amount with no more than two decimal places.");
-      }
+      if (price.compareTo(BigDecimal.ZERO) <= 0 || price.scale() > 2) throw badRequest("Retail price must be positive with no more than two decimal places.");
       price = price.setScale(2, RoundingMode.UNNECESSARY);
     }
-    String description = optional(request.retailDescription(), 1000);
-    String imageUrl = normalizeImageUrl(request.imageUrl());
+    String description = optional(request.retailDescription(), 1000), imageUrl = normalizeImageUrl(request.imageUrl());
     List<String> fitments = normalizeFitments(actor, request.fitmentModelCodes());
-    String fitmentJson = toJson(fitments);
-
     List<Long> ids = jdbc.query("""
-        select id from spare_part
-        where dealership_id = ? and public_id = ?
-        for update
-        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), partPublicId);
-    if (ids.isEmpty()) throw notFound("Spare-part SKU was not found in this dealership.");
-
+        select catalogue.id from bajaj_spare_part_catalogue catalogue
+        left join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        where catalogue.public_id = ? and (catalogue.is_global_catalogue = true or listing.dealership_id = ?)
+        for update of catalogue
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), partPublicId, actor.dealershipId());
+    if (ids.isEmpty()) throw notFound("Spare-part catalogue item was not found in this dealership.");
+    long catalogueId = ids.getFirst();
     jdbc.update("""
-        update spare_part
-        set retail_enabled = ?, retail_price = ?, retail_description = ?,
-            fitment_model_codes = ?::jsonb, retail_image_url = ?,
-            retail_updated_by_staff_user_id = ?, updated_at = now()
-        where dealership_id = ? and id = ?
-        """, enabled, price, description, fitmentJson, imageUrl, actor.staffUserId(),
-        actor.dealershipId(), ids.getFirst());
+        insert into retail_part_catalogue_listing(dealership_id, catalogue_product_id, retail_enabled, retail_price,
+          retail_description, fitment_model_codes, retail_image_url, fitment_verified, updated_by_staff_user_id)
+        values (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+        on conflict (dealership_id, catalogue_product_id) do update set retail_enabled = excluded.retail_enabled,
+          retail_price = excluded.retail_price, retail_description = excluded.retail_description,
+          fitment_model_codes = excluded.fitment_model_codes, retail_image_url = excluded.retail_image_url,
+          fitment_verified = excluded.fitment_verified, updated_by_staff_user_id = excluded.updated_by_staff_user_id, updated_at = now()
+        """, actor.dealershipId(), catalogueId, enabled, price, description, toJson(fitments), imageUrl, fitmentVerified, actor.staffUserId());
     jdbc.update("""
-        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id,
-          action, entity_type, entity_id, details)
-        values (?, 'STAFF', ?, 'RETAIL_PART_LISTING_UPDATED', 'SPARE_PART', ?,
-          jsonb_build_object('retailEnabled', ?, 'retailPrice', ?, 'fitmentCount', ?))
-        """, actor.dealershipId(), actor.staffUserId(), partPublicId.toString(),
-        enabled, price, fitments.size());
+        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, 'RETAIL_PART_LISTING_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?,
+          jsonb_build_object('retailEnabled', ?, 'retailPrice', ?, 'fitmentCount', ?, 'fitmentVerified', ?))
+        """, actor.dealershipId(), actor.staffUserId(), partPublicId.toString(), enabled, price, fitments.size(), fitmentVerified);
     return getRetailSetting(actor, partPublicId);
   }
-
-  /** Reload one saved listing without scanning every spare-part SKU in the dealership. */
   private AdminPartView getRetailSetting(StaffPrincipal actor, UUID partPublicId) {
-    List<AdminPartView> rows = jdbc.query("""
-        select part.public_id, part.sku_code, part.part_name, part.description, part.unit_of_measure,
-          part.active, part.retail_enabled, part.retail_price, part.retail_description,
-          part.fitment_model_codes::text as fitment_model_codes, part.retail_image_url,
-          balance.quantity_on_hand, balance.quantity_reserved,
-          balance.quantity_on_hand - balance.quantity_reserved as quantity_available,
-          balance.average_unit_cost
-        from spare_part part
-        join spare_part_balance balance
-          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.public_id = ?
-        """, (rs, rowNum) -> new AdminPartView(
-            rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
-            rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
-            rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
-            rs.getString("retail_description"), readStringList(rs.getString("fitment_model_codes")),
-            rs.getString("retail_image_url"), rs.getBigDecimal("quantity_on_hand"),
-            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available"),
-            rs.getBigDecimal("average_unit_cost")), actor.dealershipId(), partPublicId);
-    if (rows.isEmpty()) throw notFound("Spare-part SKU was not found in this dealership.");
+    List<AdminPartView> rows = jdbc.query(adminPartsSql() + """
+        where (catalogue.is_global_catalogue = true or listing.dealership_id = ?) and catalogue.public_id = ?
+        order by catalogue.category, lower(catalogue.part_name), catalogue.catalogue_code
+        """, this::mapAdminPart, actor.dealershipId(), actor.dealershipId(), actor.dealershipId(), actor.dealershipId(), partPublicId);
+    if (rows.isEmpty()) throw notFound("Spare-part catalogue item was not found.");
     return rows.getFirst();
   }
-
+  public List<StockOption> listRetailStockOptions(StaffPrincipal actor) {
+    return jdbc.query("""
+        select part.public_id, part.sku_code, part.part_name, part.unit_of_measure, coalesce(balance.quantity_on_hand, 0) as quantity_on_hand,
+          coalesce(balance.quantity_reserved, 0) as quantity_reserved, coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available
+        from spare_part part left join spare_part_balance balance on balance.dealership_id = part.dealership_id and balance.part_id = part.id
+        where part.dealership_id = ? and part.active = true order by lower(part.part_name), part.sku_code
+        """, (rs, rowNum) -> new StockOption(rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+          rs.getString("unit_of_measure"), rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available")),
+        actor.dealershipId());
+  }
+  @Transactional
+  public AdminPartView mapRetailCatalogueStock(StaffPrincipal actor, UUID cataloguePublicId, UUID stockPartPublicId) {
+    Long catalogueId = jdbc.query("""
+        select catalogue.id from bajaj_spare_part_catalogue catalogue
+        left join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        where catalogue.public_id = ? and (catalogue.is_global_catalogue = true or listing.dealership_id = ?) for update of catalogue
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), cataloguePublicId, actor.dealershipId()).stream().findFirst().orElse(null);
+    if (catalogueId == null) throw notFound("Spare-part catalogue item was not found.");
+    if (stockPartPublicId == null) {
+      jdbc.update("delete from retail_part_catalogue_stock_map where dealership_id = ? and catalogue_product_id = ?", actor.dealershipId(), catalogueId);
+    } else {
+      Long stockId = jdbc.query("select id from spare_part where dealership_id = ? and public_id = ? and active = true",
+          (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), stockPartPublicId).stream().findFirst().orElse(null);
+      if (stockId == null) throw notFound("Inventory SKU was not found in this dealership.");
+      try {
+        jdbc.update("""
+            insert into retail_part_catalogue_stock_map(dealership_id, catalogue_product_id, stock_part_id, updated_by_staff_user_id)
+            values (?, ?, ?, ?) on conflict (dealership_id, catalogue_product_id) do update set stock_part_id = excluded.stock_part_id,
+              updated_by_staff_user_id = excluded.updated_by_staff_user_id, updated_at = now()
+            """, actor.dealershipId(), catalogueId, stockId, actor.staffUserId());
+      } catch (DuplicateKeyException duplicate) {
+        throw conflict("That inventory SKU is already linked to another catalogue product. Unlink the other product first.");
+      }
+    }
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, 'RETAIL_PART_STOCK_LINK_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?, jsonb_build_object('stockPartPublicId', ?))
+        """, actor.dealershipId(), actor.staffUserId(), cataloguePublicId.toString(), stockPartPublicId == null ? null : stockPartPublicId.toString());
+    return getRetailSetting(actor, cataloguePublicId);
+  }
+  public RetailPartFilters listCustomerFilters(CustomerPrincipal actor) {
+    List<ModelFilterOption> models = jdbc.query("""
+        select model.model_code, model.model_name, model.family, model.category
+        from bajaj_catalogue_model model join bajaj_catalogue_dealership_model settings on settings.model_code = model.model_code and settings.dealership_id = ?
+        where model.manufacturer = 'BAJAJ' and model.active = true and settings.is_published = true
+        order by model.category, model.family, model.model_name
+        """, (rs, rowNum) -> new ModelFilterOption(rs.getString("model_code"), rs.getString("model_name"), rs.getString("family"), rs.getString("category")),
+        actor.dealershipId());
+    return new RetailPartFilters(List.of("ENGINE","BRAKES","CLUTCH","TRANSMISSION","FILTERS","ELECTRICAL","LIGHTING","SUSPENSION","BODY","CONTROLS","FUEL_SYSTEM","FLUIDS","WHEELS","ACCESSORIES","OTHER"), models);
+  }
   public List<RetailPartView> listCustomerCatalogue(CustomerPrincipal actor) {
     return jdbc.query("""
-        select part.public_id, part.sku_code, part.part_name,
-          coalesce(part.retail_description, part.description) as display_description,
-          part.unit_of_measure, part.retail_price, part.fitment_model_codes::text as fitment_model_codes,
-          part.retail_image_url,
-          balance.quantity_on_hand - balance.quantity_reserved as quantity_available
-        from spare_part part
-        join spare_part_balance balance
-          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.active = true and part.retail_enabled = true
-          and part.retail_price is not null
-        order by lower(part.part_name), part.id
+        select catalogue.public_id, catalogue.catalogue_code as sku_code, catalogue.part_name,
+          coalesce(listing.retail_description, catalogue.description) as display_description, catalogue.unit_of_measure, listing.retail_price,
+          coalesce(listing.fitment_model_codes, catalogue.fitment_model_codes, '[]'::jsonb)::text as fitment_model_codes,
+          coalesce(listing.retail_image_url, catalogue.image_url) as retail_image_url,
+          coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available,
+          (stock_map.stock_part_id is not null) as stock_mapped, coalesce(listing.retail_enabled, false) as retail_enabled,
+          coalesce(listing.fitment_verified, false) as fitment_verified, catalogue.category, catalogue.oem_part_number,
+          catalogue.source_url, catalogue.source_verified_at::text as source_verified_at, catalogue.source_data_status
+        from bajaj_spare_part_catalogue catalogue
+        left join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        left join retail_part_catalogue_stock_map stock_map on stock_map.catalogue_product_id = catalogue.id and stock_map.dealership_id = ?
+        left join spare_part stock on stock.dealership_id = ? and stock.id = stock_map.stock_part_id
+        left join spare_part_balance balance on balance.dealership_id = stock_map.dealership_id and balance.part_id = stock_map.stock_part_id
+        where catalogue.active = true and (catalogue.is_global_catalogue = true or (listing.dealership_id = ? and listing.retail_enabled = true))
+        order by catalogue.category, lower(catalogue.part_name), catalogue.catalogue_code
         """, (rs, rowNum) -> {
       BigDecimal available = rs.getBigDecimal("quantity_available");
-      return new RetailPartView(
-          rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
-          rs.getString("display_description"), rs.getString("unit_of_measure"),
-          rs.getBigDecimal("retail_price"), readStringList(rs.getString("fitment_model_codes")),
-          rs.getString("retail_image_url"), available, available != null && available.signum() > 0);
-    }, actor.dealershipId());
+      boolean mapped = rs.getBoolean("stock_mapped"), listed = rs.getBoolean("retail_enabled"), verified = rs.getBoolean("fitment_verified");
+      BigDecimal price = rs.getBigDecimal("retail_price");
+      boolean configured = mapped && listed && price != null && verified;
+      boolean orderable = configured && available != null && available.signum() > 0;
+      String status = orderable ? "AVAILABLE" : configured ? "OUT_OF_STOCK" : "CHECK_WITH_DEALER";
+      return new RetailPartView(rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+        rs.getString("display_description"), rs.getString("unit_of_measure"), price, readStringList(rs.getString("fitment_model_codes")),
+        rs.getString("retail_image_url"), available, orderable, status, verified, rs.getString("category"), rs.getString("oem_part_number"),
+        rs.getString("source_url"), rs.getString("source_verified_at"), rs.getString("source_data_status"));
+    }, actor.dealershipId(), actor.dealershipId(), actor.dealershipId(), actor.dealershipId());
   }
-
   @Transactional
   public RetailOrderView placeOrder(CustomerPrincipal actor, PlaceOrderRequest request) {
     if (request == null || request.lines() == null || request.lines().isEmpty() || request.lines().size() > 50) {
@@ -213,6 +256,7 @@ public class RetailPartsService {
       if (!part.active() || !part.retailEnabled() || part.retailPrice() == null) {
         throw conflict("Part " + part.skuCode() + " is no longer listed for retail purchase.");
       }
+      if (!part.fitmentVerified()) throw conflict("Fitment for " + part.partName() + " must be verified before ordering.");
       BigDecimal available = part.quantityOnHand().subtract(part.quantityReserved());
       if (line.quantity().compareTo(available) > 0) {
         throw conflict("Only " + available.toPlainString() + " " + part.unitOfMeasure()
@@ -261,11 +305,11 @@ public class RetailPartsService {
       BigDecimal lineTotal = lineTotals.get(line.partPublicId());
       jdbc.update("""
           insert into retail_part_order_line(
-            dealership_id, order_id, part_id, line_number, sku_code, part_name, unit_of_measure,
-            quantity, unit_price, line_total)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          """, actor.dealershipId(), orderId, part.id(), ++lineNumber, part.skuCode(),
-          part.partName(), part.unitOfMeasure(), quantity, part.retailPrice(), lineTotal);
+            dealership_id, order_id, part_id, catalogue_product_id, line_number, sku_code, part_name,
+            unit_of_measure, quantity, unit_price, line_total)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          """, actor.dealershipId(), orderId, part.id(), part.catalogueId(), ++lineNumber,
+          part.skuCode(), part.partName(), part.unitOfMeasure(), quantity, part.retailPrice(), lineTotal);
 
       int changed = jdbc.update("""
           update spare_part_balance
@@ -783,10 +827,10 @@ public class RetailPartsService {
 
   private List<RetailOrderLineView> getOrderLines(long orderId) {
     return jdbc.query("""
-        select part.public_id as part_public_id, line.sku_code, line.part_name, line.unit_of_measure,
+        select catalogue.public_id as part_public_id, line.sku_code, line.part_name, line.unit_of_measure,
           line.quantity, line.unit_price, line.line_total
         from retail_part_order_line line
-        join spare_part part on part.dealership_id = line.dealership_id and part.id = line.part_id
+        join bajaj_spare_part_catalogue catalogue on catalogue.id = line.catalogue_product_id
         where line.order_id = ? order by line.line_number
         """, (rs, rowNum) -> new RetailOrderLineView(
             rs.getObject("part_public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
@@ -806,52 +850,40 @@ public class RetailPartsService {
   private List<StockPart> lockParts(long dealershipId, List<UUID> publicIds) {
     if (publicIds.isEmpty()) return List.of();
     String placeholders = String.join(",", publicIds.stream().map(ignored -> "?").toList());
-    List<Object> args = new ArrayList<>();
-    args.add(dealershipId);
-    args.addAll(publicIds);
+    List<Object> args = new ArrayList<>(); args.add(dealershipId); args.add(dealershipId); args.add(dealershipId); args.addAll(publicIds);
     String sql = """
-        select part.id, part.public_id, part.sku_code, part.part_name, part.unit_of_measure,
-          part.active, part.retail_enabled, part.retail_price,
-          part.fitment_model_codes::text as fitment_model_codes, balance.quantity_on_hand,
-          balance.quantity_reserved, balance.average_unit_cost
-        from spare_part part
-        join spare_part_balance balance
-          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.public_id in (
-        """ + placeholders + """
-        )
-        order by part.id
-        for update of part, balance
+        select stock.id, catalogue.id as catalogue_id, catalogue.public_id, catalogue.catalogue_code as sku_code,
+          catalogue.part_name, catalogue.unit_of_measure, (catalogue.active and stock.active) as active,
+          listing.retail_enabled, listing.retail_price, listing.fitment_model_codes::text as fitment_model_codes, listing.fitment_verified,
+          balance.quantity_on_hand, balance.quantity_reserved, balance.average_unit_cost
+        from bajaj_spare_part_catalogue catalogue
+        join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        join retail_part_catalogue_stock_map stock_map on stock_map.catalogue_product_id = catalogue.id and stock_map.dealership_id = ?
+        join spare_part stock on stock.dealership_id = ? and stock.id = stock_map.stock_part_id
+        join spare_part_balance balance on balance.dealership_id = stock_map.dealership_id and balance.part_id = stock_map.stock_part_id
+        where catalogue.public_id in (""" + placeholders + """) order by stock.id for update of stock, balance, listing
         """;
-    return jdbc.query(sql, (rs, rowNum) -> new StockPart(
-        rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("sku_code"),
-        rs.getString("part_name"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
-        rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
-        readStringList(rs.getString("fitment_model_codes")), rs.getBigDecimal("quantity_on_hand"),
-        rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")), args.toArray());
+    return jdbc.query(sql, (rs, rowNum) -> new StockPart(rs.getLong("id"), rs.getLong("catalogue_id"),
+      rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"), rs.getString("unit_of_measure"),
+      rs.getBoolean("active"), rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"), readStringList(rs.getString("fitment_model_codes")),
+      rs.getBoolean("fitment_verified"), rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")), args.toArray());
   }
-
   private StockPart lockPartById(long dealershipId, long partId) {
     List<StockPart> rows = jdbc.query("""
-        select part.id, part.public_id, part.sku_code, part.part_name, part.unit_of_measure,
-          part.active, part.retail_enabled, part.retail_price,
-          part.fitment_model_codes::text as fitment_model_codes, balance.quantity_on_hand,
-          balance.quantity_reserved, balance.average_unit_cost
-        from spare_part part join spare_part_balance balance
-          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.id = ?
-        for update of part, balance
-        """, (rs, rowNum) -> new StockPart(
-            rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getString("sku_code"),
-            rs.getString("part_name"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
-            rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
-            readStringList(rs.getString("fitment_model_codes")), rs.getBigDecimal("quantity_on_hand"),
-            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")),
-        dealershipId, partId);
+        select part.id, 0::bigint as catalogue_id, part.public_id, part.sku_code, part.part_name,
+          part.unit_of_measure, part.active, part.retail_enabled, part.retail_price,
+          part.fitment_model_codes::text as fitment_model_codes, true as fitment_verified,
+          balance.quantity_on_hand, balance.quantity_reserved, balance.average_unit_cost
+        from spare_part part join spare_part_balance balance on balance.dealership_id = part.dealership_id and balance.part_id = part.id
+        where part.dealership_id = ? and part.id = ? for update of part, balance
+        """, (rs, rowNum) -> new StockPart(rs.getLong("id"), rs.getLong("catalogue_id"), rs.getObject("public_id", UUID.class),
+      rs.getString("sku_code"), rs.getString("part_name"), rs.getString("unit_of_measure"), rs.getBoolean("active"), rs.getBoolean("retail_enabled"),
+      rs.getBigDecimal("retail_price"), readStringList(rs.getString("fitment_model_codes")), rs.getBoolean("fitment_verified"),
+      rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("average_unit_cost")), dealershipId, partId);
     return rows.isEmpty() ? null : rows.getFirst();
   }
 
-  private void insertMovement(long dealershipId, StockPart part, String type,
+  private void insertMovement  private void insertMovement(long dealershipId, StockPart part, String type,
       BigDecimal quantityDelta, BigDecimal reservedDelta, BigDecimal onHandAfter,
       BigDecimal reservedAfter, String referenceId, String operationKey, String fingerprint,
       Long staffId, Long customerId) {
@@ -951,44 +983,35 @@ public class RetailPartsService {
     return new ResponseStatusException(HttpStatus.NOT_FOUND, message);
   }
 
-  public record RetailSettingsRequest(
-      Boolean retailEnabled, BigDecimal retailPrice, String retailDescription,
-      List<String> fitmentModelCodes, String imageUrl) {}
-  public record AdminPartView(
-      UUID publicId, String skuCode, String partName, String description, String unitOfMeasure,
-      boolean active, boolean retailEnabled, BigDecimal retailPrice, String retailDescription,
-      List<String> fitmentModelCodes, String imageUrl, BigDecimal quantityOnHand,
-      BigDecimal quantityReserved, BigDecimal quantityAvailable, BigDecimal averageUnitCost) {}
-  public record RetailPartView(
-      UUID publicId, String skuCode, String partName, String description, String unitOfMeasure,
-      BigDecimal retailPrice, List<String> fitmentModelCodes, String imageUrl,
-      BigDecimal quantityAvailable, boolean available) {}
-  public record OrderLineRequest(UUID partPublicId, BigDecimal quantity) {}
-  public record PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode,
-      String customerNote, String idempotencyKey, String fulfillmentMethod, String deliveryAddress) {
-    public PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode,
-        String customerNote, String idempotencyKey) {
-      this(lines, fitmentModelCode, customerNote, idempotencyKey, "PICKUP", null);
-    }
+  public record RetailSettingsRequest(Boolean retailEnabled, BigDecimal retailPrice, String retailDescription, List<String> fitmentModelCodes, String imageUrl, Boolean fitmentVerified) {
+    public RetailSettingsRequest(Boolean retailEnabled, BigDecimal retailPrice, String retailDescription, List<String> fitmentModelCodes, String imageUrl) { this(retailEnabled, retailPrice, retailDescription, fitmentModelCodes, imageUrl, true); }
   }
-  public record FulfillRequest(String collectionMethod, String externalReference,
-      String idempotencyKey, String note) {}
+  public record AdminPartView(UUID publicId, String skuCode, String partName, String description, String unitOfMeasure, boolean active,
+    boolean retailEnabled, BigDecimal retailPrice, String retailDescription, List<String> fitmentModelCodes, String imageUrl,
+    BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable, BigDecimal averageUnitCost,
+    String category, String sourceUrl, String sourceVerifiedAt, String partNumber, boolean fitmentVerified,
+    UUID stockPartPublicId, String stockSkuCode) {}
+  public record RetailPartView(UUID publicId, String skuCode, String partName, String description, String unitOfMeasure,
+    BigDecimal retailPrice, List<String> fitmentModelCodes, String imageUrl, BigDecimal quantityAvailable, boolean available,
+    String availabilityStatus, boolean fitmentVerified, String category, String partNumber, String sourceUrl, String sourceVerifiedAt, String sourceDataStatus) {}
+  public record StockOption(UUID publicId, String skuCode, String partName, String unitOfMeasure, BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable) {}
+  public record ModelFilterOption(String modelCode, String modelName, String family, String category) {}
+  public record RetailPartFilters(List<String> categories, List<ModelFilterOption> motorcycleModels) {}
+  public record OrderLineRequest(UUID partPublicId, BigDecimal quantity) {}
+  public record PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode, String customerNote, String idempotencyKey, String fulfillmentMethod, String deliveryAddress) {
+    public PlaceOrderRequest(List<OrderLineRequest> lines, String fitmentModelCode, String customerNote, String idempotencyKey) { this(lines, fitmentModelCode, customerNote, idempotencyKey, "PICKUP", null); }
+  }
+  public record FulfillRequest(String collectionMethod, String externalReference, String idempotencyKey, String note) {}
   public record ReturnRequest(String reason, Boolean restockable, String idempotencyKey) {}
   public record DeliveryQuoteRequest(BigDecimal deliveryFee, String note, String idempotencyKey) {}
-  public record RetailOrderLineView(
-      UUID partPublicId, String skuCode, String partName, String unitOfMeasure,
-      BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
-  public record RetailOrderView(
-      UUID publicId, String orderCode, String status, String paymentMethod, String paymentStatus,
-      BigDecimal orderTotal, String fulfillmentMethod, String deliveryAddress, BigDecimal deliveryFee,
-      String deliveryQuoteStatus, String deliveryQuoteNote, Instant deliveryQuotedAt,
-      String customerNote, Instant createdAt, Instant updatedAt,
-      Instant cancelledAt, Instant fulfilledAt, Instant returnedAt, String returnReason,
-      Boolean restockedOnReturn, String customerName, String customerCode,
-      String customerPhone, List<RetailOrderLineView> lines) {}
+  public record RetailOrderLineView(UUID partPublicId, String skuCode, String partName, String unitOfMeasure, BigDecimal quantity, BigDecimal unitPrice, BigDecimal lineTotal) {}
+  public record RetailOrderView(UUID publicId, String orderCode, String status, String paymentMethod, String paymentStatus, BigDecimal orderTotal,
+    String fulfillmentMethod, String deliveryAddress, BigDecimal deliveryFee, String deliveryQuoteStatus, String deliveryQuoteNote,
+    Instant deliveryQuotedAt, String customerNote, Instant createdAt, Instant updatedAt, Instant cancelledAt, Instant fulfilledAt,
+    Instant returnedAt, String returnReason, Boolean restockedOnReturn, String customerName, String customerCode, String customerPhone, List<RetailOrderLineView> lines) {}
   private record OrderStockLine(long partId, BigDecimal quantity) {}
-  private record StockPart(
-      long id, UUID publicId, String skuCode, String partName, String unitOfMeasure,
-      boolean active, boolean retailEnabled, BigDecimal retailPrice, List<String> fitmentModelCodes,
-      BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal averageUnitCost) {}
+  private record StockPart(long id, long catalogueId, UUID publicId, String skuCode, String partName, String unitOfMeasure,
+    boolean active, boolean retailEnabled, BigDecimal retailPrice, List<String> fitmentModelCodes, boolean fitmentVerified,
+    BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal averageUnitCost) {}
+
 }
