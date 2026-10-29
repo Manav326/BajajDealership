@@ -97,6 +97,7 @@ export default function BajajShowroom({
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [catalogueAttempt, setCatalogueAttempt] = useState(0);
   const [promotions, setPromotions] = useState<ShowroomPromotion[]>([]);
   const [promotionsLoading, setPromotionsLoading] = useState(true);
   const [category, setCategory] = useState('ALL');
@@ -213,17 +214,35 @@ export default function BajajShowroom({
 
   useEffect(() => {
     const controller = new AbortController();
+    let timedOut = false;
     setLoading(true);
+    setError('');
+    // Render's free API may need time to wake up after inactivity. Bound the wait so
+    // the page can recover to a visible retry state instead of spinning forever.
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 60000);
     fetch(endpoint('/api/v1/public/catalogue/bikes'), {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.message || 'The Bajaj catalogue is not available right now.');
+        const body = await response.text();
+        let payload: unknown = null;
+        if (body) {
+          try { payload = JSON.parse(body); } catch { payload = body; }
         }
-        return response.json() as Promise<Catalogue>;
+        if (!response.ok) {
+          const message = typeof payload === 'object' && payload !== null && 'message' in payload
+            ? String((payload as { message: unknown }).message) : null;
+          throw new Error(message || 'The Bajaj catalogue is not available right now.');
+        }
+        if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')
+          || typeof payload !== 'object' || payload === null) {
+          throw new Error('The catalogue service returned an unexpected response. Please retry in a moment.');
+        }
+        return payload as Catalogue;
       })
       .then((result) => {
         if (result.manufacturer !== 'BAJAJ' || !Array.isArray(result.bikes)
@@ -234,12 +253,20 @@ export default function BajajShowroom({
         setError('');
       })
       .catch((cause: unknown) => {
-        if (cause instanceof DOMException && cause.name === 'AbortError') return;
-        setError(cause instanceof Error ? cause.message : 'Unable to load Bajaj bikes.');
+        if (cause instanceof DOMException && cause.name === 'AbortError' && !timedOut) return;
+        setError(timedOut
+          ? 'The catalogue service is taking longer than expected. Please retry.'
+          : cause instanceof Error ? cause.message : 'Unable to load Bajaj bikes.');
       })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, []);
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        setLoading(false);
+      });
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [catalogueAttempt]);
 
   useEffect(() => {
     if (mode === 'portal') {
@@ -434,7 +461,7 @@ export default function BajajShowroom({
           <div className="showroom-stage-disc" aria-hidden="true" />
           <div className="showroom-stage-ring ring-one" aria-hidden="true" />
           <div className="showroom-stage-ring ring-two" aria-hidden="true" />
-          {featured && <img src={featured.heroImageUrl} alt={`Bajaj ${featured.modelName}`} fetchPriority="high"
+          {featured && <img src={catalogueAssetUrl(featured.heroImageUrl)} alt={`Bajaj ${featured.modelName}`} fetchPriority="high"
             onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />}
           {featured && <div className="showroom-stage-label"><span>FEATURED MACHINE</span><strong>{featured.modelName}</strong><small>{featured.engineCc} cc · {featured.maxPower}</small></div>}
           <span className="showroom-stage-index" aria-hidden="true">B / 01</span>
@@ -541,8 +568,16 @@ export default function BajajShowroom({
         </section>}
 
         {loading && <div className="showroom-load-state"><span className="showroom-loader" /><strong>Setting the stage…</strong><p>Loading the live Bajaj catalogue and dealership availability.</p></div>}
-        {!loading && error && <div className="showroom-error" role="alert"><strong>The showroom could not load.</strong><p>{error}</p><button type="button" onClick={() => window.location.reload()}>Retry catalogue ↻</button></div>}
-        {!loading && !error && bikes.length === 0 && <div className="showroom-empty">No Bajaj motorcycles match that search. Try another model or category.</div>}
+        {!loading && error && <div className="showroom-error" role="alert"><strong>The showroom could not load.</strong><p>{error}</p><button type="button" onClick={() => setCatalogueAttempt((attempt) => attempt + 1)}>Retry catalogue ↻</button></div>}
+        {!loading && !error && catalogue?.bikes.length === 0 && <div className="showroom-empty">
+          <strong>The Bajaj catalogue is not published for this dealership yet.</strong>
+          <p>Please contact Lucky Bajaj or try again shortly.</p>
+          <button type="button" onClick={() => setCatalogueAttempt((attempt) => attempt + 1)}>Refresh catalogue ↻</button>
+        </div>}
+        {!loading && !error && (catalogue?.bikes.length ?? 0) > 0 && bikes.length === 0 && <div className="showroom-empty">
+          No Bajaj motorcycles match those filters. Try another model or category.
+          <button type="button" onClick={() => { setCategory('ALL'); setQuery(''); }}>Clear filters</button>
+        </div>}
 
         {!loading && !error && <div className="showroom-bike-grid">
           {bikes.map((bike, index) => (
@@ -551,7 +586,7 @@ export default function BajajShowroom({
               <div className="showroom-card-visual">
                 <span className="showroom-card-brand">BAJAJ <i>·</i> {bike.family.toUpperCase()}</span>
                 <span className="showroom-card-number">{String(index + 1).padStart(2, '0')}</span>
-                <img src={bike.heroImageUrl} alt={`Bajaj ${bike.modelName} motorcycle`} loading="lazy" decoding="async"
+                <img src={catalogueAssetUrl(bike.heroImageUrl)} alt={`Bajaj ${bike.modelName} motorcycle`} loading="lazy" decoding="async"
                   onError={(event) => { event.currentTarget.dataset.failed = 'true'; }} />
                 <span className="showroom-card-engine">{bike.engineCc} <small>CC</small></span>
                 <button type="button" className="showroom-card-view" onClick={() => openDetails(bike)} aria-label={`View ${bike.modelName} details`}>↗</button>
@@ -617,7 +652,7 @@ export default function BajajShowroom({
       {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDetails(); }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
           <button ref={closeButtonRef} className="showroom-modal-close" type="button" onClick={closeDetails} aria-label="Close bike details">×</button>
-          <div className="showroom-modal-image"><img src={selected.heroImageUrl} alt={`Bajaj ${selected.modelName}`}
+          <div className="showroom-modal-image"><img src={catalogueAssetUrl(selected.heroImageUrl)} alt={`Bajaj ${selected.modelName}`}
             onError={(event) => {
               event.currentTarget.dataset.failed = 'true';
               event.currentTarget.parentElement?.setAttribute('data-image-failed', 'true');
