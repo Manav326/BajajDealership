@@ -50,7 +50,12 @@ async function mockShowroomApi(page: Page, promotions: unknown[] = []) {
         dealershipName: 'Lucky Bajaj Agency',
         priceReferenceCity: 'New Delhi',
         servedAt: '2026-10-29T00:00:00Z',
-        bikes: [bike],
+        bikes: [bike, ...Array.from({ length: 19 }, (_, index) => ({
+          ...bike,
+          modelCode: `BAJAJ_TEST_MODEL_${String(index + 1).padStart(2, '0')}`,
+          modelName: `Fixture Bajaj Model ${String(index + 1).padStart(2, '0')}`,
+          family: 'Fixture Bajaj Range',
+        }))],
       });
     }
     if (url.pathname.endsWith('/public/catalogue/promotions')) {
@@ -67,6 +72,34 @@ async function mockShowroomApi(page: Page, promotions: unknown[] = []) {
     return json({});
   });
 }
+
+
+test('public catalogue renders at least 20 Bajaj model cards and searches the returned catalogue', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+
+  const cards = page.locator('.showroom-bike-card');
+  await expect(cards).toHaveCount(20);
+  const brandLabels = await page.locator('.showroom-card-brand').allTextContents();
+  expect(brandLabels).toHaveLength(20);
+  expect(brandLabels.every((label) => label.trim().startsWith('BAJAJ'))).toBeTruthy();
+
+  await page.getByRole('textbox', { name: 'Search Bajaj models' }).fill('Fixture Bajaj Model 07');
+  await expect(cards).toHaveCount(1);
+  await expect(cards.getByRole('heading', { name: 'Fixture Bajaj Model 07', exact: true })).toBeVisible();
+});
+
+test('showroom honors reduced-motion preference', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.locator('.showroom-bike-card').first()).toBeVisible();
+
+  const duration = await page.locator('.showroom-bike-card').first().evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).animationDuration));
+  expect(duration).toBeLessThan(0.001);
+});
 
 test('public showroom remains responsive and truthful when no dealer offer or regional quote is configured', async ({ page }) => {
   for (const width of [320, 768, 1280]) {
@@ -122,11 +155,21 @@ test('public promotions expose source and terms without claiming an automatic di
     document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 });
 
-test('selecting a bike preserves the requested test ride intent through sign-in handoff', async ({ page }) => {
+test('selecting a bike preserves the preferred test ride time through sign-in handoff', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockShowroomApi(page);
   await page.goto('http://127.0.0.1:4173');
   await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+
+  const preferredTime = await page.evaluate(() => {
+    const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    date.setSeconds(0, 0);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return \`\${date.getFullYear()}-\${pad(date.getMonth() + 1)}-\${pad(date.getDate())}T\${pad(date.getHours())}:\${pad(date.getMinutes())}\`;
+  });
+  await page.locator('.showroom-preferred-time input').fill(preferredTime);
+  const expectedPreferredAt = await page.locator('.showroom-preferred-time input').evaluate((element) =>
+    new Date((element as HTMLInputElement).value).toISOString());
   await page.getByRole('button', { name: /Request test ride/ }).click();
   await expect(page.locator('.portal-auth-screen')).toBeVisible();
 
@@ -138,10 +181,31 @@ test('selecting a bike preserves the requested test ride intent through sign-in 
     action: 'TEST_RIDE',
     modelCode: 'BAJAJ_PULSAR_NS200',
     modelName: 'Pulsar NS200',
-    preferredAt: null,
+    preferredAt: expectedPreferredAt,
   });
   expect(typeof intent.idempotencyKey).toBe('string');
   expect(intent.idempotencyKey.length).toBeGreaterThan(8);
+});
+
+test('purchase intent is preserved through the sign-in handoff', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+  await expect(page.locator('.portal-auth-screen')).toBeVisible();
+
+  const intent = await page.evaluate(() => {
+    const raw = window.sessionStorage.getItem('qe_bajaj_pending_intent');
+    return raw ? JSON.parse(raw) : null;
+  });
+  expect(intent).toMatchObject({
+    action: 'PURCHASE',
+    modelCode: 'BAJAJ_PULSAR_NS200',
+    modelName: 'Pulsar NS200',
+    preferredAt: null,
+  });
+  expect(typeof intent.idempotencyKey).toBe('string');
 });
 
 
