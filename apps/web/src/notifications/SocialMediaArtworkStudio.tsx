@@ -85,6 +85,119 @@ function drawPhotoCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
   ctx.restore();
 }
 
+
+type ArtworkDraft = {
+  id: string;
+  name: string;
+  formatId: string;
+  brandName: string;
+  headline: string;
+  message: string;
+  callToAction: string;
+  caption: string;
+  hashtags: string;
+  primary: string;
+  accent: string;
+  photoSource: string | null;
+  updatedAt: string;
+};
+type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
+
+function openArtworkDraftDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('Saved drafts are not available in this browser context.'));
+      return;
+    }
+    const request = indexedDB.open('bajaj-social-media-artwork', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('drafts')) {
+        request.result.createObjectStore('drafts', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Could not open artwork draft storage.'));
+  });
+}
+
+async function listArtworkDrafts(): Promise<ArtworkDraftSummary[]> {
+  const db = await openArtworkDraftDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').getAll();
+    request.onsuccess = () => {
+      const drafts = (request.result as ArtworkDraft[])
+        .map(({ id, name, updatedAt }) => ({ id, name, updatedAt }))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      db.close();
+      resolve(drafts);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error ?? new Error('Could not list saved artwork drafts.'));
+    };
+  });
+}
+
+async function readArtworkDraft(id: string): Promise<ArtworkDraft | undefined> {
+  const db = await openArtworkDraftDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').get(id);
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result as ArtworkDraft | undefined);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error ?? new Error('Could not load the selected artwork draft.'));
+    };
+  });
+}
+
+async function writeArtworkDraft(draft: ArtworkDraft): Promise<void> {
+  const db = await openArtworkDraftDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('drafts', 'readwrite');
+    transaction.objectStore('drafts').put(draft);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Could not save this artwork draft.'));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Saving this artwork draft was cancelled.'));
+    };
+  });
+}
+
+async function removeArtworkDraft(id: string): Promise<void> {
+  const db = await openArtworkDraftDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('drafts', 'readwrite');
+    transaction.objectStore('drafts').delete(id);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Could not delete this artwork draft.'));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Deleting this artwork draft was cancelled.'));
+    };
+  });
+}
+
+function newDraftId() {
+  return globalThis.crypto?.randomUUID?.()
+    ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
+
 export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [formatId, setFormatId] = useState(formats[0].id);
@@ -99,9 +212,21 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
   const [photoSource, setPhotoSource] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [draftName, setDraftName] = useState('New campaign draft');
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [savedDrafts, setSavedDrafts] = useState<ArtworkDraftSummary[]>([]);
+  const [draftBusy, setDraftBusy] = useState(false);
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
+
+  useEffect(() => {
+    let disposed = false;
+    listArtworkDrafts()
+      .then((drafts) => { if (!disposed) setSavedDrafts(drafts); })
+      .catch(() => { if (!disposed) setSavedDrafts([]); });
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -258,7 +383,126 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
     reader.readAsDataURL(file);
   }
 
-  function downloadArtwork() {
+
+  async function refreshSavedDrafts() {
+    try {
+      setSavedDrafts(await listArtworkDrafts());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Saved drafts could not be refreshed.');
+    }
+  }
+
+  async function saveDraft() {
+    const cleanName = draftName.trim();
+    if (!cleanName) {
+      setError('Enter a name for this campaign draft.');
+      return;
+    }
+    setDraftBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const draft: ArtworkDraft = {
+        id: activeDraftId ?? newDraftId(),
+        name: cleanName.slice(0, 100),
+        formatId,
+        brandName,
+        headline,
+        message,
+        callToAction,
+        caption,
+        hashtags,
+        primary,
+        accent,
+        photoSource,
+        updatedAt: new Date().toISOString(),
+      };
+      await writeArtworkDraft(draft);
+      setActiveDraftId(draft.id);
+      setDraftName(draft.name);
+      await refreshSavedDrafts();
+      setNotice('Draft saved on this browser. It is not yet synced to other staff devices.');
+    } catch (cause) {
+      const storageError = cause instanceof DOMException && cause.name === 'QuotaExceededError';
+      setError(storageError
+        ? 'Browser storage is full. Remove the campaign photo or delete an older saved draft, then try again.'
+        : cause instanceof Error ? cause.message : 'The draft could not be saved.');
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function loadDraft(id: string) {
+    if (!id) {
+      setActiveDraftId(null);
+      setDraftName('New campaign draft');
+      return;
+    }
+    setDraftBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const draft = await readArtworkDraft(id);
+      if (!draft) throw new Error('This saved draft was not found.');
+      setActiveDraftId(draft.id);
+      setDraftName(draft.name);
+      setFormatId(draft.formatId);
+      setBrandName(draft.brandName);
+      setHeadline(draft.headline);
+      setMessage(draft.message);
+      setCallToAction(draft.callToAction);
+      setCaption(draft.caption);
+      setHashtags(draft.hashtags);
+      setPrimary(draft.primary);
+      setAccent(draft.accent);
+      setPhotoSource(draft.photoSource);
+      setNotice('Saved draft loaded.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The selected draft could not be loaded.');
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function deleteDraft() {
+    if (!activeDraftId) {
+      setError('Choose a saved draft before deleting it.');
+      return;
+    }
+    setDraftBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await removeArtworkDraft(activeDraftId);
+      setSavedDrafts(await listArtworkDrafts());
+      setActiveDraftId(null);
+      setDraftName('New campaign draft');
+      setNotice('Saved draft deleted from this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The selected draft could not be deleted.');
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  function newDraft() {
+    setActiveDraftId(null);
+    setDraftName('New campaign draft');
+    setFormatId(formats[0].id);
+    setBrandName('Lucky Bajaj Agency');
+    setHeadline('Your Next Ride Starts Here');
+    setMessage('Discover dependable service, genuine parts and friendly support from our team.');
+    setCallToAction('Visit us today');
+    setCaption('Your journey matters to us. Visit Lucky Bajaj Agency for trusted service and support.');
+    setHashtags('#LuckyBajaj #Bajaj #RideWithConfidence');
+    setPrimary('#15213a');
+    setAccent('#f97316');
+    setPhotoSource(null);
+    setError('');
+    setNotice('Started a new draft. Save it to keep it on this browser.');
+  }
+
+  function downloadArtwork(mimeType: 'image/png' | 'image/jpeg' = 'image/png') {
     const canvas = canvasRef.current;
     if (!canvas) {
       setError('The artwork preview is not ready yet.');
@@ -268,17 +512,52 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
     setNotice('');
     canvas.toBlob((blob) => {
       if (!blob) {
-        setError('PNG export failed. Try again.');
+        setError('Artwork export failed. Try again.');
         return;
       }
+      const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'lucky-bajaj-' + selectedFormat.id + '.png';
+      anchor.download = 'lucky-bajaj-' + selectedFormat.id + '.' + extension;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNotice('Artwork downloaded as a PNG. This does not publish it to a social account.');
-    }, 'image/png');
+      setNotice('Artwork downloaded as ' + extension.toUpperCase() + '. This does not publish it to a social account.');
+    }, mimeType, mimeType === 'image/jpeg' ? 0.92 : undefined);
+  }
+
+  async function shareArtwork() {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      setError('The artwork preview is not ready yet.');
+      return;
+    }
+    setError('');
+    setNotice('');
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Could not prepare the artwork for sharing.')), 'image/png');
+      });
+      const file = new File([blob], 'lucky-bajaj-' + selectedFormat.id + '.png', { type: 'image/png' });
+      if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: headline.trim() || brandName.trim(), text: fullCaption });
+        setNotice('The device share sheet opened. Confirm the destination and send/publish inside that app.');
+      } else {
+        downloadArtwork('image/png');
+        try {
+          await navigator.clipboard.writeText(fullCaption);
+          setNotice('This browser cannot share the image directly. The PNG was downloaded and the caption was copied; share them manually.');
+        } catch {
+          setNotice('This browser cannot share the image directly. The PNG was downloaded; copy the caption manually.');
+        }
+      }
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        setNotice('Sharing was cancelled. Your artwork is unchanged.');
+      } else {
+        setError(cause instanceof Error ? cause.message : 'The device share sheet could not be opened.');
+      }
+    }
   }
 
   async function copyCaption() {
@@ -305,6 +584,23 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
         </header>
         <div className={styles.content}>
           <aside className={styles.controls}>
+            <div className={styles.draftPanel}>
+              <div className={styles.draftPanelTitle}>Saved drafts <span>Browser only</span></div>
+              <label>Draft name
+                <input maxLength={100} value={draftName} onChange={(event) => setDraftName(event.target.value)} />
+              </label>
+              <label>Open saved draft
+                <select disabled={draftBusy || savedDrafts.length === 0} value={activeDraftId ?? ''} onChange={(event) => void loadDraft(event.target.value)}>
+                  <option value="">Choose a saved draft…</option>
+                  {savedDrafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.name} · {new Date(draft.updatedAt).toLocaleDateString('en-IN')}</option>)}
+                </select>
+              </label>
+              <div className={styles.draftActions}>
+                <button type="button" className={styles.secondary} disabled={draftBusy} onClick={() => void saveDraft()}>{draftBusy ? 'Saving…' : activeDraftId ? 'Save changes' : 'Save draft'}</button>
+                <button type="button" className={styles.secondary} disabled={draftBusy} onClick={newDraft}>New</button>
+                <button type="button" className={styles.textButton} disabled={draftBusy || !activeDraftId} onClick={() => void deleteDraft()}>Delete</button>
+              </div>
+            </div>
             <label>Artwork format
               <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
                 {formats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}
@@ -335,7 +631,9 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
             {notice && <div className={styles.notice} role="status">{notice}</div>}
             <div className={styles.actions}>
               <button type="button" className={styles.secondary} onClick={() => void copyCaption()}>Copy caption</button>
-              <button type="button" className={styles.primary} onClick={downloadArtwork}>Download PNG</button>
+              <button type="button" className={styles.secondary} onClick={() => downloadArtwork('image/jpeg')}>Download JPEG</button>
+              <button type="button" className={styles.secondary} onClick={() => void shareArtwork()}>Share from device</button>
+              <button type="button" className={styles.primary} onClick={() => downloadArtwork('image/png')}>Download PNG</button>
             </div>
             <p className={styles.note}>Facebook and Instagram publishing, and WhatsApp Business messaging, will be enabled only after official account authorization and provider delivery verification. WhatsApp Status currently uses manual export/share.</p>
           </main>
