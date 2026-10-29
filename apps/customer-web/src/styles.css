@@ -810,3 +810,56 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .google-auth-panel__heading strong { font-size: 9px; }
   .google-auth-panel__heading small { font-size: 7px; }
 }
+
+
+/* Date-valid, source-linked dealer announcements; no automatic discounts are implied. */
+.showroom-offers {
+  position: relative;
+  padding: clamp(42px, 7vw, 84px) clamp(18px, 5vw, 72px);
+  border-top: 1px solid rgba(164, 178, 192, .12);
+  border-bottom: 1px solid rgba(164, 178, 192, .12);
+  background: linear-gradient(115deg, rgba(18, 28, 40, .88), rgba(8, 15, 24, .68));
+}
+.showroom-offers-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  max-width: 1240px;
+  margin: 0 auto 26px;
+}
+.showroom-offers-heading h2 { margin: 8px 0; font-size: clamp(26px, 3.6vw, 44px); letter-spacing: -.045em; }
+.showroom-offers-heading h2 em { color: #f1c16d; font-family: Georgia, serif; font-weight: 500; }
+.showroom-offers-heading p { max-width: 560px; color: var(--showroom-muted, #a7b2bf); font-size: 12px; line-height: 1.7; }
+.showroom-offers-count { color: #f1c16d; font-size: 10px; letter-spacing: .17em; }
+.showroom-offers-empty {
+  max-width: 1240px;
+  margin: 0 auto;
+  border: 1px dashed rgba(164, 178, 192, .24);
+  border-radius: 12px;
+  padding: 22px;
+  color: var(--showroom-muted, #a7b2bf);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.showroom-offers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; max-width: 1240px; margin: 0 auto; }
+.showroom-offer-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+  min-width: 0; padding: 20px; border: 1px solid rgba(164, 178, 192, .22);
+  border-radius: 16px; background: rgba(7, 13, 21, .55); box-shadow: 0 18px 38px rgba(0, 0, 0, .18);
+}
+.showroom-offer-card-overline { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; color: #f1c16d; font-size: 9px; letter-spacing: .12em; }
+.showroom-offer-card-overline span:last-child { color: var(--showroom-muted, #a7b2bf); text-align: right; }
+.showroom-offer-card h3 { margin: 0; color: var(--showroom-text, #f6f7fa); font-size: 19px; }
+.showroom-offer-card > p { margin: 0; color: #d7dee6; font-size: 12px; line-height: 1.75; }
+.showroom-offer-card details { color: var(--showroom-muted, #a7b2bf); font-size: 11px; line-height: 1.75; }
+.showroom-offer-card summary { color: #dfe5ec; cursor: pointer; }
+.showroom-offer-card details p { margin: 8px 0 0; white-space: pre-wrap; }
+.showroom-offer-dates { margin-top: auto; color: var(--showroom-muted, #a7b2bf); font-size: 10px; }
+.showroom-offer-card > a { color: #f1c16d; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.showroom-offer-card > small { color: #8794a4; font-size: 9px; line-height: 1.6; }
+@media (max-width: 640px) {
+  .showroom-offers { padding-inline: 16px; }
+  .showroom-offer-card { padding: 16px; }
+}
