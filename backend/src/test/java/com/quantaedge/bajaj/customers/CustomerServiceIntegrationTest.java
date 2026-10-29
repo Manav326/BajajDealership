@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import com.quantaedge.bajaj.sales.SalesOperationsService;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,9 @@ class CustomerServiceIntegrationTest {
 
   @Autowired
   private CustomerPortalService portal;
+
+  @Autowired
+  private SalesOperationsService salesOperations;
 
   @Autowired
   private CustomerController customerController;
@@ -110,13 +114,19 @@ class CustomerServiceIntegrationTest {
     CustomerService.CustomerView created = customers.create(owner,
         new CustomerService.CustomerRequest("History Customer", "9876500011", null, "history@example.test",
             "en", false, null, "Prefers a call before arranging delivery."));
+    salesOperations.createEnquiry(owner, new SalesOperationsService.EnquiryRequest(
+        created.publicId(), null, null, "WALK_IN", "CALL", null, "Walk-in customer asked for finance options."));
 
     CustomerService.CustomerHistoryView history = customers.history(owner, created.publicId());
     assertThat(history.customer().publicId()).isEqualTo(created.publicId());
     assertThat(history.notes()).isEqualTo("Prefers a call before arranging delivery.");
     assertThat(history.motorcyclePurchases()).isEmpty();
     assertThat(history.sparePartOrders()).isEmpty();
-    assertThat(history.salesEnquiries()).isEmpty();
+    assertThat(history.salesEnquiries()).hasSize(1);
+    assertThat(history.salesEnquiries().getFirst().enquiry().leadSource()).isEqualTo("WALK_IN");
+    assertThat(history.salesEnquiries().getFirst().activities())
+        .extracting(SalesOperationsService.ActivityView::activityType)
+        .contains("ENQUIRY_CREATED");
     assertThat(history.websiteRequests()).isEmpty();
 
     StaffPrincipal otherDealership = createOwner("HISTORY_OTHER");
