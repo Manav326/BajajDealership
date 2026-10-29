@@ -108,8 +108,10 @@ class BajajMotorcycleCatalogueControllerIntegrationTest {
       assertThat(source).startsWith("https://www.bajajauto.com/bikes/");
       assertThat(source).isNotEqualTo("https://www.bajajauto.com/bikes");
       if (model.path("modelCode").asText().equals("BAJAJ_DOMINAR_400")) {
-        assertThat(model.path("exShowroomPrice").isNull()).isTrue();
-        assertThat(model.path("priceVerifiedAt").isNull()).isTrue();
+        var price = model.path("exShowroomPrice");
+        var verifiedDate = model.path("priceVerifiedAt");
+        assertThat(price.isMissingNode() || price.isNull()).isTrue();
+        assertThat(verifiedDate.isMissingNode() || verifiedDate.isNull()).isTrue();
       }
     });
   }
