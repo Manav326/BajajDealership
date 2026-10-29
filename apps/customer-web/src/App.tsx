@@ -624,6 +624,18 @@ export default function App() {
       setError('Enter the delivery address before requesting delivery.');
       return;
     }
+    const fitmentRequired = retailCart
+      .map((line) => retailParts.find((part) => part.publicId === line.partPublicId))
+      .filter((part): part is RetailPart => Boolean(part && part.fitmentVerified && part.fitmentModelCodes.length > 0));
+    if (fitmentRequired.length > 0 && !fitmentModelCode) {
+      setError('Choose the motorcycle model for the part(s) in your cart before placing the order.');
+      return;
+    }
+    const incompatible = fitmentRequired.find((part) => !part.fitmentModelCodes.includes(fitmentModelCode));
+    if (incompatible) {
+      setError(`${incompatible.partName} is not verified for the selected motorcycle model. Remove it or change the model.`);
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');

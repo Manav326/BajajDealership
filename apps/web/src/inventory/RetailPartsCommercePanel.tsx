@@ -326,6 +326,8 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
                 <div><strong>Link to existing inventory</strong><p>Choose the precise SKU already used for receiving, stock movements and workshop reservations. This does not create inventory or stock.</p></div>
                 <label>Inventory SKU<select value={draft.stockPartPublicId} onChange={(event) => updateDraft(part, { stockPartPublicId: event.target.value })} disabled={!canManage || busyId === part.publicId}>
                   <option value="">Not linked</option>
+                  {part.stockPartPublicId && !stockOptions.some((option) => option.publicId === part.stockPartPublicId)
+                    && <option value={part.stockPartPublicId}>{part.stockSkuCode ?? 'Linked inventory SKU'} · inactive or no longer selectable</option>}
                   {stockOptions.map((option) => <option key={option.publicId} value={option.publicId}>
                     {option.skuCode} · {option.partName} · {option.quantityAvailable} available
                   </option>)}

@@ -143,9 +143,20 @@ public class RetailPartsService {
     if (stockPartPublicId == null) {
       jdbc.update("delete from retail_part_catalogue_stock_map where dealership_id = ? and catalogue_product_id = ?", actor.dealershipId(), catalogueId);
     } else {
-      Long stockId = jdbc.query("select id from spare_part where dealership_id = ? and public_id = ? and active = true",
-          (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), stockPartPublicId).stream().findFirst().orElse(null);
-      if (stockId == null) throw notFound("Inventory SKU was not found in this dealership.");
+      String catalogueUnit = jdbc.query("""
+          select unit_of_measure from bajaj_spare_part_catalogue where id = ?
+          """, (rs, rowNum) -> rs.getString(1), catalogueId).stream().findFirst().orElse(null);
+      List<Map<String, Object>> stockRows = jdbc.queryForList("""
+          select id, unit_of_measure from spare_part
+          where dealership_id = ? and public_id = ? and active = true
+          """, actor.dealershipId(), stockPartPublicId);
+      if (stockRows.isEmpty()) throw notFound("Inventory SKU was not found in this dealership.");
+      String stockUnit = String.valueOf(stockRows.getFirst().get("unit_of_measure"));
+      if (catalogueUnit == null || !catalogueUnit.equals(stockUnit)) {
+        throw conflict("Catalogue unit (" + catalogueUnit + ") does not match inventory SKU unit (" + stockUnit
+            + "). Select an SKU with the matching unit or correct the inventory master first.");
+      }
+      Long stockId = ((Number) stockRows.getFirst().get("id")).longValue();
       try {
         jdbc.update("""
             insert into retail_part_catalogue_stock_map(dealership_id, catalogue_product_id, stock_part_id, updated_by_staff_user_id)
@@ -179,7 +190,8 @@ public class RetailPartsService {
           coalesce(listing.fitment_model_codes, catalogue.fitment_model_codes, '[]'::jsonb)::text as fitment_model_codes,
           coalesce(listing.retail_image_url, catalogue.image_url) as retail_image_url,
           coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available,
-          (stock_map.stock_part_id is not null) as stock_mapped, coalesce(listing.retail_enabled, false) as retail_enabled,
+          (stock_map.stock_part_id is not null) as stock_mapped, coalesce(stock.active, false) as stock_active,
+          coalesce(listing.retail_enabled, false) as retail_enabled,
           coalesce(listing.fitment_verified, false) as fitment_verified, catalogue.category, catalogue.oem_part_number,
           catalogue.source_url, catalogue.source_verified_at::text as source_verified_at, catalogue.source_data_status
         from bajaj_spare_part_catalogue catalogue
@@ -191,9 +203,10 @@ public class RetailPartsService {
         order by catalogue.category, lower(catalogue.part_name), catalogue.catalogue_code
         """, (rs, rowNum) -> {
       BigDecimal available = rs.getBigDecimal("quantity_available");
-      boolean mapped = rs.getBoolean("stock_mapped"), listed = rs.getBoolean("retail_enabled"), verified = rs.getBoolean("fitment_verified");
+      boolean mapped = rs.getBoolean("stock_mapped"), listed = rs.getBoolean("retail_enabled"),
+          verified = rs.getBoolean("fitment_verified"), stockActive = rs.getBoolean("stock_active");
       BigDecimal price = rs.getBigDecimal("retail_price");
-      boolean configured = mapped && listed && price != null && verified;
+      boolean configured = mapped && stockActive && listed && price != null && verified;
       boolean orderable = configured && available != null && available.signum() > 0;
       String status = orderable ? "AVAILABLE" : configured ? "OUT_OF_STOCK" : "CHECK_WITH_DEALER";
       return new RetailPartView(rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
@@ -861,7 +874,11 @@ public class RetailPartsService {
         join retail_part_catalogue_stock_map stock_map on stock_map.catalogue_product_id = catalogue.id and stock_map.dealership_id = ?
         join spare_part stock on stock.dealership_id = ? and stock.id = stock_map.stock_part_id
         join spare_part_balance balance on balance.dealership_id = stock_map.dealership_id and balance.part_id = stock_map.stock_part_id
-        where catalogue.public_id in (""" + placeholders + """) order by stock.id for update of stock, balance, listing
+        where catalogue.public_id in (
+        """ + placeholders + """
+        )
+        order by stock.id
+        for update of stock, balance, listing
         """;
     return jdbc.query(sql, (rs, rowNum) -> new StockPart(rs.getLong("id"), rs.getLong("catalogue_id"),
       rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"), rs.getString("unit_of_measure"),
@@ -883,7 +900,7 @@ public class RetailPartsService {
     return rows.isEmpty() ? null : rows.getFirst();
   }
 
-  private void insertMovement  private void insertMovement(long dealershipId, StockPart part, String type,
+  private void insertMovement(long dealershipId, StockPart part, String type,
       BigDecimal quantityDelta, BigDecimal reservedDelta, BigDecimal onHandAfter,
       BigDecimal reservedAfter, String referenceId, String operationKey, String fingerprint,
       Long staffId, Long customerId) {
