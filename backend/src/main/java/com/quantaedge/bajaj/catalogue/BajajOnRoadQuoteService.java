@@ -131,7 +131,8 @@ public class BajajOnRoadQuoteService {
       throw conflict("This model already has a price profile for an overlapping period in that city and state. Edit that period or choose non-overlapping effective dates.");
     }
 
-    if (publicId == null) {
+    boolean creating = publicId == null;
+    if (creating) {
       publicId = jdbc.queryForObject("""
           insert into bajaj_location_price_profile(
             dealership_id, model_code, city, state, effective_from, effective_to,
@@ -155,7 +156,7 @@ public class BajajOnRoadQuoteService {
           insurance, handling, other, otherLabel, source, note, actor.staffUserId(),
           actor.dealershipId(), publicId);
     }
-    audit(actor, publicId, publicId == null ? "LOCATION_PRICE_PROFILE_CREATED" : "LOCATION_PRICE_PROFILE_SAVED",
+    audit(actor, publicId, creating ? "LOCATION_PRICE_PROFILE_CREATED" : "LOCATION_PRICE_PROFILE_SAVED",
         city, state, modelCode, effectiveFrom, effectiveTo);
     return findProfile(actor.dealershipId(), publicId);
   }
@@ -202,10 +203,10 @@ public class BajajOnRoadQuoteService {
     String otherLabel = (String) row.get("other_charges_label");
     BigDecimal total = exShowroom.add(registration).add(roadTax).add(insurance).add(handling).add(other)
         .setScale(2, RoundingMode.HALF_UP);
-    LocalDate effectiveTo = (LocalDate) row.get("effective_to");
+    LocalDate effectiveTo = dateValue(row.get("effective_to"));
     return new QuoteView("ESTIMATE", modelCode, (String) row.get("model_name"),
         (String) row.get("city"), (String) row.get("state"), today,
-        ((LocalDate) row.get("effective_from")), effectiveTo,
+        dateValue(row.get("effective_from")), effectiveTo,
         List.of(
             new QuoteLine("Local ex-showroom price", exShowroom, "FIXED"),
             new QuoteLine("Registration fee", registration, "FIXED"),
@@ -270,6 +271,13 @@ public class BajajOnRoadQuoteService {
             'effectiveTo', ?::text))
         """, actor.dealershipId(), actor.staffUserId(), action, publicId.toString(),
         city, state, modelCode, from.toString(), to == null ? null : to.toString());
+  }
+
+  private static LocalDate dateValue(Object value) {
+    if (value == null) return null;
+    if (value instanceof LocalDate date) return date;
+    if (value instanceof java.sql.Date date) return date.toLocalDate();
+    throw new IllegalStateException("Unexpected date value returned by the database.");
   }
 
   private static BigDecimal money(BigDecimal amount, String label, boolean positive) {
