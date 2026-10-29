@@ -247,33 +247,68 @@ Every CI run on `main` (and pull requests targeting `main`) validates the backen
 
 Artifacts are retained for 14 days. The web artifacts are static build files, separate from the live preview links above. The Android artifact is a debug APK, not a Play Store-signed release, and defaults to `https://lucky-bajaj-api.onrender.com/`. Override `BAJAJ_API_BASE_URL` in Actions or `EXPO_PUBLIC_API_BASE_URL` for local development; use `http://192.168.31.47:8080/` for a physical phone on the mPAY-style LAN setup and `http://10.0.2.2:8080/` for an Android Studio emulator. A local URL must serve the BajajDealership API, not mPAY's backend.
 
-## Local development — one command
+## Local development — build locally or pull from GHCR
 
-The supported local workflow is Docker Compose. You do not need to install Java, Maven, PostgreSQL, or Node.js on the host to run the backend and websites; Docker builds the services and starts them together.
+Docker Compose runs PostgreSQL, the Spring Boot API, the customer website and the staff portal together. You can either build the API/web images from this checkout, or pull the prebuilt API/web images from GitHub Container Registry (GHCR). Both modes keep PostgreSQL and its named data/media volumes on your local machine.
 
 ### Windows (PowerShell)
 
-From the repository root:
+Run from the repository root:
 
 ```powershell
 git pull origin main
+
+# Option 1: build the API and websites from source on this computer (default)
 .\scripts\start.ps1
+
+# Option 2: pull published images from GHCR and run them without building
+.\scripts\start.ps1 -Mode Pull
+
+# Pin to an exact successful main commit's images instead of the moving latest tag
+.\scripts\start.ps1 -Mode Pull -Tag sha-<full-commit-sha>
 ```
 
-If Windows blocks local script execution, run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
-```
+To rebuild locally without Docker's layer cache, use ` .\scripts\start.ps1 -Rebuild` (without the leading space in PowerShell).
 
 ### macOS / Linux
 
 ```sh
 git pull origin main
+
+# Option 1: build locally (default)
 sh ./scripts/start.sh
+
+# Option 2: pull the prebuilt images from GHCR and run them without building
+sh ./scripts/start.sh pull
+
+# Pin to a successful main commit's images
+sh ./scripts/start.sh pull sha-<full-commit-sha>
 ```
 
-The script validates the Compose configuration, builds the Spring Boot API and both React websites, starts PostgreSQL, waits for the API and websites to respond, and prints the service status. The first run generates a private ignored `.env` with local settings and a random one-time owner bootstrap token. Keep that token private. After initial owner setup, set `APP_BOOTSTRAP_TOKEN=` (leave the key present but blank) in `.env` and recreate the API with `docker compose up -d --force-recreate api`; the startup script will not re-enable bootstrap while the key is explicitly blank.
+Published image tags are:
+
+- API: `ghcr.io/manav326/bajajdealership-api`
+- Customer web: `ghcr.io/manav326/bajajdealership-customer-web`
+- Staff web: `ghcr.io/manav326/bajajdealership-staff-web`
+
+The `latest` tag tracks the latest successful main build that passed the required CI jobs. The immutable `sha-<full-commit-sha>` tag lets you reproduce a specific build. GHCR publishing runs for `main` only and is gated on backend/PostgreSQL tests, both web builds, Docker smoke testing and Android build completion.
+
+If GHCR packages are private, authenticate once before pull mode using a GitHub token with package-read access:
+
+```sh
+docker login ghcr.io
+```
+
+On Windows, run the same Docker login command in PowerShell. If the images are configured as public packages, no registry login is needed. If pull mode reports that an image could not be pulled, check the tag and registry access; the script will **not** fall back to a local build silently.
+
+### What each mode does
+
+- **Build mode**: builds the API and both web images from the local source, then starts all four services.
+- **Pull mode**: pulls the API and two web images for the selected tag, then runs them with `--no-build`.
+- **Both modes**: use the same local PostgreSQL database, the same persistent database/media volumes, health checks, bootstrap-token setup and local ports. The Android app itself runs on a phone/emulator rather than as a Compose service.
+- Set `BAJAJ_IMAGE_TAG` in the root `.env` to pin a tag for direct `docker compose` usage; the scripts also accept a tag argument/parameter.
+
+The first run generates a private ignored `.env` with local settings and a random one-time owner bootstrap token. Keep that token private. After initial owner setup, set `APP_BOOTSTRAP_TOKEN=` (leave the key present but blank) in `.env` and recreate the API with `docker compose up -d --force-recreate api`; the startup script will not re-enable bootstrap while the key is explicitly blank.
 
 ### Local URLs
 
@@ -285,11 +320,11 @@ The script validates the Compose configuration, builds the Spring Boot API and b
 | API health | http://localhost:8080/actuator/health |
 | PostgreSQL | localhost:5432 |
 
-Both websites forward `/api/` requests to the shared Spring Boot API inside Docker. This keeps browser requests same-origin and avoids needing a separate CORS configuration for local development. Port defaults can be changed in the ignored root `.env`.
+Both websites forward `/api/` requests to the shared Spring Boot API inside Docker. This keeps browser requests same-origin and avoids needing a separate CORS configuration for local development. Change port defaults in the ignored root `.env`.
 
-**Port conflict note:** this stack intentionally uses the QuantaEdge-style ports 3000, 3001, 8080 and 5432. Stop any other local QuantaEdge/mPAY/Docker stack using these same ports before starting this one. The script will report a bind error rather than stopping another project automatically.
+**Port conflict note:** this stack intentionally uses ports 3000, 3001, 8080 and 5432. Stop another local Docker stack that uses these ports before starting this one. The script will report a bind error rather than stopping another project automatically.
 
-To stop the containers without deleting database or private-media data, run `.\scripts\stop.ps1` on Windows or `docker compose -f compose.yaml down` on macOS/Linux. Do **not** append `-v` unless intentionally deleting local data. Useful commands:
+To stop containers without deleting database or private-media data, run ` .\scripts\stop.ps1` on Windows or `docker compose -f compose.yaml down` on macOS/Linux. Do **not** append `-v` unless intentionally deleting local data. Useful commands:
 
 ```sh
 docker compose -f compose.yaml ps
@@ -297,30 +332,19 @@ docker compose -f compose.yaml logs -f api
 docker compose -f compose.yaml logs -f customer-web staff-web
 ```
 
-To rebuild Docker images without the build cache on Windows, run `.\scripts\start.ps1 -Rebuild`.
+### Android API address
 
-### Android API address (mPAY-style)
+The Android app uses `EXPO_PUBLIC_API_BASE_URL`. The startup script writes `apps/android/.env` for a physical device using the computer's detected LAN IP. That URL must serve this BajajDealership API, not another backend.
 
-The Android app uses `EXPO_PUBLIC_API_BASE_URL`, matching mPAY's Gradle/environment configuration convention. On startup, the helper creates `apps/android/.env` for the physical-device API URL using the computer's detected LAN IP, for example `http://192.168.31.47:8080/`. That URL must serve **this BajajDealership API**, not the mPAY service.
+- **Physical phone:** connect the phone and computer to the same Wi-Fi and use `http://<computer-LAN-IP>:8080/`; allow port 8080 through the computer firewall if needed.
+- **Android Studio emulator:** set `BAJAJ_ANDROID_API_BASE_URL=http://10.0.2.2:8080/` before running the startup script.
+- **Override:** set `BAJAJ_ANDROID_API_BASE_URL` before startup; the helper writes it to the ignored Android `.env`.
 
-- **Physical phone:** connect the phone and development computer to the same Wi-Fi and use `http://<computer-LAN-IP>:8080/`. Allow inbound port 8080 through the computer's firewall if required.
-- **Android Studio emulator:** set `BAJAJ_ANDROID_API_BASE_URL=http://10.0.2.2:8080/` before running the startup script, or update `apps/android/.env`.
-- **Override:** set `BAJAJ_ANDROID_API_BASE_URL` before starting the stack; the helper writes the selected value to the ignored Android `.env` so Expo includes it in the next build.
-
-The Android app itself is not a Docker service. It runs in an emulator/device; CI builds an installable Android debug APK artifact. A local API URL or APK build does not mean the API is publicly hosted.
-
-### Local setup notes
-
-- The root `.env.example` documents override variables; the startup script creates the ignored `.env` as needed.
-- `scripts/stop.ps1` and `docker compose down` preserve named database and media volumes. Do not use `docker compose down -v` for normal stopping.
-- These credentials and defaults are for a development machine only. Do not expose this Compose stack to the public internet or reuse its database credentials in production.
-- The separate manual Vite workflow remains available if you intentionally want hot-reload development, but Docker Compose is the default workflow for bringing up the complete stack.
+The Android app is not a Docker service. CI builds an installable debug APK; it is not a signed Play Store release.
 
 ### Initial owner bootstrap
 
-The local startup script generates a random temporary `APP_BOOTSTRAP_TOKEN` in the ignored root `.env` on first run and prints it once. For local setup, call `POST http://localhost:8080/api/v1/system/bootstrap` with the token in the `X-Bootstrap-Token` header and the owner JSON below. The bootstrap route permits only the first owner for a dealership. After setup, set `APP_BOOTSTRAP_TOKEN=` in `.env` and run `docker compose up -d --force-recreate api` to disable it. Production setup must use HTTPS and a separately managed secret. Never commit real secrets.
-
-Example request body (replace the values with the authorised owner's details):
+The local startup script generates a random temporary `APP_BOOTSTRAP_TOKEN` in the ignored root `.env` on first run and prints it once. Call `POST http://localhost:8080/api/v1/system/bootstrap` with the token in the `X-Bootstrap-Token` header and the owner JSON below. Bootstrap permits only the first owner for a dealership. After owner setup, blank `APP_BOOTSTRAP_TOKEN=` in `.env` and run `docker compose up -d --force-recreate api` to disable it.
 
 ```json
 {
@@ -333,7 +357,7 @@ Example request body (replace the values with the authorised owner's details):
 }
 ```
 
-Do not use `bajaj_local_only` outside the local Compose environment. Production requires separate credentials, HTTPS, secret management, private uploads, restricted database access, monitoring and verified backups.
+These credentials and defaults are for development only. Do not expose this Compose stack to the public internet or reuse its database credentials in production. Production requires HTTPS, separate secrets, restricted database access, durable private media, monitoring and verified backups.
 
 ## Notification Studio design reference
 

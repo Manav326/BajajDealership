@@ -1,9 +1,24 @@
 [CmdletBinding()]
-param([switch]$Rebuild)
+param(
+    [ValidateSet('Build', 'Pull')]
+    [string]$Mode = 'Build',
+    [string]$Tag = 'latest',
+    [switch]$Rebuild
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+
+if ([string]::IsNullOrWhiteSpace($Tag) -or $Tag -match '[^A-Za-z0-9_.-]' -or $Tag -notmatch '^[A-Za-z0-9_]') {
+    throw 'Invalid Docker image tag. Use letters, numbers, underscore, dot or hyphen; the first character must be a letter, number or underscore.'
+}
+if ($Mode -eq 'Pull' -and $Rebuild) {
+    throw '-Rebuild applies only to -Mode Build.'
+}
+
+$previousImageTag = $env:BAJAJ_IMAGE_TAG
+$env:BAJAJ_IMAGE_TAG = $Tag
 
 function Invoke-Compose {
     param([string[]]$ComposeArgs)
@@ -15,6 +30,8 @@ function Invoke-Compose {
 
 Write-Host ''
 Write-Host 'QuantaEdge | Lucky Bajaj — local stack' -ForegroundColor Cyan
+Write-Host "Mode         : $Mode" -ForegroundColor White
+Write-Host "Image tag    : $Tag" -ForegroundColor White
 Write-Host 'Customer web : http://localhost:3000' -ForegroundColor White
 Write-Host 'Staff web    : http://localhost:3001' -ForegroundColor White
 Write-Host 'Backend API  : http://localhost:8080' -ForegroundColor White
@@ -53,9 +70,6 @@ CUSTOMER_WEB_PORT=3000
 STAFF_WEB_PORT=3001
 APP_BOOTSTRAP_TOKEN=$newToken
 "@ | Set-Content -Path $rootEnv -Encoding ascii
-    } elseif ($rootEnvContent -match '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=') {
-        $rootEnvContent = $rootEnvContent -replace '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=.*$', "APP_BOOTSTRAP_TOKEN=$newToken"
-        Set-Content -Path $rootEnv -Value $rootEnvContent -Encoding ascii
     } else {
         Add-Content -Path $rootEnv -Value "APP_BOOTSTRAP_TOKEN=$newToken" -Encoding ascii
     }
@@ -73,7 +87,7 @@ if ($generatedBootstrapToken) {
     Write-Host ''
 }
 
-# Match the mPAY physical-device convention but discover the current host LAN IP.
+# Match the physical-device convention while discovering the current host LAN IP.
 $lanIp = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
     Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
     ForEach-Object { $_.IPv4Address.IPAddress } |
@@ -96,11 +110,22 @@ if (-not (Test-Path $androidEnv) -or -not [string]::IsNullOrWhiteSpace($env:BAJA
     }
 }
 
-Write-Host "Android API  : $androidBaseUrl" -ForegroundColor DarkGray
-Write-Host 'Building and starting PostgreSQL, Spring Boot API, customer web and staff web…' -ForegroundColor Cyan
 Invoke-Compose -ComposeArgs @('config', '--quiet')
-if ($Rebuild) { Invoke-Compose -ComposeArgs @('build', '--no-cache') }
-Invoke-Compose -ComposeArgs @('up', '--build', '-d')
+if ($Mode -eq 'Pull') {
+    Write-Host "Pulling prebuilt GHCR API/web images (tag: $Tag)…" -ForegroundColor Cyan
+    try {
+        Invoke-Compose -ComposeArgs @('pull', 'api', 'customer-web', 'staff-web')
+    } catch {
+        Write-Host 'If the GHCR packages are private, authenticate first with: docker login ghcr.io' -ForegroundColor Yellow
+        Write-Host "Then rerun: .\scripts\start.ps1 -Mode Pull -Tag $Tag" -ForegroundColor Yellow
+        throw
+    }
+    Invoke-Compose -ComposeArgs @('up', '--no-build', '-d')
+} else {
+    Write-Host 'Building API and both web images locally, then starting the full stack…' -ForegroundColor Cyan
+    if ($Rebuild) { Invoke-Compose -ComposeArgs @('build', '--no-cache') }
+    Invoke-Compose -ComposeArgs @('up', '--build', '-d')
+}
 
 $checks = @(
     @{ Name = 'Backend API'; Uri = 'http://localhost:8080/actuator/health' },
@@ -136,3 +161,4 @@ Write-Host 'Backend API      : http://localhost:8080' -ForegroundColor Green
 Write-Host "Android device   : $androidBaseUrl" -ForegroundColor Green
 Write-Host ''
 Invoke-Compose -ComposeArgs @('ps')
+if ($null -eq $previousImageTag) { Remove-Item Env:BAJAJ_IMAGE_TAG -ErrorAction SilentlyContinue } else { $env:BAJAJ_IMAGE_TAG = $previousImageTag }
