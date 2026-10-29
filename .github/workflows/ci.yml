@@ -24,6 +24,9 @@ jobs:
     outputs:
       android: ${{ steps.filter.outputs.android }}
     steps:
+      # Required for push events: dorny/paths-filter compares the pushed tree to its base.
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Check Android-relevant paths
         uses: dorny/paths-filter@v3
         id: filter
