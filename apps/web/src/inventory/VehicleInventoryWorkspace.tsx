@@ -55,6 +55,12 @@ const emptyUnit: UnitForm = { modelPublicId: '', chassisNumber: '', engineNumber
 const todayInIndia = () => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date());
+const dateTimeLabel = (value: string | null | undefined) => {
+  if (!value) return 'Date unavailable';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 'Date unavailable'
+    : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed);
+};
 const emptyPriceDraft: LocationPriceDraft = {
   modelCode: '', city: '', state: '', effectiveFrom: todayInIndia(), effectiveTo: '',
   exShowroomPrice: '', registrationFee: '0', roadTaxPercent: '0', insuranceFee: '0',
@@ -677,7 +683,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
                   </div>
                   <div className="catalogue-gallery-image-meta">
                     <span>{image.contentType.replace('image/', '').toUpperCase()} · {(image.sizeBytes / 1_048_576).toFixed(2)} MiB</span>
-                    <small>{dateLabel(image.uploadedAt)}</small>
+                    <small>{dateTimeLabel(image.uploadedAt)}</small>
                     {canManageCatalogue && <button type="button" className="secondary-button" disabled={galleryBusyId !== '' || saving}
                       onClick={() => void deleteCatalogueImage(image)}>
                       {galleryBusyId === image.publicId ? 'Removing…' : 'Remove image'}
