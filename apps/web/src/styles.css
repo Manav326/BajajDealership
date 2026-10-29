@@ -2780,3 +2780,40 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
   .customer-history-record-icon { width:34px; height:34px; }
   .customer-history-money { grid-column:2; align-items:flex-start; text-align:left; }
 }
+
+
+/* Permission-gated customer editing in the CRM profile drawer. */
+.customer-profile-edit-toolbar {
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  padding:11px 0 15px; border-top:1px solid var(--glass-separator,rgba(148,163,184,.2));
+}
+.customer-profile-edit-toolbar>span { max-width:420px; color:var(--text-muted,#8491a4); font-size:9px; line-height:1.7; }
+.customer-profile-edit-toolbar .secondary-button { min-height:34px; padding:8px 11px; font-size:9px; }
+.customer-profile-edit-form {
+  margin:0 0 18px; padding:17px; border:1px solid var(--glass-border,rgba(148,163,184,.3));
+  border-radius:15px; background:var(--glass-surface,rgba(247,249,252,.8));
+  box-shadow:inset 0 1px rgba(255,255,255,.75),0 8px 22px rgba(24,39,64,.035);
+}
+.customer-profile-edit-form .customer-profile-address-heading { border-top:0; padding:0 0 14px; }
+.customer-profile-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.customer-profile-edit-grid label { display:grid; align-content:start; gap:6px; min-width:0; color:var(--text-secondary,#617188); font-size:9px; font-weight:800; }
+.customer-profile-edit-grid label.field-wide { grid-column:1/-1; }
+.customer-profile-edit-grid input,.customer-profile-edit-grid select,.customer-profile-edit-grid textarea {
+  width:100%; min-width:0; border:1px solid var(--glass-border,#d8e0eb); border-radius:9px;
+  padding:10px 11px; background:var(--surface,#fff); color:var(--text-primary,#273850);
+  font:inherit; font-size:10px; font-weight:500; outline:0;
+}
+.customer-profile-edit-grid input,.customer-profile-edit-grid select { min-height:39px; }
+.customer-profile-edit-grid textarea { min-height:68px; resize:vertical; line-height:1.6; }
+.customer-profile-edit-grid input:focus,.customer-profile-edit-grid select:focus,.customer-profile-edit-grid textarea:focus {
+  border-color:var(--accent,#e87527); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#e87527) 13%,transparent);
+}
+.customer-profile-edit-note { margin:12px 0 0; color:var(--text-muted,#8491a4); font-size:8px; line-height:1.75; }
+.customer-profile-edit-actions { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.customer-profile-edit-actions button { min-height:35px; padding:8px 12px; font-size:9px; }
+@media(max-width:680px) {
+  .customer-profile-edit-form { padding:13px; }
+  .customer-profile-edit-grid { grid-template-columns:minmax(0,1fr); }
+  .customer-profile-edit-grid label.field-wide { grid-column:auto; }
+  .customer-profile-edit-toolbar { align-items:flex-start; }
+}

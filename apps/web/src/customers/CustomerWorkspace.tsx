@@ -92,6 +92,23 @@ type CustomerForm = {
   consentSource: string;
   notes: string;
 };
+type CustomerEditForm = {
+  fullName: string;
+  phone: string;
+  alternatePhone: string;
+  email: string;
+  preferredLanguage: 'hi' | 'en' | 'hinglish';
+  notes: string;
+  consentAction: 'UNCHANGED' | 'GRANT' | 'WITHDRAW';
+  consentSource: string;
+};
+function customerEditForm(customer: Customer, notes = ''): CustomerEditForm {
+  return {
+    fullName: customer.fullName, phone: customer.phone ?? '', alternatePhone: customer.alternatePhone ?? '',
+    email: customer.email ?? '', preferredLanguage: customer.preferredLanguage, notes,
+    consentAction: 'UNCHANGED', consentSource: '',
+  };
+}
 
 const emptyForm: CustomerForm = {
   fullName: '', phone: '', alternatePhone: '', email: '', preferredLanguage: 'hi',
@@ -119,6 +136,10 @@ export default function CustomerWorkspace({
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState('');
   const [selectedProfileLoading, setSelectedProfileLoading] = useState(false);
   const [selectedProfileError, setSelectedProfileError] = useState('');
+  const [selectedProfileSuccess, setSelectedProfileSuccess] = useState('');
+  const [selectedCustomerEditForm, setSelectedCustomerEditForm] = useState<CustomerEditForm | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [savingSelectedCustomer, setSavingSelectedCustomer] = useState(false);
   const selectedProfileRequestId = useRef(0);
 
   const canCreate = staff.permissions.includes('customer.create');
@@ -215,6 +236,9 @@ export default function CustomerWorkspace({
     if (selectedPhotoUrl) URL.revokeObjectURL(selectedPhotoUrl);
     setSelectedPhotoUrl('');
     setSelectedCustomer(customer);
+    setSelectedCustomerEditForm(customerEditForm(customer));
+    setEditingCustomer(false);
+    setSelectedProfileSuccess('');
     setSelectedAddresses([]);
     setSelectedHistory(null);
     setSelectedProfileError('');
@@ -242,7 +266,12 @@ export default function CustomerWorkspace({
     try {
       const history = await apiFetch<CustomerHistory>(
         '/api/v1/admin/customers/' + customer.publicId + '/history', token);
-      if (requestId === selectedProfileRequestId.current) setSelectedHistory(history);
+      if (requestId === selectedProfileRequestId.current) {
+        setSelectedHistory(history);
+        setSelectedCustomerEditForm((current) => current
+          ? { ...current, notes: history.notes ?? '' }
+          : customerEditForm(history.customer, history.notes ?? ''));
+      }
     } catch (cause) {
       if (requestId === selectedProfileRequestId.current) {
         setSelectedProfileError(
@@ -267,11 +296,65 @@ export default function CustomerWorkspace({
     }
   }
 
+
+  function updateSelectedCustomerField<K extends keyof CustomerEditForm>(key: K, value: CustomerEditForm[K]) {
+    setSelectedCustomerEditForm((current) => current ? { ...current, [key]: value } : current);
+  }
+
+  async function saveSelectedCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCustomer || !selectedCustomerEditForm) return;
+    setSavingSelectedCustomer(true);
+    setSelectedProfileError('');
+    setSelectedProfileSuccess('');
+    try {
+      const form = selectedCustomerEditForm;
+      const updated = await apiFetch<Customer>('/api/v1/admin/customers/' + selectedCustomer.publicId, token, {
+        method: 'PUT',
+        body: JSON.stringify({
+          fullName: form.fullName.trim(),
+          phone: form.phone.trim() || null,
+          alternatePhone: form.alternatePhone.trim() || null,
+          email: form.email.trim() || null,
+          preferredLanguage: form.preferredLanguage,
+          notes: form.notes.trim() || null,
+          // NULL means leave existing consent untouched. A grant must have an explicit source.
+          marketingConsent: form.consentAction === 'UNCHANGED' ? null : form.consentAction === 'GRANT',
+          consentSource: form.consentAction === 'GRANT' ? form.consentSource.trim() : null,
+        }),
+      });
+      setSelectedCustomer(updated);
+      setPage((current) => ({
+        ...current,
+        items: current.items.map((item) => item.publicId === updated.publicId ? updated : item),
+      }));
+      setSelectedCustomerEditForm(customerEditForm(updated, form.notes));
+      setEditingCustomer(false);
+      setSelectedProfileSuccess('Customer details saved. Existing orders, receipts and delivery addresses remain preserved.');
+      try {
+        const history = await apiFetch<CustomerHistory>(
+          '/api/v1/admin/customers/' + updated.publicId + '/history', token);
+        setSelectedHistory(history);
+        setSelectedCustomerEditForm((current) => current ? { ...current, notes: history.notes ?? '' } : current);
+      } catch (historyError) {
+        setSelectedProfileError('Details saved, but the history panel could not refresh. Close and reopen this profile to retry.');
+      }
+    } catch (cause) {
+      setSelectedProfileError(cause instanceof Error ? cause.message : 'Customer details could not be saved.');
+    } finally {
+      setSavingSelectedCustomer(false);
+    }
+  }
+
   function closeCustomerProfile() {
     selectedProfileRequestId.current += 1;
     if (selectedPhotoUrl) URL.revokeObjectURL(selectedPhotoUrl);
     setSelectedPhotoUrl('');
     setSelectedCustomer(null);
+    setSelectedCustomerEditForm(null);
+    setEditingCustomer(false);
+    setSavingSelectedCustomer(false);
+    setSelectedProfileSuccess('');
     setSelectedAddresses([]);
     setSelectedHistory(null);
     setSelectedProfileError('');
@@ -392,14 +475,15 @@ export default function CustomerWorkspace({
       </div>
 
       {selectedCustomer && <div className="customer-profile-backdrop" role="presentation" onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closeCustomerProfile();
+        if (event.target === event.currentTarget && !savingSelectedCustomer) closeCustomerProfile();
       }}>
         <section className="customer-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-profile-title">
           <div className="customer-profile-dialog-head">
             <div><div className="eyebrow">CUSTOMER RECORD</div><h2 id="customer-profile-title">Customer profile</h2><p>Contact details and saved delivery destinations for dealership service.</p></div>
-            <button type="button" className="customer-profile-close" onClick={closeCustomerProfile} aria-label="Close customer profile">×</button>
+            <button type="button" className="customer-profile-close" onClick={closeCustomerProfile} aria-label="Close customer profile" disabled={savingSelectedCustomer}>×</button>
           </div>
           {selectedProfileError && <div className="notice notice-error" role="alert">{selectedProfileError}</div>}
+          {selectedProfileSuccess && <div className="notice notice-success" role="status">{selectedProfileSuccess}</div>}
           {selectedProfileLoading ? <div className="customer-profile-loading"><span className="loading-dot" /> Loading customer profile…</div> : <>
             <div className="customer-profile-summary">
               <div className="customer-profile-photo">{selectedPhotoUrl
@@ -410,6 +494,29 @@ export default function CustomerWorkspace({
                 <span className="language-chip">{selectedCustomer.preferredLanguage === 'hi' ? 'हिन्दी' : selectedCustomer.preferredLanguage === 'en' ? 'English' : 'Hinglish'}</span>
               </div>
             </div>
+
+            {canUpdate && <div className="customer-profile-edit-toolbar">
+              <span>Contact and consent changes are recorded in the dealership audit trail.</span>
+              {!editingCustomer && <button type="button" className="secondary-button" disabled={!selectedHistory || savingSelectedCustomer} title={!selectedHistory ? 'Load customer history before editing details.' : undefined} onClick={() => {
+                setSelectedCustomerEditForm(customerEditForm(selectedCustomer, selectedHistory?.notes ?? ''));
+                setEditingCustomer(true); setSelectedProfileError(''); setSelectedProfileSuccess('');
+              }}>Edit customer details</button>}
+            </div>}
+            {canUpdate && editingCustomer && selectedCustomerEditForm && <form className="customer-profile-edit-form" onSubmit={(event) => void saveSelectedCustomer(event)}>
+              <div className="customer-profile-address-heading"><div><h3>Edit customer details</h3><p>Update the customer record without changing saved order snapshots or historic transactions.</p></div></div>
+              <div className="customer-profile-edit-grid">
+                <label>Full name *<input required minLength={2} maxLength={160} value={selectedCustomerEditForm.fullName} onChange={(event) => updateSelectedCustomerField('fullName', event.target.value)} /></label>
+                <label>Mobile number<input type="tel" maxLength={32} value={selectedCustomerEditForm.phone} onChange={(event) => updateSelectedCustomerField('phone', event.target.value)} /></label>
+                <label>Alternate number<input type="tel" maxLength={32} value={selectedCustomerEditForm.alternatePhone} onChange={(event) => updateSelectedCustomerField('alternatePhone', event.target.value)} /></label>
+                <label>Email address<input type="email" maxLength={320} value={selectedCustomerEditForm.email} onChange={(event) => updateSelectedCustomerField('email', event.target.value)} /></label>
+                <label>Preferred language<select value={selectedCustomerEditForm.preferredLanguage} onChange={(event) => updateSelectedCustomerField('preferredLanguage', event.target.value as CustomerEditForm['preferredLanguage'])}><option value="hi">हिन्दी</option><option value="en">English</option><option value="hinglish">Hinglish</option></select></label>
+                <label className="field-wide">Internal customer note<textarea maxLength={3000} rows={3} value={selectedCustomerEditForm.notes} onChange={(event) => updateSelectedCustomerField('notes', event.target.value)} placeholder="Useful service or sales follow-up context" /></label>
+                <label>Marketing consent change<select value={selectedCustomerEditForm.consentAction} onChange={(event) => updateSelectedCustomerField('consentAction', event.target.value as CustomerEditForm['consentAction'])}><option value="UNCHANGED">Leave current consent unchanged</option><option value="GRANT">Record explicit consent granted</option><option value="WITHDRAW">Record consent withdrawn</option></select></label>
+                {selectedCustomerEditForm.consentAction === 'GRANT' && <label>Consent source *<input required maxLength={80} value={selectedCustomerEditForm.consentSource} onChange={(event) => updateSelectedCustomerField('consentSource', event.target.value)} placeholder="Signed form or recorded opt-in" /></label>}
+              </div>
+              <p className="customer-profile-edit-note">At least one contact method is required. Do not grant marketing consent unless the customer has explicitly agreed. Leaving consent unchanged preserves the existing record.</p>
+              <div className="customer-profile-edit-actions"><button type="button" className="secondary-button" disabled={savingSelectedCustomer} onClick={() => { setEditingCustomer(false); setSelectedCustomerEditForm(customerEditForm(selectedCustomer, selectedHistory?.notes ?? '')); }}>Cancel</button><button type="submit" className="primary-button" disabled={savingSelectedCustomer}>{savingSelectedCustomer ? 'Saving details…' : 'Save customer details'}</button></div>
+            </form>}
             <div className="customer-profile-address-heading"><div><h3>Saved addresses</h3><p>Customer-managed addresses for delivery and contact.</p></div><span>{selectedAddresses.length} saved</span></div>
             {selectedAddresses.length === 0 ? <div className="customer-profile-address-empty">No saved addresses have been added to the customer portal yet. Confirm the destination with the customer before arranging delivery.</div>
               : <div className="customer-profile-address-grid">{selectedAddresses.map((address) => <article className="customer-profile-address" key={address.publicId}>
@@ -479,7 +586,7 @@ export default function CustomerWorkspace({
                   {selectedHistory?.marketingConsentAt && <small> · {formatCustomerHistoryDate(selectedHistory.marketingConsentAt)} · Source: {selectedHistory.marketingConsentSource ?? 'Not recorded'}</small>}</div>
               </section>
             </div>
-            <div className="customer-profile-dialog-footer"><span>Address book changes do not overwrite the delivery address saved on previous orders. Historic purchases and payment amounts are read from saved transaction records.</span><button type="button" className="primary-button" onClick={closeCustomerProfile}>Done</button></div>
+            <div className="customer-profile-dialog-footer"><span>Address book changes do not overwrite the delivery address saved on previous orders. Historic purchases and payment amounts are read from saved transaction records.</span><button type="button" className="primary-button" onClick={closeCustomerProfile} disabled={savingSelectedCustomer}>Done</button></div>
           </>}
         </section>
       </div>}

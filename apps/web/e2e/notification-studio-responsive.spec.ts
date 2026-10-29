@@ -555,7 +555,7 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
 
 test('staff can open a customer profile and view the saved delivery address and private photo', async ({ page }) => {
   await mockApi(page);
-  const customer = {
+  let customer = {
     publicId: '00000000-0000-0000-0000-000000000321',
     customerCode: 'CUS-E2E-0321',
     fullName: 'Asha Customer',
@@ -567,6 +567,8 @@ test('staff can open a customer profile and view the saved delivery address and 
     createdAt: '2026-10-20T10:00:00Z',
     updatedAt: '2026-10-29T10:00:00Z',
   };
+  let savedCustomerUpdate: Record<string, unknown> | null = null;
+  let customerNotes = 'Calls preferred during office hours.';
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -577,6 +579,12 @@ test('staff can open a customer profile and view the saved delivery address and 
       return json({ items: [customer], page: 0, pageSize: 25, total: 1 });
     }
     if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'GET') return json(customer);
+    if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'PUT') {
+      savedCustomerUpdate = request.postDataJSON() as Record<string, unknown>;
+      customer = { ...customer, ...savedCustomerUpdate, updatedAt: '2026-10-29T11:15:00Z' };
+      customerNotes = typeof savedCustomerUpdate.notes === 'string' ? savedCustomerUpdate.notes : '';
+      return json(customer);
+    }
     if (path === '/api/v1/admin/customers/' + customer.publicId + '/saved-addresses' && method === 'GET') {
       return json([{
         publicId: 'address-e2e-0321', label: 'HOME', recipientName: 'Asha Customer',
@@ -588,7 +596,7 @@ test('staff can open a customer profile and view the saved delivery address and 
     }
     if (path === '/api/v1/admin/customers/' + customer.publicId + '/history' && method === 'GET') {
       return json({
-        customer, notes: 'Calls preferred during office hours.',
+        customer, notes: customerNotes,
         marketingConsentAt: null, marketingConsentSource: null,
         motorcyclePurchases: [], sparePartOrders: [], websiteRequests: [],
       });
@@ -615,6 +623,24 @@ test('staff can open a customer profile and view the saved delivery address and 
   await expect(dialog.getByText('12 Station Road', { exact: false })).toBeVisible();
   await expect(dialog.getByText('Near the post office', { exact: false })).toBeVisible();
   await expect(dialog.getByText('Default', { exact: true })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Edit customer details' }).click();
+  await dialog.getByLabel('Full name *').fill('Asha Updated');
+  await dialog.getByLabel('Mobile number').fill('9000000042');
+  await dialog.getByLabel('Internal customer note').fill('Prefers WhatsApp after 5 PM.');
+  await expect(dialog.getByLabel('Marketing consent change')).toHaveValue('UNCHANGED');
+  await dialog.getByRole('button', { name: 'Save customer details' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Customer details saved.');
+  await expect(dialog.getByRole('heading', { name: 'Asha Updated' })).toBeVisible();
+  expect(savedCustomerUpdate).toMatchObject({
+    fullName: 'Asha Updated',
+    phone: '9000000042',
+    notes: 'Prefers WhatsApp after 5 PM.',
+    marketingConsent: null,
+    consentSource: null,
+  });
+  await expect(page.getByRole('button', { name: 'View profile for Asha Updated' })).toBeVisible();
+
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
