@@ -37,6 +37,9 @@ services:
         value: preview
       - key: APP_BOOTSTRAP_TOKEN
         sync: false
+      # Reuse the public Google OAuth web client ID configured for QuantaEdge.
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
       - key: APP_NOTIFICATION_MEDIA_DIR
         value: /app/var/private-notification-media
       - key: APP_CORS_ALLOWED_ORIGIN_1
