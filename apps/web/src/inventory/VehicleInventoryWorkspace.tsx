@@ -28,6 +28,14 @@ type LocationPriceDraft = {
   exShowroomPrice: string; registrationFee: string; roadTaxPercent: string; insuranceFee: string;
   handlingFee: string; otherCharges: string; otherChargesLabel: string; sourceUrl: string; priceNote: string;
 };
+type ShowroomPromotion = {
+  publicId: string; modelCode: string | null; modelName: string | null; title: string; summary: string;
+  terms: string | null; startsOn: string; endsOn: string | null; sourceUrl: string; published: boolean; disclaimer: string;
+};
+type PromotionDraft = {
+  modelCode: string; title: string; summary: string; terms: string;
+  startsOn: string; endsOn: string; sourceUrl: string; isPublished: boolean;
+};
 type VehicleUnit = {
   publicId: string; modelPublicId: string; modelCode: string; modelName: string;
   variantName: string | null; colourName: string | null; chassisNumber: string;
@@ -48,6 +56,10 @@ const emptyPriceDraft: LocationPriceDraft = {
   exShowroomPrice: '', registrationFee: '0', roadTaxPercent: '0', insuranceFee: '0',
   handlingFee: '0', otherCharges: '0', otherChargesLabel: '', sourceUrl: '', priceNote: '',
 };
+const emptyPromotionDraft: PromotionDraft = {
+  modelCode: '', title: '', summary: '', terms: '', startsOn: todayInIndia(),
+  endsOn: '', sourceUrl: '', isPublished: false,
+};
 
 export default function VehicleInventoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canManage = staff.permissions.includes('vehicle.manage');
@@ -61,6 +73,9 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
   const [priceProfiles, setPriceProfiles] = useState<LocationPriceProfile[]>([]);
   const [priceDraft, setPriceDraft] = useState<LocationPriceDraft>(emptyPriceDraft);
   const [editingPriceProfileId, setEditingPriceProfileId] = useState<string | null>(null);
+  const [promotions, setPromotions] = useState<ShowroomPromotion[]>([]);
+  const [promotionDraft, setPromotionDraft] = useState<PromotionDraft>(emptyPromotionDraft);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModel);
   const [unitForm, setUnitForm] = useState<UnitForm>(emptyUnit);
   const [showModelForm, setShowModelForm] = useState(false);
@@ -80,7 +95,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     try {
       const modelParams = new URLSearchParams({ page: '0', pageSize: '100' });
       if (searchValue) modelParams.set('q', searchValue);
-      const [modelPage, unitPage, catalogueResult, pricingResult] = await Promise.all([
+      const [modelPage, unitPage, catalogueResult, pricingResult, promotionResult] = await Promise.all([
         apiFetch<Page<VehicleModel>>(`/api/v1/admin/vehicle-models?${modelParams.toString()}`, token),
         apiFetch<Page<VehicleUnit>>('/api/v1/admin/vehicle-units?page=0&pageSize=100', token),
         canReadCatalogue
@@ -88,6 +103,9 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
           : Promise.resolve(null),
         canReadCatalogue
           ? apiFetch<{ profiles: LocationPriceProfile[] }>('/api/v1/admin/catalogue/pricing-profiles', token)
+          : Promise.resolve(null),
+        canReadCatalogue
+          ? apiFetch<{ promotions: ShowroomPromotion[] }>('/api/v1/admin/catalogue/promotions', token)
           : Promise.resolve(null),
       ]);
       setModels(modelPage.items);
@@ -100,6 +118,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
         }])));
       }
       if (pricingResult) setPriceProfiles(pricingResult.profiles ?? []);
+      if (promotionResult) setPromotions(promotionResult.promotions ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load vehicle inventory.');
     } finally {
@@ -267,6 +286,48 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     setSuccess('');
   }
 
+  async function savePromotion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageCatalogue) return;
+    setSaving(true); setError(''); setSuccess('');
+    const payload = {
+      modelCode: promotionDraft.modelCode || null,
+      title: promotionDraft.title.trim(),
+      summary: promotionDraft.summary.trim(),
+      terms: promotionDraft.terms.trim() || null,
+      startsOn: promotionDraft.startsOn,
+      endsOn: promotionDraft.endsOn || null,
+      sourceUrl: promotionDraft.sourceUrl.trim(),
+      isPublished: promotionDraft.isPublished,
+    };
+    try {
+      const saved = await apiFetch<ShowroomPromotion>(
+        editingPromotionId
+          ? `/api/v1/admin/catalogue/promotions/${editingPromotionId}`
+          : '/api/v1/admin/catalogue/promotions',
+        token,
+        { method: editingPromotionId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+      );
+      setSuccess(`${saved.published ? 'Published' : 'Saved as draft'} promotion: ${saved.title}.`);
+      setPromotionDraft(emptyPromotionDraft);
+      setEditingPromotionId(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save the promotion.');
+    } finally { setSaving(false); }
+  }
+
+  function editPromotion(promotion: ShowroomPromotion) {
+    setEditingPromotionId(promotion.publicId);
+    setPromotionDraft({
+      modelCode: promotion.modelCode ?? '', title: promotion.title, summary: promotion.summary,
+      terms: promotion.terms ?? '', startsOn: promotion.startsOn, endsOn: promotion.endsOn ?? '',
+      sourceUrl: promotion.sourceUrl, isPublished: promotion.published,
+    });
+    setError('');
+    setSuccess('');
+  }
+
   function searchModels(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = modelSearch.trim();
@@ -356,6 +417,48 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
         </div>
         <div className="inventory-footnote"><span className="status-dot" /> Stock totals are from saved vehicle-unit records. Reservation and sale transitions are enabled only through the corresponding verified sales workflow.</div>
       </div>
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">PUBLIC SHOWROOM CONTENT</div><h2>Active promotions and dealer announcements</h2>
+            <p>Publish only current, sourced announcements. Text here does not automatically change prices or create a discount.</p></div>
+          <span className="inventory-count-pill">{promotions.filter((promotion) => promotion.published).length} published</span>
+        </div>
+        {canManageCatalogue && <form className="customer-form-card location-price-form" onSubmit={(event) => void savePromotion(event)}>
+          <div className="form-card-heading"><div><h2>{editingPromotionId ? 'Edit promotion' : 'Create showroom promotion'}</h2>
+            <p>Choose all Bajaj models or one specific model. The promotion is visible only during its dates and when published.</p></div><span className="form-step">PROMOTION</span></div>
+          <div className="customer-form-grid">
+            <label>Scope<select value={promotionDraft.modelCode} onChange={(e) => setPromotionDraft((v) => ({ ...v, modelCode: e.target.value }))}>
+              <option value="">All published Bajaj models</option>
+              {catalogueModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName} · {model.modelCode}</option>)}
+            </select></label>
+            <label>Title *<input required maxLength={120} value={promotionDraft.title} onChange={(e) => setPromotionDraft((v) => ({ ...v, title: e.target.value }))} placeholder="Short, factual announcement" /></label>
+            <label className="field-span-two">Summary *<input required maxLength={400} value={promotionDraft.summary} onChange={(e) => setPromotionDraft((v) => ({ ...v, summary: e.target.value }))} placeholder="State the eligible offer/benefit and any important limitation" /></label>
+            <label>Starts on *<input required type="date" value={promotionDraft.startsOn} onChange={(e) => setPromotionDraft((v) => ({ ...v, startsOn: e.target.value }))} /></label>
+            <label>Ends on<input type="date" min={promotionDraft.startsOn} value={promotionDraft.endsOn} onChange={(e) => setPromotionDraft((v) => ({ ...v, endsOn: e.target.value }))} /></label>
+            <label className="field-span-two">Terms and exclusions<textarea rows={3} maxLength={2000} value={promotionDraft.terms} onChange={(e) => setPromotionDraft((v) => ({ ...v, terms: e.target.value }))} placeholder="Eligibility, location, validity, exclusions and redemption steps" /></label>
+            <label className="field-span-two">Source URL (HTTPS) *<input type="url" required maxLength={1000} value={promotionDraft.sourceUrl} onChange={(e) => setPromotionDraft((v) => ({ ...v, sourceUrl: e.target.value }))} placeholder="Official Bajaj / insurer / dealership offer source" /></label>
+            <label className="promotion-publish-toggle"><input type="checkbox" checked={promotionDraft.isPublished} onChange={(e) => setPromotionDraft((v) => ({ ...v, isPublished: e.target.checked }))} /> Publish on public showroom</label>
+          </div>
+          <div className="form-actions">
+            {editingPromotionId && <button type="button" className="secondary-button" onClick={() => { setEditingPromotionId(null); setPromotionDraft(emptyPromotionDraft); }}>Cancel edit</button>}
+            <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving…' : editingPromotionId ? 'Save promotion' : 'Add promotion'}</button>
+          </div>
+        </form>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Promotion</th><th>Scope / validity</th><th>Source</th><th>Status</th>{canManageCatalogue && <th>Action</th>}</tr></thead>
+            <tbody>{promotions.map((promotion) => <tr key={promotion.publicId}>
+              <td><div className="customer-name-cell"><span className="vehicle-model-mark">%</span><div><strong>{promotion.title}</strong><span>{promotion.summary}</span><small className="vehicle-serial">{promotion.terms || 'No additional terms recorded'}</small></div></div></td>
+              <td>{promotion.modelName || 'All published models'}<small className="vehicle-serial">{promotion.startsOn} – {promotion.endsOn ?? 'No end date'}</small></td>
+              <td><a href={promotion.sourceUrl} target="_blank" rel="noreferrer">Open source ↗</a></td>
+              <td><span className={promotion.published ? 'status-chip status-available' : 'status-chip status-expected'}>{promotion.published ? 'PUBLISHED' : 'DRAFT'}</span><small className="vehicle-serial">{promotion.disclaimer}</small></td>
+              {canManageCatalogue && <td><button type="button" className="secondary-button showroom-save-row" disabled={saving} onClick={() => editPromotion(promotion)}>Edit</button></td>}
+            </tr>)}{promotions.length === 0 && <tr><td colSpan={canManageCatalogue ? 5 : 4} className="table-empty">No promotion data configured. No offer is being advertised.</td></tr>}</tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote">Promotions are not applied as automatic discounts or guaranteed prices. Public visibility requires publication, a valid effective date, and a source URL.</div>
+      </section>}
+
       {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
         <div className="showroom-admin-heading">
           <div><div className="eyebrow">SOURCED PRICE CONTROL</div><h2>Location on-road estimate profiles</h2>
