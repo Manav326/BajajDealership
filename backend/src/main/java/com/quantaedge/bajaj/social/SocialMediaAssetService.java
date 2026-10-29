@@ -7,9 +7,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -34,17 +31,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class SocialMediaAssetService {
  private static final long MAX_BYTES=4_500_000,URL_TTL=1800;
  private static final String SIGN_CONTEXT="bajaj-social-media-asset-v1";
- private final JdbcTemplate jdbc; private final ObjectMapper mapper; private final Path root;
+ private final JdbcTemplate jdbc; private final ObjectMapper mapper; private final SocialMediaObjectStorage storage;
  private final String publicBaseUrl,signingKeyBase64;
- public SocialMediaAssetService(JdbcTemplate jdbc,ObjectMapper mapper,
-  @Value("${app.social.media.media-root:./var/social-media-assets}") String root,
+ public SocialMediaAssetService(JdbcTemplate jdbc,ObjectMapper mapper,SocialMediaObjectStorage storage,
   @Value("${app.social.media.public-base-url:}") String publicBaseUrl,
   @Value("${app.social.media.asset-signing-key-base64:}") String signingKeyBase64){
-  this.jdbc=jdbc;this.mapper=mapper;this.root=Path.of(root).toAbsolutePath().normalize();
+  this.jdbc=jdbc;this.mapper=mapper;this.storage=storage;
   this.publicBaseUrl=trimSlash(publicBaseUrl==null?"":publicBaseUrl.trim());this.signingKeyBase64=signingKeyBase64==null?"":signingKeyBase64.trim();
  }
  public boolean isConfigured(){
-  if(!isSafeOrigin(publicBaseUrl))return false;
+  if(!isSafeOrigin(publicBaseUrl)||!storage.isConfigured())return false;
   try{return Base64.getDecoder().decode(signingKeyBase64).length==32;}catch(IllegalArgumentException e){return false;}
  }
  public UploadedAsset upload(StaffPrincipal actor,MultipartFile file){
@@ -62,14 +58,12 @@ public class SocialMediaAssetService {
     BufferedImage decoded=reader.read(0);if(decoded==null)throw badRequest("JPEG artwork could not be decoded.");
    }finally{reader.dispose();}
   }catch(IOException e){throw badRequest("JPEG artwork could not be decoded.");}
-  UUID id=UUID.randomUUID();String storageKey=id+".jpg";Path filePath=root.resolve(storageKey).normalize();if(!filePath.startsWith(root))throw badRequest("Invalid artwork storage location.");
-  try{Files.createDirectories(root);Files.write(filePath,bytes,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE);}
-  catch(IOException e){throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,"Artwork storage is unavailable.");}
+  UUID id=UUID.randomUUID();String storageKey=storage.newKey(id+".jpg");storage.write(storageKey,bytes,"image/jpeg");
   try{
    jdbc.update("insert into social_media_asset(public_id,dealership_id,created_by_staff_user_id,mime_type,byte_length,sha256,width,height,storage_key,status) values(?,?,?,'image/jpeg',?,?,?,?,?,'ACTIVE')",
     id,actor.dealershipId(),actor.staffUserId(),bytes.length,sha256(bytes),width,height,storageKey);
    audit(actor,"SOCIAL_ASSET_UPLOADED",Map.of("assetPublicId",id.toString(),"byteLength",bytes.length,"width",width,"height",height));
-  }catch(RuntimeException e){try{Files.deleteIfExists(filePath);}catch(IOException ignored){}throw e;}
+  }catch(RuntimeException e){storage.delete(storageKey);throw e;}
   return new UploadedAsset(id,"image/jpeg",bytes.length,width,height,Instant.now());
  }
  public PreparedAsset prepare(long dealershipId,UUID assetPublicId){
@@ -87,9 +81,10 @@ public class SocialMediaAssetService {
   if(!MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),signature.getBytes(StandardCharsets.UTF_8)))throw notFound();
   List<StoredAsset> rows=jdbc.query("select id,public_id,mime_type,storage_key,status,byte_length,sha256 from social_media_asset where public_id=? and status='ACTIVE'",
    (rs,n)->new StoredAsset(rs.getLong("id"),rs.getObject("public_id",UUID.class),rs.getString("mime_type"),rs.getString("storage_key"),rs.getString("status"),rs.getLong("byte_length"),rs.getString("sha256")),assetId);
-  if(rows.isEmpty())throw notFound();StoredAsset asset=rows.getFirst();Path path=root.resolve(asset.storageKey()).normalize();if(!path.startsWith(root))throw notFound();
-  try{byte[] bytes=Files.readAllBytes(path);if(bytes.length!=asset.byteLength()||!sha256(bytes).equals(asset.sha256())||!"image/jpeg".equals(imageType(bytes)))throw notFound();return new PublicAsset(bytes,"image/jpeg");}
-  catch(IOException e){throw notFound();}
+  if(rows.isEmpty())throw notFound();StoredAsset asset=rows.getFirst();
+  byte[] bytes=storage.read(asset.storageKey());
+  if(bytes.length!=asset.byteLength()||!sha256(bytes).equals(asset.sha256())||!"image/jpeg".equals(imageType(bytes)))throw notFound();
+  return new PublicAsset(bytes,"image/jpeg");
  }
  private void requireConfigured(){if(!isConfigured())throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Publishing needs a public HTTPS media URL and 32-byte asset-signing key.");}
  private String sign(UUID id,long exp){

@@ -50,9 +50,17 @@ app:
     media-root: ${APP_NOTIFICATION_MEDIA_DIR:./var/private-notification-media}
   social:
     media:
+      storage-backend: ${SOCIAL_MEDIA_STORAGE_BACKEND:filesystem}
       public-base-url: ${SOCIAL_MEDIA_PUBLIC_BASE_URL:}
       media-root: ${SOCIAL_MEDIA_MEDIA_DIR:./var/social-media-assets}
       asset-signing-key-base64: ${SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64:}
+      s3:
+        bucket: ${SOCIAL_MEDIA_S3_BUCKET:}
+        region: ${SOCIAL_MEDIA_S3_REGION:}
+        endpoint: ${SOCIAL_MEDIA_S3_ENDPOINT:}
+        access-key: ${SOCIAL_MEDIA_S3_ACCESS_KEY:}
+        secret-key: ${SOCIAL_MEDIA_S3_SECRET_KEY:}
+        path-style-access: ${SOCIAL_MEDIA_S3_PATH_STYLE_ACCESS:true}
     meta:
       publish-poll-interval-ms: ${SOCIAL_MEDIA_PUBLISH_POLL_INTERVAL_MS:15000}
       enabled: ${SOCIAL_META_ENABLED:false}
