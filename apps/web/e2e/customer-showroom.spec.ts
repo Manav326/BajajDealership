@@ -690,3 +690,47 @@ test('successful sales-request POST with failed confirmation GET remains safely 
   expect(await page.evaluate(() => window.sessionStorage.getItem('qe_bajaj_pending_intent'))).toBeNull();
   await expect(page.getByRole('region', { name: 'Saved showroom request not submitted' })).toHaveCount(0);
 });
+
+
+test('Asia/Kolkata test-ride preference round-trips the same instant and local display', async ({ browser }) => {
+  const context = await browser.newContext({
+    timezoneId: 'Asia/Kolkata',
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const journey = await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+
+  const preferredLocalTime = await page.evaluate(() => {
+    const date = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    date.setSeconds(0, 0);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+      + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  });
+  await page.locator('.showroom-preferred-time input').fill(preferredLocalTime);
+  const expectedInstant = await page.locator('.showroom-preferred-time input').evaluate((element) =>
+    new Date((element as HTMLInputElement).value).toISOString());
+  const expectedLocalLabel = await page.evaluate((instant) =>
+    new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(instant)),
+    expectedInstant);
+
+  await page.getByRole('button', { name: /Request test ride/ }).click();
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  await expect(page.getByRole('heading', { name: 'My Bajaj requests' })).toBeVisible();
+  expect(journey.requestPayloads).toHaveLength(1);
+  expect(journey.requestPayloads[0]).toMatchObject({
+    requestType: 'TEST_RIDE',
+    modelCode: 'BAJAJ_PULSAR_NS200',
+    preferredAt: expectedInstant,
+  });
+  await expect(page.getByText('Preferred time: ' + expectedLocalLabel, { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  await context.close();
+});
