@@ -366,8 +366,8 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
     setError('');
     setNotice('');
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Choose an image file.');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Choose a PNG, JPEG or WebP image.');
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
