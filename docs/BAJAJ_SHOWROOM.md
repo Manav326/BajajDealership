@@ -27,3 +27,8 @@ Set `app.dealership.public-code` to the exact active dealership code on deployme
 - Customer portal now displays actual enquiry, test-ride, booking, operational invoice, recorded payments/balance and vehicle handover values from dealership records. Customer requests still are not themselves a confirmed booking, verified quote, provider payment, or delivery.
 - Staff can configure source-backed effective-dated location estimates; a public estimate is unavailable until a matching profile is saved. Do not seed or infer legal/insurance fees.
 - Notification Send now/scheduler safety and retail parts reservation/cancellation/fulfilment paths have implementation and integration tests; current-head CI and the full synthetic end-to-end acceptance gate still need to pass. Full customer purchase execution and journey QA remain tracked in issues #17, #20, #21 and #22 and must not be claimed complete until evidence is recorded.
+
+
+### Public dealership selection
+
+The public on-road estimate endpoint has no customer-supplied dealership selector. Set `APP_PUBLIC_DEALERSHIP_CODE` to the configured `dealership.code` when an API runtime hosts multiple active dealerships. If it is blank, the service only serves estimates when exactly one active dealership exists; it refuses to guess when multiple active dealerships are present. This selector does not grant customer or staff access and never accepts a code from the browser as authorization.
