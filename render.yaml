@@ -56,9 +56,9 @@ services:
         sync: false
       - key: SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64
         sync: false
-      - key: SOCIAL_META_PUBLISH_POLL_INTERVAL_MS
+      - key: SOCIAL_MEDIA_PUBLISH_POLL_INTERVAL_MS
         value: "15000"
-      - key: SOCIAL_META_PUBLISH_DISPATCH_INTERVAL_MS
+      - key: SOCIAL_MEDIA_PUBLISH_DISPATCH_INTERVAL_MS
         value: "10000"
       - key: SOCIAL_META_ENABLED
         value: "false"
