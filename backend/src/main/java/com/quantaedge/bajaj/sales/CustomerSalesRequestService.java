@@ -38,7 +38,7 @@ public class CustomerSalesRequestService {
     BigDecimal invoiceTotal = rs.getBigDecimal("invoice_total");
     BigDecimal paidAmount = rs.getBigDecimal("paid_amount");
     if (paidAmount == null) paidAmount = BigDecimal.ZERO.setScale(2);
-    BigDecimal creditedAmount = rs.getBigDecimal("credited_amount");
+    BigDecimal creditedAmount = invoiceTotal == null ? null : rs.getBigDecimal("credited_amount");
     if (invoiceTotal != null && creditedAmount == null) creditedAmount = BigDecimal.ZERO.setScale(2);
     BigDecimal balanceDue = invoiceTotal == null ? null
         : invoiceTotal.subtract(paidAmount).subtract(creditedAmount == null ? BigDecimal.ZERO : creditedAmount)
