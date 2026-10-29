@@ -47,6 +47,7 @@ type CustomerSalesRequest = {
 };
 
 type PendingShowroomIntent = {
+  source?: 'PUBLIC_SHOWROOM' | 'CUSTOMER_PORTAL';
   action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
   preferredAt?: string | null;
 };
@@ -427,7 +428,9 @@ export default function App() {
           requestType: intent.action,
           modelCode: intent.modelCode,
           preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt ?? null : null,
-          notes: 'Request started from the Lucky Bajaj bike catalogue.',
+          notes: intent.source === 'CUSTOMER_PORTAL'
+            ? 'Request started from the customer portal bike catalogue.'
+            : 'Request started from the public Bajaj showroom.',
           idempotencyKey: intent.idempotencyKey,
         }),
       });
@@ -455,6 +458,7 @@ export default function App() {
   async function submitPortalBikeIntent(bike: ShowroomBike, action: ShowroomAction, preferredAt: string | null) {
     if (!token || saving) return;
     const intent: PendingShowroomIntent = {
+      source: 'CUSTOMER_PORTAL',
       action,
       modelCode: bike.modelCode,
       modelName: bike.modelName,
