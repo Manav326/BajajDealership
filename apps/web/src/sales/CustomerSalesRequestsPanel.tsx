@@ -55,17 +55,30 @@ export default function CustomerSalesRequestsPanel({
     setBusyId(request.publicId);
     setError('');
     setSuccess('');
+    let updated: CustomerWebsiteRequest;
     try {
-      const updated = await apiFetch<CustomerWebsiteRequest>(
+      updated = await apiFetch<CustomerWebsiteRequest>(
         '/api/v1/admin/sales/customer-requests/' + request.publicId + '/convert',
         token, { method: 'POST' });
-      setRequests((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
-      setSuccess(`${request.requestCode} was added to the sales pipeline. Confirm a physical bike and test-ride time separately.`);
-      if (updated.convertedEnquiryPublicId) await onOpenEnquiry(updated.convertedEnquiryPublicId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The request could not be converted to a sales enquiry.');
-    } finally {
       setBusyId('');
+      return;
+    }
+
+    // Conversion is already saved at this point. A separate detail-load/navigation error
+    // must not tell staff to repeat the conversion or make the saved state look uncertain.
+    setRequests((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+    setSuccess(`${request.requestCode} was added to the sales pipeline. Confirm a physical bike and test-ride time separately.`);
+    setBusyId('');
+
+    if (updated.convertedEnquiryPublicId) {
+      try {
+        await onOpenEnquiry(updated.convertedEnquiryPublicId);
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : 'The enquiry detail could not be loaded.';
+        setError('The request was converted successfully, but its enquiry did not open. Use “Open enquiry” to retry. ' + detail);
+      }
     }
   }
 
