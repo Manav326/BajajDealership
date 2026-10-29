@@ -188,6 +188,21 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     }
   }
 
+  async function cancelScheduled(item: Message) {
+    if (!canManage || item.status !== 'SCHEDULED') return;
+    if (!window.confirm('Cancel this scheduled WhatsApp message? It will not be sent.')) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await apiFetch('/api/v1/admin/social/whatsapp/scheduled/' + item.publicId + '/cancel', {
+        method: 'POST'
+      }).then(readResponse<Message>);
+      setScheduledMessages((old) => old.map((value) => value.publicId === item.publicId ? result : value));
+      setNotice('Scheduled WhatsApp message cancelled.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Scheduled message could not be cancelled.');
+    } finally { setBusy(false); }
+  }
+
   async function refreshMessageFor(item: Message) {
     setError('');
     try {
@@ -278,7 +293,10 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
       {scheduledMessages.map((item) => <div key={item.publicId} className={styles.messageResult}>
         <div><strong>{item.templateName}</strong><span>{item.status}</span></div>
         <p>{item.scheduledAt ? new Date(item.scheduledAt).toLocaleString() : 'Scheduled time unavailable'}{item.errorCode ? ' · ' + item.errorCode : ''}</p>
-        <button type="button" className={styles.textButton} disabled={busy} onClick={() => { setMessage(item); void refreshMessageFor(item); }}>Refresh status</button>
+        <div className={styles.actions}>
+          <button type="button" className={styles.textButton} disabled={busy} onClick={() => { setMessage(item); void refreshMessageFor(item); }}>Refresh status</button>
+          {canManage && item.status === 'SCHEDULED' && <button type="button" className={styles.danger} disabled={busy} onClick={() => void cancelScheduled(item)}>Cancel scheduled send</button>}
+        </div>
       </div>)}
     </section>}
     <p className={styles.note}>A provider acceptance is not proof of delivery. Signed webhooks update sent, delivered, read and failed states; inbound STOP and equivalent keywords withdraw recorded consent.</p>

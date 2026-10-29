@@ -129,6 +129,25 @@ public class SocialWhatsappScheduleService {
     return ids.stream().map(id -> view(actor.dealershipId(), id)).toList();
   }
 
+  public ScheduledMessageView cancel(StaffPrincipal actor, UUID publicId) {
+    List<ScheduledRow> rows = jdbc.query("""
+        select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,
+          error_code,created_at,updated_at,scheduled_at,message_send_id
+        from whatsapp_scheduled_send where dealership_id=? and public_id=?
+        """, (rs, n) -> mapRow(rs), actor.dealershipId(), publicId);
+    if (rows.isEmpty()) throw notFound();
+    ScheduledRow row = rows.getFirst();
+    int updated = jdbc.update("""
+        update whatsapp_scheduled_send set status='CANCELLED',dispatch_lock_until=null,
+          error_code=null,updated_at=now()
+        where dealership_id=? and public_id=? and status='SCHEDULED'
+        """, actor.dealershipId(), publicId);
+    if (updated != 1) throw conflict("Only a still-scheduled WhatsApp message can be cancelled.");
+    audit(actor.dealershipId(), actor.staffUserId(), "SCHEDULED_MESSAGE_CANCELLED",
+        Map.of("scheduledPublicId", publicId.toString(), "template", row.templateName()));
+    return view(actor.dealershipId(), publicId);
+  }
+
   public ScheduledMessageView status(StaffPrincipal actor, UUID publicId) {
     List<ScheduledRow> rows = jdbc.query("""
         select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,

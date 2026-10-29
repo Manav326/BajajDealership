@@ -43,6 +43,9 @@ public class SocialWhatsappController {
  @GetMapping("/api/v1/admin/social/whatsapp/scheduled")
  @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.manage','social_media.whatsapp.send')")
  public java.util.List<SocialWhatsappScheduleService.ScheduledMessageView> scheduled(@AuthenticationPrincipal StaffPrincipal principal,@RequestParam(defaultValue="50") int limit){return schedules.list(principal,limit);}
+ @PostMapping("/api/v1/admin/social/whatsapp/scheduled/{publicId}/cancel")
+ @PreAuthorize("hasAuthority('social_media.whatsapp.manage')")
+ public SocialWhatsappScheduleService.ScheduledMessageView cancelScheduled(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return schedules.cancel(principal,publicId);}
  @GetMapping("/api/v1/admin/social/whatsapp/messages/{publicId}")
  @PreAuthorize("hasAnyAuthority('social_media.whatsapp.read','social_media.whatsapp.send')")
  public SocialWhatsappScheduleService.ScheduledMessageView message(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return schedules.status(principal,publicId);}
