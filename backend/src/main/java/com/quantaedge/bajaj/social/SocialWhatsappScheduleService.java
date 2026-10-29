@@ -146,8 +146,10 @@ public class SocialWhatsappScheduleService {
   public void dispatchDueMessages() {
     // Recover jobs created by a worker that stopped after the provider-send row was persisted.
     jdbc.update("""
-        update whatsapp_scheduled_send s set message_send_id=m.id,status='DISPATCHED',
-          dispatch_lock_until=null,error_code=null,dispatched_at=coalesce(s.dispatched_at,now()),updated_at=now()
+        update whatsapp_scheduled_send s set message_send_id=m.id,
+          status=case when m.status in('FAILED','UNKNOWN') then m.status else 'DISPATCHED' end,
+          dispatch_lock_until=null,error_code=m.error_code,
+          dispatched_at=coalesce(s.dispatched_at,now()),updated_at=now()
         from whatsapp_message_send m
         where s.status in('DISPATCHING','UNKNOWN') and s.dealership_id=m.dealership_id
           and m.idempotency_key=('schedule-' || s.public_id::text)
@@ -187,14 +189,21 @@ public class SocialWhatsappScheduleService {
           select id from whatsapp_message_send where dealership_id=? and public_id=?
           """, Long.class, row.dealershipId(), sent.publicId());
       if (messageId == null) throw new IllegalStateException("Provider send record was not found.");
+      String queueStatus = switch (sent.status()) {
+        case "FAILED" -> "FAILED";
+        case "UNKNOWN" -> "UNKNOWN";
+        default -> "DISPATCHED";
+      };
       jdbc.update("""
-          update whatsapp_scheduled_send set message_send_id=?,status='DISPATCHED',error_code=null,
+          update whatsapp_scheduled_send set message_send_id=?,status=?,error_code=?,
             dispatch_lock_until=null,dispatched_at=now(),updated_at=now()
           where dealership_id=? and public_id=? and status='DISPATCHING'
-          """, messageId, row.dealershipId(), publicId);
-      audit(row.dealershipId(), row.createdBy(), "SCHEDULED_MESSAGE_DISPATCHED",
+          """, messageId, queueStatus, sent.errorCode(), row.dealershipId(), publicId);
+      String eventAction = "FAILED".equals(queueStatus) ? "SCHEDULED_MESSAGE_FAILED"
+          : "UNKNOWN".equals(queueStatus) ? "SCHEDULED_MESSAGE_UNKNOWN" : "SCHEDULED_MESSAGE_DISPATCHED";
+      audit(row.dealershipId(), row.createdBy(), eventAction,
           Map.of("scheduledPublicId", publicId.toString(), "messagePublicId", sent.publicId().toString(),
-              "providerStatus", sent.status()));
+              "providerStatus", sent.status(), "errorCode", sent.errorCode() == null ? "" : sent.errorCode()));
     } catch (RuntimeException failure) {
       String code = failure instanceof ResponseStatusException ? "dispatch_validation_failed" : safeCode(failure.getClass().getSimpleName());
       jdbc.update("""
