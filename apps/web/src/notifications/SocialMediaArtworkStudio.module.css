@@ -12,6 +12,12 @@
 .controls input:focus,.controls textarea:focus,.controls select:focus,.captionPreview textarea:focus { outline: 3px solid rgba(249, 115, 22, .18); border-color: #ef9147; }
 .controls input[type=file] { font-size: 10px; }
 .controls input[type=color] { height: 38px; padding: 3px; cursor: pointer; }
+.draftPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid #dce4ef; border-radius: 12px; background: rgba(255,255,255,.72); }
+.draftPanelTitle { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #263750; font-size: 11px; font-weight: 850; }
+.draftPanelTitle span { color: #738198; font-size: 9px; font-weight: 650; }
+.draftActions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.draftActions button { font-size: 10px; padding: 8px 10px; }
+.draftActions button:disabled { opacity: .5; cursor: not-allowed; }
 .formatNote,.privacy,.note { margin: 0; color: #68778d; font-size: 10px; line-height: 1.6; }
 .formatNote strong { color: #263750; display: block; margin-top: 4px; }
 .colors { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
