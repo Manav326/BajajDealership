@@ -21,6 +21,23 @@ type ApiHealth = {
   timestamp: string;
 };
 
+type LicenseStatus = {
+  dealershipCode: string;
+  dealershipName: string;
+  planCode: string | null;
+  licenseStatus: string;
+  state: string;
+  startsAt: string | null;
+  expiresAt: string | null;
+  gracePeriodEndsAt: string | null;
+  gracePeriodDays: number;
+  maxStaffSeats: number;
+  occupiedStaffSeats: number;
+  daysUntilExpiry: number;
+  message: string;
+};
+
+
 const navigation = [
   { label: 'Overview', group: 'Workspace', icon: '◫' },
   { label: 'Customers', group: 'Customers & sales', icon: '◎', permission: 'customer.read' },
@@ -82,6 +99,7 @@ function App() {
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [healthError, setHealthError] = useState(false);
   const [logoutError, setLogoutError] = useState('');
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [showInbox, setShowInbox] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const updateUnreadCount = useCallback((count: number) => setUnreadCount(count), []);
@@ -144,6 +162,26 @@ function App() {
       });
     return () => { cancelled = true; };
   }, [token]);
+
+  // The API enforces access; this refresh keeps the visible status banner in sync.
+  useEffect(() => {
+    if (!token || !staff) {
+      setLicenseStatus(null);
+      return;
+    }
+    let cancelled = false;
+    const refreshLicense = () => {
+      void apiFetch<LicenseStatus>('/api/v1/system/license/status', token)
+        .then((status) => { if (!cancelled) setLicenseStatus(status); })
+        .catch(() => { if (!cancelled) setLicenseStatus(null); });
+    };
+    refreshLicense();
+    const interval = window.setInterval(refreshLicense, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [token, staff?.dealershipPublicId]);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -263,6 +301,22 @@ function App() {
   }
   if (!token || !staff) return <StaffLogin onLogin={onLogin} />;
 
+  if (licenseStatus && ['SUSPENDED', 'REVOKED', 'NOT_YET_ACTIVE', 'UNLICENSED'].includes(licenseStatus.state)) {
+    return (
+      <main className="license-blocked-screen">
+        <section className="license-blocked-card">
+          <div className="license-blocked-icon">!</div>
+          <p className="license-eyebrow">LUCKY BAJAJ AGENCY</p>
+          <h1>Software access is restricted</h1>
+          <p>{licenseStatus.message}</p>
+          <p className="license-blocked-meta">Dealership: {licenseStatus.dealershipCode || 'Not assigned'} · Status: {licenseStatus.state.replaceAll('_', ' ')}</p>
+          <p className="license-blocked-help">Contact your software administrator or licensing support to resolve this issue. Your stored dealership records have not been deleted.</p>
+          <button type="button" className="license-blocked-signout" onClick={() => void logout()}>Sign out</button>
+        </section>
+      </main>
+    );
+  }
+
   const visibleNavigation = navigation.filter((item) => !item.permission || staff.permissions.includes(item.permission));
   const pageDescription = descriptions[activePage];
   const initials = staff.fullName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('');
@@ -270,6 +324,26 @@ function App() {
   return (
     <div className="app-shell">
       <GlobalNotificationHost />
+      {licenseStatus?.state === 'READ_ONLY' && (
+        <div className="license-status-banner license-status-banner--readonly" role="status">
+          <strong>Read-only mode: license expired.</strong>
+          <span> Existing records and permitted exports remain available. Creating or changing records is disabled. Contact licensing support to renew.</span>
+          {licenseStatus.expiresAt && <small> Expired {new Date(licenseStatus.expiresAt).toLocaleDateString()}.</small>}
+        </div>
+      )}
+      {licenseStatus?.state === 'GRACE' && (
+        <div className="license-status-banner license-status-banner--grace" role="status">
+          <strong>License renewal required.</strong>
+          <span> Your dealership is in its grace period. Renew before it ends to avoid read-only access.</span>
+          {licenseStatus.gracePeriodEndsAt && <small> Grace period ends {new Date(licenseStatus.gracePeriodEndsAt).toLocaleDateString()}.</small>}
+        </div>
+      )}
+      {licenseStatus?.state === 'ACTIVE' && licenseStatus.daysUntilExpiry >= 0 && licenseStatus.daysUntilExpiry <= 14 && (
+        <div className="license-status-banner license-status-banner--grace" role="status">
+          <strong>License expires soon.</strong>
+          <span> {licenseStatus.daysUntilExpiry} day(s) remaining. Contact licensing support to renew.</span>
+        </div>
+      )}
       {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation menu" tabIndex={-1} onClick={() => setMobileNavOpen(false)} />}
       <aside id="primary-navigation" ref={mobileNavRef}
         role={mobileNavOpen ? 'dialog' : undefined}

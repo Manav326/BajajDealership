@@ -398,3 +398,18 @@ The customer quote covers one outlet and up to 20 staff logins. It proposes a ma
 The customer portal uses the same Google Identity Services web client ID and server-side audience verification as QuantaEdge. Configure `GOOGLE_WEB_CLIENT_ID` on the Lucky Bajaj API service with the exact existing value from the QuantaEdge deployment (`APP_AUTH_GOOGLE_CLIENT_ID` inside the API container). The value is a public OAuth client identifier, not a client secret; keep it centrally managed and do not put a client secret in either web app. The Render Blueprint declares the variable as a manual deployment setting so it can be supplied without committing it to source.
 
 In Google Cloud Console, add `https://lucky-bajaj-customer-web.onrender.com` to the OAuth client’s **Authorized JavaScript origins** alongside the existing QuantaEdge origins. Once configured, check `https://lucky-bajaj-api.onrender.com/api/v1/customer/auth/google/config`; it should return `configured: true` and the same public `clientId` as QuantaEdge. This feature does not change customer-code/password login or staff authentication.
+
+
+## Dealership licensing and expiry policy
+
+Licensing is enforced by the Spring Boot API, not the website or desktop executable alone. The staff portal queries `/api/v1/system/license/status` to display current state, while the bearer-token filter independently checks license state before each authenticated staff request.
+
+- New and existing dealerships receive an automatic 30-day `TRIAL` record from Flyway V46, with a seven-day renewal grace period and 20 staff seats. Configure real commercial terms before the trial expires.
+- `ACTIVE` grants normal access. `GRACE` preserves access and returns a renewal warning. After expiry plus grace, `READ_ONLY` allows safe GET/read operations and existing role-authorized exports while rejecting create/update/delete requests.
+- `SUSPENDED`, `REVOKED`, `NOT_YET_ACTIVE` and missing-license states block operational reads and writes. Staff may still check license status, verify the current session and sign out.
+- Staff invitations reserve a seat while their account is `INVITED`; `ACTIVE` and `INVITED` accounts count against the seat limit. Deactivated staff do not consume an active seat.
+- The restricted vendor console is hosted at `/license-admin.html`. Configure `APP_LICENSE_ADMIN_TOKEN` as a high-entropy API deployment secret; generate one with `openssl rand -base64 48`. The console sends it in `X-License-Admin-Token` and holds it in page memory only. If the secret is unset, API license-management endpoints remain unavailable.
+- Every license update records an audit event with the requested plan, state, dates, grace period, staff-seat limit and change reason. The token itself is never written to the database or audit trail.
+- Before deploying this migration to a live customer, configure the API secret and commercial license terms. The migration trial is a safety transition, not proof of a paid subscription.
+
+Per-installation device activation and limits will be connected when the Windows desktop client is packaged. The current license implementation enforces server-side dealership state and staff-seat limits; it does not claim a device cap before the desktop client registers an installation identity.

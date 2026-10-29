@@ -647,3 +647,72 @@
   }
 }
 
+
+
+/* Subscription state is visible in the UI, but the backend is the enforcement authority. */
+.license-status-banner {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  margin: 0 22px 12px;
+  padding: 12px 15px;
+  border: 1px solid var(--line, #e7ebf2);
+  border-radius: 12px;
+  color: #283b5a;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 6px 18px rgba(20, 37, 65, .045);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.license-status-banner strong { font-weight: 800; }
+.license-status-banner small { color: inherit; opacity: .8; }
+.license-status-banner--readonly {
+  border-color: #e9c77f;
+  color: #704b08;
+  background: #fff8e7;
+}
+.license-status-banner--grace {
+  border-color: #efd6a6;
+  color: #76520b;
+  background: #fffaf0;
+}
+.license-blocked-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f2f5fa;
+}
+.license-blocked-card {
+  width: min(100%, 520px);
+  padding: clamp(24px, 5vw, 42px);
+  border: 1px solid #e1e7f0;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(16, 28, 53, .12);
+}
+.license-blocked-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: #fff0cf;
+  color: #865b0b;
+  font-size: 22px;
+  font-weight: 900;
+}
+.license-blocked-card .license-eyebrow { color: #66758e; font-size: 10px; letter-spacing: .12em; font-weight: 800; }
+.license-blocked-card h1 { margin: 6px 0 12px; color: #101c35; font-size: clamp(24px, 4vw, 32px); line-height: 1.18; letter-spacing: -.035em; }
+.license-blocked-card p { color: #5e6d85; font-size: 13px; line-height: 1.75; }
+.license-blocked-card .license-blocked-meta { margin-top: 18px; padding: 10px 12px; border-radius: 10px; background: #f3f6fb; color: #384b6b; font-size: 11px; font-weight: 700; }
+.license-blocked-card .license-blocked-help { margin-bottom: 22px; font-size: 12px; }
+.license-blocked-signout { min-height: 42px; border: 0; border-radius: 10px; padding: 0 18px; background: #101c35; color: #fff; cursor: pointer; font-size: 12px; font-weight: 750; }
+.license-blocked-signout:hover { background: #243a63; }
+@media (max-width: 640px) {
+  .license-status-banner { margin: 0 12px 10px; padding: 10px 12px; font-size: 11px; }
+}
