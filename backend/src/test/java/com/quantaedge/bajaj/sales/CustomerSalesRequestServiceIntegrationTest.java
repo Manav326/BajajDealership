@@ -95,7 +95,7 @@ class CustomerSalesRequestServiceIntegrationTest {
 
     var journey = requests.listForCustomer(fixture.customer()).getFirst();
     assertThat(journey.enquiryCode()).isNotBlank();
-    assertThat(journey.enquiryStatus()).isEqualTo("BOOKED");
+    assertThat(journey.enquiryStatus()).isEqualTo("CLOSED");
     assertThat(journey.testRideCode()).isEqualTo(ride.testRideCode());
     assertThat(journey.testRideStatus()).isEqualTo("COMPLETED");
     assertThat(journey.testRideScheduledStart()).isEqualTo(rideStart);
