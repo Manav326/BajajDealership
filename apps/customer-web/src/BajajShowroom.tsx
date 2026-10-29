@@ -241,7 +241,7 @@ export default function BajajShowroom({ onSignIn }: {
                 {bike.availabilityStatus !== 'IN_STOCK' && <p className="showroom-availability-note">{bike.availabilityStatus === 'EXPECTED' ? (bike.expectedAvailableOn ? `Expected availability: ${dateLabel(bike.expectedAvailableOn)}` : 'Expected availability date not confirmed') : 'Currently out of stock — ask Lucky Bajaj about the next delivery.'}</p>}
                 <p className="showroom-onroad-note">On-road in {priceLocation || 'your city'} <strong>Request a quote ↗</strong></p>
                 <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => openDetails(bike)}>Explore specs</button>
-                  <button type="button" className="showroom-card-primary" onClick={() => chooseAction(bike, 'TEST_RIDE')}>Test ride <span>↗</span></button></div>
+                  <button type="button" className="showroom-card-primary" onClick={() => openDetails(bike)}>Test ride <span>↗</span></button></div>
               </div>
             </article>
           ))}
@@ -294,7 +294,7 @@ export default function BajajShowroom({ onSignIn }: {
               This is a preference, not a confirmed appointment. Lucky Bajaj will contact you to confirm the bike and available slot.
             </p>
             {actionError && <p className="showroom-ride-time-error" role="alert">{actionError}</p>}
-            <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" onClick={() => chooseAction(selected, 'TEST_RIDE')}>Book a test ride ↗</button></div>
+            <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" onClick={() => chooseAction(selected, 'TEST_RIDE')}>Request test ride ↗</button></div>
             <a className="showroom-source-link" href={selected.officialModelUrl} target="_blank" rel="noreferrer">View official Bajaj range ↗</a>
           </div>
         </section>
