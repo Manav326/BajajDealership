@@ -31,6 +31,8 @@ export type ShowroomBike = {
   availableUnits: number;
   expectedUnits: number;
   reservedUnits: number;
+  availabilityStatus: 'IN_STOCK' | 'EXPECTED' | 'OUT_OF_STOCK';
+  expectedAvailableOn: string | null;
 };
 type Catalogue = {
   manufacturer: string;
@@ -207,7 +209,8 @@ export default function BajajShowroom({ onSignIn }: {
                 <h3>{bike.modelName}</h3>
                 <div className="showroom-card-specs"><span><small>POWER</small><b>{bike.maxPower}</b></span><span><small>TORQUE</small><b>{bike.maxTorque}</b></span></div>
                 <div className="showroom-card-price"><div><small>EX-SHOWROOM · {bike.priceCity.toUpperCase()}</small><strong>{money(bike.exShowroomPrice)}</strong></div>
-                  <span className={bike.availableUnits > 0 ? 'showroom-stock in-stock' : 'showroom-stock'}>{bike.availableUnits > 0 ? 'In stock' : bike.expectedUnits > 0 ? 'Arriving' : 'Check availability'}</span></div>
+                  <span className={bike.availabilityStatus === 'IN_STOCK' ? 'showroom-stock in-stock' : 'showroom-stock'}>{bike.availabilityStatus === 'IN_STOCK' ? 'In stock' : bike.availabilityStatus === 'EXPECTED' ? 'Expected' : 'Out of stock'}</span></div>
+                {bike.availabilityStatus !== 'IN_STOCK' && <p className="showroom-availability-note">{bike.availabilityStatus === 'EXPECTED' ? (bike.expectedAvailableOn ? `Expected availability: ${dateLabel(bike.expectedAvailableOn)}` : 'Expected availability date not confirmed') : 'Currently out of stock — ask Lucky Bajaj about the next delivery.'}</p>}
                 <p className="showroom-onroad-note">On-road in {priceLocation || 'your city'} <strong>Request a quote ↗</strong></p>
                 <div className="showroom-card-actions"><button type="button" className="showroom-card-secondary" onClick={() => setSelected(bike)}>Explore specs</button>
                   <button type="button" className="showroom-card-primary" onClick={() => chooseAction(bike, 'TEST_RIDE')}>Test ride <span>↗</span></button></div>
@@ -251,7 +254,7 @@ export default function BajajShowroom({ onSignIn }: {
               {selected.fuelTankLitres && <div><small>FUEL TANK</small><strong>{selected.fuelTankLitres} L</strong></div>}
             </div>
             <ul className="showroom-highlight-list">{selected.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}</ul>
-            <p className="showroom-modal-stock">{selected.availableUnits > 0 ? `${selected.availableUnits} physical unit(s) currently marked available in dealership inventory.` : 'Exact physical availability must be confirmed with the dealership; the catalogue record does not imply a bike is in stock.'}</p>
+            <p className="showroom-modal-stock">{selected.availableUnits > 0 ? `${selected.availableUnits} physical unit(s) currently marked available in dealership inventory.` : selected.availabilityStatus === 'EXPECTED' ? `Expected availability: ${selected.expectedAvailableOn ? dateLabel(selected.expectedAvailableOn) : 'date not confirmed'}.` : 'Currently out of stock; contact Lucky Bajaj to confirm availability.'}</p>
             <p className="showroom-modal-stock">On-road price for {priceLocation || 'your location'}: request a current, location-specific quote.</p>
             <div className="showroom-modal-actions"><button type="button" className="showroom-card-secondary" onClick={() => chooseAction(selected, 'PURCHASE')}>Enquire / purchase</button><button type="button" className="showroom-card-primary" onClick={() => chooseAction(selected, 'TEST_RIDE')}>Book a test ride ↗</button></div>
             <a className="showroom-source-link" href={selected.officialModelUrl} target="_blank" rel="noreferrer">View official Bajaj range ↗</a>

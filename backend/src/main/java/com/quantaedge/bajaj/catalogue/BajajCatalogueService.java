@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -161,8 +160,11 @@ public class BajajCatalogueService {
     LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
     LocalDate expectedDate = request.expectedAvailableOn();
     String note = request.internalNote() == null ? null : request.internalNote().trim();
-    if (note != null && (note.isBlank() || note.length() > 500
-        || note.chars().anyMatch(Character::isISOControl))) note = null;
+    if (note != null && note.isBlank()) note = null;
+    if (note != null && (note.length() > 500 || note.chars().anyMatch(Character::isISOControl))) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "Internal note contains invalid characters or is too long.");
+    }
     if (expectedDate != null && expectedDate.isBefore(today)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Expected availability date cannot be in the past.");
     }

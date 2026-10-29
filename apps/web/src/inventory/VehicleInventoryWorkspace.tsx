@@ -7,6 +7,15 @@ type VehicleModel = {
   colourName: string | null; modelYear: number | null; active: boolean;
   expectedCount: number; availableCount: number; reservedCount: number; soldCount: number;
 };
+type CatalogueModel = {
+  modelCode: string; modelName: string; family: string; category: string;
+  published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string | null;
+  internalNote: string | null; updatedAt: string | null;
+  availableUnits: number; expectedUnits: number; reservedUnits: number;
+};
+type CatalogueDraft = {
+  published: boolean; markedOutOfStock: boolean; expectedAvailableOn: string; internalNote: string;
+};
 type VehicleUnit = {
   publicId: string; modelPublicId: string; modelCode: string; modelName: string;
   variantName: string | null; colourName: string | null; chassisNumber: string;
@@ -22,9 +31,13 @@ const emptyUnit: UnitForm = { modelPublicId: '', chassisNumber: '', engineNumber
 
 export default function VehicleInventoryWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canManage = staff.permissions.includes('vehicle.manage');
+  const canReadCatalogue = staff.permissions.includes('catalogue.read');
+  const canManageCatalogue = staff.permissions.includes('catalogue.manage');
   const [activeTab, setActiveTab] = useState<'models' | 'units'>('units');
   const [models, setModels] = useState<VehicleModel[]>([]);
   const [units, setUnits] = useState<VehicleUnit[]>([]);
+  const [catalogueModels, setCatalogueModels] = useState<CatalogueModel[]>([]);
+  const [catalogueDrafts, setCatalogueDrafts] = useState<Record<string, CatalogueDraft>>({});
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModel);
   const [unitForm, setUnitForm] = useState<UnitForm>(emptyUnit);
   const [showModelForm, setShowModelForm] = useState(false);
@@ -44,18 +57,28 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     try {
       const modelParams = new URLSearchParams({ page: '0', pageSize: '100' });
       if (searchValue) modelParams.set('q', searchValue);
-      const [modelPage, unitPage] = await Promise.all([
+      const [modelPage, unitPage, catalogueResult] = await Promise.all([
         apiFetch<Page<VehicleModel>>(`/api/v1/admin/vehicle-models?${modelParams.toString()}`, token),
         apiFetch<Page<VehicleUnit>>('/api/v1/admin/vehicle-units?page=0&pageSize=100', token),
+        canReadCatalogue
+          ? apiFetch<{ models: CatalogueModel[] }>('/api/v1/admin/catalogue/models', token)
+          : Promise.resolve(null),
       ]);
       setModels(modelPage.items);
       setUnits(unitPage.items);
+      if (catalogueResult) {
+        setCatalogueModels(catalogueResult.models ?? []);
+        setCatalogueDrafts(Object.fromEntries((catalogueResult.models ?? []).map((model) => [model.modelCode, {
+          published: model.published, markedOutOfStock: model.markedOutOfStock,
+          expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
+        }])));
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load vehicle inventory.');
     } finally {
       setLoading(false);
     }
-  }, [token, activeSearch]);
+  }, [token, activeSearch, canReadCatalogue]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -118,6 +141,49 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to receive this vehicle.');
     } finally { setReceivingId(''); }
+  }
+
+  function updateCatalogueDraft(modelCode: string, patch: Partial<CatalogueDraft>) {
+    setCatalogueDrafts((current) => ({
+      ...current,
+      [modelCode]: {
+        ...(current[modelCode] ?? { published: false, markedOutOfStock: false, expectedAvailableOn: '', internalNote: '' }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveCatalogueSettings(modelCode: string) {
+    if (!canManageCatalogue) return;
+    const draft = catalogueDrafts[modelCode];
+    if (!draft) return;
+    if (!draft.markedOutOfStock && draft.expectedAvailableOn) {
+      setError('Set an expected date only when the model is marked out of stock.');
+      return;
+    }
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      const saved = await apiFetch<CatalogueModel>(
+        `/api/v1/admin/catalogue/models/${encodeURIComponent(modelCode)}`, token, {
+          method: 'PUT',
+          body: JSON.stringify({
+            published: draft.published, markedOutOfStock: draft.markedOutOfStock,
+            expectedAvailableOn: draft.expectedAvailableOn || null,
+            internalNote: draft.internalNote.trim() || null,
+          }),
+        });
+      setCatalogueModels((current) => current.map((model) => model.modelCode === modelCode ? saved : model));
+      setCatalogueDrafts((current) => ({ ...current, [modelCode]: {
+        published: saved.published, markedOutOfStock: saved.markedOutOfStock,
+        expectedAvailableOn: saved.expectedAvailableOn ?? '', internalNote: saved.internalNote ?? '',
+      }}));
+      setSuccess(`${saved.modelName}: showroom settings saved.`);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to update showroom publication or availability.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function searchModels(event: FormEvent<HTMLFormElement>) {
@@ -209,6 +275,47 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
         </div>
         <div className="inventory-footnote"><span className="status-dot" /> Stock totals are from saved vehicle-unit records. Reservation and sale transitions are enabled only through the corresponding verified sales workflow.</div>
       </div>
+      {canReadCatalogue && <section className="inventory-table-card showroom-admin-card">
+        <div className="showroom-admin-heading">
+          <div><div className="eyebrow">PUBLIC SHOWROOM CONTROL</div><h2>Bajaj catalogue visibility</h2>
+            <p>Publish models individually and manage an out-of-stock forecast. Forecasts never add physical stock.</p></div>
+          <span className="inventory-count-pill">{catalogueModels.filter((model) => catalogueDrafts[model.modelCode]?.published ?? model.published).length} published</span>
+        </div>
+        {!canManageCatalogue && <div className="inventory-footnote">Your role can view this catalogue. Publishing and restock forecasts require catalogue management permission.</div>}
+        <div className="customer-table-scroll">
+          <table className="customer-table inventory-table showroom-admin-table">
+            <thead><tr><th>Bajaj model</th><th>Physical stock</th><th>Publish</th><th>Out-of-stock forecast</th><th>Internal note</th><th>Save</th></tr></thead>
+            <tbody>
+              {catalogueModels.map((model) => {
+                const draft = catalogueDrafts[model.modelCode] ?? {
+                  published: model.published, markedOutOfStock: model.markedOutOfStock,
+                  expectedAvailableOn: model.expectedAvailableOn ?? '', internalNote: model.internalNote ?? '',
+                };
+                const formId = `catalogue-settings-${model.modelCode.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+                return <tr key={model.modelCode}>
+                  <td><div className="customer-name-cell"><span className="vehicle-model-mark">B</span><div><strong>{model.modelName}</strong><span>{model.family} · {model.category}</span><small className="vehicle-serial">{model.modelCode}</small></div></div></td>
+                  <td><div className="showroom-stock-facts"><strong>{model.availableUnits} available</strong><span>{model.expectedUnits} expected · {model.reservedUnits} reserved</span>
+                    <span className={model.availableUnits > 0 ? 'showroom-state showroom-state-in' : draft.expectedAvailableOn ? 'showroom-state' : 'showroom-state showroom-state-out'}>{model.availableUnits > 0 ? 'IN STOCK' : draft.expectedAvailableOn ? 'EXPECTED' : model.expectedUnits > 0 ? 'EXPECTED · DATE TBD' : 'OUT OF STOCK'}</span></div></td>
+                  <td><label className="showroom-publish-control"><input form={formId} aria-label={`Publish ${model.modelName} to public showroom`} type="checkbox" checked={draft.published} disabled={!canManageCatalogue || saving} onChange={(event) => updateCatalogueDraft(model.modelCode, { published: event.target.checked })} /><span>{draft.published ? 'Published' : 'Unpublished'}</span></label></td>
+                  <td><div className="showroom-forecast-fields">
+                    <label><input form={formId} type="checkbox" aria-label={`Mark ${model.modelName} out of stock`} checked={draft.markedOutOfStock} disabled={!canManageCatalogue || saving || model.availableUnits > 0} onChange={(event) => updateCatalogueDraft(model.modelCode, { markedOutOfStock: event.target.checked, expectedAvailableOn: event.target.checked ? draft.expectedAvailableOn : '' })} /> Mark out of stock</label>
+                    <label className="showroom-expected-date">Expected availability
+                      <input form={formId} type="date" value={draft.expectedAvailableOn} min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())} disabled={!canManageCatalogue || saving || !draft.markedOutOfStock} onChange={(event) => updateCatalogueDraft(model.modelCode, { expectedAvailableOn: event.target.value })} />
+                    </label>
+                    {model.availableUnits > 0 && <small className="showroom-field-help">Physical stock is available. Use inventory workflows to correct stock first.</small>}
+                  </div></td>
+                  <td><textarea form={formId} aria-label={`Internal stock note for ${model.modelName}`} maxLength={500} rows={2} value={draft.internalNote} disabled={!canManageCatalogue || saving} onChange={(event) => updateCatalogueDraft(model.modelCode, { internalNote: event.target.value })} placeholder="Internal note (not public)" /></td>
+                  <td>{canManageCatalogue ? <form id={formId} onSubmit={(event) => { event.preventDefault(); void saveCatalogueSettings(model.modelCode); }}>
+                    <button type="submit" className="secondary-button showroom-save-row" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+                  </form> : '—'}</td>
+                </tr>;
+              })}
+              {catalogueModels.length === 0 && <tr><td colSpan={6} className="table-empty">No Bajaj catalogue records are available.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="inventory-footnote"><span className="status-dot" /> Publish controls only affect public visibility. Physical availability remains sourced from received vehicle units. Expected date and internal note are dealership-maintained forecasts; only the expected date is public.</div>
+      </section>}
     </section>
   );
 }

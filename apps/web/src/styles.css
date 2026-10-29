@@ -2453,3 +2453,26 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 .showroom-send-confirm:hover{filter:brightness(1.06);transform:translateY(-1px)}.showroom-send-confirm:disabled{opacity:.65;cursor:wait;transform:none}
 .campaign-send-now{color:#b33423;font-weight:850}.campaign-actions .text-button{font-size:9px}
 @media(max-width:620px){.saved-campaign-overlay{padding:8px;align-items:start}.saved-campaign-dialog{max-height:calc(100vh - 16px);padding:15px;border-radius:14px}.saved-campaign-header h2{font-size:17px}.saved-campaign-actions{display:grid;grid-template-columns:1fr 1fr}.saved-campaign-actions button{font-size:9px}.saved-campaign-counts>div{min-width:70px}}
+
+/* Private model-level public-showroom publication and restock forecast controls. */
+.showroom-admin-card{margin-top:18px;overflow:hidden}
+.showroom-admin-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:2px 2px 17px}
+.showroom-admin-heading h2{font-size:19px;letter-spacing:-.5px;color:#1b2942;margin:7px 0}
+.showroom-admin-heading p{font-size:11px;line-height:1.7;color:#8290a3;max-width:660px;margin:0}
+.inventory-count-pill{white-space:nowrap;border:1px solid #d7ece5;background:#effbf7;color:#197b63;padding:7px 10px;border-radius:999px;font-size:9px;font-weight:850}
+.showroom-admin-table{min-width:1120px}
+.showroom-stock-facts{display:grid;gap:6px;min-width:125px}.showroom-stock-facts>strong{font-size:10px;color:#293b51}
+.showroom-stock-facts>span:not(.showroom-state){font-size:8px;color:#8190a3}
+.showroom-state{width:max-content;max-width:100%;padding:5px 7px;border-radius:999px;background:#fff1e8;color:#a45a1c;font-size:7px;font-weight:900;letter-spacing:.4px}
+.showroom-state-in{background:#e9faf3;color:#167652}.showroom-state-out{background:#fff0ef;color:#a13c3a}
+.showroom-publish-control{display:inline-flex;align-items:center;gap:8px;color:#35465e;font-size:9px;font-weight:800;white-space:nowrap}
+.showroom-publish-control input,.showroom-forecast-fields input[type=checkbox]{accent-color:#cf3d31;width:15px;height:15px}
+.showroom-forecast-fields{display:grid;gap:9px;min-width:175px}
+.showroom-forecast-fields>label:first-child{display:flex;align-items:center;gap:7px;font-size:9px;color:#46566c;font-weight:750;white-space:nowrap}
+.showroom-expected-date{display:grid;gap:5px;font-size:8px;font-weight:800;color:#78869a}
+.showroom-expected-date input{width:100%;min-width:140px;padding:8px;border:1px solid #dfe5ed;border-radius:8px;background:#fff;color:#25354a;font-size:10px}
+.showroom-admin-table textarea{min-width:150px;width:100%;resize:vertical;border:1px solid #dfe5ed;border-radius:8px;padding:9px;background:#fff;color:#33445b;font:inherit;font-size:9px;line-height:1.5}
+.showroom-admin-table button.showroom-save-row{font-size:9px;padding:8px 10px}
+.showroom-field-help{font-size:8px;color:#9a6a40;line-height:1.5;max-width:180px}
+.showroom-availability-note{margin:0 0 12px;color:#e5a977;font-size:9px;line-height:1.55}
+@media(max-width:700px){.showroom-admin-heading{flex-direction:column}.showroom-admin-card{padding:13px}.showroom-admin-table{min-width:1000px}}
