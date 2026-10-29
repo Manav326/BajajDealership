@@ -181,7 +181,7 @@ async function mockApi(page: Page, extraPermissions: string[] = []) {
       return route.fulfill({
         status: 200,
         contentType: 'image/png',
-        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41STyHwAGmgKQNGNyggAAAABJRU5ErkJggg==', 'base64'),
       });
     }
     if (path.endsWith('/admin/notifications/media/e2e-image')) {
@@ -555,7 +555,7 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
   await page.locator('.catalogue-gallery-upload input[type="file"]').setInputFiles({
     name: 'pulsar-ns200.png',
     mimeType: 'image/png',
-    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41STyHwAGmgKQNGNyggAAAABJRU5ErkJggg==', 'base64'),
   });
   await page.getByRole('button', { name: 'Upload as primary image' }).click();
   await expect(page.getByText('PRIMARY', { exact: true })).toBeVisible();
@@ -715,17 +715,17 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
     await route.fulfill({
       status: 200,
       contentType: 'image/png',
-      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41STyHwAGmgKQNGNyggAAAABJRU5ErkJggg==', 'base64'),
     });
   });
   await dialog.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
-  await expect(dialog.getByLabel('Headline', { exact: true })).toHaveValue('शुभ दीपावली');
+  await expect(dialog.getByRole('textbox', { name: 'Headline', exact: true })).toHaveValue('शुभ दीपावली');
   await expect(dialog.getByText(/template loaded/)).toBeVisible();
 
   await dialog.locator('.assetUpload input[type="file"]').setInputFiles({
     name: 'dealer-logo.png',
     mimeType: 'image/png',
-    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP41STyHwAGmgKQNGNyggAAAABJRU5ErkJggg==', 'base64'),
   });
   await expect(dialog.getByText(/13 \/ 50 images · JPEG or PNG/)).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Use as logo' }).first()).toBeVisible();
