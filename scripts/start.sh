@@ -109,7 +109,20 @@ echo "Backend API  : http://localhost:8080"
 echo "Android API  : $ANDROID_BASE_URL"
 
 docker compose -f compose.yaml config --quiet
-docker compose -f compose.yaml up --build -d
+if [ "$MODE" = "pull" ]; then
+  echo "Pulling prebuilt GHCR images (tag: $BAJAJ_IMAGE_TAG)…"
+  if ! docker compose -f compose.yaml pull api customer-web staff-web; then
+    echo "Could not pull GHCR images for the selected tag." >&2
+    echo "If the packages are private, authenticate first with: docker login ghcr.io" >&2
+    echo "Then rerun: sh ./scripts/start.sh pull $BAJAJ_IMAGE_TAG" >&2
+    exit 1
+  fi
+  docker compose -f compose.yaml up --no-build -d
+else
+  echo "Building API and both web images locally (tag: $BAJAJ_IMAGE_TAG)…"
+  docker compose -f compose.yaml up --build -d
+fi
+
 
 echo "Waiting for the API and both websites…"
 i=0
