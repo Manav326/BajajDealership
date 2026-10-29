@@ -408,8 +408,8 @@ export default function App() {
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
       setSalesRequests(customerRequests);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setRetailPartFilters({
         categories: Array.isArray(partFilters?.categories) ? partFilters.categories : [],
         motorcycleModels: Array.isArray(partFilters?.motorcycleModels) ? partFilters.motorcycleModels : [],
@@ -658,8 +658,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setRetailCart([]);
       setPartsOrderNote('');
       setRetailFulfillmentMethod('PICKUP');
@@ -685,8 +685,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setSuccess(`Order ${order.orderCode} was cancelled and its stock reservation released.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The order could not be cancelled.');
@@ -708,8 +708,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setSuccess(accept
         ? `Delivery quote for ${order.orderCode} accepted. Lucky Bajaj can now arrange delivery; payment is still due on delivery.`
         : `Delivery quote declined. Order ${order.orderCode} was cancelled and its stock reservation released.`);

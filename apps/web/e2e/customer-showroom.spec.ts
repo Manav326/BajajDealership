@@ -144,6 +144,11 @@ async function mockShowroomApi(
       }
       return json(journey.requests);
     }
+    if (url.pathname === '/api/v1/customer/parts' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/parts/orders' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/parts/filters' && method === 'GET') {
+      return json({ categories: ['BRAKES', 'ENGINE', 'FILTERS'], motorcycleModels: [] });
+    }
     if (url.pathname === '/api/v1/customer/auth/logout' && method === 'POST') return json({ success: true });
     return json({});
   });
