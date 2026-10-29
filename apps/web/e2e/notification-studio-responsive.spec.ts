@@ -719,7 +719,7 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
     });
   });
   await dialog.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
-  await expect(dialog.getByLabel('Headline')).toHaveValue('शुभ दीपावली');
+  await expect(dialog.getByLabel('Headline', { exact: true })).toHaveValue('शुभ दीपावली');
   await expect(dialog.getByText(/template loaded/)).toBeVisible();
 
   await dialog.locator('.assetUpload input[type="file"]').setInputFiles({
