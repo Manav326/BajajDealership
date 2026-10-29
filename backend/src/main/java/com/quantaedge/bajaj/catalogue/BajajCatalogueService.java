@@ -65,6 +65,11 @@ public class BajajCatalogueService {
       nullableDate(rs, "expected_available_on"));
 
   public CatalogueView listPublicBikes() {
+    return listPublicBikes(null);
+  }
+
+  public CatalogueView listPublicBikes(String rawCategory) {
+    String category = normalizeCategory(rawCategory);
     DealershipView dealership = resolveDealership();
     Long dealershipId = dealership == null ? null : dealership.id();
     List<BikeView> bikes = dealershipId == null ? List.of() : jdbc.query("""
@@ -108,8 +113,9 @@ public class BajajCatalogueService {
           where vm.dealership_id = ? and vm.model_code = c.model_code and vm.active = true
         ) inventory on true
         where c.active = true and c.manufacturer = 'BAJAJ'
+          and (coalesce(?, '') = '' or c.category = ?)
         order by c.featured_rank, lower(c.model_name)
-        """, BIKE_ROW, dealershipId, dealership.code(), dealershipId, dealershipId);
+        """, BIKE_ROW, dealershipId, dealership.code(), dealershipId, dealershipId, category, category);
 
     return new CatalogueView("BAJAJ",
         dealership == null ? null : dealership.code(),
@@ -224,6 +230,15 @@ public class BajajCatalogueService {
         .filter(model -> normalizedCode.equals(model.modelCode()))
         .findFirst()
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Catalogue model was not found."));
+  }
+
+  private static String normalizeCategory(String rawCategory) {
+    if (rawCategory == null || rawCategory.isBlank()) return null;
+    String category = rawCategory.trim().toUpperCase(java.util.Locale.ROOT);
+    if (!List.of("COMMUTER", "STREET", "SPORT", "TOURING", "CRUISER", "RUGGED").contains(category)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown Bajaj motorcycle category.");
+    }
+    return category;
   }
 
   private DealershipView resolveDealership() {
