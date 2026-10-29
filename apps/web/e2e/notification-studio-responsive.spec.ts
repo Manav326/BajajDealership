@@ -220,6 +220,8 @@ for (const width of [320, 768, 1280]) {
       expect(bounds.right).toBeLessThanOrEqual(width + 1);
     }
 
+    // Push mode deliberately suppresses images; verify media sizing on the mobile-app surface.
+    await page.getByRole('button', { name: 'Mobile app', exact: true }).click();
     await page.getByLabel('Campaign title').fill('Extra-long campaign title '.repeat(5));
     await page.locator('.content-block-editor textarea').nth(1).fill('unbrokenmessage'.repeat(220));
     await page.locator('.add-block-controls select').selectOption('image');
