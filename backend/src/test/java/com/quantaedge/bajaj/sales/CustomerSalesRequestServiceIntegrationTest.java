@@ -8,6 +8,7 @@ import com.quantaedge.bajaj.customers.CustomerService;
 import com.quantaedge.bajaj.security.CustomerPrincipal;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import com.quantaedge.bajaj.security.TokenDigests;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Set;
@@ -31,6 +32,8 @@ class CustomerSalesRequestServiceIntegrationTest {
   @Autowired private CustomerService customers;
   @Autowired private CustomerPortalService portal;
   @Autowired private CustomerSalesRequestService requests;
+  @Autowired private SalesOperationsService sales;
+  @Autowired private SalesTransactionService transactions;
 
   @Test
   void preferredTestRideTimeIsPersistedAndReturnedToCustomerAndStaffQueue() {
@@ -54,6 +57,54 @@ class CustomerSalesRequestServiceIntegrationTest {
     assertThat(journey.paidAmount()).isEqualByComparingTo("0.00");
     assertThat(journey.balanceDue()).isNull();
     assertThat(journey.deliveredAt()).isNull();
+  }
+
+  @Test
+  void customerJourneyReflectsRealTestRideBookingInvoicePaymentAndHandoverRecords() {
+    Fixture fixture = createFixture();
+    var request = requests.create(fixture.customer(), new CustomerSalesRequestService.CreateRequest(
+        "TEST_RIDE", MODEL_CODE, Instant.now().plus(2, ChronoUnit.DAYS),
+        "Synthetic full journey integration test.", "full-journey-" + UUID.randomUUID()));
+
+    var converted = requests.convertToEnquiry(fixture.owner(), request.publicId());
+    assertThat(converted.convertedEnquiryPublicId()).isNotNull();
+
+    Instant rideStart = Instant.now().plus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS);
+    var ride = sales.scheduleTestRide(fixture.owner(), converted.convertedEnquiryPublicId(),
+        new SalesOperationsService.TestRideRequest(fixture.vehicleUnitPublicId(), rideStart,
+            rideStart.plus(1, ChronoUnit.HOURS), "Synthetic acceptance test only"));
+    sales.checkOutTestRide(fixture.owner(), ride.publicId(), "Synthetic test checkout");
+    sales.completeTestRide(fixture.owner(), ride.publicId(), "Synthetic test completion");
+
+    var booking = sales.createBooking(fixture.owner(), converted.convertedEnquiryPublicId(),
+        new SalesOperationsService.BookingRequest(fixture.vehicleUnitPublicId(), "Synthetic full journey test"));
+    var draft = transactions.createDraftInvoice(fixture.owner(), booking.publicId(),
+        new SalesTransactionService.SaleInvoiceRequest("journey-invoice-" + UUID.randomUUID(),
+            new BigDecimal("150000.00"), BigDecimal.ZERO.setScale(2), "Synthetic test only.", java.util.List.of()));
+    var issued = transactions.issueInvoice(fixture.owner(), draft.publicId());
+    assertThat(issued.status()).isEqualTo("ISSUED");
+
+    transactions.recordPayment(fixture.owner(), issued.publicId(),
+        new SalesTransactionService.SalePaymentRequest("journey-payment-" + UUID.randomUUID(),
+            "UPI", new BigDecimal("150000.00"), "SYNTHETIC-NO-REAL-PAYMENT", "Integration fixture only"));
+    transactions.deliverBooking(fixture.owner(), booking.publicId(),
+        new SalesTransactionService.HandoverRequest(fixture.customer().fullName(), true,
+            "WRITTEN_MESSAGE", "SYNTHETIC-HANDOVER-ACK", "Integration fixture only"));
+
+    var journey = requests.listForCustomer(fixture.customer()).getFirst();
+    assertThat(journey.enquiryCode()).isNotBlank();
+    assertThat(journey.enquiryStatus()).isEqualTo("BOOKED");
+    assertThat(journey.testRideCode()).isEqualTo(ride.testRideCode());
+    assertThat(journey.testRideStatus()).isEqualTo("COMPLETED");
+    assertThat(journey.testRideScheduledStart()).isEqualTo(rideStart);
+    assertThat(journey.bookingCode()).isEqualTo(booking.bookingCode());
+    assertThat(journey.bookingStatus()).isEqualTo("CONVERTED_TO_SALE");
+    assertThat(journey.invoiceNumber()).isEqualTo(issued.invoiceNumber());
+    assertThat(journey.invoiceStatus()).isEqualTo("ISSUED");
+    assertThat(journey.invoiceTotal()).isEqualByComparingTo("150000.00");
+    assertThat(journey.paidAmount()).isEqualByComparingTo("150000.00");
+    assertThat(journey.balanceDue()).isEqualByComparingTo("0.00");
+    assertThat(journey.deliveredAt()).isNotNull();
   }
 
   @Test
@@ -101,12 +152,19 @@ class CustomerSalesRequestServiceIntegrationTest {
     StaffPrincipal owner = new StaffPrincipal(
         1, staffId, staffPublicId.toString(), dealershipId, dealershipPublicId.toString(),
         dealershipCode, "Sales Test Owner", Set.of("OWNER"),
-        Set.of("customer.read", "customer.create", "customer.update", "sales.read", "sales.manage"));
+        Set.of("customer.read", "customer.create", "customer.update", "sales.read", "sales.manage", "sales.deliver", "finance.read", "finance.invoice", "finance.payment"));
 
-    jdbc.update("""
+    Long vehicleModelId = jdbc.queryForObject("""
         insert into vehicle_model(dealership_id, model_code, model_name, active)
         values (?, ?, 'Pulsar NS200', true)
-        """, dealershipId, MODEL_CODE);
+        returning id
+        """, Long.class, dealershipId, MODEL_CODE);
+    UUID vehicleUnitPublicId = jdbc.queryForObject("""
+        insert into vehicle_unit(dealership_id, vehicle_model_id, chassis_number, engine_number, stock_status)
+        values (?, ?, ?, ?, 'AVAILABLE')
+        returning public_id
+        """, UUID.class, dealershipId, vehicleModelId,
+        "CHASSIS-" + suffix, "ENGINE-" + suffix);
     jdbc.update("""
         insert into bajaj_catalogue_dealership_model(dealership_id, model_code, is_published)
         values (?, ?, true)
@@ -123,7 +181,7 @@ class CustomerSalesRequestServiceIntegrationTest {
     var session = portal.activate(
         new CustomerPortalService.ActivationRequest(invitation.activationToken(), "Strong-Customer-Password-123"),
         "203.0.113.40", "sales-request-test-agent");
-    return new Fixture(principalForToken(session.accessToken()));
+    return new Fixture(principalForToken(session.accessToken()), owner, vehicleUnitPublicId);
   }
 
   private CustomerPrincipal principalForToken(String rawToken) {
@@ -147,5 +205,5 @@ class CustomerSalesRequestServiceIntegrationTest {
             rs.getString("phone"), rs.getString("email")), TokenDigests.sha256(rawToken));
   }
 
-  private record Fixture(CustomerPrincipal customer) {}
+  private record Fixture(CustomerPrincipal customer, StaffPrincipal owner, UUID vehicleUnitPublicId) {}
 }
