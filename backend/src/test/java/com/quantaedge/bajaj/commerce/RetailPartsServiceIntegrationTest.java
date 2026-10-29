@@ -157,6 +157,9 @@ class RetailPartsServiceIntegrationTest {
     var inventorySku = spareParts.createPart(manager,
         new SparePartsService.PartRequest("MATCH-" + UUID.randomUUID().toString().substring(0, 8),
             "Brake shoe stock SKU", "Inventory item for catalogue-mapping regression", "SET"));
+    // New inventory SKUs are mapped to a local catalogue row by default. Explicitly unlink
+    // that row before linking this stock SKU to the global brake-shoe catalogue product.
+    retailParts.mapRetailCatalogueStock(manager, inventorySku.publicId(), null);
     jdbc.update("""
         update spare_part_balance set quantity_on_hand = 3.000, quantity_reserved = 0.000, updated_at = now()
         where dealership_id = ? and part_id = (

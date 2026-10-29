@@ -124,14 +124,29 @@ public class RetailPartsService {
   }
   public List<StockOption> listRetailStockOptions(StaffPrincipal actor) {
     return jdbc.query("""
-        select part.public_id, part.sku_code, part.part_name, part.unit_of_measure, coalesce(balance.quantity_on_hand, 0) as quantity_on_hand,
-          coalesce(balance.quantity_reserved, 0) as quantity_reserved, coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available
-        from spare_part part left join spare_part_balance balance on balance.dealership_id = part.dealership_id and balance.part_id = part.id
-        where part.dealership_id = ? and part.active = true order by lower(part.part_name), part.sku_code
-        """, (rs, rowNum) -> new StockOption(rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
-          rs.getString("unit_of_measure"), rs.getBigDecimal("quantity_on_hand"), rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available")),
+        select part.public_id, part.sku_code, part.part_name, part.unit_of_measure,
+          coalesce(balance.quantity_on_hand, 0) as quantity_on_hand,
+          coalesce(balance.quantity_reserved, 0) as quantity_reserved,
+          coalesce(balance.quantity_on_hand - balance.quantity_reserved, 0) as quantity_available,
+          mapped.public_id as mapped_catalogue_public_id, mapped.catalogue_code as mapped_catalogue_code,
+          mapped.part_name as mapped_catalogue_name
+        from spare_part part
+        left join spare_part_balance balance
+          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
+        left join retail_part_catalogue_stock_map stock_map
+          on stock_map.dealership_id = part.dealership_id and stock_map.stock_part_id = part.id
+        left join bajaj_spare_part_catalogue mapped on mapped.id = stock_map.catalogue_product_id
+        where part.dealership_id = ? and part.active = true
+        order by lower(part.part_name), part.sku_code
+        """, (rs, rowNum) -> new StockOption(
+            rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+            rs.getString("unit_of_measure"), rs.getBigDecimal("quantity_on_hand"),
+            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available"),
+            rs.getObject("mapped_catalogue_public_id", UUID.class),
+            rs.getString("mapped_catalogue_code"), rs.getString("mapped_catalogue_name")),
         actor.dealershipId());
   }
+
   @Transactional
   public AdminPartView mapRetailCatalogueStock(StaffPrincipal actor, UUID cataloguePublicId, UUID stockPartPublicId) {
     Long catalogueId = jdbc.query("""
@@ -1011,7 +1026,9 @@ public class RetailPartsService {
   public record RetailPartView(UUID publicId, String skuCode, String partName, String description, String unitOfMeasure,
     BigDecimal retailPrice, List<String> fitmentModelCodes, String imageUrl, BigDecimal quantityAvailable, boolean available,
     String availabilityStatus, boolean fitmentVerified, String category, String partNumber, String sourceUrl, String sourceVerifiedAt, String sourceDataStatus) {}
-  public record StockOption(UUID publicId, String skuCode, String partName, String unitOfMeasure, BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable) {}
+  public record StockOption(UUID publicId, String skuCode, String partName, String unitOfMeasure,
+      BigDecimal quantityOnHand, BigDecimal quantityReserved, BigDecimal quantityAvailable,
+      UUID mappedCataloguePublicId, String mappedCatalogueCode, String mappedCatalogueName) {}
   public record ModelFilterOption(String modelCode, String modelName, String family, String category) {}
   public record RetailPartFilters(List<String> categories, List<ModelFilterOption> motorcycleModels) {}
   public record OrderLineRequest(UUID partPublicId, BigDecimal quantity) {}

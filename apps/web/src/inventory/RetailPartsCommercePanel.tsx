@@ -13,20 +13,9 @@ type RetailPartSetting = {
 type StockOption = {
   publicId: string; skuCode: string; partName: string; unitOfMeasure: string;
   quantityOnHand: number; quantityReserved: number; quantityAvailable: number;
+  mappedCataloguePublicId: string | null; mappedCatalogueCode: string | null; mappedCatalogueName: string | null;
 };
-type RetailOrderLine = {
-  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
-  quantity: number; unitPrice: number; lineTotal: number;
-};
-type RetailOrder = {
-  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
-  orderTotal: number; fulfillmentMethod: 'PICKUP' | 'DELIVERY'; deliveryAddress: string | null;
-  deliveryFee: number; deliveryQuoteStatus: string; deliveryQuoteNote: string | null; deliveryQuotedAt: string | null;
-  customerNote: string | null; createdAt: string; updatedAt: string;
-  cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
-  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
-  customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
-};
+
 type SettingsDraft = {
   retailEnabled: boolean; retailPrice: string; retailDescription: string;
   fitmentModelCodes: string; imageUrl: string; fitmentVerified: boolean; stockPartPublicId: string;
@@ -328,9 +317,14 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
                   <option value="">Not linked</option>
                   {part.stockPartPublicId && !stockOptions.some((option) => option.publicId === part.stockPartPublicId)
                     && <option value={part.stockPartPublicId}>{part.stockSkuCode ?? 'Linked inventory SKU'} · inactive or no longer selectable</option>}
-                  {stockOptions.map((option) => <option key={option.publicId} value={option.publicId}>
-                    {option.skuCode} · {option.partName} · {option.quantityAvailable} available
-                  </option>)}
+                  {stockOptions.map((option) => {
+                    const mappedElsewhere = Boolean(option.mappedCataloguePublicId
+                      && option.mappedCataloguePublicId !== part.publicId);
+                    return <option key={option.publicId} value={option.publicId} disabled={mappedElsewhere}>
+                      {option.skuCode} · {option.partName} · {option.quantityAvailable} available
+                      {mappedElsewhere ? ` · already linked to ${option.mappedCatalogueCode} (${option.mappedCatalogueName})` : ''}
+                    </option>;
+                  })}
                 </select></label>
                 <button type="button" className="secondary-button" disabled={!canManage || busyId === part.publicId || draft.stockPartPublicId === (part.stockPartPublicId ?? '')}
                   onClick={() => void saveInventoryMapping(part)}>{busyId === part.publicId ? 'Saving…' : 'Save inventory link'}</button>
