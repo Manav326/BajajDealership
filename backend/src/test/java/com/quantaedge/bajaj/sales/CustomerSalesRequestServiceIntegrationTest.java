@@ -71,10 +71,13 @@ class CustomerSalesRequestServiceIntegrationTest {
     var converted = requests.convertToEnquiry(fixture.owner(), request.publicId());
     assertThat(converted.convertedEnquiryPublicId()).isNotNull();
 
-    Instant rideStart = preferredAt;
+    // Keep the request preference separate from the staff-confirmed time. Starting one minute
+    // ahead satisfies the scheduling rule while remaining inside the 30-minute checkout window.
+    Instant rideStart = Instant.now().plus(60, ChronoUnit.SECONDS).truncatedTo(ChronoUnit.MICROS);
     var ride = sales.scheduleTestRide(fixture.owner(), converted.convertedEnquiryPublicId(),
         new SalesOperationsService.TestRideRequest(fixture.vehicleUnitPublicId(), rideStart,
             rideStart.plus(1, ChronoUnit.HOURS), "Synthetic acceptance test only"));
+    assertThat(ride.scheduledStart()).isEqualTo(rideStart);
     sales.checkOutTestRide(fixture.owner(), ride.publicId(), "Synthetic test checkout");
     sales.completeTestRide(fixture.owner(), ride.publicId(), "Synthetic test completion");
 
