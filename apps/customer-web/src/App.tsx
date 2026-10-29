@@ -71,10 +71,23 @@ type RetailOrder = {
 type CartLine = { partPublicId: string; quantity: string };
 
 type AuthMode = 'login' | 'activate';
+type PublicLegalRoute = 'privacy' | 'terms';
+type CustomerRoute = 'showroom' | 'signin' | 'signup' | 'portal' | PublicLegalRoute;
 type LoginIdentifierMode = 'customerCode' | 'username';
 type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
 const SESSION_KEY = 'qe_customer_portal_token';
+
+function routeFromLocation(): CustomerRoute {
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (requestedView === 'signin') return 'signin';
+  if (requestedView === 'signup') return 'signup';
+  if (requestedView === 'privacy' || requestedView === 'terms') return requestedView;
+  if (requestedView === 'portal') {
+    return window.sessionStorage.getItem(SESSION_KEY) ? 'portal' : 'signin';
+  }
+  return 'showroom';
+}
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 
@@ -129,12 +142,162 @@ function toLocalDateTime(value: Date) {
   return local.toISOString().slice(0, 16);
 }
 
+const PRIVACY_SECTIONS = [
+  {
+    title: 'Information used by the customer website',
+    paragraphs: [
+      'Depending on the features you use, this may include your name and contact details, customer code or username, dealership association, linked motorcycle and vehicle identifiers, service history, appointment requests, sales or test-ride enquiries, spare-parts orders and customer notifications.',
+      'Information may be supplied by you, recorded by authorised Lucky Bajaj Agency staff, or created when you use a customer-portal feature.',
+    ],
+  },
+  {
+    title: 'How the information is used',
+    paragraphs: [
+      'The website uses these records to verify your access, show the customer information linked to your account, handle vehicle and service enquiries, manage appointments and spare-parts requests, send relevant updates, protect the service and maintain operational records.',
+    ],
+  },
+  {
+    title: 'Access and service providers',
+    paragraphs: [
+      'Your customer records are intended for Lucky Bajaj Agency workflows and are available to dealership staff according to their access permissions. QuantaEdge provides the software that operates this customer website. When you choose Google sign-in, Google processes the sign-in interaction and provides the verified identity information used by the login flow.',
+      'Links to Bajaj Auto or other third-party websites open services operated by those parties and are governed by their own policies.',
+    ],
+  },
+  {
+    title: 'Sessions and record retention',
+    paragraphs: [
+      'The browser keeps the customer portal session token in session storage so it can be used during the current browser session. Customer, vehicle, service and transaction-related records are stored by the application on behalf of the dealership and are retained as needed for customer service, operational records and applicable legal obligations.',
+    ],
+  },
+  {
+    title: 'Your questions and requests',
+    paragraphs: [
+      'For a question about your information or to request access or correction, contact Lucky Bajaj Agency through the dealership channel that manages your customer or service record. Please do not send your password, sign-in code or Google authentication credentials when asking for help.',
+    ],
+  },
+  {
+    title: 'Updates',
+    paragraphs: [
+      'This notice describes the customer website and its currently implemented features. It may be updated when the service or applicable requirements change. Check this page for the latest version.',
+    ],
+  },
+];
+
+const TERMS_SECTIONS = [
+  {
+    title: 'Catalogue, specifications and prices',
+    paragraphs: [
+      'Motorcycle specifications, images, offers and reference prices are provided to help you explore the Bajaj range. Manufacturer sources, verification dates and price notes are shown where available. Reference prices and location-based on-road estimates are not a final dealer quotation; the dealership must confirm the applicable model, variant, location, charges, offer terms and current price.',
+    ],
+  },
+  {
+    title: 'Enquiries and test rides',
+    paragraphs: [
+      'Submitting a purchase enquiry or test-ride request sends a request to Lucky Bajaj Agency. It does not reserve a physical motorcycle, confirm stock, book a test-ride slot or complete a sale. The dealership will review availability and confirm the next steps.',
+    ],
+  },
+  {
+    title: 'Customer portal and service records',
+    paragraphs: [
+      'Use the account assigned or activated for you and keep your sign-in details private. The portal displays customer and vehicle records linked to your authenticated account. If a record appears incorrect, ask the dealership to review its source record.',
+    ],
+  },
+  {
+    title: 'Spare parts and fulfilment',
+    paragraphs: [
+      'Parts availability, pricing, delivery charges and fulfilment arrangements are subject to dealership confirmation. If a delivery quote is presented, review and accept it before the order can proceed through the applicable fulfilment flow. A request or status displayed by the website is not, by itself, proof that an external payment has been collected or verified.',
+    ],
+  },
+  {
+    title: 'External links and availability',
+    paragraphs: [
+      'Links to manufacturer information and other external sites are provided for convenience; the destination site controls its own content and terms. Catalogue content and website features can change as dealership records and official sources are updated.',
+    ],
+  },
+  {
+    title: 'Questions',
+    paragraphs: [
+      'For help with a request, vehicle record, service appointment or order, contact Lucky Bajaj Agency through the dealership channel handling that request. These terms do not remove rights that apply under relevant law.',
+    ],
+  },
+];
+
+function CustomerLegalLinks({ onNavigate }: { onNavigate: (route: PublicLegalRoute) => void }) {
+  return (
+    <nav className="customer-legal-links" aria-label="Policies and legal information">
+      <button type="button" onClick={() => onNavigate('privacy')}>Privacy policy</button>
+      <button type="button" onClick={() => onNavigate('terms')}>Terms &amp; conditions</button>
+    </nav>
+  );
+}
+
+function QuantaEdgeAttribution() {
+  return (
+    <a className="quantaedge-attribution" href="https://qe.thinkwithsujeet.in/" target="_blank" rel="noreferrer"
+      aria-label="Developed by QuantaEdge — Smarter Decisions. Greater Growth.">
+      <span>Developed by</span>
+      <img src="/branding/quantaedge-logo.svg" alt="QuantaEdge — Smarter Decisions. Greater Growth." loading="lazy" />
+    </a>
+  );
+}
+
+function CustomerLegalFooter({ onNavigate }: { onNavigate: (route: PublicLegalRoute) => void }) {
+  return (
+    <footer className="public-footer customer-legal-footer">
+      <span className="customer-footer-copyright">© {new Date().getFullYear()} Lucky Bajaj Agency</span>
+      <CustomerLegalLinks onNavigate={onNavigate} />
+      <QuantaEdgeAttribution />
+    </footer>
+  );
+}
+
+function CustomerLegalPage({ kind, onNavigate }: {
+  kind: PublicLegalRoute;
+  onNavigate: (route: CustomerRoute) => void;
+}) {
+  const isPrivacy = kind === 'privacy';
+  const sections = isPrivacy ? PRIVACY_SECTIONS : TERMS_SECTIONS;
+  return (
+    <main className="public-legal-screen">
+      <header className="public-legal-header">
+        <a className="public-legal-brand" href="/" onClick={(event) => {
+          event.preventDefault();
+          onNavigate('showroom');
+        }} aria-label="Return to Lucky Bajaj showroom">
+          <span className="showroom-brand-mark">B</span>
+          <span><strong>LUCKY BAJAJ</strong><small>AUTHORISED DEALER EXPERIENCE</small></span>
+        </a>
+        <button type="button" className="public-legal-back" onClick={() => onNavigate('showroom')}>← Back to showroom</button>
+      </header>
+      <article className="public-legal-content">
+        <span className="public-legal-eyebrow">LUCKY BAJAJ AGENCY · CUSTOMER WEBSITE</span>
+        <h1>{isPrivacy ? 'Privacy policy' : 'Terms & conditions'}</h1>
+        <p className="public-legal-updated">Customer website information · Updated 29 October 2026</p>
+        <p className="public-legal-intro">{isPrivacy
+          ? 'This page explains the customer information used when you browse the Lucky Bajaj showroom or use its customer portal. Lucky Bajaj Agency operates the dealership workflows; QuantaEdge provides the software.'
+          : 'These terms explain the limits of the public catalogue and the request-based customer features provided through the Lucky Bajaj website.'}</p>
+        {sections.map((section) => (
+          <section className="public-legal-section" key={section.title}>
+            <h2>{section.title}</h2>
+            {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          </section>
+        ))}
+        <div className="public-legal-actions">
+          <button type="button" className="showroom-primary-action" onClick={() => onNavigate('showroom')}>Return to showroom <span>↗</span></button>
+          <button type="button" className="public-legal-signin" onClick={() => onNavigate('signin')}>Customer sign in</button>
+        </div>
+      </article>
+      <CustomerLegalFooter onNavigate={onNavigate} />
+    </main>
+  );
+}
+
 export default function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(SESSION_KEY) ?? '');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [route, setRoute] = useState<CustomerRoute>(routeFromLocation);
+  const [authMode, setAuthMode] = useState<AuthMode>(() => new URLSearchParams(window.location.search).get('view') === 'signup' ? 'activate' : 'login');
   const [loginIdentifierMode, setLoginIdentifierMode] = useState<LoginIdentifierMode>('customerCode');
-  const [showStorefront, setShowStorefront] = useState(true);
   const [tab, setTab] = useState<PortalTab>('home');
   const [loadingSession, setLoadingSession] = useState(Boolean(window.sessionStorage.getItem(SESSION_KEY)));
   const [loadingData, setLoadingData] = useState(false);
@@ -164,6 +327,24 @@ export default function App() {
   });
   const [cancelReasons, setCancelReasons] = useState<Record<string, string>>({});
 
+  const navigateCustomerRoute = useCallback((nextRoute: CustomerRoute, replace = false) => {
+    const url = new URL(window.location.href);
+    if (nextRoute === 'showroom') url.searchParams.delete('view');
+    else {
+      url.searchParams.set('view', nextRoute);
+      // Keep auth and legal URLs canonical even when the customer entered from a showroom anchor.
+      url.hash = '';
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      if (replace) window.history.replaceState(window.history.state, '', nextUrl);
+      else window.history.pushState(window.history.state, '', nextUrl);
+    }
+    setRoute(nextRoute);
+    setAuthMode(nextRoute === 'signup' ? 'activate' : 'login');
+  }, []);
+
   const clearSession = useCallback(() => {
     window.sessionStorage.removeItem(SESSION_KEY);
     setToken('');
@@ -179,7 +360,8 @@ export default function App() {
     setRetailDeliveryAddress('');
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
-  }, []);
+    navigateCustomerRoute('signin', true);
+  }, [navigateCustomerRoute]);
 
   const loadPortalData = useCallback(async (sessionToken: string) => {
     setLoadingData(true);
@@ -271,8 +453,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!token) {
-      setLoadingSession(false);
+    // Keep a canonical, reload-safe URL for each public/auth/portal screen.
+    navigateCustomerRoute(routeFromLocation(), true);
+    const syncRouteFromHistory = () => navigateCustomerRoute(routeFromLocation(), true);
+    window.addEventListener('popstate', syncRouteFromHistory);
+    return () => window.removeEventListener('popstate', syncRouteFromHistory);
+  }, [navigateCustomerRoute]);
+
+  useEffect(() => {
+    if (!token || route === 'privacy' || route === 'terms') {
+      if (!token) setLoadingSession(false);
       return;
     }
     let cancelled = false;
@@ -280,6 +470,7 @@ export default function App() {
       .then((profile) => {
         if (!cancelled) {
           setCustomer(profile);
+          navigateCustomerRoute('portal', true);
           void loadPortalData(token);
         }
       })
@@ -288,7 +479,7 @@ export default function App() {
       })
       .finally(() => { if (!cancelled) setLoadingSession(false); });
     return () => { cancelled = true; };
-  }, [token, clearSession, loadPortalData]);
+  }, [token, clearSession, loadPortalData, navigateCustomerRoute, route]);
 
   const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
@@ -299,8 +490,9 @@ export default function App() {
     const resumed = await resumePendingShowroomIntent(session.accessToken);
     setCustomer(session.customer);
     setToken(session.accessToken);
+    navigateCustomerRoute('portal', true);
     if (resumed === null) setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
-  }, [resumePendingShowroomIntent]);
+  }, [resumePendingShowroomIntent, navigateCustomerRoute]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -323,6 +515,7 @@ export default function App() {
       const resumed = await resumePendingShowroomIntent(session.accessToken);
       setCustomer(session.customer);
       setToken(session.accessToken);
+      navigateCustomerRoute('portal', true);
       if (resumed === null) setSuccess('You are signed in securely.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
@@ -351,6 +544,7 @@ export default function App() {
       const resumed = await resumePendingShowroomIntent(session.accessToken);
       setCustomer(session.customer);
       setToken(session.accessToken);
+      navigateCustomerRoute('portal', true);
       if (resumed === null) setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
@@ -561,8 +755,11 @@ export default function App() {
     try {
       await api<{ success: boolean }>('/api/v1/customer/auth/logout', currentToken, { method: 'POST' });
     } catch {
+      navigateCustomerRoute('signin', true);
       setError('This browser session has been cleared. The server could not confirm session revocation; sign in again before continuing.');
+      return;
     }
+    navigateCustomerRoute('showroom', true);
   }
 
   async function submitAppointment(event: FormEvent<HTMLFormElement>) {
@@ -626,12 +823,16 @@ export default function App() {
   const mostRecentService = history[0];
   const hasPendingShowroomIntent = Boolean(window.sessionStorage.getItem('qe_bajaj_pending_intent'));
 
+  if (route === 'privacy' || route === 'terms') {
+    return <CustomerLegalPage kind={route} onNavigate={navigateCustomerRoute} />;
+  }
+
   if (loadingSession) {
     return <main className="portal-loading"><div className="brand-mark">Q</div><h1>Opening your customer space</h1><p>Checking your secure session…</p></main>;
   }
 
   if (!token || !customer) {
-    if (showStorefront && authMode === 'login') {
+    if (route === 'showroom') {
       return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => {
         if (bike && action) {
           sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
@@ -645,9 +846,8 @@ export default function App() {
           setSuccess('');
         }
         setError('');
-        setAuthMode('login');
-        setShowStorefront(false);
-      }} />;
+        navigateCustomerRoute('signin');
+      }} onNavigate={navigateCustomerRoute} />;
     }
     return (
       <main className="portal-auth-screen">
@@ -655,6 +855,11 @@ export default function App() {
         <header className="portal-brand">
           <div className="brand-mark">Q</div>
           <div><strong>Quanta<span>Edge</span></strong><small>LUCKY BAJAJ CUSTOMER CARE</small></div>
+          <button type="button" className="auth-return-link" onClick={() => {
+            setError('');
+            setSuccess('');
+            navigateCustomerRoute('showroom');
+          }}>← Showroom</button>
         </header>
         <section className="auth-layout">
           <div className="auth-story">
@@ -675,8 +880,8 @@ export default function App() {
             {error && <div className="portal-alert alert-error" role="alert">{error}</div>}
             {success && <div className="portal-alert alert-success" role="status">{success}</div>}
             <div className="auth-mode-tabs" role="tablist" aria-label="Customer portal authentication">
-              <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}>Sign in</button>
-              <button type="button" role="tab" aria-selected={authMode === 'activate'} className={authMode === 'activate' ? 'active' : ''} onClick={() => { setAuthMode('activate'); setError(''); setSuccess(''); }}>Activate account</button>
+              <button type="button" role="tab" aria-selected={authMode === 'login'} className={authMode === 'login' ? 'active' : ''} onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('signin'); }}>Sign in</button>
+              <button type="button" role="tab" aria-selected={authMode === 'activate'} className={authMode === 'activate' ? 'active' : ''} onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('signup'); }}>Activate account</button>
             </div>
             {authMode === 'login' ? <form className="portal-form" onSubmit={submitLogin}>
               <label>Dealership code<input autoComplete="organization" required maxLength={40} value={loginForm.dealershipCode} onChange={(event) => setLoginForm((current) => ({ ...current, dealershipCode: event.target.value }))} placeholder="Lucky Bajaj code" /></label>
@@ -705,12 +910,12 @@ export default function App() {
               <div className="google-auth-panel__heading"><span className="google-auth-panel__spark">G</span><div><strong>{authMode === 'login' ? 'A simpler way to sign in' : 'Create access with Google'}</strong><small>Verified by Google · protected by QuantaEdge</small></div></div>
               <GoogleSignInButton requestUrl={apiRequestUrl} dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={(session) => void acceptGoogleSession(session)} />
             </div>
-            <button type="button" className="showroom-back-link" onClick={() => { setShowStorefront(true); setAuthMode('login'); setError(''); setSuccess(''); }}>← Back to Bajaj showroom</button>
+            <button type="button" className="showroom-back-link" onClick={() => { setError(''); setSuccess(''); navigateCustomerRoute('showroom'); }}>← Back to Bajaj showroom</button>
             <div className="invite-note"><strong>Need portal access?</strong><span>Ask Lucky Bajaj Agency to verify your customer record and issue an invitation. No account is created from public phone/email matching alone.</span></div>
             <div className="portal-auth-footer">Protected by QuantaEdge <span>•</span> Lucky Bajaj Agency</div>
           </section>
         </section>
-        <footer className="public-footer">© {new Date().getFullYear()} QuantaEdge <span>Made for your journey.</span></footer>
+        <CustomerLegalFooter onNavigate={navigateCustomerRoute} />
       </main>
     );
   }
