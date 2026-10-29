@@ -175,6 +175,7 @@ class NotificationManagementServiceIntegrationTest {
   }
 
   @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void sendNowDispatchesScheduledCampaignOnceAndPreservesApprovedContent() {
     StaffPrincipal owner = createOwner();
     NotificationManagementService.PreviewResult preview = notifications.preview(owner,
