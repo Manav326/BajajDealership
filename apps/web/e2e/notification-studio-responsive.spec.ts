@@ -204,25 +204,34 @@ for (const width of [320, 768, 1280]) {
     }
 
     await page.getByLabel('Campaign title').fill('Extra-long campaign title '.repeat(5));
+    await page.locator('.content-block-editor textarea').nth(1).fill('unbrokenmessage'.repeat(220));
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+      .toBeLessThanOrEqual(1);
+
+    // The real audience/approval surfaces must not introduce horizontal overflow.
+    await page.getByRole('button', { name: 'Preview audience', exact: true }).click();
+    await expect(page.locator('.preview-result')).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
   });
 }
 
-test('mobile navigation closes and restores body scrolling', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 760 });
-  await openNotificationStudio(page);
+for (const width of [320, 768]) {
+  test(`navigation drawer closes and restores body scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 760 });
+    await openNotificationStudio(page);
 
-  await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await expect(page.locator('.sidebar')).toHaveClass(/mobile-open/);
-  await expect.poll(() => page.locator('body').evaluate((element) => (element as HTMLElement).style.overflow))
-    .toBe('hidden');
+    await page.getByRole('button', { name: 'Open navigation menu' }).click();
+    await expect(page.locator('.sidebar')).toHaveClass(/mobile-open/);
+    await expect.poll(() => page.locator('body').evaluate((element) => (element as HTMLElement).style.overflow))
+      .toBe('hidden');
 
-  await page.locator('.sidebar .mobile-drawer-close').click();
-  await expect(page.locator('.sidebar')).not.toHaveClass(/mobile-open/);
-  await expect.poll(() => page.locator('body').evaluate((element) => (element as HTMLElement).style.overflow))
-    .toBe('');
-});
+    await page.locator('.sidebar .mobile-drawer-close').click();
+    await expect(page.locator('.sidebar')).not.toHaveClass(/mobile-open/);
+    await expect.poll(() => page.locator('body').evaluate((element) => (element as HTMLElement).style.overflow))
+      .toBe('');
+  });
+}
 
 test('desktop sidebar stays in view and scrolls independently', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 760 });
@@ -231,6 +240,13 @@ test('desktop sidebar stays in view and scrolls independently', async ({ page })
   const sidebar = page.locator('.app-shell > .sidebar');
   await expect.poll(() => sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('sticky');
   await expect.poll(() => sidebar.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
+  const sidebarHeight = await sidebar.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }));
+  expect(sidebarHeight.scrollHeight).toBeGreaterThan(sidebarHeight.clientHeight);
+  await sidebar.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(() => sidebar.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const bounds = await sidebar.boundingBox();
