@@ -105,7 +105,7 @@ type ArtworkDraft = {
 };
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
-type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; destinations: MetaDestination[] };
+type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; missingConfigurationKeys: string[]; missingPublishingConfigurationKeys: string[]; destinations: MetaDestination[] };
 type MetaPublishRequest = { publicId: string; assetPublicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
@@ -805,6 +805,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             </button>
           </div>
           {metaError && <div className={styles.error} role="alert">{metaError}</div>}
+          {!metaLoading && !!metaStatus?.missingConfigurationKeys?.length && (
+            <div className={styles.configurationNotice} role="status">
+              <strong>Meta connection configuration is incomplete</strong>
+              <p>The following setting(s) are missing or invalid. Add or correct them in the API deployment environment:</p>
+              <ul>{metaStatus.missingConfigurationKeys.map((key) => <li key={key}><code>{key}</code></li>)}</ul>
+            </div>
+          )}
+          {!metaLoading && !!metaStatus?.missingPublishingConfigurationKeys?.length && (
+            <div className={styles.configurationNotice} role="status">
+              <strong>Direct publishing is not configured</strong>
+              <p>Account connection can be configured separately, but direct publishing stays disabled until these settings are correct:</p>
+              <ul>{metaStatus.missingPublishingConfigurationKeys.map((key) => <li key={key}><code>{key}</code></li>)}</ul>
+            </div>
+          )}
           {!metaLoading && metaStatus?.destinations?.length ? (
             <div className={styles.destinations}>
               {metaStatus.destinations.map((destination) => (
@@ -824,7 +838,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             </div>
           ) : null}
           {canManage && metaStatus?.destinations?.some((destination) => destination.status === 'ACTIVE') && <button type="button" className={styles.textButton} disabled={metaDisconnecting || metaConnecting} onClick={() => void disconnectMeta()}>{metaDisconnecting ? 'Disconnecting accounts…' : 'Disconnect all Meta accounts'}</button>}
-          <p className={styles.metaFootnote}>{metaStatus?.publishingReady ? 'Direct publishing is configured. Each post needs confirmation and a provider-backed result.' : 'Publishing needs a public HTTPS media URL and asset-signing key. Connecting an account alone never publishes content.'}</p>
+          <p className={styles.metaFootnote}>{metaStatus?.publishingReady ? 'Direct publishing is configured. Each post needs confirmation and a provider-backed result.' : 'Direct publishing is disabled until every required setting is configured. The exact setting names are listed above; connecting an account alone never publishes content.'}</p>
         </section>
         <div className={styles.content}>
           <aside className={styles.controls}>

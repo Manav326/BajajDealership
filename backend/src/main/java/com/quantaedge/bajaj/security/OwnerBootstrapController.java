@@ -45,10 +45,16 @@ public class OwnerBootstrapController {
         join role r on r.id = ur.role_id
         where r.code = 'OWNER'
         """, Integer.class);
-    boolean available = configuredBootstrapToken != null
-        && !configuredBootstrapToken.isBlank()
-        && (provisionedOwners == null || provisionedOwners == 0);
-    return new BootstrapStatus(available);
+    boolean tokenConfigured = configuredBootstrapToken != null && !configuredBootstrapToken.isBlank();
+    boolean ownerAlreadyProvisioned = provisionedOwners != null && provisionedOwners > 0;
+    boolean available = tokenConfigured && !ownerAlreadyProvisioned;
+    java.util.List<String> missing = tokenConfigured ? java.util.List.of() : java.util.List.of("APP_BOOTSTRAP_TOKEN");
+    String message = !tokenConfigured
+        ? "Initial owner setup is unavailable because APP_BOOTSTRAP_TOKEN is not configured on the API."
+        : ownerAlreadyProvisioned
+            ? "Initial owner setup has already been completed."
+            : "Initial owner setup is ready.";
+    return new BootstrapStatus(available, message, missing);
   }
 
   @PostMapping("/bootstrap")
@@ -137,7 +143,7 @@ public class OwnerBootstrapController {
       @Size(max = 32) String phone,
       @NotBlank @Size(min = 12, max = 72) String password) {}
 
-  public record BootstrapStatus(boolean available) {}
+  public record BootstrapStatus(boolean available, String message, java.util.List<String> missingConfigurationKeys) {}
 
   public record BootstrapResponse(String status, String dealershipCode, String ownerName, String role) {}
 }

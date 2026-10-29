@@ -33,6 +33,10 @@ services:
         fromDatabase:
           name: lucky-bajaj-preview-db
           property: password
+      - key: DB_POOL_MAX
+        value: "10"
+      - key: DB_POOL_MIN
+        value: "2"
       - key: APP_VERSION
         value: preview
       - key: APP_BOOTSTRAP_TOKEN
@@ -42,6 +46,49 @@ services:
         sync: false
       - key: APP_NOTIFICATION_MEDIA_DIR
         value: /app/var/private-notification-media
+      - key: NOTIFICATION_DISPATCH_INTERVAL_MS
+        value: "15000"
+      - key: SOCIAL_MEDIA_STORAGE_BACKEND
+        value: database
+      - key: SOCIAL_MEDIA_MEDIA_DIR
+        value: ./var/social-media-assets
+      - key: SOCIAL_MEDIA_PUBLIC_BASE_URL
+        sync: false
+      - key: SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64
+        sync: false
+      - key: SOCIAL_MEDIA_PUBLISH_POLL_INTERVAL_MS
+        value: "15000"
+      - key: SOCIAL_MEDIA_PUBLISH_DISPATCH_INTERVAL_MS
+        value: "10000"
+      - key: SOCIAL_META_ENABLED
+        value: "false"
+      - key: SOCIAL_META_APP_ID
+        sync: false
+      - key: SOCIAL_META_APP_SECRET
+        sync: false
+      - key: SOCIAL_META_GRAPH_API_VERSION
+        sync: false
+      - key: SOCIAL_META_REDIRECT_URI
+        sync: false
+      - key: SOCIAL_META_COMPLETION_URL
+        sync: false
+      - key: SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64
+        sync: false
+      # WhatsApp uses the configured Meta Graph API version and Meta app secret for webhook validation.
+      - key: SOCIAL_WHATSAPP_ENABLED
+        value: "false"
+      - key: SOCIAL_WHATSAPP_DISPATCH_INTERVAL_MS
+        value: "15000"
+      - key: SOCIAL_WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: SOCIAL_WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: SOCIAL_WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: SOCIAL_WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: SOCIAL_WHATSAPP_DEALERSHIP_CODE
+        sync: false
       - key: APP_CORS_ALLOWED_ORIGIN_1
         fromService:
           type: web

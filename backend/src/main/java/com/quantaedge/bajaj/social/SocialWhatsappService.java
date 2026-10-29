@@ -58,12 +58,17 @@ public class SocialWhatsappService {
  }
 
  public StatusView status(StaffPrincipal actor) {
-  boolean configured=configuredFor(actor.dealershipId());
-  return new StatusView(configured,configured&&webhookConfigured(),
-   configured?"WhatsApp Cloud API is configured. Each send still requires current customer consent and an approved template."
-   :"WhatsApp Business is not configured for this dealership. Messaging is disabled.",
-   configured&&webhookConfigured()?"Signed delivery-status and inbound opt-out webhooks are configured."
-   :"Delivery updates require the Meta app secret, webhook token and phone-number configuration.");
+  List<String> missing = missingConfigurationKeys(actor.dealershipId());
+  List<String> missingWebhook = missingWebhookConfigurationKeys();
+  boolean configured = missing.isEmpty();
+  boolean webhookReady = missingWebhook.isEmpty();
+  String message = configured
+   ? "WhatsApp Cloud API is configured. Each send still requires current customer consent and an approved template."
+   : "WhatsApp messaging is not configured. Set or correct: " + String.join(", ", missing) + ".";
+  String webhookMessage = webhookReady
+   ? "Signed delivery-status and inbound opt-out webhooks are configured."
+   : "WhatsApp webhook processing is not fully configured. Set or correct: " + String.join(", ", missingWebhook) + ".";
+  return new StatusView(configured, webhookReady, message, webhookMessage, missing, missingWebhook);
  }
 
  public List<CustomerOption> customers(StaffPrincipal actor,String query,int requestedLimit) {
@@ -299,9 +304,38 @@ public class SocialWhatsappService {
    catch(InterruptedException e){Thread.currentThread().interrupt();throw new WhatsappProviderException("whatsapp_request_interrupted");}
  }
  private boolean configuredFor(long dealershipId){
-  if(!enabled||!graphVersion.matches("v[0-9]+\\.[0-9]+")||phoneNumberId.isBlank()||businessAccountId.isBlank()||accessToken.isBlank()||dealershipCode.isBlank())return false;
-  List<String> codes=jdbc.query("select code from dealership where id=? and status='ACTIVE'",(rs,n)->rs.getString(1),dealershipId);
-  return codes.size()==1&&dealershipCode.equals(codes.getFirst());
+  return missingConfigurationKeys(dealershipId).isEmpty();
+ }
+ List<String> missingConfigurationKeys(long dealershipId) {
+  List<String> missing = new ArrayList<>();
+  if (!enabled) missing.add("SOCIAL_WHATSAPP_ENABLED (set to true after credentials are supplied)");
+  if (!graphVersion.matches("v[0-9]+\\.[0-9]+")) missing.add("SOCIAL_META_GRAPH_API_VERSION (expected vN.N)");
+  if (phoneNumberId.isBlank()) missing.add("SOCIAL_WHATSAPP_PHONE_NUMBER_ID");
+  if (businessAccountId.isBlank()) missing.add("SOCIAL_WHATSAPP_BUSINESS_ACCOUNT_ID");
+  if (accessToken.isBlank()) missing.add("SOCIAL_WHATSAPP_ACCESS_TOKEN");
+  if (dealershipCode.isBlank()) {
+   missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE");
+  } else {
+   List<String> codes = jdbc.query("select code from dealership where id=? and status='ACTIVE'", (rs,n)->rs.getString(1), dealershipId);
+   if (codes.size()!=1 || !dealershipCode.equals(codes.getFirst())) {
+    missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE (must match this active dealership)");
+   }
+  }
+  return List.copyOf(missing);
+ }
+ List<String> missingWebhookConfigurationKeys() {
+  List<String> missing = new ArrayList<>();
+  if (!enabled) missing.add("SOCIAL_WHATSAPP_ENABLED (set to true after webhook credentials are supplied)");
+  if (phoneNumberId.isBlank()) missing.add("SOCIAL_WHATSAPP_PHONE_NUMBER_ID");
+  if (verifyToken.isBlank()) missing.add("SOCIAL_WHATSAPP_VERIFY_TOKEN");
+  if (appSecret.isBlank()) missing.add("SOCIAL_META_APP_SECRET");
+  if (dealershipCode.isBlank()) {
+   missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE (must match an active dealership)");
+  } else {
+   List<Long> ids = jdbc.query("select id from dealership where code=? and status='ACTIVE'", (rs,n)->rs.getLong(1), dealershipCode);
+   if (ids.size()!=1) missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE (must match an active dealership)");
+  }
+  return List.copyOf(missing);
  }
  private boolean webhookConfigured(){return enabled&&!phoneNumberId.isBlank()&&!verifyToken.isBlank()&&!appSecret.isBlank();}
  private Long configuredDealershipId(){
@@ -309,7 +343,13 @@ public class SocialWhatsappService {
   List<Long> ids=jdbc.query("select id from dealership where code=? and status='ACTIVE'",(rs,n)->rs.getLong(1),dealershipCode);
   return ids.size()==1?ids.getFirst():null;
  }
- private void requireConfigured(long id){if(!configuredFor(id))throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"WhatsApp Cloud API is not configured for this dealership.");}
+ private void requireConfigured(long id){
+  List<String> missing = missingConfigurationKeys(id);
+  if (!missing.isEmpty()) {
+   throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+     "WhatsApp Cloud API is not configured for this dealership. Set or correct: " + String.join(", ", missing) + ".");
+  }
+ }
  private Customer findCustomer(long dealershipId,UUID publicId){
   List<Customer> rows=jdbc.query("select id,public_id,full_name,phone from customer where dealership_id=? and public_id=? and status='ACTIVE'",
    (rs,n)->new Customer(rs.getLong("id"),rs.getObject("public_id",UUID.class),rs.getString("full_name"),rs.getString("phone")),dealershipId,publicId);
@@ -364,7 +404,8 @@ public class SocialWhatsappService {
  private record CountResult(int count,boolean valid){}
  private record MessageRow(long id,UUID publicId,long dealershipId,long customerId,String fingerprint,String status,String templateName,String languageCode,String category,String providerMessageId,String errorCode,Instant createdAt,Instant updatedAt,Instant acceptedAt,Instant sentAt,Instant deliveredAt,Instant readAt,Instant failedAt){}
  private static final class WhatsappProviderException extends RuntimeException{final String code;WhatsappProviderException(String code){super(code);this.code=code;}}
- public record StatusView(boolean configured,boolean webhookConfigured,String message,String webhookMessage){}
+ public record StatusView(boolean configured,boolean webhookConfigured,String message,String webhookMessage,
+  List<String> missingConfigurationKeys,List<String> missingWebhookConfigurationKeys){}
  public record CustomerOption(UUID publicId,String customerCode,String fullName,String maskedPhone,boolean validPhone,String consentStatus,String consentSource,Instant consentUpdatedAt){}
  public record ConsentRequest(@jakarta.validation.constraints.NotNull Boolean optedIn,@jakarta.validation.constraints.NotBlank String source,String evidenceReference){}
  public record ConsentView(UUID customerPublicId,String customerName,String maskedPhone,String status,String source,String evidenceReference,Instant consentedAt,Instant optedOutAt,Instant updatedAt){}

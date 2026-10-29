@@ -55,6 +55,7 @@ public class SocialMetaService {
   private final String tokenEncryptionKeyBase64;
   private final String socialMediaPublicBaseUrl;
   private final String socialMediaAssetSigningKeyBase64;
+  private final String mediaStorageBackend;
   private final SecureRandom secureRandom = new SecureRandom();
   private final HttpClient httpClient = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(10))
@@ -71,7 +72,8 @@ public class SocialMetaService {
       @Value("${app.social.meta.completion-url:}") String completionUrl,
       @Value("${app.social.meta.token-encryption-key-base64:}") String tokenEncryptionKeyBase64,
       @Value("${app.social.media.public-base-url:}") String socialMediaPublicBaseUrl,
-      @Value("${app.social.media.asset-signing-key-base64:}") String socialMediaAssetSigningKeyBase64) {
+      @Value("${app.social.media.asset-signing-key-base64:}") String socialMediaAssetSigningKeyBase64,
+      @Value("${app.social.media.storage-backend:database}") String mediaStorageBackend) {
     this.jdbc = jdbc;
     this.mapper = mapper;
     this.enabled = enabled;
@@ -83,6 +85,7 @@ public class SocialMetaService {
     this.tokenEncryptionKeyBase64 = clean(tokenEncryptionKeyBase64);
     this.socialMediaPublicBaseUrl = clean(socialMediaPublicBaseUrl);
     this.socialMediaAssetSigningKeyBase64 = clean(socialMediaAssetSigningKeyBase64);
+    this.mediaStorageBackend = clean(mediaStorageBackend);
   }
 
   public StatusView status(StaffPrincipal actor) {
@@ -96,13 +99,18 @@ public class SocialMetaService {
             rs.getString("display_name"), rs.getString("username"), rs.getString("status")),
         actor.dealershipId());
 
-    boolean configured = isConfigured();
-    boolean publishingReady = configured && isAssetPublishingConfigured();
+    List<String> missingConnectionSettings = missingConnectionSettings();
+    List<String> missingPublishingSettings = missingPublishingSettings();
+    boolean configured = missingConnectionSettings.isEmpty();
+    boolean publishingReady = configured && missingPublishingSettings.isEmpty();
+    String message = !configured
+        ? "Meta account connection is not configured. Set or correct: " + String.join(", ", missingConnectionSettings)
+            + ". External publishing remains disabled."
+        : publishingReady
+            ? "Meta is configured. Connected destinations can publish after staff confirmation."
+            : "Direct publishing is not configured. Set or correct: " + String.join(", ", missingPublishingSettings) + ".";
     return new StatusView(configured, publishingReady, configured ? "READY" : "CONFIGURATION_REQUIRED",
-        !configured ? "Meta account connection is not configured on the server. External publishing remains disabled."
-            : publishingReady ? "Meta is configured. Connected destinations can publish after staff confirmation."
-            : "Meta connection is configured, but direct publishing still needs public media URL and signing key settings.",
-        destinations);
+        message, missingConnectionSettings, missingPublishingSettings, destinations);
   }
 
   /** Disconnect linked Meta identities; always disable local publishing if remote revocation is uncertain. */
@@ -228,8 +236,38 @@ public class SocialMetaService {
   }
 
   boolean isMetaConfigured() { return isConfigured(); }
+
+  List<String> missingConnectionSettings() {
+    List<String> missing = new ArrayList<>();
+    if (!enabled) missing.add("SOCIAL_META_ENABLED (set to true after credentials are supplied)");
+    if (appId.isBlank()) missing.add("SOCIAL_META_APP_ID");
+    if (appSecret.isBlank()) missing.add("SOCIAL_META_APP_SECRET");
+    if (!graphApiVersion.matches("v[0-9]+\\.[0-9]+")) missing.add("SOCIAL_META_GRAPH_API_VERSION (expected vN.N)");
+    if (!isAbsoluteHttpUrl(redirectUri)) missing.add("SOCIAL_META_REDIRECT_URI (must be an allowed absolute HTTPS callback URL)");
+    if (!isAbsoluteHttpUrl(completionUrl)) missing.add("SOCIAL_META_COMPLETION_URL (must be an allowed absolute HTTPS URL)");
+    if (!hasValidEncryptionKey()) missing.add("SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64 (must decode to 32 bytes)");
+    return List.copyOf(missing);
+  }
+
+  List<String> missingPublishingSettings() {
+    List<String> missing = new ArrayList<>();
+    if (!isSafePublicBaseUrl(socialMediaPublicBaseUrl)) {
+      missing.add("SOCIAL_MEDIA_PUBLIC_BASE_URL (must be a public HTTPS origin; localhost HTTP is allowed for development)");
+    }
+    if (!isValidAssetSigningKey()) {
+      missing.add("SOCIAL_MEDIA_ASSET_SIGNING_KEY_BASE64 (must decode to 32 bytes)");
+    }
+    if (!"database".equalsIgnoreCase(mediaStorageBackend) && !"filesystem".equalsIgnoreCase(mediaStorageBackend)) {
+      missing.add("SOCIAL_MEDIA_STORAGE_BACKEND (must be database or filesystem)");
+    }
+    return List.copyOf(missing);
+  }
+
   private boolean isAssetPublishingConfigured() {
-    if (!isSafePublicBaseUrl(socialMediaPublicBaseUrl)) return false;
+    return missingPublishingSettings().isEmpty();
+  }
+
+  private boolean isValidAssetSigningKey() {
     try { return Base64.getDecoder().decode(socialMediaAssetSigningKeyBase64).length == 32; }
     catch (IllegalArgumentException badKey) { return false; }
   }
@@ -240,16 +278,14 @@ public class SocialMetaService {
     }catch(IllegalArgumentException e){return false;}
   }
   private boolean isConfigured() {
-    return enabled && !appId.isBlank() && !appSecret.isBlank()
-        && graphApiVersion.matches("v[0-9]+\\.[0-9]+")
-        && isAbsoluteHttpUrl(redirectUri) && isAbsoluteHttpUrl(completionUrl)
-        && hasValidEncryptionKey();
+    return missingConnectionSettings().isEmpty();
   }
 
   private void requireConfigured() {
-    if (!isConfigured()) {
+    List<String> missing = missingConnectionSettings();
+    if (!missing.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-          "Meta account connection is not configured. No external publishing is enabled.");
+          "Meta account connection is not configured. Set or correct: " + String.join(", ", missing) + ".");
     }
   }
 
@@ -539,7 +575,9 @@ public class SocialMetaService {
     return value == null ? "" : value.trim();
   }
 
-  public record StatusView(boolean configured, boolean publishingReady, String code, String message, List<DestinationView> destinations) {}
+  public record StatusView(boolean configured, boolean publishingReady, String code, String message,
+      List<String> missingConfigurationKeys, List<String> missingPublishingConfigurationKeys,
+      List<DestinationView> destinations) {}
   public record DestinationView(UUID publicId, String type, String displayName, String username, String status) {}
   public record ConnectResponse(String authorizationUrl, Instant stateExpiresAt) {}
   public record DisconnectResult(int connectionsDisconnected, int destinationsDisabled, int providerRevocationsConfirmed, String message) {}
