@@ -6,7 +6,7 @@ type Status = { configured: boolean; webhookConfigured: boolean; message: string
 type Customer = { publicId: string; customerCode: string; fullName: string; maskedPhone: string; validPhone: boolean; consentStatus: string; consentSource: string | null; consentUpdatedAt: string | null };
 type Template = { name: string; language: string; status: string; category: string | null; bodyParameterCount: number; headerFormat: string; supported: boolean; unsupportedReason: string | null };
 type Consent = { customerPublicId: string; customerName: string; maskedPhone: string; status: string; source: string; consentedAt: string | null; optedOutAt: string | null };
-type Message = { publicId: string; status: string; templateName: string; languageCode: string; providerMessageId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; sentAt: string | null; deliveredAt: string | null; readAt: string | null; failedAt: string | null };
+type Message = { publicId: string; status: string; templateName: string; languageCode: string; providerMessageId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; acceptedAt?: string | null; sentAt: string | null; deliveredAt: string | null; readAt: string | null; failedAt: string | null; scheduledAt?: string | null };
 type Props = { canRead: boolean; canManage: boolean; canSend: boolean; getArtworkJpeg: () => Promise<Blob> };
 
 async function readResponse<T>(response: Response): Promise<T> {
@@ -34,6 +34,8 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
   const [notice, setNotice] = useState('');
   const [message, setMessage] = useState<Message | null>(null);
   const [includeArtwork, setIncludeArtwork] = useState(false);
+  const [scheduledLocal, setScheduledLocal] = useState('');
+  const [scheduledMessages, setScheduledMessages] = useState<Message[]>([]);
 
   const customer = customers.find((item) => item.publicId === customerId) ?? null;
   const template = templates.find((item) => item.name + '|' + item.language === templateId) ?? null;
@@ -42,12 +44,14 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     setLoading(true);
     setError('');
     try {
-      const [currentStatus, list] = await Promise.all([
+      const [currentStatus, list, scheduled] = await Promise.all([
         apiFetch('/api/v1/admin/social/whatsapp/status', { cache: 'no-store' }).then(readResponse<Status>),
-        apiFetch('/api/v1/admin/social/whatsapp/customers?limit=100', { cache: 'no-store' }).then(readResponse<Customer[]>)
+        apiFetch('/api/v1/admin/social/whatsapp/customers?limit=100', { cache: 'no-store' }).then(readResponse<Customer[]>),
+        apiFetch('/api/v1/admin/social/whatsapp/scheduled?limit=25', { cache: 'no-store' }).then(readResponse<Message[]>)
       ]);
       setStatus(currentStatus);
       setCustomers(list);
+      setScheduledMessages(scheduled);
       setCustomerId((current) => current && list.some((item) => item.publicId === current) ? current : (list[0]?.publicId ?? ''));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'WhatsApp workspace could not load.');
@@ -119,7 +123,13 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     if ((template.headerFormat === 'IMAGE') !== includeArtwork) {
       setError('The image-header choice must match the selected template.'); return;
     }
-    if (!window.confirm('Send approved template "' + template.name + '" to ' + customer.fullName + ' (' + customer.maskedPhone + ')?')) return;
+    if (scheduledLocal && Number.isNaN(new Date(scheduledLocal).getTime())) { setError('Choose a valid local send time.'); return; }
+    const scheduledAt = scheduledLocal ? new Date(scheduledLocal).toISOString() : null;
+    if (scheduledAt && new Date(scheduledAt).getTime() < Date.now() + 120000) { setError('Schedule the send at least two minutes from now.'); return; }
+    const prompt = scheduledAt
+      ? 'Schedule approved template "' + template.name + '" for ' + customer.fullName + ' (' + customer.maskedPhone + ') at ' + new Date(scheduledAt).toLocaleString() + '? Consent and template approval will be rechecked when it dispatches.'
+      : 'Send approved template "' + template.name + '" to ' + customer.fullName + ' (' + customer.maskedPhone + ')?';
+    if (!window.confirm(prompt)) return;
     setBusy(true); setError(''); setNotice('');
     try {
       let assetId: string | null = null;
@@ -131,23 +141,29 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
           .then(readResponse<{ assetId: string }>);
         assetId = uploaded.assetId;
       }
-      const result = await apiFetch('/api/v1/admin/social/whatsapp/send', {
+      const payload = {
+        customerPublicId: customer.publicId,
+        templateName: template.name,
+        languageCode: template.language,
+        bodyParameters: parameters,
+        assetId,
+        idempotencyKey: makeIdempotencyKey(),
+        ...(scheduledAt ? { scheduledAt } : {})
+      };
+      const endpoint = scheduledAt ? '/api/v1/admin/social/whatsapp/schedule' : '/api/v1/admin/social/whatsapp/send';
+      const result = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerPublicId: customer.publicId,
-          templateName: template.name,
-          languageCode: template.language,
-          bodyParameters: parameters,
-          assetId,
-          idempotencyKey: makeIdempotencyKey()
-        })
+        body: JSON.stringify(payload)
       }).then(readResponse<Message>);
       setMessage(result);
-      setNotice(result.status === 'ACCEPTED'
-        ? 'Meta accepted the message request. Delivery status will update from signed webhooks.'
-        : 'WhatsApp message status: ' + result.status + '.');
-      if (result.status === 'ACCEPTED') void loadWorkspace();
+      setScheduledLocal('');
+      setNotice(result.status === 'SCHEDULED'
+        ? 'WhatsApp send scheduled. The worker will recheck consent, phone and template approval before sending.'
+        : result.status === 'ACCEPTED'
+          ? 'Meta accepted the message request. Delivery status will update from signed webhooks.'
+          : 'WhatsApp message status: ' + result.status + '.');
+      void loadWorkspace();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'WhatsApp message could not be submitted.');
     } finally { setBusy(false); }
@@ -159,6 +175,20 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     try {
       const result = await apiFetch('/api/v1/admin/social/whatsapp/messages/' + message.publicId, { cache: 'no-store' })
         .then(readResponse<Message>);
+      setMessage(result);
+      setScheduledMessages((old) => old.map((item) => item.publicId === result.publicId ? result : item));
+      setNotice('Provider status: ' + result.status + '.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Message status could not be refreshed.');
+    }
+  }
+
+  async function refreshMessageFor(item: Message) {
+    setError('');
+    try {
+      const result = await apiFetch('/api/v1/admin/social/whatsapp/messages/' + item.publicId, { cache: 'no-store' })
+        .then(readResponse<Message>);
+      setScheduledMessages((old) => old.map((value) => value.publicId === item.publicId ? result : value));
       setMessage(result);
       setNotice('Provider status: ' + result.status + '.');
     } catch (cause) {
@@ -225,7 +255,11 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
           <input maxLength={1024} value={value} onChange={(event) => setParameters((old) => old.map((item, i) => i === index ? event.target.value : item))} placeholder={'Value for {{' + (index + 1) + '}}'} />
         </label>)}
         {template?.headerFormat === 'IMAGE' && <label className={styles.check}><input type="checkbox" checked={includeArtwork} onChange={(event) => setIncludeArtwork(event.target.checked)} /> Use current artwork as the image header.</label>}
-        <button type="button" className={styles.primary} disabled={!canSend || !status?.configured || busy || !template || !template.supported || !customer || customer.consentStatus !== 'OPTED_IN' || !customer.validPhone} onClick={() => void send()}>{busy ? 'Processing…' : 'Send WhatsApp template'}</button>
+        <label>Schedule send (optional)
+          <input type="datetime-local" value={scheduledLocal} min={new Date(Date.now()+120000).toISOString().slice(0,16)} onChange={(event) => setScheduledLocal(event.target.value)} disabled={busy} />
+        </label>
+        <p className={styles.note}>Leave blank to send now. Scheduled messages run server-side and recheck the customer's current opt-in at dispatch time.</p>
+        <button type="button" className={styles.primary} disabled={!canSend || !status?.configured || busy || !template || !template.supported || !customer || customer.consentStatus !== 'OPTED_IN' || !customer.validPhone} onClick={() => void send()}>{busy ? 'Processing…' : scheduledLocal ? 'Schedule WhatsApp template' : 'Send WhatsApp template'}</button>
         {!canSend && <p className={styles.note}>Your role cannot send WhatsApp messages.</p>}
         {message && <div className={styles.messageResult}>
           <div><strong>Latest message</strong><span>{message.status}</span></div>
@@ -234,6 +268,14 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
         </div>}
       </section>
     </div>
+    {scheduledMessages.length > 0 && <section className={styles.card}>
+      <div className={styles.cardHeading}><h4>Scheduled WhatsApp messages</h4><button type="button" className={styles.secondary} disabled={busy || loading} onClick={() => void loadWorkspace()}>Refresh queue</button></div>
+      {scheduledMessages.map((item) => <div key={item.publicId} className={styles.messageResult}>
+        <div><strong>{item.templateName}</strong><span>{item.status}</span></div>
+        <p>{item.scheduledAt ? new Date(item.scheduledAt).toLocaleString() : 'Scheduled time unavailable'}{item.errorCode ? ' · ' + item.errorCode : ''}</p>
+        <button type="button" className={styles.textButton} disabled={busy} onClick={() => { setMessage(item); void refreshMessageFor(item); }}>Refresh status</button>
+      </div>)}
+    </section>}
     <p className={styles.note}>A provider acceptance is not proof of delivery. Signed webhooks update sent, delivered, read and failed states; inbound STOP and equivalent keywords withdraw recorded consent.</p>
   </section>;
 }

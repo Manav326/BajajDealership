@@ -131,7 +131,7 @@ public class SocialWhatsappScheduleService {
 
   public ScheduledMessageView status(StaffPrincipal actor, UUID publicId) {
     List<ScheduledRow> rows = jdbc.query("""
-        select id,public_id,dealership_id,request_fingerprint,status,template_name,language_code,
+        select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,
           error_code,created_at,updated_at,scheduled_at,message_send_id
         from whatsapp_scheduled_send where dealership_id=? and public_id=?
         """, (rs, n) -> mapRow(rs), actor.dealershipId(), publicId);
@@ -247,7 +247,7 @@ public class SocialWhatsappScheduleService {
 
   private ScheduledMessageView view(long dealershipId, UUID publicId) {
     ScheduledRow row = jdbc.query("""
-        select id,public_id,dealership_id,request_fingerprint,status,template_name,language_code,
+        select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,
           error_code,created_at,updated_at,scheduled_at,message_send_id
         from whatsapp_scheduled_send where dealership_id=? and public_id=?
         """, (rs, n) -> mapRow(rs), dealershipId, publicId).stream().findFirst().orElseThrow(SocialWhatsappScheduleService::notFound);
@@ -272,7 +272,7 @@ public class SocialWhatsappScheduleService {
 
   private ScheduledRow findByKey(long dealershipId, String key) {
     List<ScheduledRow> rows = jdbc.query("""
-        select id,public_id,dealership_id,request_fingerprint,status,template_name,language_code,
+        select id,public_id,dealership_id,created_by_staff_user_id,request_fingerprint,status,template_name,language_code,
           error_code,created_at,updated_at,scheduled_at,message_send_id
         from whatsapp_scheduled_send where dealership_id=? and idempotency_key=?
         """, (rs, n) -> mapRow(rs), dealershipId, key);
@@ -285,9 +285,9 @@ public class SocialWhatsappScheduleService {
     long messageId = rs.getLong("message_send_id");
     Long messageSendId = rs.wasNull() ? null : messageId;
     return new ScheduledRow(rs.getLong("id"), rs.getObject("public_id", UUID.class), rs.getLong("dealership_id"),
-        rs.getString("request_fingerprint"), rs.getString("status"), rs.getString("template_name"),
+        rs.getLong("created_by_staff_user_id"), rs.getString("request_fingerprint"), rs.getString("status"), rs.getString("template_name"),
         rs.getString("language_code"), rs.getString("error_code"), created.toInstant(), updated.toInstant(),
-        scheduled.toInstant(), messageSendId, hasColumn(rs, "created_by_staff_user_id") ? rs.getLong("created_by_staff_user_id") : 0L);
+        scheduled.toInstant(), messageSendId);
   }
 
   private Customer findCustomer(long dealershipId, UUID publicId) {
@@ -343,8 +343,8 @@ public class SocialWhatsappScheduleService {
   private record Customer(long id,UUID publicId,String name,String phone){}
   private record Consent(String phone,String status){}
   private record DispatchData(StaffPrincipal actor,UUID customerPublicId,List<String> parameters,UUID assetPublicId){}
-  private record ScheduledRow(long id,UUID publicId,long dealershipId,String fingerprint,String status,String templateName,
-      String languageCode,String errorCode,Instant createdAt,Instant updatedAt,Instant scheduledAt,Long messageSendId,long createdBy){}
+  private record ScheduledRow(long id,UUID publicId,long dealershipId,long createdBy,String fingerprint,String status,String templateName,
+      String languageCode,String errorCode,Instant createdAt,Instant updatedAt,Instant scheduledAt,Long messageSendId){}
   public record ScheduleRequest(@NotNull UUID customerPublicId,@NotBlank @Size(max=120) String templateName,
       @NotBlank @Size(max=32) String languageCode,List<String> bodyParameters,UUID assetId,
       @NotBlank @Size(max=120) String idempotencyKey,@NotNull Instant scheduledAt){}

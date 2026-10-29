@@ -180,6 +180,17 @@ public class SocialWhatsappService {
  }
 
  public MessageView messageStatus(StaffPrincipal actor,UUID id){return toView(findByPublicId(actor.dealershipId(),id));}
+ public MessageView messageByInternalIdForSchedule(long dealershipId,long messageId){
+  List<MessageRow> rows=jdbc.query("select id,public_id,dealership_id,customer_id,request_fingerprint,status,template_name,language_code,template_category,provider_message_id,error_code,created_at,updated_at,accepted_at,sent_at,delivered_at,read_at,failed_at from whatsapp_message_send where dealership_id=? and id=?",
+    (rs,n)->mapMessage(rs),dealershipId,messageId);
+  if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"WhatsApp message was not found.");
+  return toView(rows.getFirst());
+ }
+ public MessageView messageByIdempotencyKeyForSchedule(long dealershipId,String key){
+  MessageRow row=findByKey(dealershipId,key);
+  if(row==null)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"WhatsApp message was not found.");
+  return toView(row);
+ }
  public boolean verifyWebhook(String mode,String token,String challenge){
   return "subscribe".equals(mode)&&!verifyToken.isBlank()&&token!=null&&challenge!=null&&challenge.length()<=2000
     &&MessageDigest.isEqual(verifyToken.getBytes(StandardCharsets.UTF_8),token.getBytes(StandardCharsets.UTF_8));
