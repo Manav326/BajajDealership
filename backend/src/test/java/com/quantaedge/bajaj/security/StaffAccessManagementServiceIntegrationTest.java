@@ -24,6 +24,7 @@ class StaffAccessManagementServiceIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private StaffAccessManagementService access;
+  @Autowired private StaffAuthenticationService authentication;
 
   private StaffPrincipal owner;
   private long dealershipId;
@@ -143,5 +144,36 @@ class StaffAccessManagementServiceIntegrationTest {
         select count(*) from audit_event where dealership_id = ? and entity_id = ?
           and action = 'STAFF_STATUS_CHANGED'
         """, Integer.class, dealershipId, invite.staffPublicId().toString())).isEqualTo(2);
+  }
+
+  @Test
+  void socialMediaCoordinatorCanUseSharedChannelsWithoutManagingConnections() {
+    var role = access.roleOptions(owner).stream()
+        .filter(option -> option.code().equals("SOCIAL_MEDIA_COORDINATOR"))
+        .findFirst()
+        .orElseThrow();
+
+    assertThat(role.permissions()).contains(
+        "social_media.read",
+        "social_media.publish",
+        "social_media.whatsapp.read",
+        "social_media.whatsapp.manage",
+        "social_media.whatsapp.send");
+    assertThat(role.permissions()).doesNotContain("social_media.manage");
+
+    String email = "social-" + UUID.randomUUID() + "@example.test";
+    var invite = access.invite(owner, "Social Media Coordinator", email, null,
+        List.of("SOCIAL_MEDIA_COORDINATOR"), "Authorize social media operations");
+    String password = "Social-Coordinator-Password-2026";
+    access.activate(invite.activationToken(), password);
+
+    var session = authentication.login(dealershipCode, email, password, "127.0.0.1", "test");
+    assertThat(session.principal().permissions()).contains(
+        "social_media.read",
+        "social_media.publish",
+        "social_media.whatsapp.read",
+        "social_media.whatsapp.manage",
+        "social_media.whatsapp.send");
+    assertThat(session.principal().permissions()).doesNotContain("social_media.manage");
   }
 }
