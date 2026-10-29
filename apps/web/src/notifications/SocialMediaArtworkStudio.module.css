@@ -172,3 +172,4 @@
   .clipPresets { gap:4px; }
   .clipPreset,.clipPresetActive { padding:8px 2px; }
 }
+.musicRightsWarning { padding:6px 7px; border:1px solid #f1c3a7; border-radius:7px; background:#fff4ec; color:#99401d; font-size:9px; line-height:1.45; font-weight:750; }
