@@ -119,6 +119,48 @@ class CustomerServiceIntegrationTest {
             .isEqualTo(HttpStatus.NOT_FOUND));
   }
 
+
+  @Test
+  void staffProfileShowsCustomerAddressesAndPrivatePhotoOnlyInsideItsDealership() {
+    StaffPrincipal owner = createOwner("PROFILE");
+    CustomerService.CustomerView created = customers.create(owner,
+        new CustomerService.CustomerRequest("Profile Customer", "9876500099", null, "profile@example.test",
+            "en", false, null, null));
+    Long customerId = jdbc.queryForObject("""
+        select id from customer where dealership_id = ? and public_id = ?
+        """, Long.class, owner.dealershipId(), created.publicId());
+    jdbc.update("""
+        insert into customer_address(dealership_id, customer_id, label, recipient_name, phone,
+          address_line1, locality, city, district, state, postal_code, country, is_default_delivery)
+        values (?, ?, 'HOME', 'Profile Customer', '9876500099', '12 Sample Road',
+          'Station Road', 'Bettiah', 'West Champaran', 'Bihar', '845438', 'India', true)
+        """, owner.dealershipId(), customerId);
+    byte[] png = java.util.Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=");
+    jdbc.update("""
+        insert into customer_profile_photo(dealership_id, customer_id, content_type, image_bytes, byte_length)
+        values (?, ?, 'image/png', ?, ?)
+        """, owner.dealershipId(), customerId, png, png.length);
+
+    var addresses = customers.savedAddresses(owner, created.publicId());
+    assertThat(addresses).hasSize(1);
+    assertThat(addresses.getFirst().isDefaultDelivery()).isTrue();
+    assertThat(addresses.getFirst().addressLine1()).isEqualTo("12 Sample Road");
+    var photo = customers.profilePhoto(owner, created.publicId());
+    assertThat(photo.contentType()).isEqualTo("image/png");
+    assertThat(photo.bytes()).containsExactly(png);
+
+    StaffPrincipal anotherDealership = createOwner("PROFILE_OTHER");
+    assertThatThrownBy(() -> customers.savedAddresses(anotherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+    assertThatThrownBy(() -> customers.profilePhoto(anotherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+  }
+
   private StaffPrincipal createOwner(String suffix) {
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     String code = "TST-" + suffix + "-" + unique;
