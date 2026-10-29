@@ -463,27 +463,143 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     return () => { cancelled = true; };
   }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility]);
 
-  function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
+  async function refreshArtworkAssets() {
+    const assets = await loadArtworkAssets();
+    Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    const previews: Record<string, string> = {};
+    const createdUrls: Record<string, string> = {};
+    for (const asset of assets) {
+      if (asset.fileData) {
+        const url = URL.createObjectURL(asset.fileData);
+        previews[asset.id] = url;
+        createdUrls[asset.id] = url;
+      } else {
+        previews[asset.id] = asset.sourceUrl ?? '';
+      }
+    }
+    assetPreviewUrlsRef.current = createdUrls;
+    setArtworkAssets(assets);
+    setAssetPreviewSources(previews);
+  }
+
+  async function selectArtworkAsset(asset: ArtworkAsset) {
+    setAssetBusyId(asset.id);
+    setError('');
+    setNotice('');
+    try {
+      const source = await resolveArtworkAssetSource(asset);
+      setPhotoSource(source);
+      setSelectedAssetId(asset.id);
+      await refreshArtworkAssets();
+      setNotice(asset.name + ' is now selected and cached in this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be imported into the asset library.');
+    } finally {
+      setAssetBusyId(null);
+    }
+  }
+
+  async function applyArtworkTemplate(template: ArtworkTemplate) {
+    setFormatId(template.formatId);
+    setHeadline(template.headline);
+    setMessage(template.message);
+    setCallToAction(template.callToAction);
+    setCaption(template.caption);
+    setHashtags(template.hashtags);
+    setPrimary(template.primary);
+    setAccent(template.accent);
+    setLayerVisibility(defaultArtworkLayers);
+    setError('');
+    setNotice('');
+    let asset = artworkAssets.find((item) => item.id === template.assetId);
+    if (!asset) {
+      await refreshArtworkAssets();
+      asset = artworkAssets.find((item) => item.id === template.assetId);
+    }
+    if (!asset) {
+      setError('The template image is missing from the asset library. Refresh the studio and try again.');
+      return;
+    }
+    await selectArtworkAsset(asset);
+    setNotice(template.name + ' template loaded. Review the wording, dealership details and any offer terms before exporting.');
+  }
+
+  async function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     setError('');
     setNotice('');
     if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      setError('Choose a PNG, JPEG or WebP image.');
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setError('Only PNG and JPEG files can be stored in the asset library.');
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setError('Choose an image smaller than 8 MB.');
+    if (file.size < 1 || file.size > ARTWORK_ASSET_MAX_BYTES) {
+      setError('Choose a JPEG or PNG image no larger than 4.5 MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setPhotoSource(reader.result);
-      else setError('The image could not be read.');
+    if (typeof createImageBitmap === 'function') {
+      let bitmap: ImageBitmap | undefined;
+      try {
+        bitmap = await createImageBitmap(file);
+        if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 20_000_000) {
+          setError('This image has invalid or excessive dimensions (maximum 20 megapixels).');
+          return;
+        }
+      } catch {
+        setError('The selected file is not a readable PNG or JPEG image.');
+        return;
+      } finally {
+        bitmap?.close();
+      }
+    }
+    const asset: ArtworkAsset = {
+      id: newDraftId(),
+      name: file.name.replace(/\\.[^.]+$/, '').slice(0, 100) || 'Uploaded image',
+      category: 'Uploaded',
+      sourceUrl: null,
+      sourcePage: 'Uploaded locally by an authorized staff user',
+      credit: 'User-uploaded asset',
+      mimeType: file.type as ArtworkAsset['mimeType'],
+      isStarter: false,
+      createdAt: new Date().toISOString(),
+      fileData: file.slice(0, file.size, file.type),
     };
-    reader.onerror = () => setError('The image could not be read.');
-    reader.readAsDataURL(file);
+    setAssetBusyId(asset.id);
+    try {
+      await addArtworkAsset(asset);
+      setPhotoSource(await blobToDataUrl(asset.fileData));
+      setSelectedAssetId(asset.id);
+      await refreshArtworkAssets();
+      setAssetLibraryOpen(true);
+      setNotice('Image uploaded to the browser-local asset library.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be added to the asset library.');
+    } finally {
+      setAssetBusyId(null);
+    }
+  }
+
+  async function deleteLibraryAsset(asset: ArtworkAsset) {
+    if (asset.isStarter) return;
+    if (!window.confirm('Remove "' + asset.name + '" from this browser’s artwork asset library? Saved drafts that already use it will not be changed.')) return;
+    setError('');
+    setNotice('');
+    try {
+      await removeArtworkAsset(asset.id);
+      if (selectedAssetId === asset.id) {
+        setSelectedAssetId(null);
+        setPhotoSource(null);
+      }
+      await refreshArtworkAssets();
+      setNotice('Uploaded asset removed from this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be removed.');
+    }
+  }
+
+  function toggleArtworkLayer(layer: keyof ArtworkLayerVisibility, visible: boolean) {
+    setLayerVisibility((current) => ({ ...current, [layer]: visible }));
   }
 
 
@@ -655,6 +771,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         primary,
         accent,
         photoSource,
+        layers: layerVisibility,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -696,6 +813,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setPrimary(draft.primary);
       setAccent(draft.accent);
       setPhotoSource(draft.photoSource);
+      setLayerVisibility(draft.layers ?? defaultArtworkLayers);
+      setSelectedAssetId(null);
       setNotice('Saved draft loaded.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected draft could not be loaded.');
@@ -738,6 +857,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setPrimary('#15213a');
     setAccent('#f97316');
     setPhotoSource(null);
+    setSelectedAssetId(null);
+    setLayerVisibility(defaultArtworkLayers);
     setError('');
     setNotice('Started a new draft. Save it to keep it on this browser.');
   }
