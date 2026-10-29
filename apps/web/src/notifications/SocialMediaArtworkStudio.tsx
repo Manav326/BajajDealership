@@ -1572,6 +1572,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                       </button>}
                       {!track.isStarter && <button type="button" className={styles.textButton} onClick={() => void deleteMusicTrack(track)} disabled={videoExporting}>Remove</button>}
                     </div>
+                    {track.contentIdRegistered && <small className={styles.musicRightsWarning}>Content ID registered · automated claims, muting or blocking may occur on social platforms.</small>}
                     <small className={styles.musicLicense}>{track.licenseLabel}</small>
                   </article>
                 ))}
