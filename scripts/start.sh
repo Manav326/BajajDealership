@@ -60,10 +60,10 @@ fi
 
 if [ "$GENERATED_BOOTSTRAP_TOKEN" -eq 1 ]; then
   echo ""
-  echo "One-time initial owner setup token (local only):"
+  echo "One-time FIRST OWNER setup token (paste into the Owner setup screen at http://localhost:3001):"
   sed -n 's/^[[:space:]]*APP_BOOTSTRAP_TOKEN[[:space:]]*=[[:space:]]*//p' "$ROOT_ENV" | tail -n 1
-  echo "Use this in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap."
-  echo "After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api."
+  echo "This is not a staff invitation token. Use the web UI to create the first dealership owner."
+  echo "The API rejects all further bootstrap attempts once the first owner is created."
   echo ""
 fi
 
