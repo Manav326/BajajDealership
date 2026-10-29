@@ -656,3 +656,58 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
 .showroom-modal-copy .showroom-ride-time-note,.showroom-modal-copy .showroom-ride-time-error{font-size:10px;line-height:1.6;margin:8px 0 0}
 .showroom-modal-copy .showroom-ride-time-note{color:#8fa1b4}
 .showroom-modal-copy .showroom-ride-time-error{color:#ffb7aa}
+
+
+/* Sourced location-specific estimate: content is data-driven and remains honest when no profile exists. */
+.showroom-quote-panel {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(159, 177, 191, .24);
+  border-radius: 14px;
+  background: rgba(15, 26, 37, .36);
+}
+.showroom-quote-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.showroom-quote-heading strong { color: var(--showroom-text, #f6f7fa); font-size: 13px; }
+.showroom-quote-heading span,
+.showroom-quote-panel > p { color: var(--showroom-muted, #a7b2bf); font-size: 11px; line-height: 1.6; }
+.showroom-quote-result {
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(159, 177, 191, .22);
+}
+.showroom-quote-result > small { color: var(--showroom-muted, #a7b2bf); font-size: 10px; }
+.showroom-quote-line,
+.showroom-quote-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+.showroom-quote-line span { color: var(--showroom-muted, #a7b2bf); }
+.showroom-quote-line strong { color: var(--showroom-text, #f6f7fa); font-weight: 600; white-space: nowrap; }
+.showroom-quote-total { padding-top: 10px; border-top: 1px solid rgba(159, 177, 191, .24); font-size: 12px; }
+.showroom-quote-total strong { color: #f4c76c; font-size: 17px; white-space: nowrap; }
+.showroom-quote-result > a { color: #f4c76c; font-size: 11px; width: fit-content; }
+.showroom-quote-result > p { color: var(--showroom-muted, #a7b2bf); font-size: 10px; line-height: 1.6; margin: 0; }
+.showroom-quote-disclaimer { font-weight: 600; }
+.showroom-onroad-note {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.showroom-onroad-note strong { margin-left: 4px; }
