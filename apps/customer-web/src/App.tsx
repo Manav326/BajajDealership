@@ -42,6 +42,7 @@ type CustomerSalesRequest = {
 
 type PendingShowroomIntent = {
   action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
+  preferredAt?: string | null;
 };
 type RetailPart = {
   publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
@@ -210,7 +211,9 @@ export default function App() {
       const parsed = JSON.parse(raw) as Partial<PendingShowroomIntent>;
       if ((parsed.action !== 'TEST_RIDE' && parsed.action !== 'PURCHASE')
         || typeof parsed.modelCode !== 'string' || typeof parsed.modelName !== 'string'
-        || typeof parsed.idempotencyKey !== 'string') {
+        || typeof parsed.idempotencyKey !== 'string'
+        || (parsed.preferredAt != null && (typeof parsed.preferredAt !== 'string'
+          || !Number.isFinite(Date.parse(parsed.preferredAt))))) {
         throw new Error('The saved showroom selection is incomplete. Please select the Bajaj model again.');
       }
       intent = parsed as PendingShowroomIntent;
@@ -225,7 +228,7 @@ export default function App() {
         body: JSON.stringify({
           requestType: intent.action,
           modelCode: intent.modelCode,
-          preferredAt: null,
+          preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt ?? null : null,
           notes: 'Request started from the public Bajaj showroom.',
           idempotencyKey: intent.idempotencyKey,
         }),
@@ -235,7 +238,9 @@ export default function App() {
       setSalesRequests(current);
       setTab('requests');
       setSuccess(intent.action === 'TEST_RIDE'
-        ? `Your test-ride request for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm the bike and time.`
+        ? intent.preferredAt
+          ? `Your test-ride request for ${intent.modelName}, with preferred time ${new Date(intent.preferredAt).toLocaleString('en-IN')}, was sent to Lucky Bajaj. The team must confirm the bike and slot.`
+          : `Your test-ride request for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm the bike and time.`
         : `Your purchase enquiry for ${intent.modelName} was sent to Lucky Bajaj. The team will confirm availability and the next steps.`);
       return true;
     } catch (cause) {
@@ -535,10 +540,11 @@ export default function App() {
 
   if (!token || !customer) {
     if (showStorefront && authMode === 'login') {
-      return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction) => {
+      return <BajajShowroom onSignIn={(bike?: ShowroomBike, action?: ShowroomAction, preferredAt?: string | null) => {
         if (bike && action) {
           sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify({
             action, modelCode: bike.modelCode, modelName: bike.modelName,
+            preferredAt: action === 'TEST_RIDE' ? preferredAt ?? null : null,
             selectedAt: new Date().toISOString(),
             idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `qe-sales-${Date.now()}-${Math.random().toString(16).slice(2)}`,
           }));
