@@ -96,11 +96,12 @@ public class SocialMediaWorkflowService {
   public List<PublishRequestView> list(StaffPrincipal actor, int requestedLimit) {
     int limit = Math.max(1, Math.min(100, requestedLimit));
     return jdbc.query("""
-        select r.public_id,r.status,d.destination_type,d.display_name,r.caption,r.created_at,
+        select r.public_id,a.public_id asset_public_id,r.status,d.destination_type,d.display_name,r.caption,r.created_at,
           r.scheduled_at,r.approved_at,creator.full_name requested_by,approver.full_name approved_by,
           coalesce(j.status,r.status) effective_status,j.external_post_id,coalesce(j.error_code,r.error_code) effective_error
         from social_media_publish_request r
         join social_media_destination d on d.id=r.destination_id and d.dealership_id=r.dealership_id
+        join social_media_asset a on a.id=r.asset_id and a.dealership_id=r.dealership_id
         join staff_user creator on creator.id=r.created_by_staff_user_id and creator.dealership_id=r.dealership_id
         left join staff_user approver on approver.id=r.approved_by_staff_user_id and approver.dealership_id=r.dealership_id
         left join social_media_publish_job j on j.dealership_id=r.dealership_id
@@ -291,11 +292,12 @@ public class SocialMediaWorkflowService {
 
   private PublishRequestView findView(long dealershipId, UUID publicId) {
     List<PublishRequestView> rows = jdbc.query("""
-        select r.public_id,r.status,d.destination_type,d.display_name,r.caption,r.created_at,
+        select r.public_id,a.public_id asset_public_id,r.status,d.destination_type,d.display_name,r.caption,r.created_at,
           r.scheduled_at,r.approved_at,creator.full_name requested_by,approver.full_name approved_by,
           coalesce(j.status,r.status) effective_status,j.external_post_id,coalesce(j.error_code,r.error_code) effective_error
         from social_media_publish_request r
         join social_media_destination d on d.id=r.destination_id and d.dealership_id=r.dealership_id
+        join social_media_asset a on a.id=r.asset_id and a.dealership_id=r.dealership_id
         join staff_user creator on creator.id=r.created_by_staff_user_id and creator.dealership_id=r.dealership_id
         left join staff_user approver on approver.id=r.approved_by_staff_user_id and approver.dealership_id=r.dealership_id
         left join social_media_publish_job j on j.dealership_id=r.dealership_id
@@ -309,7 +311,7 @@ public class SocialMediaWorkflowService {
   private static PublishRequestView viewFromResult(java.sql.ResultSet rs) throws java.sql.SQLException {
     Timestamp scheduled = rs.getTimestamp("scheduled_at");
     Timestamp approved = rs.getTimestamp("approved_at");
-    return new PublishRequestView(rs.getObject("public_id", UUID.class), rs.getString("status"),
+    return new PublishRequestView(rs.getObject("public_id", UUID.class), rs.getObject("asset_public_id", UUID.class), rs.getString("status"),
         rs.getString("destination_type"), rs.getString("display_name"), rs.getString("caption"),
         rs.getString("requested_by"), rs.getString("approved_by"), rs.getTimestamp("created_at").toInstant(),
         scheduled == null ? null : scheduled.toInstant(), approved == null ? null : approved.toInstant(),
@@ -383,7 +385,7 @@ public class SocialMediaWorkflowService {
   public record PublishRequest(@NotNull UUID destinationPublicId,@NotNull UUID assetId,
       @Size(max=2200) String caption,@NotBlank @Size(max=120) String idempotencyKey, Instant scheduledAt) {}
   public record DecisionRequest(@Size(max=500) String note) {}
-  public record PublishRequestView(UUID publicId,String status,String destinationType,String destinationName,
+  public record PublishRequestView(UUID publicId,UUID assetPublicId,String status,String destinationType,String destinationName,
       String caption,String requestedBy,String approvedBy,Instant requestedAt,Instant scheduledAt,Instant approvedAt,
       String publishStatus,String externalPostId,String errorCode) {}
   private record Destination(long id,UUID publicId,String type,String displayName) {}

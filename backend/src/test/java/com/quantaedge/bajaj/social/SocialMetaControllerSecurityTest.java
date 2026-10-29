@@ -20,6 +20,14 @@ class SocialMetaControllerSecurityTest {
   @Autowired private MockMvc mvc;
 
   @Test
+  void previewRequiresSocialMediaReadPermission() throws Exception {
+    mvc.perform(get("/api/v1/admin/social/media/00000000-0000-0000-0000-000000000001/preview")
+            .with(user("social-publisher")
+                .authorities(new SimpleGrantedAuthority("social_media.publish"))))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void statusRequiresAuthenticatedStaff() throws Exception {
     mvc.perform(get("/api/v1/admin/social/meta/status"))
         .andExpect(status().isUnauthorized());

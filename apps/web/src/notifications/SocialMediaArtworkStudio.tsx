@@ -106,7 +106,7 @@ type ArtworkDraft = {
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; destinations: MetaDestination[] };
-type MetaPublishRequest = { publicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
+type MetaPublishRequest = { publicId: string; assetPublicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -236,9 +236,17 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [pendingPublishAssetId, setPendingPublishAssetId] = useState<string | null>(null);
   const [publishIdempotencyKey, setPublishIdempotencyKey] = useState(() => newDraftId());
   const [publishRequests, setPublishRequests] = useState<MetaPublishRequest[]>([]);
+  const [publishPreviewUrls, setPublishPreviewUrls] = useState<Record<string, string>>({});
+  const [publishPreviewLoadingId, setPublishPreviewLoadingId] = useState<string | null>(null);
+  const publishPreviewUrlRefs = useRef<Record<string, string>>({});
+
   const [scheduleLocal, setScheduleLocal] = useState('');
 
   useEffect(() => { void refreshPublishRequests(); }, []);
+  useEffect(() => () => {
+    Object.values(publishPreviewUrlRefs.current).forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
@@ -478,6 +486,30 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }catch(cause){setMetaError(cause instanceof Error?cause.message:'Approval request could not be saved.');}
     finally{setPublishingBusy(false);}
   }
+  async function togglePublishPreview(request:MetaPublishRequest){
+    const existing=publishPreviewUrlRefs.current[request.publicId];
+    if(existing){
+      URL.revokeObjectURL(existing);
+      delete publishPreviewUrlRefs.current[request.publicId];
+      setPublishPreviewUrls(old=>{const next={...old};delete next[request.publicId];return next;});
+      return;
+    }
+    setPublishPreviewLoadingId(request.publicId);setMetaError('');
+    try{
+      const response=await apiFetch('/api/v1/admin/social/media/'+request.assetPublicId+'/preview',{cache:'no-store'});
+      if(!response.ok){
+        const error=await response.json().catch(()=>({})) as {message?:string;detail?:string};
+        throw new Error(error.message??error.detail??'Artwork preview could not be loaded.');
+      }
+      const blob=await response.blob();
+      if(blob.type!=='image/jpeg')throw new Error('The submitted artwork is not a supported JPEG preview.');
+      const url=URL.createObjectURL(blob);
+      publishPreviewUrlRefs.current[request.publicId]=url;
+      setPublishPreviewUrls(old=>({...old,[request.publicId]:url}));
+    }catch(cause){setMetaError(cause instanceof Error?cause.message:'Artwork preview could not be loaded.');}
+    finally{setPublishPreviewLoadingId(null);}
+  }
+
   async function refreshPublishRequests(){
     try{
       const response=await apiFetch('/api/v1/admin/social/meta/publish-requests?limit=50',{cache:'no-store'});
@@ -861,11 +893,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   <p>{request.status.replaceAll('_',' ')} · requested by {request.requestedBy}{request.approvedBy?' · approved by '+request.approvedBy:''}</p>
                   {request.scheduledAt&&<p>Scheduled: {new Date(request.scheduledAt).toLocaleString()}</p>}
                   <p>{request.caption}</p>
+                  <button type="button" className={styles.textButton} disabled={publishPreviewLoadingId!==null}
+                    onClick={()=>void togglePublishPreview(request)}>
+                    {publishPreviewLoadingId===request.publicId?'Loading artwork preview…':publishPreviewUrls[request.publicId]?'Hide artwork preview':'Preview submitted artwork'}
+                  </button>
+                  {publishPreviewUrls[request.publicId]&&<img src={publishPreviewUrls[request.publicId]}
+                    alt={'Submitted campaign artwork for '+request.destinationName}
+                    style={{maxWidth:'100%',maxHeight:360,display:'block',objectFit:'contain',marginTop:8}} />}
+                  {canManage&&request.status==='PENDING_APPROVAL'&&!publishPreviewUrls[request.publicId]&&
+                    <p className={styles.note}>Load the submitted artwork preview before approving or rejecting this post.</p>}
                   {request.externalPostId&&<p>Provider post ID: {request.externalPostId}</p>}
                   {request.errorCode&&<p>Error: {request.errorCode}</p>}
                   {canManage&&request.status==='PENDING_APPROVAL'&&<div className={styles.actions}>
-                    <button type="button" className={styles.primary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
-                    <button type="button" className={styles.secondary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
+                    <button type="button" className={styles.primary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
+                    <button type="button" className={styles.secondary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
                   </div>}
                   {canManage&&request.status==='SCHEDULED'&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void (async()=>{try{const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/cancel',{method:'POST'});const result=await response.json() as MetaPublishRequest;if(!response.ok)throw new Error('Cancel request failed.');setPublishRequests(old=>old.map(item=>item.publicId===result.publicId?result:item));}catch(cause){setMetaError(cause instanceof Error?cause.message:'Cancel request failed.');}})()}>Cancel scheduled post</button>}
                 </article>)}
