@@ -210,7 +210,11 @@ public class SocialWhatsappScheduleService {
     List<DispatchData> found = jdbc.query("""
         select c.public_id customer_public_id,u.id staff_id,u.public_id::text staff_public_id,u.full_name,
           d.public_id::text dealership_public_id,d.code,d.status dealership_status,u.status staff_status,
-          c.status customer_status, s.body_parameters::text parameters_json,a.public_id asset_public_id
+          c.status customer_status, s.body_parameters::text parameters_json,a.public_id asset_public_id,
+          exists(select 1 from staff_user_role ur join role_permission rp on rp.role_id=ur.role_id
+            join permission p on p.id=rp.permission_id
+            where ur.staff_user_id=u.id and ur.dealership_id=u.dealership_id
+              and p.code='social_media.whatsapp.send') can_send_whatsapp
         from whatsapp_scheduled_send s
         join customer c on c.id=s.customer_id and c.dealership_id=s.dealership_id
         join staff_user u on u.id=s.created_by_staff_user_id and u.dealership_id=s.dealership_id
@@ -221,6 +225,10 @@ public class SocialWhatsappScheduleService {
           if (!"ACTIVE".equals(rs.getString("staff_status")) || !"ACTIVE".equals(rs.getString("dealership_status"))
               || !"ACTIVE".equals(rs.getString("customer_status"))) {
             throw conflict("The scheduled send's staff, dealership or customer is no longer active.");
+          }
+          if (!rs.getBoolean("can_send_whatsapp")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "The staff member no longer has permission to send WhatsApp messages.");
           }
           StaffPrincipal actor = new StaffPrincipal(0, rs.getLong("staff_id"), rs.getString("staff_public_id"),
               row.dealershipId(), rs.getString("dealership_public_id"), rs.getString("code"), rs.getString("full_name"),

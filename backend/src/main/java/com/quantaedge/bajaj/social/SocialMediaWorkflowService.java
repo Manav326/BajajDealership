@@ -213,6 +213,13 @@ public class SocialMediaWorkflowService {
         from staff_user u join dealership d on d.id=u.dealership_id
         where u.dealership_id=? and u.status='ACTIVE' and d.status='ACTIVE'
           and u.id in (?,?)
+          and exists (
+            select 1 from staff_user_role ur
+            join role_permission rp on rp.role_id=ur.role_id
+            join permission p on p.id=rp.permission_id
+            where ur.staff_user_id=u.id and ur.dealership_id=u.dealership_id
+              and p.code='social_media.publish'
+          )
         order by case when u.id=? then 0 else 1 end limit 1
         """, (rs, n) -> new StaffPrincipal(0, rs.getLong("id"), rs.getString("staff_public_id"),
             row.dealershipId(), rs.getString("dealership_public_id"), rs.getString("code"),

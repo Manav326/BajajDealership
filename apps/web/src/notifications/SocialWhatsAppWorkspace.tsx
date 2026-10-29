@@ -15,6 +15,11 @@ async function readResponse<T>(response: Response): Promise<T> {
   return payload;
 }
 function makeIdempotencyKey(): string {
+function localDateTimeMin(minutes = 2): string {
+  const date = new Date(Date.now() + minutes * 60_000);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
   return globalThis.crypto?.randomUUID?.() ?? ('wa-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 }
 
@@ -256,7 +261,7 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
         </label>)}
         {template?.headerFormat === 'IMAGE' && <label className={styles.check}><input type="checkbox" checked={includeArtwork} onChange={(event) => setIncludeArtwork(event.target.checked)} /> Use current artwork as the image header.</label>}
         <label>Schedule send (optional)
-          <input type="datetime-local" value={scheduledLocal} min={new Date(Date.now()+120000).toISOString().slice(0,16)} onChange={(event) => setScheduledLocal(event.target.value)} disabled={busy} />
+          <input type="datetime-local" value={scheduledLocal} min={localDateTimeMin()} onChange={(event) => setScheduledLocal(event.target.value)} disabled={busy} />
         </label>
         <p className={styles.note}>Leave blank to send now. Scheduled messages run server-side and recheck the customer's current opt-in at dispatch time.</p>
         <button type="button" className={styles.primary} disabled={!canSend || !status?.configured || busy || !template || !template.supported || !customer || customer.consentStatus !== 'OPTED_IN' || !customer.validPhone} onClick={() => void send()}>{busy ? 'Processing…' : scheduledLocal ? 'Schedule WhatsApp template' : 'Send WhatsApp template'}</button>

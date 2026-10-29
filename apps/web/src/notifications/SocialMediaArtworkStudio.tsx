@@ -199,6 +199,11 @@ async function removeArtworkDraft(id: string): Promise<void> {
 }
 
 function newDraftId() {
+function localDateTimeMin(minutes = 2): string {
+  const date = new Date(Date.now() + minutes * 60_000);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
   return globalThis.crypto?.randomUUID?.()
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 }
@@ -844,7 +849,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 </select>
               </label>
               <label>Schedule for (optional)
-                <input type="datetime-local" value={scheduleLocal} min={new Date(Date.now()+120000).toISOString().slice(0,16)} onChange={(event)=>setScheduleLocal(event.target.value)} disabled={publishingBusy}/>
+                <input type="datetime-local" value={scheduleLocal} min={localDateTimeMin()} onChange={(event)=>setScheduleLocal(event.target.value)} disabled={publishingBusy}/>
               </label>
               <p className={styles.note}>Leave blank for immediate publishing after approval. Scheduled posts must be at least two minutes ahead and within 90 days.</p>
               <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy} onClick={()=>void publishArtwork()}>{publishingBusy?'Saving approval request…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Request approval':'Choose a feed format to request approval'}</button>
