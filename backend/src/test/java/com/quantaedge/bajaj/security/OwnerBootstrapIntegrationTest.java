@@ -23,6 +23,15 @@ class OwnerBootstrapIntegrationTest {
   @Autowired private MockMvc mvc;
 
   @Test
+  void invalidBootstrapTokenIsRejectedByThePublicEndpointWithoutStaffSignIn() throws Exception {
+    mvc.perform(post("/api/v1/system/bootstrap")
+            .header("X-Bootstrap-Token", "deliberately-invalid")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(ownerPayload("DIAG-ONLY", "diag@example.test")))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   void oneTimeSetupTokenCanCreateOnlyTheInitialOwner() throws Exception {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
     String firstPayload = ownerPayload("SETUP-" + suffix, "owner-" + suffix.toLowerCase(Locale.ROOT) + "@example.test");
