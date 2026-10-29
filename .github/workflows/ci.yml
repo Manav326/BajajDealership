@@ -175,6 +175,35 @@ jobs:
                 exit 1
               fi
               echo "Staff activation endpoint passes through the same-origin proxy and returns the expected invalid-invitation response."
+
+              # Real HTTP regression: an anonymous bootstrap POST with a wrong token
+              # must reach the controller and return 404 (invalid setup token), not 401.
+              check_bootstrap_scope() {
+                local url="$1"
+                local label="$2"
+                local output="$3"
+                local status
+                status="$(curl -sS -o "$output" -w '%{http_code}' -X POST \
+                  -H 'Content-Type: application/json' \
+                  -H 'Accept: application/json' \
+                  -H 'X-Bootstrap-Token: deliberately-invalid' \
+                  --data '{"dealershipCode":"DIAG-ONLY","dealershipName":"Diagnostic only","ownerName":"Diagnostic only","email":"diag@example.test","phone":null,"password":"Secure-Owner-Password-2026"}' \
+                  "$url")"
+                if [ "$status" != "404" ]; then
+                  echo "Anonymous bootstrap $label smoke test failed (HTTP $status):"
+                  cat "$output"
+                  return 1
+                fi
+                echo "Anonymous bootstrap $label returns 404 for an invalid setup token, without sign-in."
+              }
+              check_bootstrap_scope "http://localhost:8080/api/v1/system/bootstrap" "direct API" /tmp/bootstrap-api-response.txt || {
+                docker compose -f compose.yaml logs --tail=100
+                exit 1
+              }
+              check_bootstrap_scope "http://localhost:3001/api/v1/system/bootstrap" "staff-web proxy" /tmp/bootstrap-proxy-response.txt || {
+                docker compose -f compose.yaml logs --tail=100
+                exit 1
+              }
               docker compose -f compose.yaml ps
               exit 0
             fi
@@ -334,6 +363,27 @@ jobs:
               curl -fsS http://localhost:3000/ >/dev/null && \
               curl -fsS http://localhost:3001/ >/dev/null; then
               echo 'Published GHCR images started successfully without a local build.'
+              check_bootstrap_scope() {
+                local url="$1"
+                local label="$2"
+                local output="$3"
+                local status
+                status="$(curl -sS -o "$output" -w '%{http_code}' -X POST \
+                  -H 'Content-Type: application/json' \
+                  -H 'Accept: application/json' \
+                  -H 'X-Bootstrap-Token: deliberately-invalid' \
+                  --data '{"dealershipCode":"DIAG-ONLY","dealershipName":"Diagnostic only","ownerName":"Diagnostic only","email":"diag@example.test","phone":null,"password":"Secure-Owner-Password-2026"}' \
+                  "$url")"
+                if [ "$status" != "404" ]; then
+                  echo "Published-image anonymous bootstrap $label smoke test failed (HTTP $status):"
+                  cat "$output"
+                  docker compose -f compose.yaml logs --tail=100
+                  exit 1
+                fi
+                echo "Published-image anonymous bootstrap $label correctly rejects the invalid token without sign-in."
+              }
+              check_bootstrap_scope "http://localhost:8080/api/v1/system/bootstrap" "direct API" /tmp/bootstrap-ghcr-api.txt
+              check_bootstrap_scope "http://localhost:3001/api/v1/system/bootstrap" "staff-web proxy" /tmp/bootstrap-ghcr-proxy.txt
               docker compose -f compose.yaml ps
               exit 0
             fi

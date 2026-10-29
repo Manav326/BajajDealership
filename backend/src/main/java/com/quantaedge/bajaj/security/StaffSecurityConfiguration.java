@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Bean;
@@ -64,7 +65,15 @@ public class StaffSecurityConfiguration {
               response.getWriter().write("{\"error\":\"forbidden\",\"message\":\"You do not have permission for this action.\"}");
             }))
         .authorizeHttpRequests(auth -> auth
+            // Let Spring render the original HTTP error response instead of turning
+            // controller errors (for example an invalid bootstrap token's 404) into a 401.
+            // The original request is still authorized normally before any error dispatch.
+            .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            // Fallback for bootstrap if the dedicated chain is bypassed by a servlet-path customization.
+            // Keep the scope to these two setup endpoints; all dealership business APIs stay authenticated.
+            .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/system/bootstrap/status").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
