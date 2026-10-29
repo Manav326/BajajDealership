@@ -744,7 +744,7 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
     buffer: silentWav(125),
   });
   await expect(dialog.getByText(/11 \/ 50 tracks/)).toBeVisible();
-  await expect(dialog.getByText('festive-instrumental')).toBeVisible();
+  await expect(musicLibrary.getByRole('article').filter({ hasText: 'festive-instrumental' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Use 9:16 Story format' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Use 9:16 Story format' }).click();
   await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeEnabled();
