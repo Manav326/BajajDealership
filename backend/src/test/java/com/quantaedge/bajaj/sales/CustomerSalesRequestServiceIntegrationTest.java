@@ -145,11 +145,11 @@ class CustomerSalesRequestServiceIntegrationTest {
         where dealership_id = ? and account_id = ? and action = 'SALES_REQUEST_CANCELLED'
           and entity_type = 'CUSTOMER_SALES_REQUEST' and entity_public_id = ?
         """, Integer.class, fixture.customer().dealershipId(), fixture.customer().accountId(),
-        request.publicId())).isEqualTo(1);
+        request.publicId().toString())).isEqualTo(1);
     assertThat(jdbc.queryForObject("""
-        select count(*) from sales_enquiry
-        where dealership_id = ? and customer_sales_request_id = ?
-        """, Integer.class, fixture.customer().dealershipId(), request.publicId())).isZero();
+        select count(*) from customer_sales_request
+        where dealership_id = ? and public_id = ? and converted_enquiry_id is null
+        """, Integer.class, fixture.customer().dealershipId(), request.publicId())).isEqualTo(1);
   }
 
   @Test
