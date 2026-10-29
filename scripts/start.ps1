@@ -2,7 +2,6 @@
 param(
     [ValidateSet('Build', 'Pull')]
     [string]$Mode = 'Build',
-    [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')]
     [string]$Tag = 'latest',
     [switch]$Rebuild
 )
@@ -10,6 +9,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+if ([string]::IsNullOrWhiteSpace($Tag) -or $Tag -match '[^A-Za-z0-9_.-]' -or $Tag -notmatch '^[A-Za-z0-9_]') {
+    throw 'Invalid Docker image tag. Use letters, numbers, underscore, dot or hyphen; the first character must be a letter, number or underscore.'
+}
 
 if ($Mode -eq 'Pull' -and $Rebuild) {
     throw '-Rebuild applies only to -Mode Build.'
