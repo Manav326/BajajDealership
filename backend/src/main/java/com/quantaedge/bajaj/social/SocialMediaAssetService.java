@@ -87,7 +87,8 @@ public class SocialMediaAssetService {
   return new PreparedAsset(asset.id(),asset.publicId(),asset.mimeType(),publicBaseUrl+"/api/v1/social/media/"+asset.publicId()+"?expires="+exp+"&signature="+sign(asset.publicId(),exp));
  }
  public PublicAsset readForDealership(long dealershipId,UUID assetId){
-  if(!storage.isConfigured())throw notFound();
+  if(!storage.isConfigured())throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+   "Social artwork storage is not configured. Set or correct SOCIAL_MEDIA_STORAGE_BACKEND (must be database or filesystem).");
   List<StoredAsset> rows=jdbc.query("select id,public_id,mime_type,storage_key,status,byte_length,sha256 from social_media_asset where dealership_id=? and public_id=? and status='ACTIVE'",
    (rs,n)->new StoredAsset(rs.getLong("id"),rs.getObject("public_id",UUID.class),rs.getString("mime_type"),rs.getString("storage_key"),rs.getString("status"),rs.getLong("byte_length"),rs.getString("sha256")),dealershipId,assetId);
   if(rows.isEmpty())throw notFound();
