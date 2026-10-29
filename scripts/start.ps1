@@ -77,13 +77,11 @@ APP_BOOTSTRAP_TOKEN=$newToken
 }
 
 if ($generatedBootstrapToken) {
-    $tokenContent = Get-Content $rootEnv -Raw
-    $newTokenValue = [regex]::Match($tokenContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*$').Groups[1].Value.Trim().Trim('"').Trim("'")
     Write-Host ''
-    Write-Host 'One-time initial owner setup token (local only):' -ForegroundColor Yellow
-    Write-Host $newTokenValue -ForegroundColor Yellow
-    Write-Host 'Use it in the X-Bootstrap-Token header for POST /api/v1/system/bootstrap.' -ForegroundColor DarkYellow
-    Write-Host 'After owner setup, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
+    Write-Host 'A one-time owner bootstrap token was saved to the ignored .env file (value not printed).' -ForegroundColor Yellow
+    Write-Host 'This is NOT a staff invitation token; do not enter it on the staff activation page.' -ForegroundColor DarkYellow
+    Write-Host 'Create the first owner with: .\scripts\bootstrap-owner.ps1' -ForegroundColor DarkYellow
+    Write-Host 'After owner sign-in, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
     Write-Host ''
 }
 
