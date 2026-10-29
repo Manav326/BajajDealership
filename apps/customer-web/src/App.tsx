@@ -43,9 +43,25 @@ type CustomerSalesRequest = {
 type PendingShowroomIntent = {
   action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
 };
+type RetailPart = {
+  publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
+  retailPrice: number; fitmentModelCodes: string[]; imageUrl: string | null;
+  quantityAvailable: number; available: boolean;
+};
+type RetailOrderLine = {
+  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type RetailOrder = {
+  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
+  orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
+  cancelledAt: string | null; fulfilledAt: string | null; customerName: string;
+  customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
+};
+type CartLine = { partPublicId: string; quantity: string };
 
 type AuthMode = 'login' | 'activate';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests';
+type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
 const SESSION_KEY = 'qe_customer_portal_token';
 
@@ -117,6 +133,12 @@ export default function App() {
   const [history, setHistory] = useState<ServiceHistory[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [salesRequests, setSalesRequests] = useState<CustomerSalesRequest[]>([]);
+  const [retailParts, setRetailParts] = useState<RetailPart[]>([]);
+  const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
+  const [retailCart, setRetailCart] = useState<CartLine[]>([]);
+  const [fitmentModelCode, setFitmentModelCode] = useState('');
+  const [partsOrderNote, setPartsOrderNote] = useState('');
+  const [partsOrderKey, setPartsOrderKey] = useState(() => globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}`);
   const [notificationPage, setNotificationPage] = useState<NotificationPage>({
     items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0,
   });
@@ -136,6 +158,9 @@ export default function App() {
     setHistory([]);
     setAppointments([]);
     setSalesRequests([]);
+    setRetailParts([]);
+    setRetailOrders([]);
+    setRetailCart([]);
     setNotificationPage({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setTab('home');
   }, []);
@@ -144,19 +169,23 @@ export default function App() {
     setLoadingData(true);
     setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
         api<Appointment[]>('/api/v1/customer/appointments', sessionToken),
         api<NotificationPage>('/api/v1/customer/notifications?page=0&pageSize=50', sessionToken),
         api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken),
+        api<RetailPart[]>('/api/v1/customer/parts', sessionToken),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', sessionToken),
       ]);
       setCustomer(profile);
       setVehicles(ownedVehicles);
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
       setSalesRequests(customerRequests);
+      setRetailParts(parts);
+      setRetailOrders(orders);
       setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
@@ -286,6 +315,74 @@ export default function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
     } finally { setSaving(false); }
+  }
+
+  function updateRetailCart(part: RetailPart, delta: number) {
+    setRetailCart((current) => {
+      const existing = current.find((line) => line.partPublicId === part.publicId);
+      const quantity = Math.max(0, Number(existing?.quantity ?? 0) + delta);
+      if (quantity > Number(part.quantityAvailable)) return current;
+      if (quantity === 0) return current.filter((line) => line.partPublicId !== part.publicId);
+      if (existing) return current.map((line) => line.partPublicId === part.publicId
+        ? { ...line, quantity: String(quantity) } : line);
+      return [...current, { partPublicId: part.publicId, quantity: String(quantity) }];
+    });
+  }
+
+  async function placeRetailOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!retailCart.length) {
+      setError('Add at least one available spare part to your cart.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const order = await api<RetailOrder>('/api/v1/customer/parts/orders', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          lines: retailCart.map((line) => ({ partPublicId: line.partPublicId, quantity: Number(line.quantity) })),
+          fitmentModelCode: fitmentModelCode || null,
+          customerNote: partsOrderNote.trim() || null,
+          idempotencyKey: partsOrderKey,
+        }),
+      });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setRetailCart([]);
+      setPartsOrderNote('');
+      setPartsOrderKey(globalThis.crypto?.randomUUID?.() ?? `retail-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      setSuccess(`Order ${order.orderCode} placed. Pay at dealership pickup; no online payment has been taken.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The spare-parts order could not be placed.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelRetailOrder(order: RetailOrder) {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api<RetailOrder>(`/api/v1/customer/parts/orders/${order.publicId}/cancel`, token, { method: 'POST' });
+      const [parts, orders] = await Promise.all([
+        api<RetailPart[]>('/api/v1/customer/parts', token),
+        api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
+      ]);
+      setRetailParts(parts);
+      setRetailOrders(orders);
+      setSuccess(`Order ${order.orderCode} was cancelled and its stock reservation released.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The order could not be cancelled.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function cancelCustomerSalesRequest(request: CustomerSalesRequest) {
@@ -533,6 +630,7 @@ export default function App() {
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
             ['requests', 'Bike requests', '↗'],
+            ['parts', 'Spare parts', '▦'],
             ['notifications', 'Updates', '✦'],
           ] as const).map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'portal-tab active' : 'portal-tab'} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span>{icon}</span>{label}{key === 'notifications' && notificationPage.unreadCount > 0 && <b className="notification-tab-badge">{notificationPage.unreadCount > 99 ? '99+' : notificationPage.unreadCount}</b>}</button>)}
         </nav>
@@ -580,6 +678,82 @@ export default function App() {
                     {request.status === 'REQUESTED' && <button type="button" className="text-link danger-link" onClick={() => void cancelCustomerSalesRequest(request)} disabled={saving}>Cancel request</button>}
                   </div>
                 </article>)}</div>}
+          </>}
+          {!loadingData && tab === 'parts' && <>
+            <div className="portal-section-heading">
+              <div><h2>Bajaj spare-parts shop</h2><p>Shop items the dealership has explicitly listed for retail. Availability excludes stock already reserved for workshop jobs and other customers.</p></div>
+              <span className="section-mark">{retailParts.length} LISTED</span>
+            </div>
+            <div className="retail-shop-layout">
+              <section className="retail-shop-main">
+                {retailParts.length === 0
+                  ? <div className="glass-panel inline-empty"><strong>No retail parts listed yet.</strong><span>Only parts published by Lucky Bajaj will appear here. Ask the dealership if a part is missing.</span></div>
+                  : <div className="retail-parts-grid">{retailParts.map((part) => {
+                    const selectedLine = retailCart.find((line) => line.partPublicId === part.publicId);
+                    const quantity = Number(selectedLine?.quantity ?? 0);
+                    return <article className="glass-panel retail-part-card" key={part.publicId}>
+                      {part.imageUrl
+                        ? <div className="retail-part-image"><img src={part.imageUrl} alt={part.partName} loading="lazy" /></div>
+                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>GENUINE PARTS</strong></div>}
+                      <div className="retail-part-copy">
+                        <span className="vehicle-overline">{part.skuCode}</span>
+                        <h3>{part.partName}</h3>
+                        <p>{part.description || 'Dealership-listed spare part.'}</p>
+                        {part.fitmentModelCodes.length > 0 && <small>Fitment restricted to selected Bajaj model</small>}
+                        <div className="retail-part-price-row"><strong>{money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{part.available ? `${part.quantityAvailable} ${part.unitOfMeasure} available` : 'Currently unavailable'}</span></div>
+                        <div className="retail-part-cart-row">
+                          <div className="retail-quantity-stepper">
+                            <button type="button" aria-label={`Remove one ${part.partName}`} disabled={!quantity || saving} onClick={() => updateRetailCart(part, -1)}>−</button>
+                            <strong>{quantity}</strong>
+                            <button type="button" aria-label={`Add one ${part.partName}`} disabled={!part.available || saving || quantity >= Number(part.quantityAvailable)} onClick={() => updateRetailCart(part, 1)}>+</button>
+                          </div>
+                          <button type="button" className="secondary-button" disabled={!part.available || saving || quantity >= Number(part.quantityAvailable)} onClick={() => updateRetailCart(part, 1)}>{quantity ? 'Add another' : 'Add to cart'}</button>
+                        </div>
+                      </div>
+                    </article>;
+                  })}</div>}
+              </section>
+              <aside className="glass-panel retail-cart-panel">
+                <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · pickup at dealership</p></div><span className="next-visit-icon">▦</span></div>
+                {retailCart.length === 0
+                  ? <div className="inline-empty">Choose a part to start an order.</div>
+                  : <>
+                    {retailCart.map((line) => {
+                      const part = retailParts.find((item) => item.publicId === line.partPublicId);
+                      if (!part) return null;
+                      return <div className="retail-cart-line" key={line.partPublicId}>
+                        <div><strong>{part.partName}</strong><small>{line.quantity} × {money(part.retailPrice)}</small></div>
+                        <strong>{money(Number(line.quantity) * part.retailPrice)}</strong>
+                        <button type="button" className="text-link danger-link" onClick={() => setRetailCart((current) => current.filter((item) => item.partPublicId !== line.partPublicId))}>Remove</button>
+                      </div>;
+                    })}
+                    <div className="retail-cart-total"><span>Order total</span><strong>{money(retailCart.reduce((sum, line) => {
+                      const part = retailParts.find((item) => item.publicId === line.partPublicId);
+                      return sum + Number(line.quantity) * Number(part?.retailPrice ?? 0);
+                    }, 0))}</strong></div>
+                    <form className="retail-checkout-form" onSubmit={placeRetailOrder}>
+                      <label>Bike fitment (if applicable)
+                        <input maxLength={60} value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value.toUpperCase())} placeholder="Model code, e.g. BAJAJ_PULSAR_N160" />
+                      </label>
+                      <label>Pickup note (optional)
+                        <textarea rows={2} maxLength={1000} value={partsOrderNote} onChange={(event) => setPartsOrderNote(event.target.value)} placeholder="Preferred pickup details" />
+                      </label>
+                      <p className="retail-payment-note">Reserve stock now; pay when collecting from Lucky Bajaj. This checkout does not charge a bank account or UPI wallet.</p>
+                      <button type="submit" className="primary-button wide-button" disabled={saving || retailCart.length === 0}>{saving ? 'Placing order…' : 'Place pickup order'}</button>
+                    </form>
+                  </>}
+              </aside>
+            </div>
+            <section className="glass-panel retail-order-history">
+              <div className="portal-section-heading"><div><h2>My parts orders</h2><p>Saved orders and their pickup/collection status.</p></div><span className="section-mark">{retailOrders.length} ORDERS</span></div>
+              {retailOrders.length === 0
+                ? <div className="inline-empty">Your spare-parts orders will appear here.</div>
+                : <div className="retail-order-list">{retailOrders.map((order) => <article className="retail-order-row" key={order.publicId}>
+                    <div><strong>{order.orderCode}</strong><small>{dateTime(order.createdAt)} · {order.lines.length} line(s)</small><p>{order.lines.map((line) => `${line.quantity} × ${line.partName}`).join(' · ')}</p></div>
+                    <div className="retail-order-state"><strong>{money(order.orderTotal)}</strong><span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span><small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Collected at pickup' : 'Pay at dealership pickup'}</small></div>
+                    {order.status === 'PLACED' && <button type="button" className="text-link danger-link" disabled={saving} onClick={() => void cancelRetailOrder(order)}>Cancel and release stock</button>}
+                  </article>)}</div>}
+            </section>
           </>}
           {!loadingData && tab === 'notifications' && <>
             <div className="portal-section-heading"><div><h2>Updates from Lucky Bajaj</h2><p>Service messages and dealership updates delivered through the QuantaEdge Notification Studio.</p></div><span className="section-mark">{notificationPage.unreadCount} UNREAD</span></div>
