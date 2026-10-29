@@ -226,7 +226,7 @@ test('staff can convert a showroom request to an enquiry without creating a book
   await expect(page.getByRole('heading', { name: 'Reserve a bike' })).toBeVisible();
 
   expect(state.conversionCalls).toBe(1);
-  expect(state.conversionPaths).toEqual([//customer-requests/website-request-e2e-001/convert$/].map(String).map(() => `/api/v1/admin/sales/customer-requests/${requestPublicId}/convert`));
+  expect(state.conversionPaths).toEqual([`/api/v1/admin/sales/customer-requests/${requestPublicId}/convert`]);
   expect(state.request.status).toBe('CONVERTED');
   expect(state.request.convertedEnquiryPublicId).toBe(enquiryPublicId);
   expect(state.testRideWrites).toBe(0);
