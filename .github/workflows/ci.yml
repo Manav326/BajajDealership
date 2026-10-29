@@ -123,7 +123,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }'
+          pwsh -NoLogo -NoProfile -Command '$files=@("scripts/start.ps1","scripts/bootstrap-owner.ps1"); foreach ($file in $files) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { Write-Host $file; $errors | Format-List *; exit 1 } }'
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
@@ -142,6 +142,20 @@ jobs:
               && curl -fsS http://localhost:3000/ >/dev/null \
               && curl -fsS http://localhost:3001/ >/dev/null; then
               echo "Customer site, staff portal and API are healthy."
+              activation_status="$(curl -sS -o /tmp/staff-activation-response.txt -w '%{http_code}' \
+                -X POST \
+                -H 'Origin: http://localhost:3001' \
+                -H 'Content-Type: application/json' \
+                -H 'Accept: application/json' \
+                --data '{"activationToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","password":"CI-Activation-Test-Password"}' \
+                http://localhost:3001/api/v1/auth/staff/activate)"
+              if [ "$activation_status" != "401" ] || grep -q "Invalid CORS request" /tmp/staff-activation-response.txt; then
+                echo "Staff activation proxy smoke test failed (HTTP $activation_status):"
+                cat /tmp/staff-activation-response.txt
+                docker compose -f compose.yaml logs --tail=100
+                exit 1
+              fi
+              echo "Staff activation endpoint passes through the same-origin proxy and returns the expected invalid-invitation response."
               docker compose -f compose.yaml ps
               exit 0
             fi
