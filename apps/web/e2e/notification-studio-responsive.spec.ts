@@ -166,11 +166,12 @@ async function mockApi(page: Page) {
 
 async function openNotificationStudio(page: Page) {
   await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
   const mobileToggle = page.locator('.mobile-nav-toggle');
   if (await mobileToggle.isVisible()) {
     await page.getByRole('button', { name: 'Open navigation menu' }).click();
   }
-  await page.getByRole('button', { name: 'Notification Studio', exact: true }).click();
+  await page.getByRole('button', { name: /Notification Studio/ }).click();
   await expect(page.getByRole('heading', { name: 'Notification Studio', exact: true })).toBeVisible();
   await expect(page.getByLabel('Campaign title')).toBeVisible();
 }
