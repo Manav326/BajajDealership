@@ -128,8 +128,25 @@ async function mockApi(page: Page) {
       return json({ status: 'UP', service: 'bajaj-api', version: 'e2e', timestamp: previewExpiry });
     }
     if (path.endsWith('/system/bootstrap/status')) return json({ available: false });
+    if (path.endsWith('/admin/notifications/media/e2e-image')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6h8AAAAASUVORK5CYII=', 'base64'),
+      });
+    }
     if (path.endsWith('/admin/notifications/templates')) return json({ templates: [] });
-    if (path.endsWith('/admin/notifications/campaigns')) return json({ campaigns: [] });
+    if (path.endsWith('/admin/notifications/campaigns')) {
+      const campaigns = Array.from({ length: 18 }, (_, index) => ({
+        ...campaign(index % 2 === 0 ? 'SENT' : 'SCHEDULED'),
+        id: index + 1,
+        publicId: `camp-e2e-${String(index + 1).padStart(4, '0')}`,
+        title: `Campaign history row ${index + 1}`,
+        summary: 'A long enough campaign summary to exercise page scrolling in history.',
+        resolvedRecipientCount: index + 1,
+      }));
+      return json({ campaigns });
+    }
     if (path.endsWith('/admin/notifications/options')) {
       return json({
         institutions: [{
@@ -205,6 +222,20 @@ for (const width of [320, 768, 1280]) {
 
     await page.getByLabel('Campaign title').fill('Extra-long campaign title '.repeat(5));
     await page.locator('.content-block-editor textarea').nth(1).fill('unbrokenmessage'.repeat(220));
+    await page.locator('.add-block-controls select').selectOption('image');
+    await page.getByRole('button', { name: /Add block/ }).click();
+    const imageEditor = page.locator('.content-block-editor').last();
+    await imageEditor.getByLabel('assetId').fill('e2e-image');
+    await imageEditor.getByLabel('Image description (alt text)').fill('Test image with safe responsive bounds');
+    const previewImage = page.locator('.preview-device-screen img');
+    await expect(previewImage).toBeVisible();
+    const imageBounds = await previewImage.evaluate((element) => {
+      const image = element as HTMLImageElement;
+      const rect = image.getBoundingClientRect();
+      return { loaded: image.naturalWidth > 0, width: rect.width, screenWidth: image.parentElement?.getBoundingClientRect().width ?? 0 };
+    });
+    expect(imageBounds.loaded).toBe(true);
+    expect(imageBounds.width).toBeLessThanOrEqual(imageBounds.screenWidth + 1);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
       .toBeLessThanOrEqual(1);
 
@@ -252,6 +283,13 @@ test('desktop sidebar stays in view and scrolls independently', async ({ page })
   const bounds = await sidebar.boundingBox();
   expect(bounds).not.toBeNull();
   expect(Math.abs(bounds!.y)).toBeLessThanOrEqual(1);
+
+  // Also check a long Campaign history view, not only the editor.
+  await page.getByRole('button', { name: /Campaign history/ }).click();
+  await expect(page.locator('.campaign-row')).toHaveCount(18);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect.poll(() => sidebar.evaluate((element) => Math.abs(element.getBoundingClientRect().y)))
+    .toBeLessThanOrEqual(1);
 });
 
 test('manual and all-eligible recipient checks, bulk actions, and review actions are consistent', async ({ page }) => {
