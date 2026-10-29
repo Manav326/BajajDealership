@@ -218,6 +218,10 @@ public class CustomerSalesRequestService {
         """, actor.dealershipId(), actor.customerId(), actor.accountId(), publicId);
     if (rows.isEmpty()) throw notFound("That request was not found in your account.");
     Map<String, Object> row = rows.getFirst();
+    // A committed cancellation may have lost its HTTP response; replay without writing a second activity.
+    if ("CANCELLED".equals(String.valueOf(row.get("status")))) {
+      return findForCustomer(actor, publicId);
+    }
     if (!"REQUESTED".equals(String.valueOf(row.get("status")))) {
       throw conflict("Only a request that has not yet been converted by the dealership can be cancelled here.");
     }

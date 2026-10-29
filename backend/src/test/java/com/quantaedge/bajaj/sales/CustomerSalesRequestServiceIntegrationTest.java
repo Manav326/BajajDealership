@@ -123,6 +123,36 @@ class CustomerSalesRequestServiceIntegrationTest {
   }
 
   @Test
+  void cancellingAShowroomRequestCanBeSafelyRetriedWithoutDuplicateActivity() {
+    Fixture fixture = createFixture();
+    var request = requests.create(fixture.customer(), new CustomerSalesRequestService.CreateRequest(
+        "PURCHASE", MODEL_CODE, null, "Synthetic cancellation retry regression",
+        "cancel-showroom-" + UUID.randomUUID()));
+
+    var cancelled = requests.cancelForCustomer(fixture.customer(), request.publicId());
+    var replay = requests.cancelForCustomer(fixture.customer(), request.publicId());
+
+    assertThat(cancelled.status()).isEqualTo("CANCELLED");
+    assertThat(replay.status()).isEqualTo("CANCELLED");
+    assertThat(replay.publicId()).isEqualTo(cancelled.publicId());
+    assertThat(requests.listForStaff(fixture.owner(), 100, null))
+        .filteredOn(item -> item.publicId().equals(request.publicId()))
+        .singleElement()
+        .extracting(CustomerSalesRequestService.RequestView::status)
+        .isEqualTo("CANCELLED");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from customer_portal_activity
+        where dealership_id = ? and account_id = ? and action = 'SALES_REQUEST_CANCELLED'
+          and entity_type = 'CUSTOMER_SALES_REQUEST' and entity_public_id = ?
+        """, Integer.class, fixture.customer().dealershipId(), fixture.customer().accountId(),
+        request.publicId())).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from sales_enquiry
+        where dealership_id = ? and customer_sales_request_id = ?
+        """, Integer.class, fixture.customer().dealershipId(), request.publicId())).isZero();
+  }
+
+  @Test
   void preferredTimeMustBeFutureAndCanOnlyBeUsedForTestRideRequests() {
     Fixture fixture = createFixture();
 
