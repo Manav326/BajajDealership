@@ -707,7 +707,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   <div className="campaign-actions">
                     <span className={`campaign-status status-${campaign.status.toLowerCase()}`}>{campaign.status.replaceAll('_', ' ')}</span>
                     <button type="button" className="text-button" onClick={() => void previewSavedCampaign(campaign.publicId)}>Preview exact content</button>
-                    {canSend && (campaign.status === 'SCHEDULED' || (campaign.status === 'FAILED' && !!campaign.lastDispatchError && !!campaign.scheduledAt)) &&
+                    {canSend && (campaign.status === 'APPROVED' || campaign.status === 'SCHEDULED' || (campaign.status === 'FAILED' && !!campaign.lastDispatchError)) &&
                       <button type="button" className="text-button campaign-send-now" onClick={() => void previewSavedCampaign(campaign.publicId)}>
                         {campaign.status === 'FAILED' ? 'Review retry' : 'Send now'} ↗
                       </button>}
@@ -741,7 +741,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               {savedPreview.campaign.lastDispatchError && <div className="saved-campaign-error"><strong>Last dispatch issue</strong><span>{savedPreview.campaign.lastDispatchError}</span>{savedPreview.campaign.dispatchAttemptCount > 0 && <small>{savedPreview.campaign.dispatchAttemptCount} dispatch attempt(s)</small>}</div>}
               {confirmSendNow ? <div className="saved-campaign-confirm" role="alertdialog" aria-label="Confirm send now"><strong>Send this exact approved notification now?</strong><p>The saved content above will be dispatched to the currently eligible recipients. This cannot be recalled once it appears in their inbox.</p><div><button type="button" className="text-button" disabled={!!sendingNowPublicId} onClick={() => setConfirmSendNow(false)}>Go back</button><button type="button" className="showroom-send-confirm" disabled={!!sendingNowPublicId} onClick={() => void sendScheduledNow()}>{sendingNowPublicId ? 'Sending…' : 'Confirm send now'}</button></div></div> : <footer className="saved-campaign-actions">
                 <button type="button" className="secondary-button" onClick={() => { setSavedPreview(null); setConfirmSendNow(false); }}>Close preview</button>
-                {canSend && (savedPreview.campaign.status === 'SCHEDULED' || (savedPreview.campaign.status === 'FAILED' && !!savedPreview.campaign.lastDispatchError && !!savedPreview.campaign.scheduledAt)) &&
+                {canSend && (savedPreview.campaign.status === 'APPROVED' || savedPreview.campaign.status === 'SCHEDULED' || (savedPreview.campaign.status === 'FAILED' && !!savedPreview.campaign.lastDispatchError)) &&
                   <button type="button" className="showroom-send-confirm" onClick={() => setConfirmSendNow(true)}>{savedPreview.campaign.status === 'FAILED' ? 'Retry failed dispatch' : 'Send now'} ↗</button>}
               </footer>}
             </section>

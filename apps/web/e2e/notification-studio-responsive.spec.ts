@@ -143,7 +143,7 @@ async function mockApi(page: Page) {
     if (/\/admin\/notifications\/campaigns\/[^/]+\/preview$/.test(path) && method === 'GET') {
       const publicId = path.split('/').slice(-2, -1)[0];
       return json({
-        campaign: { ...campaign('SCHEDULED'), publicId, title: 'Campaign history row 2' },
+        campaign: { ...campaign(publicId.endsWith('0004') ? 'APPROVED' : 'SCHEDULED'), publicId, title: publicId.endsWith('0004') ? 'Campaign history row 4' : 'Campaign history row 2' },
         contentDocument: { version: 1, blocks: [{ type: 'hero', title: 'Exact saved headline', subtitle: 'Approved saved content' }] },
         audienceStage: 'PREVIEW',
         audienceResolvedAt: '2026-10-29T06:00:00Z',
@@ -159,7 +159,7 @@ async function mockApi(page: Page) {
     }
     if (path.endsWith('/admin/notifications/campaigns')) {
       const campaigns = Array.from({ length: 18 }, (_, index) => ({
-        ...campaign(index % 2 === 0 ? 'SENT' : 'SCHEDULED'),
+        ...campaign(index === 3 ? 'APPROVED' : index % 2 === 0 ? 'SENT' : 'SCHEDULED'),
         id: index + 1,
         publicId: `camp-e2e-${String(index + 1).padStart(4, '0')}`,
         title: `Campaign history row ${index + 1}`,
@@ -451,4 +451,18 @@ test('campaign history exposes dispatch timing and compares saved audience with 
   await expect(dialog.getByText(/1 currently eligible/)).toBeVisible();
   await expect(dialog.getByText('Exact saved headline', { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Snapshot resolved/)).toBeVisible();
+});
+
+test('approved campaign history offers Send now before a schedule exists', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await openNotificationStudio(page);
+  await page.getByRole('button', { name: /Campaign history/ }).click();
+  const row = page.locator('.campaign-row').filter({ hasText: 'Campaign history row 4' });
+  await expect(row).toBeVisible();
+  await expect(row.getByText('APPROVED', { exact: true })).toBeVisible();
+  await row.getByRole('button', { name: /Send now/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Campaign history row 4' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Send now ↗' })).toBeVisible();
+  await expect(dialog.getByText('EXACT SAVED CONTENT', { exact: true })).toBeVisible();
 });

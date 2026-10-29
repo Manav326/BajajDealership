@@ -658,8 +658,9 @@ public class NotificationManagementService {
     CampaignRecord campaign = loadCampaign(actor.dealershipId(), publicId, true);
     if ("SENT".equals(campaign.status())) return new SendNowResult(toView(campaign), true);
     boolean retryableFailure = "FAILED".equals(campaign.status())
-        && campaign.scheduledAt() != null && campaign.lastDispatchError() != null;
-    if (!"SCHEDULED".equals(campaign.status()) && !retryableFailure) {
+        && campaign.lastDispatchError() != null;
+    boolean approvedOrScheduled = List.of("APPROVED", "SCHEDULED").contains(campaign.status());
+    if (!approvedOrScheduled && !retryableFailure) {
       throw conflict("Only a scheduled campaign, or one whose automatic dispatch retries were exhausted, can be sent now.");
     }
     if (campaign.expiresAt() != null && !campaign.expiresAt().isAfter(Instant.now())) {
@@ -718,14 +719,16 @@ public class NotificationManagementService {
           select
           """ + CAMPAIGN_COLUMNS + """
           from notification_campaign
-          where public_id = ? and status in ('SCHEDULED', 'FAILED')
+          where public_id = ? and status in ('APPROVED', 'SCHEDULED', 'FAILED')
           for update
           """, CAMPAIGN_ROW, publicId);
       if (rows.isEmpty()) return;
       CampaignRecord campaign = rows.getFirst();
       boolean previouslyFailed = "FAILED".equals(campaign.status());
+      boolean directApprovedSend = "APPROVED".equals(campaign.status());
       int nextAttempt = campaign.dispatchAttemptCount() + 1;
-      boolean terminal = previouslyFailed || nextAttempt >= MAX_AUTOMATIC_DISPATCH_ATTEMPTS;
+      // Direct sends have no scheduler lease to retry against; expose a manual retry after failure.
+      boolean terminal = previouslyFailed || directApprovedSend || nextAttempt >= MAX_AUTOMATIC_DISPATCH_ATTEMPTS;
       long retrySeconds = Math.min(300L, 15L << Math.min(campaign.dispatchAttemptCount(), 4));
       String savedError = reason.length() > 300 ? reason.substring(0, 300) : reason;
       jdbc.update("""
@@ -734,7 +737,7 @@ public class NotificationManagementService {
             next_dispatch_attempt_at = case when ? then null else now() + (? * interval '1 second') end,
             last_dispatch_error = ?, status = case when ? then 'FAILED' else status end,
             updated_at = now()
-          where id = ? and dealership_id = ? and status in ('SCHEDULED', 'FAILED')
+          where id = ? and dealership_id = ? and status in ('APPROVED', 'SCHEDULED', 'FAILED')
           """, nextAttempt, terminal, retrySeconds, savedError, terminal, campaign.id(), campaign.dealershipId());
       auditSystem(campaign,
           previouslyFailed ? "CAMPAIGN_SEND_NOW_RETRY_FAILED"

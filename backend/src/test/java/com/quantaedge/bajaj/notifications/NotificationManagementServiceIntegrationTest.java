@@ -461,6 +461,86 @@ class NotificationManagementServiceIntegrationTest {
 
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void sendNowDispatchesAnApprovedCampaignWithoutAPlannedScheduleAndIsIdempotent() {
+    StaffPrincipal owner = createNotificationOperator();
+    var preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Approved direct send", "Approved campaigns can be delivered without a schedule",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+
+    var sent = notifications.sendNow(owner, preview.campaignPublicId());
+    assertThat(sent.alreadySent()).isFalse();
+    assertThat(sent.campaign().status()).isEqualTo("SENT");
+    assertThat(sent.campaign().scheduledAt()).isNull();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isEqualTo(1);
+
+    var replay = notifications.sendNow(owner, preview.campaignPublicId());
+    assertThat(replay.alreadySent()).isTrue();
+    assertThat(replay.campaign().status()).isEqualTo("SENT");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isEqualTo(1);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void failedApprovedSendCanBeManuallyRetriedAfterEligibilityIsRestored() {
+    StaffPrincipal owner = createNotificationOperator();
+    String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    Long customerId = jdbc.queryForObject("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Direct Retry Customer', '9260000001', 'ACTIVE') returning id
+        """, Long.class, owner.dealershipId(), code);
+    var preview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "CUSTOMER", "Direct retry", "Manual retry remains available after an approved direct-send failure",
+            Map.of("recipientTypes", List.of("CUSTOMER"), "marketingOnly", false,
+                "selectionMode", "SELECTED",
+                "selectedRecipients", List.of(Map.of("kind", "CUSTOMER", "id", customerId)),
+                "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, preview.campaignPublicId(), preview.previewToken());
+    jdbc.update("update customer set status = 'INACTIVE' where dealership_id = ? and id = ?",
+        owner.dealershipId(), customerId);
+
+    assertThatThrownBy(() -> notifications.sendNow(owner, preview.campaignPublicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.BAD_REQUEST));
+    var failed = jdbc.queryForMap("""
+        select status, scheduled_at, dispatch_attempt_count, last_dispatch_error, next_dispatch_attempt_at
+        from notification_campaign where dealership_id = ? and public_id = ?
+        """, owner.dealershipId(), preview.campaignPublicId());
+    assertThat(failed.get("status")).isEqualTo("FAILED");
+    assertThat(failed.get("scheduled_at")).isNull();
+    assertThat(((Number) failed.get("dispatch_attempt_count")).intValue()).isEqualTo(1);
+    assertThat(String.valueOf(failed.get("last_dispatch_error")))
+        .contains("Dispatch error: ResponseStatusException");
+    assertThat(failed.get("next_dispatch_attempt_at")).isNull();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isZero();
+
+    jdbc.update("update customer set status = 'ACTIVE' where dealership_id = ? and id = ?",
+        owner.dealershipId(), customerId);
+    var retried = notifications.sendNow(owner, preview.campaignPublicId());
+    assertThat(retried.alreadySent()).isFalse();
+    assertThat(retried.campaign().status()).isEqualTo("SENT");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, preview.campaignPublicId())).isEqualTo(1);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void automaticRetryStateBecomesTerminalAfterTheConfiguredAttemptLimit() {
     StaffPrincipal owner = createNotificationOperator();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
