@@ -163,9 +163,10 @@ export default function BajajShowroom({ onSignIn }: {
       const response = await fetch(endpoint(`/api/v1/public/catalogue/quotes?${params.toString()}`), {
         headers: { Accept: 'application/json' },
       });
-      const payload = await response.json().catch(() => null) as OnRoadQuote | { message?: string } | null;
+      const payload = await response.json().catch(() => null) as OnRoadQuote | { message?: string; detail?: string } | null;
       if (!response.ok) {
-        const message = payload && 'message' in payload ? payload.message : null;
+        const message = payload && 'message' in payload ? payload.message
+          : payload && 'detail' in payload ? payload.detail : null;
         throw new Error(message || 'No configured estimate is available. Please request a dealer quote.');
       }
       if (!payload || !('estimatedOnRoadTotal' in payload) || payload.quoteType !== 'ESTIMATE') {
