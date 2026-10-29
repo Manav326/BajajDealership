@@ -46,6 +46,8 @@ public class StaffSecurityConfiguration {
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/meta/callback").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/media/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/social/whatsapp/webhook").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/v1/social/whatsapp/webhook").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap", "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

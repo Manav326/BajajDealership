@@ -31,7 +31,9 @@ Media delivery is a deployment concern: Meta may need to fetch media from an acc
 
 ### WhatsApp Business messaging
 
-Use the official WhatsApp Business Platform / Cloud API for outbound messaging, not a generic social-post endpoint. Keep message templates, media components, opt-in/opt-out, policy/template constraints, provider message IDs and webhook-backed delivery statuses distinct from in-app notifications.
+The next slice adds dealership-scoped customer consent records, Meta-approved template discovery, sequential body-placeholder validation, optional image headers, idempotent single-recipient sends, signed delivery webhooks and inbound opt-out handling. Every send rechecks that the saved opt-in matches the customer's current E.164 phone. Dynamic text headers and button-bearing templates remain unavailable until their parameter workflows are implemented. Provider acceptance is distinct from sent/delivered/read/failed status. WhatsApp Status stays on manual export/share.
+
+The initial deployment mapping binds one WhatsApp phone ID and WABA to one configured dealership code. Before supporting multiple independently configured dealerships in one API deployment, replace it with per-dealership encrypted WABA connections.
 
 ### WhatsApp Status
 
@@ -67,4 +69,6 @@ Keep provider secrets out of source control and browser responses. Production se
 - [ ] Confirm web typecheck/build and full CI on the latest revision.
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
 - [ ] Implement and test Facebook Page / Instagram feed publishing, external media hosting, provider status reconciliation and destination disconnect.
-- [ ] Implement and test WhatsApp Business messaging; keep Status on manual share/export unless official API capability is verified.
+- [ ] Finish WhatsApp Cloud API implementation and validate with an authorized test WABA and consented internal recipient; no live message is sent by CI.
+- [ ] Expand the initial single-dealership environment mapping into per-dealership encrypted WABA connections before multi-account deployment.
+- [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.

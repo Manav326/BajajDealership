@@ -62,5 +62,12 @@ app:
       redirect-uri: ${SOCIAL_META_REDIRECT_URI:}
       completion-url: ${SOCIAL_META_COMPLETION_URL:}
       token-encryption-key-base64: ${SOCIAL_META_TOKEN_ENCRYPTION_KEY_BASE64:}
+    whatsapp:
+      enabled: ${SOCIAL_WHATSAPP_ENABLED:false}
+      phone-number-id: ${SOCIAL_WHATSAPP_PHONE_NUMBER_ID:}
+      business-account-id: ${SOCIAL_WHATSAPP_BUSINESS_ACCOUNT_ID:}
+      access-token: ${SOCIAL_WHATSAPP_ACCESS_TOKEN:}
+      verify-token: ${SOCIAL_WHATSAPP_VERIFY_TOKEN:}
+      dealership-code: ${SOCIAL_WHATSAPP_DEALERSHIP_CODE:}
   bootstrap:
     token: ${APP_BOOTSTRAP_TOKEN:}
