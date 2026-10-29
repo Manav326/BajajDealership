@@ -1,6 +1,9 @@
 package com.quantaedge.bajaj.inventory;
 
+import com.quantaedge.bajaj.security.StaffPrincipal;
 import jakarta.validation.constraints.Size;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +17,15 @@ public class BajajMotorcycleCatalogueController {
 
   public BajajMotorcycleCatalogueController(BajajMotorcycleCatalogueService catalogue) {
     this.catalogue = catalogue;
+  }
+
+  @GetMapping("/api/v1/admin/bajaj-catalogue")
+  @PreAuthorize("hasAuthority('vehicle.read')")
+  public BajajMotorcycleCatalogueService.CatalogueResponse adminList(
+      @AuthenticationPrincipal StaffPrincipal actor,
+      @RequestParam(required = false) @Size(max = 24) String family,
+      @RequestParam(required = false) @Size(max = 100) String q) {
+    return catalogue.list(actor.dealershipCode(), family, q);
   }
 
   @GetMapping
