@@ -38,7 +38,11 @@ public class CustomerSalesRequestService {
     BigDecimal invoiceTotal = rs.getBigDecimal("invoice_total");
     BigDecimal paidAmount = rs.getBigDecimal("paid_amount");
     if (paidAmount == null) paidAmount = BigDecimal.ZERO.setScale(2);
-    BigDecimal balanceDue = invoiceTotal == null ? null : invoiceTotal.subtract(paidAmount).max(BigDecimal.ZERO);
+    BigDecimal creditedAmount = rs.getBigDecimal("credited_amount");
+    if (invoiceTotal != null && creditedAmount == null) creditedAmount = BigDecimal.ZERO.setScale(2);
+    BigDecimal balanceDue = invoiceTotal == null ? null
+        : invoiceTotal.subtract(paidAmount).subtract(creditedAmount == null ? BigDecimal.ZERO : creditedAmount)
+            .max(BigDecimal.ZERO).setScale(2, java.math.RoundingMode.HALF_UP);
     return new RequestView(
         rs.getObject("public_id", UUID.class), rs.getString("request_code"),
         rs.getString("request_type"), rs.getString("model_code"), rs.getString("model_name"),
@@ -52,7 +56,7 @@ public class CustomerSalesRequestService {
         testRideAt == null ? null : testRideAt.toInstant(),
         rs.getString("booking_code"), rs.getString("booking_status"),
         rs.getString("invoice_number"), rs.getString("invoice_status"),
-        invoiceTotal, paidAmount, balanceDue, deliveredAt == null ? null : deliveredAt.toInstant());
+        invoiceTotal, paidAmount, creditedAmount, balanceDue, deliveredAt == null ? null : deliveredAt.toInstant());
   };
 
   private static final String SELECT_REQUEST = """
@@ -66,6 +70,7 @@ public class CustomerSalesRequestService {
         booking.booking_code, booking.status as booking_status,
         invoice.invoice_number, invoice.status as invoice_status, invoice.invoice_total,
         coalesce(payment.paid_amount, 0)::numeric(16,2) as paid_amount,
+        coalesce(payment.credited_amount, 0)::numeric(16,2) as credited_amount,
         handover.delivered_at
       from customer_sales_request request
       join customer on customer.dealership_id = request.dealership_id and customer.id = request.customer_id
@@ -97,10 +102,21 @@ public class CustomerSalesRequestService {
         limit 1
       ) invoice on true
       left join lateral (
-        select coalesce(sum(payment.amount) filter (where payment.status = 'RECORDED'), 0)::numeric(16,2) as paid_amount
-        from vehicle_sale_payment payment
-        where invoice.id is not null and payment.dealership_id = request.dealership_id
-          and payment.invoice_id = invoice.id
+        select greatest(
+            coalesce(sum(receipt.amount) filter (where receipt.status = 'RECORDED'), 0)
+              - coalesce((select sum(refund.amount) from finance_invoice_adjustment refund
+                  where invoice.id is not null and refund.dealership_id = request.dealership_id
+                    and refund.source_type = 'SALES' and refund.sales_invoice_id = invoice.id
+                    and refund.adjustment_type = 'REFUND' and refund.status = 'PAID'), 0),
+            0)::numeric(16,2) as paid_amount,
+          coalesce((select sum(credit.amount) from finance_invoice_adjustment credit
+            where invoice.id is not null and credit.dealership_id = request.dealership_id
+              and credit.source_type = 'SALES' and credit.sales_invoice_id = invoice.id
+              and credit.adjustment_type = 'CREDIT_NOTE' and credit.status = 'APPROVED'), 0)::numeric(16,2)
+            as credited_amount
+        from vehicle_sale_payment receipt
+        where invoice.id is not null and receipt.dealership_id = request.dealership_id
+          and receipt.invoice_id = invoice.id
       ) payment on true
       left join lateral (
         select handover.delivered_at
@@ -363,5 +379,6 @@ public class CustomerSalesRequestService {
       String customerPhone, String customerEmail, String enquiryCode, String enquiryStatus,
       String testRideCode, String testRideStatus, Instant testRideScheduledStart,
       String bookingCode, String bookingStatus, String invoiceNumber, String invoiceStatus,
-      BigDecimal invoiceTotal, BigDecimal paidAmount, BigDecimal balanceDue, Instant deliveredAt) {}
+      BigDecimal invoiceTotal, BigDecimal paidAmount, BigDecimal creditedAmount,
+      BigDecimal balanceDue, Instant deliveredAt) {}
 }
