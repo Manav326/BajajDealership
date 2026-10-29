@@ -152,6 +152,8 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
   const [document, setDocument] = useState<DocumentV1>(defaultDocument);
   const [previewMode, setPreviewMode] = useState<'mobile' | 'inbox' | 'push'>('mobile');
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const previewRequestSequence = useRef(0);
   const [approvedCampaignPublicId, setApprovedCampaignPublicId] = useState('');
   const [scheduleValue, setScheduleValue] = useState('');
   const [expiryValue, setExpiryValue] = useState('');
@@ -217,16 +219,27 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     setSearching(false);
   }
 
+  function invalidatePreview() {
+    // Ignore any in-flight validation if the audience or content changed afterwards.
+    previewRequestSequence.current += 1;
+    setPreview(null);
+    setApprovedCampaignPublicId('');
+    setPreviewing(false);
+  }
+
   function changeScope(next: 'CUSTOMER' | 'STAFF' | 'DEALERSHIP') {
     setScope(next);
     invalidateRecipientSearch();
     if (next === 'CUSTOMER') { setRecipientTypes(['CUSTOMER']); setMarketingOnly(false); setSearchKind('CUSTOMER'); }
     else if (next === 'STAFF') { setRecipientTypes(['STAFF']); setMarketingOnly(false); setSearchKind('STAFF'); }
-    else setRecipientTypes(['CUSTOMER', 'STAFF']);
+    else {
+      setRecipientTypes(marketingOnly ? ['CUSTOMER'] : ['CUSTOMER', 'STAFF']);
+      setSearchKind('CUSTOMER');
+    }
     setSelectionMode('ALL');
     setSelectedRecipients([]);
     setExcludedRecipients([]);
-    setPreview(null);
+    invalidatePreview();
   }
 
   function toggleType(type: 'CUSTOMER' | 'STAFF') {
@@ -242,7 +255,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     invalidateRecipientSearch();
     if (scope !== 'DEALERSHIP') setScope('DEALERSHIP');
     if (type === 'STAFF' && !recipientTypes.includes('CUSTOMER')) setMarketingOnly(false);
-    setPreview(null);
+    invalidatePreview();
   }
 
   function updateBlock(index: number, key: string, value: string | boolean | number) {
@@ -251,12 +264,12 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       blocks: current.blocks.map((block, blockIndex) =>
         blockIndex === index ? { ...block, [key]: value } : block),
     }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function deleteBlock(index: number) {
     setDocument((current) => ({ version: 1, blocks: current.blocks.filter((_, blockIndex) => blockIndex !== index) }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function addBlock() {
@@ -265,13 +278,13 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       return;
     }
     setDocument((current) => ({ version: 1, blocks: [...current.blocks, freshBlock(addBlockType)] }));
-    setPreview(null);
+    invalidatePreview();
   }
 
   function chooseTemplate(event: ChangeEvent<HTMLSelectElement>) {
     const id = event.target.value;
     setSelectedTemplate(id);
-    setPreview(null);
+    invalidatePreview();
     if (!id) {
       setTemplatePublicId(null);
       setTemplateVersion(null);
@@ -331,7 +344,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         ? current.filter((item) => recipientKey(item) !== key)
         : current.some((item) => recipientKey(item) === key) ? current : [...current, recipient]);
     }
-    setPreview(null);
+    invalidatePreview();
   }
 
   function toggleRecipient(recipient: Recipient) {
@@ -352,13 +365,13 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         return included ? retained : [...retained, ...recipientResults];
       });
     }
-    setPreview(null);
+    invalidatePreview();
   }
 
   function clearRecipientChanges() {
     if (selectionMode === 'SELECTED') setSelectedRecipients([]);
     else setExcludedRecipients([]);
-    setPreview(null);
+    invalidatePreview();
   }
 
   function restoreRecipient(recipient: Recipient) {
@@ -367,15 +380,15 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     } else {
       setExcludedRecipients((current) => current.filter((item) => recipientKey(item) !== recipientKey(recipient)));
     }
-    setPreview(null);
+    invalidatePreview();
   }
 
   async function previewCampaign() {
-    setSaving(true);
+    invalidatePreview();
+    const requestId = ++previewRequestSequence.current;
+    setPreviewing(true);
     setError('');
     setMessage('');
-    setPreview(null);
-    setApprovedCampaignPublicId('');
     try {
       if (!document.blocks.length) throw new Error('Add at least one content block before previewing.');
       if (selectionMode === 'SELECTED' && selectedRecipients.length === 0) {
@@ -402,19 +415,22 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         templateVersion,
       };
       const result = await sendJson<Preview>('/api/v1/admin/notifications/preview', 'POST', request);
+      if (requestId !== previewRequestSequence.current) return;
       setPreview(result);
       setApprovedCampaignPublicId('');
       setMessage(result.message);
       notifyUser('Audience preview is ready. Review the recipients and expiry before sending.', 'success');
     } catch (cause) {
+      if (requestId !== previewRequestSequence.current) return;
       setError(cause instanceof Error ? cause.message : 'Notification preview failed.');
     } finally {
-      setSaving(false);
+      if (requestId === previewRequestSequence.current) setPreviewing(false);
     }
   }
 
   async function saveTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    invalidatePreview();
     setSaving(true);
     setError('');
     setMessage('');
@@ -436,7 +452,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
         notifyUser('Template saved to the dealership library.', 'success');
       }
       setMessage('Template saved. Template versions are retained for audit and reuse.');
-      setPreview(null);
+      invalidatePreview();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save the template.');
     } finally {
@@ -455,7 +471,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
     if (new Date(preview.expiresAt).getTime() <= Date.now()) {
       setError('This preview has expired. Run a new preview before approval.');
-      setPreview(null);
+      invalidatePreview();
       setApprovedCampaignPublicId('');
       return;
     }
@@ -491,7 +507,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     }
     if (new Date(preview.expiresAt).getTime() <= Date.now()) {
       setError('This preview has expired. Run a new preview before sending.');
-      setPreview(null);
+      invalidatePreview();
       return;
     }
     setSending(true);
@@ -521,7 +537,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       setMessage(savedCampaign.status === 'SCHEDULED'
         ? `Campaign scheduled for ${humanDate(savedCampaign.scheduledAt)}. Recipients will be resolved again at dispatch.`
         : `In-app notification created for ${savedCampaign.resolvedRecipientCount} recipient(s).`);
-      setPreview(null);
+      invalidatePreview();
       setApprovedCampaignPublicId('');
       setScheduleValue('');
       notifyUser(savedCampaign.status === 'SCHEDULED' ? 'Notification campaign scheduled.' : 'In-app notification sent.', 'success');
@@ -567,7 +583,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
       const asset = await readResponse<UploadedNotificationMedia>(response);
       setDocument((current) => ({ version: 1, blocks: [...current.blocks,
         { type: 'image', assetId: asset.assetId, alt: asset.altText || file.name, caption: '', decorative: false }] }));
-      setPreview(null);
+      invalidatePreview();
       notifyUser('Image uploaded privately and added to the notification.', 'success');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The image could not be uploaded.');
@@ -580,7 +596,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
     setDocument((current) => ({ version: 1, blocks: [...current.blocks,
       { type: 'image', assetId: asset.assetId, alt: asset.altText || 'Lucky Bajaj logo', caption: '', decorative: false }] }));
     setShowGraphics(false);
-    setPreview(null);
+    invalidatePreview();
     notifyUser('Graphic added to the notification design.', 'success');
   }
 
@@ -649,8 +665,8 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <div className="template-form-footer"><span>{templateVersion ? `Editing version ${templateVersion}; save creates a new version.` : 'Save this design as a reusable template.'}</span><button type="submit" className="secondary-button" disabled={saving}>{saving ? 'Saving…' : templatePublicId ? 'Save new version' : 'Save template'}</button></div>
               </form>
               <div className="studio-two-fields">
-                <div className="studio-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" required maxLength={120} value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); }} /></div>
-                <div className="studio-field"><label htmlFor="campaign-summary">Inbox summary</label><input id="campaign-summary" required maxLength={300} value={summary} onChange={(event) => { setSummary(event.target.value); setPreview(null); }} /></div>
+                <div className="studio-field"><label htmlFor="campaign-title">Campaign title</label><input id="campaign-title" required maxLength={120} value={title} onChange={(event) => { setTitle(event.target.value); invalidatePreview(); }} /></div>
+                <div className="studio-field"><label htmlFor="campaign-summary">Inbox summary</label><input id="campaign-summary" required maxLength={300} value={summary} onChange={(event) => { setSummary(event.target.value); invalidatePreview(); }} /></div>
               </div>
             </section>
 
@@ -677,15 +693,15 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   setSearchKind('CUSTOMER');
                   if (scope === 'DEALERSHIP') setRecipientTypes(['CUSTOMER']);
                 }
-                setPreview(null);
+                invalidatePreview();
               }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. Enabling this filter resets recipient choices and limits the audience to consented customers.</p></label>}
               <div className="audience-mode">
                 <label>
-                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); setPreview(null); }} />
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); invalidatePreview(); }} />
                   <span><strong>All eligible {audienceDescription.toLowerCase()}</strong><small>Everyone receives it unless you uncheck specific people below.</small></span>
                 </label>
                 <label>
-                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); setPreview(null); }} />
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); invalidatePreview(); }} />
                   <span><strong>Choose recipients manually</strong><small>Only the people you check will receive it.</small></span>
                 </label>
               </div>
@@ -774,7 +790,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
 
           <aside className="studio-preview-column">
             <section className="studio-preview-panel">
-              <div className="preview-panel-header"><div><span className="panel-step">04</span><div><h2>Preview</h2><p>Preview is not delivery.</p></div></div><button type="button" className="primary-button" onClick={() => void previewCampaign()} disabled={saving || !title.trim() || !summary.trim()}>{saving ? 'Validating…' : 'Preview audience'}</button></div>
+              <div className="preview-panel-header"><div><span className="panel-step">04</span><div><h2>Preview</h2><p>Preview is not delivery.</p></div></div><button type="button" className="primary-button" onClick={() => void previewCampaign()} disabled={saving || previewing || !title.trim() || !summary.trim()}>{previewing ? 'Validating…' : 'Preview audience'}</button></div>
               <div className="preview-view-controls" role="group" aria-label="Choose notification preview format">
                 {([
                   ['mobile', 'Mobile app'],
@@ -811,7 +827,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <details className="preview-recipient-details"><summary>Review recipient sample ({Math.min(preview.recipients.length, 50)} shown)</summary>{preview.recipients.slice(0, 50).map((recipient) => <div className="preview-recipient" key={recipientKey(recipient)}><span>{recipient.recipientName}</span><small>{recipient.recipientKind}</small></div>)}</details>
                 <div className={approvedCampaignPublicId === preview.campaignPublicId ? 'campaign-approval-banner approved' : 'campaign-approval-banner'}>
                   <div><strong>{approvedCampaignPublicId === preview.campaignPublicId ? '✓ Campaign approved' : 'Approval required'}</strong><span>{approvedCampaignPublicId === preview.campaignPublicId ? 'This preview is approved for sending or scheduling.' : 'An authorized approver must approve this exact preview before any delivery can be queued.'}</span></div>
-                  {approvedCampaignPublicId !== preview.campaignPublicId && canApprove && <button type="button" className="primary-button" onClick={() => void approveCampaign()} disabled={saving || sending || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{saving ? 'Approving…' : 'Approve campaign'}</button>}
+                  {approvedCampaignPublicId !== preview.campaignPublicId && canApprove && <button type="button" className="primary-button" onClick={() => void approveCampaign()} disabled={saving || previewing || sending || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{saving ? 'Approving…' : 'Approve campaign'}</button>}
                   {approvedCampaignPublicId !== preview.campaignPublicId && !canApprove && <span className="approval-permission-note">Your role does not include approval.</span>}
                 </div>
               </div>}
@@ -820,7 +836,7 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                 <p>The server must record approval of the same unexpired preview before sending or scheduling.</p>
                 <label>Schedule for later <span className="optional-label">Optional</span><input type="datetime-local" value={scheduleValue} onChange={(event) => setScheduleValue(event.target.value)} /></label>
                 <label>Expiry time <span className="optional-label">Optional</span><input type="datetime-local" value={expiryValue} onChange={(event) => setExpiryValue(event.target.value)} /></label>
-                <button type="submit" className="send-button" disabled={!canSend || sending || saving || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
+                <button type="submit" className="send-button" disabled={!canSend || sending || saving || previewing || !preview || approvedCampaignPublicId !== preview.campaignPublicId || preview.recipientCount === 0 || new Date(preview.expiresAt).getTime() <= Date.now()}>{sending ? 'Processing…' : scheduleValue ? 'Schedule campaign' : 'Send in-app notification'} <span>↗</span></button>
                 <div className="send-channel-note">{!canSend && <><strong>Send permission required:</strong> Your role can prepare previews but cannot send or schedule notifications yet. </>}<strong>Current channel:</strong> durable in-app inbox only. Push/SMS/WhatsApp/email providers are not configured in this repository yet.</div>
               </form>
             <div className="studio-trust-note"><strong>Safe by default</strong><p>Audience eligibility is resolved on the server. Template versions are immutable. Campaign approval is audited, recipient changes invalidate approval, and sends use one-time preview proof and idempotency keys. Media must pass server validation.</p></div>
