@@ -92,9 +92,18 @@ class CustomerSalesRequestServiceIntegrationTest {
     transactions.recordPayment(fixture.owner(), issued.publicId(),
         new SalesTransactionService.SalePaymentRequest("journey-payment-" + UUID.randomUUID(),
             "UPI", new BigDecimal("150000.00"), "SYNTHETIC-NO-REAL-PAYMENT", "Integration fixture only"));
+
+    // Ownership must not be granted by enquiry, test ride, booking, or payment alone.
+    assertThat(portal.vehicles(fixture.customer())).isEmpty();
+
     transactions.deliverBooking(fixture.owner(), booking.publicId(),
         new SalesTransactionService.HandoverRequest(fixture.customer().fullName(), true,
             "WRITTEN_MESSAGE", "SYNTHETIC-HANDOVER-ACK", "Integration fixture only"));
+
+    // The authenticated customer portal must surface the exact physical unit only after handover.
+    assertThat(portal.vehicles(fixture.customer()))
+        .extracting(CustomerPortalService.VehicleView::publicId)
+        .containsExactly(fixture.vehicleUnitPublicId());
 
     var journey = requests.listForCustomer(fixture.customer()).getFirst();
     assertThat(journey.enquiryCode()).isNotBlank();
