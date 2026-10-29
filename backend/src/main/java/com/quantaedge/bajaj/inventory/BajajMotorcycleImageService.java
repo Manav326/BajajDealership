@@ -48,7 +48,7 @@ public class BajajMotorcycleImageService {
   }
 
   public List<UploadedImage> list(StaffPrincipal actor, String rawCode) {
-    String code = normalize(rawCode); requireModel(code);
+    String code = normalize(rawCode); requireModel(actor.dealershipId(), code);
     return jdbc.query("""
       select public_id,model_code,content_type,size_bytes,is_primary,created_at
       from bajaj_motorcycle_image where dealership_id=? and model_code=?
@@ -60,7 +60,7 @@ public class BajajMotorcycleImageService {
 
   @Transactional
   public void delete(StaffPrincipal actor, String rawCode, UUID imageId) {
-    String code = normalize(rawCode); requireModel(code);
+    String code = normalize(rawCode); requireModel(actor.dealershipId(), code);
     List<Map<String,Object>> rows = jdbc.queryForList("select id,is_primary from bajaj_motorcycle_image where dealership_id=? and model_code=? and public_id=? for update",actor.dealershipId(),code,imageId);
     if (rows.isEmpty()) throw notFound("Uploaded image was not found for this model.");
     long id=((Number)rows.getFirst().get("id")).longValue();
