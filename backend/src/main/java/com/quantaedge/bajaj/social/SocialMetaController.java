@@ -21,7 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class SocialMetaController {
   private final SocialMetaService meta;
   private final SocialMetaPublishingService publishing;
-  public SocialMetaController(SocialMetaService meta,SocialMetaPublishingService publishing){this.meta=meta;this.publishing=publishing;}
+  private final SocialMediaWorkflowService workflow;
+  public SocialMetaController(SocialMetaService meta,SocialMetaPublishingService publishing,SocialMediaWorkflowService workflow){this.meta=meta;this.publishing=publishing;this.workflow=workflow;}
 
   @GetMapping("/api/v1/admin/social/meta/status")
   @PreAuthorize("hasAuthority('social_media.read')")
@@ -41,9 +42,31 @@ public class SocialMetaController {
     return meta.beginAuthorization(principal);
   }
 
+  /** A publish call creates a persisted request; the provider is called only after an authorized approval. */
   @PostMapping("/api/v1/admin/social/meta/publish")
   @PreAuthorize("hasAuthority('social_media.publish')")
-  public SocialMetaPublishingService.PublishView publish(@AuthenticationPrincipal StaffPrincipal principal,@Valid @RequestBody SocialMetaPublishingService.PublishRequest request){return publishing.publish(principal,request);}
+  public SocialMediaWorkflowService.PublishRequestView publish(@AuthenticationPrincipal StaffPrincipal principal,@Valid @RequestBody SocialMediaWorkflowService.PublishRequest request){return workflow.requestApproval(principal,request);}
+
+  @PostMapping("/api/v1/admin/social/meta/publish-requests")
+  @PreAuthorize("hasAuthority('social_media.publish')")
+  public SocialMediaWorkflowService.PublishRequestView requestApproval(@AuthenticationPrincipal StaffPrincipal principal,@Valid @RequestBody SocialMediaWorkflowService.PublishRequest request){return workflow.requestApproval(principal,request);}
+
+  @GetMapping("/api/v1/admin/social/meta/publish-requests")
+  @PreAuthorize("hasAuthority('social_media.read')")
+  public java.util.List<SocialMediaWorkflowService.PublishRequestView> publishRequests(@AuthenticationPrincipal StaffPrincipal principal,@RequestParam(defaultValue="50") int limit){return workflow.list(principal,limit);}
+
+  @PostMapping("/api/v1/admin/social/meta/publish-requests/{publicId}/approve")
+  @PreAuthorize("hasAuthority('social_media.manage')")
+  public SocialMediaWorkflowService.PublishRequestView approvePublish(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId,@RequestBody(required=false) SocialMediaWorkflowService.DecisionRequest request){return workflow.approve(principal,publicId,request);}
+
+  @PostMapping("/api/v1/admin/social/meta/publish-requests/{publicId}/reject")
+  @PreAuthorize("hasAuthority('social_media.manage')")
+  public SocialMediaWorkflowService.PublishRequestView rejectPublish(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId,@RequestBody(required=false) SocialMediaWorkflowService.DecisionRequest request){return workflow.reject(principal,publicId,request);}
+
+  @PostMapping("/api/v1/admin/social/meta/publish-requests/{publicId}/cancel")
+  @PreAuthorize("hasAuthority('social_media.manage')")
+  public SocialMediaWorkflowService.PublishRequestView cancelPublish(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return workflow.cancel(principal,publicId);}
+
   @GetMapping("/api/v1/admin/social/meta/publishes/{publicId}")
   @PreAuthorize("hasAuthority('social_media.read')")
   public SocialMetaPublishingService.PublishView publishStatus(@AuthenticationPrincipal StaffPrincipal principal,@PathVariable UUID publicId){return publishing.status(principal,publicId);}
