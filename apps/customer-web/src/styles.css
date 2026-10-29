@@ -863,3 +863,14 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .showroom-offers { padding-inline: 16px; }
   .showroom-offer-card { padding: 16px; }
 }
+
+/* Customer must review delivery quotes explicitly; actions remain usable on narrow screens. */
+.retail-delivery-quote-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:8px; }
+.retail-delivery-quote-actions .primary-button,
+.retail-delivery-quote-actions .secondary-button { min-height:36px; padding:8px 11px; font-size:11px; }
+.retail-checkout-form select { width:100%; min-width:0; padding:11px 12px; border:1px solid rgba(143,161,187,.46); border-radius:10px; background:rgba(255,255,255,.88); color:#263a53; font:inherit; }
+.retail-order-state>small { overflow-wrap:anywhere; }
+@media (max-width: 520px) {
+  .retail-delivery-quote-actions { justify-content:stretch; }
+  .retail-delivery-quote-actions button { flex:1 1 100%; }
+}

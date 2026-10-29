@@ -77,7 +77,7 @@ public class CustomerRetailPartsController {
       @NotEmpty @Size(max = 50) List<@Valid LineRequest> lines,
       @Size(max = 60) String fitmentModelCode,
       @Size(max = 1000) String customerNote,
-      @NotBlank @Size(max = 16) String fulfillmentMethod,
+      @Size(max = 16) String fulfillmentMethod,
       @Size(max = 1500) String deliveryAddress,
       @NotBlank @Size(max = 120) String idempotencyKey) {}
 }

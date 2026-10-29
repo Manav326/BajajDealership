@@ -478,6 +478,7 @@ class RetailPartsServiceIntegrationTest {
   }
 
   @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void deliveryOrderRequiresAQuotedFeeAndCustomerAcceptanceBeforeFulfilment() {
     StaffPrincipal manager = createManager();
     var part = spareParts.createPart(manager,
