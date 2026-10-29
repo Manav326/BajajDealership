@@ -292,13 +292,20 @@ public class CustomerSalesRequestService {
     if (modelIds.isEmpty()) throw conflict("The selected Bajaj model has no active inventory model record.");
 
     Timestamp preferred = (Timestamp) row.get("preferred_at");
-    String note = "Website " + String.valueOf(row.get("request_type")) + " request "
+    String requestType = String.valueOf(row.get("request_type"));
+    String note = "Website " + requestType + " request "
         + String.valueOf(row.get("request_code")) + "."
         + (row.get("notes") == null ? "" : " " + String.valueOf(row.get("notes")));
+    if ("TEST_RIDE".equals(requestType) && preferred != null) {
+      note += " Customer's preferred test-ride time: " + preferred.toInstant()
+          + " (UTC). This is a request only; dealership staff must confirm an available slot.";
+    }
+    // A customer's preferred test-ride time is not a staff follow-up reminder and does not
+    // reserve a bike or schedule a test ride. Staff explicitly sets follow-up/test-ride timing.
     SalesOperationsService.EnquiryView enquiry = sales.createEnquiry(actor,
         new SalesOperationsService.EnquiryRequest(
             (UUID) row.get("customer_public_id"), modelIds.getFirst(), null,
-            "WEBSITE", "CALL", preferred == null ? null : preferred.toInstant(), note));
+            "WEBSITE", "CALL", null, note));
     Long enquiryId = jdbc.queryForObject("""
         select id from sales_enquiry where dealership_id = ? and public_id = ?
         """, Long.class, actor.dealershipId(), enquiry.publicId());
