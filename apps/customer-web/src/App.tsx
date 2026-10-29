@@ -211,7 +211,7 @@ export default function App() {
     }
   }, [clearSession]);
 
-  async function resumePendingShowroomIntent(sessionToken: string): Promise<boolean | null> {
+  const resumePendingShowroomIntent = useCallback(async (sessionToken: string): Promise<boolean | null> => {
     const raw = window.sessionStorage.getItem('qe_bajaj_pending_intent');
     if (!raw) return null;
     let intent: PendingShowroomIntent;
@@ -258,7 +258,7 @@ export default function App() {
         : 'The request could not be submitted. Your selected bike remains saved.');
       return false;
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (!token) {
