@@ -55,6 +55,7 @@ class CustomerSalesRequestServiceIntegrationTest {
     assertThat(journey.invoiceStatus()).isNull();
     assertThat(journey.invoiceTotal()).isNull();
     assertThat(journey.paidAmount()).isEqualByComparingTo("0.00");
+    assertThat(journey.creditedAmount()).isNull();
     assertThat(journey.balanceDue()).isNull();
     assertThat(journey.deliveredAt()).isNull();
   }
@@ -104,6 +105,7 @@ class CustomerSalesRequestServiceIntegrationTest {
     assertThat(journey.invoiceStatus()).isEqualTo("ISSUED");
     assertThat(journey.invoiceTotal()).isEqualByComparingTo("150000.00");
     assertThat(journey.paidAmount()).isEqualByComparingTo("150000.00");
+    assertThat(journey.creditedAmount()).isEqualByComparingTo("0.00");
     assertThat(journey.balanceDue()).isEqualByComparingTo("0.00");
     assertThat(journey.deliveredAt()).isNotNull();
   }
