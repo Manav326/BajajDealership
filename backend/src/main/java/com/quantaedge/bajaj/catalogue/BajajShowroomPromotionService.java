@@ -53,7 +53,7 @@ public class BajajShowroomPromotionService {
           rs.getString("title"), rs.getString("summary"), rs.getString("terms"),
           rs.getDate("starts_on").toLocalDate(),
           rs.getDate("ends_on") == null ? null : rs.getDate("ends_on").toLocalDate(),
-          rs.getString("source_url"),
+          rs.getString("source_url"), true,
           "Dealer-authored information only. Verify current availability and final terms with Lucky Bajaj; this announcement does not change catalogue prices automatically."),
         dealership.id());
   }
