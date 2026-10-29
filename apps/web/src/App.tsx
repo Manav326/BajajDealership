@@ -336,7 +336,7 @@ function App() {
         <div className="page-wrap">
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
           {activePage === 'Social Media Studio' ? (
-            <SocialMediaArtworkStudio onClose={() => navigateToPage('Notification Studio')} />
+            <SocialMediaArtworkStudio onClose={() => navigateToPage('Notification Studio')} canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} />
           ) : activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
           ) : activePage === 'Sales pipeline' ? (

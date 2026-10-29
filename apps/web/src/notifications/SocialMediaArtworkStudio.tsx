@@ -202,7 +202,7 @@ function newDraftId() {
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 }
 
-export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => void }) {
+export default function SocialMediaArtworkStudio({ onClose, canManage = false, canPublish = false }: { onClose: () => void; canManage?: boolean; canPublish?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [formatId, setFormatId] = useState(formats[0].id);
   const [brandName, setBrandName] = useState('Lucky Bajaj Agency');
@@ -695,8 +695,8 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
               <strong>Facebook & Instagram accounts</strong>
               <p>{metaLoading ? 'Checking server configuration and connected destinations…' : metaStatus?.message ?? 'Account connection status is unavailable.'}</p>
             </div>
-            <button type="button" className={styles.secondary} disabled={metaLoading || metaConnecting || !metaStatus?.configured} onClick={() => void connectMeta()}>
-              {metaConnecting ? 'Opening Meta…' : 'Connect account'}
+            <button type="button" className={styles.secondary} disabled={!canManage || metaLoading || metaConnecting || !metaStatus?.configured} onClick={() => void connectMeta()}>
+              {metaConnecting ? 'Opening Meta…' : canManage ? 'Connect account' : 'Account manager permission required'}
             </button>
           </div>
           {metaError && <div className={styles.error} role="alert">{metaError}</div>}
@@ -774,7 +774,7 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
                   {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
                 </select>
               </label>
-              <button type="button" className={styles.publishButton} disabled={!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':'Publish now'}</button>
+              <button type="button" className={styles.publishButton} disabled={!canPublish||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy||publishJob?.status==='PROCESSING'||publishJob?.status==='UNKNOWN'} onClick={()=>void publishArtwork()}>{publishingBusy?'Preparing and publishing…':canPublish?'Publish now':'Publishing permission required'}</button>
               {publishJob&&<div className={styles.publishResult}>
                 <div><strong>Latest publish job</strong><span className={publishJob.status==='PUBLISHED'?styles.connectedState:publishJob.status==='FAILED'?styles.disconnectedState:styles.publishPendingState}>{publishJob.status}</span></div>
                 <p>{publishJob.destinationName}{publishJob.externalPostId?' · Post ID '+publishJob.externalPostId:''}{publishJob.errorCode?' · '+publishJob.errorCode:''}</p>
