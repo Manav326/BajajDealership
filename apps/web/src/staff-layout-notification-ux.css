@@ -594,3 +594,56 @@
     padding: 11px;
   }
 }
+
+/* Toasts are viewport overlays. They must not participate in the app-shell flex row:
+   a long success/error message would otherwise push the sidebar and workspace sideways. */
+.toast-stack {
+  position: fixed;
+  inset: 16px 16px auto auto;
+  z-index: 200;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  min-width: 0;
+  pointer-events: none;
+}
+
+.toast-stack .toast {
+  min-width: 0;
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid rgba(216, 225, 237, 0.98);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  color: #33435b;
+  box-shadow: 0 16px 42px rgba(22, 37, 61, 0.16), inset 0 1px rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.toast-stack .toast-success {
+  border-color: #bfe9d2;
+  background: rgba(244, 253, 248, 0.98);
+  color: #176b47;
+}
+
+.toast-stack .toast-error {
+  border-color: #f4c8c5;
+  background: rgba(255, 247, 246, 0.98);
+  color: #963831;
+}
+
+@media (max-width: 560px) {
+  .toast-stack {
+    inset: 12px 12px auto auto;
+    width: min(420px, calc(100vw - 24px));
+  }
+
+  .toast-stack .toast {
+    padding: 11px 12px;
+    font-size: 11px;
+  }
+}
+
