@@ -84,7 +84,7 @@ function preview() {
   };
 }
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, extraPermissions: string[] = []) {
   let galleryImages: Array<{
     publicId: string; modelCode: string; contentType: string; sizeBytes: number;
     primary: boolean; uploadedAt: string;
@@ -131,6 +131,7 @@ async function mockApi(page: Page) {
           'social_media.whatsapp.manage',
           'social_media.whatsapp.send',
           'report.read',
+          ...extraPermissions,
         ],
       });
     }
@@ -554,7 +555,7 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
 
 
 test('staff can open a customer profile and view the saved delivery address and private photo', async ({ page }) => {
-  await mockApi(page);
+  await mockApi(page, ['customer.update']);
   let customer = {
     publicId: '00000000-0000-0000-0000-000000000321',
     customerCode: 'CUS-E2E-0321',
