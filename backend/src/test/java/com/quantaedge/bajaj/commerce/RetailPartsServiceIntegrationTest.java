@@ -100,7 +100,7 @@ class RetailPartsServiceIntegrationTest {
   }
 
   @Test
-  void customerOrderHistoryAndCancellationAreScopedToTheAuthenticatedCustomerAccount() {
+  void unknownOrderCannotBeCancelledByAnotherCustomerIdentity() {
     StaffPrincipal manager = createManager();
     CustomerPrincipal customer = customerIn(manager);
     CustomerPrincipal differentCustomer = new CustomerPrincipal(
@@ -118,6 +118,28 @@ class RetailPartsServiceIntegrationTest {
         .isInstanceOf(ResponseStatusException.class)
         .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
             .isEqualTo(HttpStatus.NOT_FOUND));
+  }
+
+  @Test
+  void retailListingCannotBeReadOrUpdatedAcrossDealerships() {
+    StaffPrincipal dealershipA = createManager();
+    StaffPrincipal dealershipB = createManager();
+    var partB = spareParts.createPart(dealershipB,
+        new SparePartsService.PartRequest("OTHER-" + UUID.randomUUID().toString().substring(0, 8),
+            "Dealership B part", "Private to dealership B", "EACH"));
+
+    assertThat(retailParts.listRetailSettings(dealershipA))
+        .noneMatch(item -> item.publicId().equals(partB.publicId()));
+
+    assertThatThrownBy(() -> retailParts.updateRetailSettings(dealershipA, partB.publicId(),
+        new RetailPartsService.RetailSettingsRequest(
+            true, new BigDecimal("10.00"), "Unauthorized update", List.of(), null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+
+    assertThat(retailParts.listRetailSettings(dealershipB))
+        .noneMatch(item -> item.publicId().equals(partB.publicId()) && !item.retailEnabled());
   }
 
   private CustomerPrincipal customerIn(StaffPrincipal manager) {
