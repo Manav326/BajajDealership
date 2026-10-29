@@ -1,0 +1,227 @@
+import { useCallback, useEffect, useState } from 'react';
+import { apiFetch } from '../apiClient';
+import type { StaffSummary } from '../auth/StaffLogin';
+
+type RetailPartSetting = {
+  publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
+  active: boolean; retailEnabled: boolean; retailPrice: number | null; retailDescription: string | null;
+  fitmentModelCodes: string[]; imageUrl: string | null; quantityOnHand: number; quantityReserved: number;
+  quantityAvailable: number; averageUnitCost: number;
+};
+type RetailOrderLine = {
+  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type RetailOrder = {
+  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
+  orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
+  cancelledAt: string | null; fulfilledAt: string | null; customerName: string;
+  customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
+};
+type SettingsDraft = {
+  retailEnabled: boolean; retailPrice: string; retailDescription: string;
+  fitmentModelCodes: string; imageUrl: string;
+};
+type CollectionDraft = {
+  collectionMethod: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER';
+  externalReference: string; note: string; idempotencyKey: string;
+};
+const newKey = () => globalThis.crypto?.randomUUID?.() ?? `retail-pickup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const money = (value: number | null | undefined) => `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dateLabel = (value: string | null | undefined) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—'
+    : new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+};
+const pretty = (value: string) => value.replaceAll('_', ' ').toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+function toDraft(part: RetailPartSetting): SettingsDraft {
+  return {
+    retailEnabled: part.retailEnabled,
+    retailPrice: part.retailPrice == null ? '' : String(part.retailPrice),
+    retailDescription: part.retailDescription ?? '',
+    fitmentModelCodes: part.fitmentModelCodes.join(', '),
+    imageUrl: part.imageUrl ?? '',
+  };
+}
+
+export default function RetailPartsCommercePanel({ token, staff }: { token: string; staff: StaffSummary }) {
+  const canManage = staff.permissions.includes('parts.manage');
+  const [parts, setParts] = useState<RetailPartSetting[]>([]);
+  const [orders, setOrders] = useState<RetailOrder[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, SettingsDraft>>({});
+  const [openEditor, setOpenEditor] = useState('');
+  const [collections, setCollections] = useState<Record<string, CollectionDraft>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [loadedParts, loadedOrders] = await Promise.all([
+        apiFetch<RetailPartSetting[]>('/api/v1/admin/retail-parts', token),
+        apiFetch<RetailOrder[]>('/api/v1/admin/retail-part-orders?limit=100', token),
+      ]);
+      setParts(loadedParts ?? []);
+      setOrders(loadedOrders ?? []);
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const part of loadedParts ?? []) next[part.publicId] = next[part.publicId] ?? toDraft(part);
+        return next;
+      });
+      setCollections((current) => {
+        const next = { ...current };
+        for (const order of loadedOrders ?? []) {
+          next[order.publicId] = next[order.publicId] ?? {
+            collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
+          };
+        }
+        return next;
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Retail parts workspace could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function saveSettings(part: RetailPartSetting) {
+    const draft = drafts[part.publicId] ?? toDraft(part);
+    const price = draft.retailPrice.trim();
+    if (draft.retailEnabled && (!price || !Number.isFinite(Number(price)) || Number(price) <= 0)) {
+      setError('Enter a positive retail price before publishing a part.');
+      return;
+    }
+    const fitments = draft.fitmentModelCodes.split(',').map((code) => code.trim().toUpperCase()).filter(Boolean);
+    setBusyId(part.publicId); setError(''); setMessage('');
+    try {
+      const updated = await apiFetch<RetailPartSetting>(
+        `/api/v1/admin/retail-parts/${part.publicId}`, token, {
+          method: 'PUT',
+          body: JSON.stringify({
+            retailEnabled: draft.retailEnabled,
+            retailPrice: price ? Number(price) : null,
+            retailDescription: draft.retailDescription.trim() || null,
+            fitmentModelCodes: fitments,
+            imageUrl: draft.imageUrl.trim() || null,
+          }),
+        });
+      setParts((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+      setDrafts((current) => ({ ...current, [updated.publicId]: toDraft(updated) }));
+      setOpenEditor('');
+      setMessage(`${updated.skuCode} ${updated.retailEnabled ? 'is now published in' : 'was removed from'} the customer retail shop.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Retail listing settings could not be saved.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function fulfill(order: RetailOrder) {
+    const draft = collections[order.publicId] ?? {
+      collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
+    };
+    setBusyId(order.publicId); setError(''); setMessage('');
+    try {
+      const updated = await apiFetch<RetailOrder>(
+        `/api/v1/admin/retail-part-orders/${order.publicId}/fulfill`, token, {
+          method: 'POST',
+          body: JSON.stringify({
+            collectionMethod: draft.collectionMethod,
+            externalReference: draft.externalReference.trim() || null,
+            idempotencyKey: draft.idempotencyKey,
+            note: draft.note.trim() || null,
+          }),
+        });
+      setOrders((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+      setCollections((current) => ({ ...current, [order.publicId]: { ...draft, idempotencyKey: newKey() } }));
+      setMessage(`Order ${updated.orderCode} fulfilled; stock was deducted and the collection receipt recorded.`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The order could not be fulfilled.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  function updateDraft(part: RetailPartSetting, patch: Partial<SettingsDraft>) {
+    setDrafts((current) => ({ ...current, [part.publicId]: { ...(current[part.publicId] ?? toDraft(part)), ...patch } }));
+  }
+  function updateCollection(order: RetailOrder, patch: Partial<CollectionDraft>) {
+    setCollections((current) => ({
+      ...current,
+      [order.publicId]: { ...(current[order.publicId] ?? {
+        collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
+      }), ...patch },
+    }));
+  }
+
+  return <div className="retail-admin-workspace">
+    <div className="spare-parts-panel retail-admin-intro">
+      <div className="spare-parts-section-heading">
+        <div><h2>Customer retail shop</h2><p>Choose which SKUs customers can buy, maintain retail price and Bajaj fitment, and fulfil pickup orders. Workshop reservations remain protected.</p></div>
+        <button type="button" className="secondary-button" onClick={() => void load()} disabled={loading}>↻ Refresh</button>
+      </div>
+      {error && <div className="notice notice-error" role="alert">{error}</div>}
+      {message && <div className="notice notice-success" role="status">{message}</div>}
+      <div className="retail-admin-summaries">
+        <article><small>Retail listings</small><strong>{parts.filter((part) => part.retailEnabled).length}</strong><span>Enabled SKU(s)</span></article>
+        <article><small>Available for retail</small><strong>{parts.filter((part) => part.retailEnabled && part.quantityAvailable > 0).length}</strong><span>After reservations</span></article>
+        <article><small>Pickup orders</small><strong>{orders.filter((order) => order.status === 'PLACED').length}</strong><span>Awaiting collection</span></article>
+      </div>
+    </div>
+
+    <section className="spare-parts-panel">
+      <div className="spare-parts-section-heading"><div><h2>Retail catalogue settings</h2><p>Only retail-enabled parts with an explicit price appear to customers. The listed price is separate from average purchase cost.</p></div><span className="spare-parts-count">{parts.length} SKU(s)</span></div>
+      {loading ? <div className="studio-empty">Loading retail SKU settings…</div>
+        : parts.length === 0 ? <div className="studio-empty">Create a spare-part SKU and receive stock before enabling it for retail.</div>
+        : <div className="retail-admin-list">{parts.map((part) => {
+          const draft = drafts[part.publicId] ?? toDraft(part);
+          const open = openEditor === part.publicId;
+          return <article className="retail-admin-part" key={part.publicId}>
+            <div className="retail-admin-part-summary">
+              {part.imageUrl ? <img src={part.imageUrl} alt="" loading="lazy" /> : <div className="retail-admin-part-mark">LB</div>}
+              <div className="retail-admin-part-copy"><strong>{part.partName}</strong><small>{part.skuCode} · {part.unitOfMeasure}</small><span>On hand {part.quantityOnHand} · Reserved {part.quantityReserved} · Available {part.quantityAvailable}</span></div>
+              <div className="retail-admin-part-right"><strong>{part.retailPrice == null ? 'Price not set' : money(part.retailPrice)}</strong><span className={part.retailEnabled ? 'retail-admin-badge enabled' : 'retail-admin-badge'}>{part.retailEnabled ? 'Published' : 'Hidden'}</span><button className="secondary-button" type="button" onClick={() => setOpenEditor(open ? '' : part.publicId)}>{open ? 'Close editor' : 'Edit listing'}</button></div>
+            </div>
+            {open && <form className="retail-admin-editor" onSubmit={(event) => { event.preventDefault(); void saveSettings(part); }}>
+              <label className="retail-admin-enable"><input type="checkbox" checked={draft.retailEnabled} onChange={(event) => updateDraft(part, { retailEnabled: event.target.checked })} /> Show this part in the customer shop</label>
+              <div className="spare-parts-form-grid">
+                <label>Retail price (₹) *<input type="number" min="0.01" step="0.01" value={draft.retailPrice} onChange={(event) => updateDraft(part, { retailPrice: event.target.value })} required={draft.retailEnabled} placeholder="Customer selling price" /></label>
+                <label>Image URL (HTTPS)<input type="url" maxLength={1000} value={draft.imageUrl} onChange={(event) => updateDraft(part, { imageUrl: event.target.value })} placeholder="https://…" /></label>
+                <label className="spare-full-label">Customer-facing description<textarea rows={2} maxLength={1000} value={draft.retailDescription} onChange={(event) => updateDraft(part, { retailDescription: event.target.value })} placeholder={part.description ?? 'Describe the part clearly'} /></label>
+                <label className="spare-full-label">Compatible Bajaj model codes (comma-separated, optional)<input maxLength={2400} value={draft.fitmentModelCodes} onChange={(event) => updateDraft(part, { fitmentModelCodes: event.target.value })} placeholder="BAJAJ_PULSAR_NS160, BAJAJ_PULSAR_N160" /><small>Leave empty only for a genuinely universal fit. Model codes are validated against the published Bajaj catalogue.</small></label>
+              </div>
+              <div className="retail-admin-editor-actions"><span>Supplier cost stays staff-only and is never returned by the customer catalogue.</span><button type="button" className="secondary-button" onClick={() => { setDrafts((current) => ({ ...current, [part.publicId]: toDraft(part) })); setOpenEditor(''); }}>Discard</button><button type="submit" className="primary-button" disabled={!canManage || busyId === part.publicId}>{busyId === part.publicId ? 'Saving…' : 'Save retail listing'}</button></div>
+            </form>}
+          </article>;
+        })}</div>}
+    </section>
+
+    <section className="spare-parts-panel">
+      <div className="spare-parts-section-heading"><div><h2>Pickup orders</h2><p>Fulfil a placed order only after the customer has paid at pickup. This action records a staff-attested operational collection, not gateway verification.</p></div><span className="spare-parts-count">{orders.filter((order) => order.status === 'PLACED').length} pending</span></div>
+      {orders.length === 0 ? <div className="studio-empty">No retail pickup orders yet.</div>
+        : <div className="retail-admin-order-list">{orders.map((order) => {
+          const draft = collections[order.publicId] ?? {
+            collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
+          };
+          return <article className="retail-admin-order" key={order.publicId}>
+            <div className="retail-admin-order-head"><div><strong>{order.orderCode}</strong><small>{order.customerName} · {order.customerPhone || order.customerCode} · {dateLabel(order.createdAt)}</small></div><div className="retail-admin-order-total"><strong>{money(order.orderTotal)}</strong><span className={`sales-status status-${order.status.toLowerCase().replaceAll('_', '-')}`}>{pretty(order.status)}</span></div></div>
+            <div className="retail-admin-order-lines">{order.lines.map((line) => <div key={line.partPublicId}><span>{line.skuCode} · {line.partName} <small>({line.quantity} {line.unitOfMeasure})</small></span><strong>{money(line.lineTotal)}</strong></div>)}</div>
+            {order.customerNote && <p className="retail-admin-order-note">Customer note: {order.customerNote}</p>}
+            {order.status === 'PLACED' ? <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void fulfill(order); }}>
+              <label>Collection method<select value={draft.collectionMethod} onChange={(event) => updateCollection(order, { collectionMethod: event.target.value as CollectionDraft['collectionMethod'] })}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
+              <label>Receipt / reference<input maxLength={160} value={draft.externalReference} onChange={(event) => updateCollection(order, { externalReference: event.target.value })} placeholder="Optional transaction reference" /></label>
+              <label>Collection note<input maxLength={1000} value={draft.note} onChange={(event) => updateCollection(order, { note: event.target.value })} placeholder="Optional collection note" /></label>
+              <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : 'Record collection & fulfil'}</button>
+            </form> : <div className="retail-admin-fulfilled-note">{order.status === 'FULFILLED' ? `Collected ${dateLabel(order.fulfilledAt)} · ${order.paymentStatus.replaceAll('_', ' ')}` : `Cancelled ${dateLabel(order.cancelledAt)}`}</div>}
+          </article>;
+        })}</div>}
+    </section>
+  </div>;
+}
