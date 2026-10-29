@@ -219,28 +219,49 @@ export default function CustomerWorkspace({
     setSelectedHistory(null);
     setSelectedProfileError('');
     setSelectedProfileLoading(true);
+
+    // A history failure must not block the customer profile or saved address book.
     try {
-      const [detail, addresses, history] = await Promise.all([
-        apiFetch<Customer>(`/api/v1/admin/customers/${customer.publicId}`, token),
-        apiFetch<CustomerAddress[]>(`/api/v1/admin/customers/${customer.publicId}/saved-addresses`, token),
-        apiFetch<CustomerHistory>(`/api/v1/admin/customers/${customer.publicId}/history`, token),
+      const [detail, addresses] = await Promise.all([
+        apiFetch<Customer>('/api/v1/admin/customers/' + customer.publicId, token),
+        apiFetch<CustomerAddress[]>('/api/v1/admin/customers/' + customer.publicId + '/saved-addresses', token),
       ]);
       if (requestId !== selectedProfileRequestId.current) return;
       setSelectedCustomer(detail);
       setSelectedAddresses(Array.isArray(addresses) ? addresses : []);
-      setSelectedHistory(history);
-      const response = await fetch(apiRequestUrl(`/api/v1/admin/customers/${customer.publicId}/profile-photo`), {
-        headers: { Authorization: `Bearer ${token}` },
+    } catch (cause) {
+      if (requestId === selectedProfileRequestId.current) {
+        setSelectedProfileError(cause instanceof Error
+          ? cause.message
+          : 'Customer profile details could not be loaded.');
+        setSelectedProfileLoading(false);
+      }
+      return;
+    }
+
+    try {
+      const history = await apiFetch<CustomerHistory>(
+        '/api/v1/admin/customers/' + customer.publicId + '/history', token);
+      if (requestId === selectedProfileRequestId.current) setSelectedHistory(history);
+    } catch (cause) {
+      if (requestId === selectedProfileRequestId.current) {
+        setSelectedProfileError(
+          'Profile and saved addresses loaded, but purchase history could not be loaded. ' +
+          (cause instanceof Error ? cause.message : 'Close and reopen this profile to retry.'));
+      }
+    }
+
+    try {
+      const response = await fetch(apiRequestUrl('/api/v1/admin/customers/' + customer.publicId + '/profile-photo'), {
+        headers: { Authorization: 'Bearer ' + token },
       });
       if (response.ok) {
         const url = URL.createObjectURL(await response.blob());
         if (requestId === selectedProfileRequestId.current) setSelectedPhotoUrl(url);
         else URL.revokeObjectURL(url);
       }
-    } catch (cause) {
-      if (requestId === selectedProfileRequestId.current) {
-        setSelectedProfileError(cause instanceof Error ? cause.message : 'Customer profile details could not be loaded.');
-      }
+    } catch {
+      // The initials avatar remains a safe fallback if the private photo is temporarily unavailable.
     } finally {
       if (requestId === selectedProfileRequestId.current) setSelectedProfileLoading(false);
     }
@@ -402,8 +423,10 @@ export default function CustomerWorkspace({
             <div className="customer-profile-history">
               <section className="customer-profile-history-section">
                 <div className="customer-profile-address-heading"><div><h3>Motorcycles purchased</h3><p>Completed and acknowledged vehicle handovers, including in-store purchases.</p></div><span>{selectedHistory?.motorcyclePurchases.length ?? 0}</span></div>
-                {!selectedHistory || selectedHistory.motorcyclePurchases.length === 0
-                  ? <div className="customer-profile-address-empty">No completed motorcycle handovers are linked to this customer yet. Current enquiries and bookings are shown below.</div>
+                {!selectedHistory
+                  ? <div className="customer-profile-address-empty">Motorcycle purchase history could not be loaded. The profile remains available; reopen it to retry.</div>
+                  : selectedHistory.motorcyclePurchases.length === 0
+                    ? <div className="customer-profile-address-empty">No completed motorcycle handovers are linked to this customer yet. Current enquiries and bookings are shown below.</div>
                   : <div className="customer-history-list">{selectedHistory.motorcyclePurchases.map((purchase) => <article className="customer-history-record" key={purchase.publicId}>
                     <span className="customer-history-record-icon motorcycle-history-icon">B</span>
                     <div className="customer-history-record-main"><div className="customer-history-title"><strong>{purchase.modelName}{purchase.variantName ? ' · ' + purchase.variantName : ''}</strong><span className="customer-history-status">DELIVERED</span></div>
@@ -414,8 +437,10 @@ export default function CustomerWorkspace({
               </section>
               <section className="customer-profile-history-section">
                 <div className="customer-profile-address-heading"><div><h3>Spare-parts orders & returns</h3><p>Full saved order history with cancellation, collection, delivery and return states.</p></div><span>{selectedHistory?.sparePartOrders.length ?? 0}</span></div>
-                {!selectedHistory || selectedHistory.sparePartOrders.length === 0
-                  ? <div className="customer-profile-address-empty">No spare-parts orders recorded for this customer.</div>
+                {!selectedHistory
+                  ? <div className="customer-profile-address-empty">Spare-parts order history could not be loaded. Reopen the profile to retry.</div>
+                  : selectedHistory.sparePartOrders.length === 0
+                    ? <div className="customer-profile-address-empty">No spare-parts orders recorded for this customer.</div>
                   : <div className="customer-history-list">{selectedHistory.sparePartOrders.map((order) => <article className="customer-history-record" key={order.publicId}>
                     <span className="customer-history-record-icon parts-history-icon">P</span>
                     <div className="customer-history-record-main"><div className="customer-history-title"><strong>{order.orderCode}</strong><span className="customer-history-status">{order.status.replaceAll('_',' ')}</span></div>
@@ -430,8 +455,10 @@ export default function CustomerWorkspace({
               </section>
               <section className="customer-profile-history-section">
                 <div className="customer-profile-address-heading"><div><h3>Bike enquiries & test rides</h3><p>Website requests retained after conversion, booking, cancellation or delivery.</p></div><span>{selectedHistory?.websiteRequests.length ?? 0}</span></div>
-                {!selectedHistory || selectedHistory.websiteRequests.length === 0
-                  ? <div className="customer-profile-address-empty">No website-originated bike requests are recorded for this customer.</div>
+                {!selectedHistory
+                  ? <div className="customer-profile-address-empty">Website enquiries and test-ride history could not be loaded. Reopen the profile to retry.</div>
+                  : selectedHistory.websiteRequests.length === 0
+                    ? <div className="customer-profile-address-empty">No website-originated bike requests are recorded for this customer.</div>
                   : <div className="customer-history-list">{selectedHistory.websiteRequests.map((request) => <article className="customer-history-record" key={request.publicId}>
                     <span className="customer-history-record-icon request-history-icon">{request.requestType === 'TEST_RIDE' ? 'T' : 'E'}</span>
                     <div className="customer-history-record-main"><div className="customer-history-title"><strong>{request.modelName}</strong><span className="customer-history-status">{request.status.replaceAll('_',' ')}</span></div>

@@ -586,6 +586,13 @@ test('staff can open a customer profile and view the saved delivery address and 
         isDefaultDelivery: true, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T10:00:00Z',
       }]);
     }
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/history' && method === 'GET') {
+      return json({
+        customer, notes: 'Calls preferred during office hours.',
+        marketingConsentAt: null, marketingConsentSource: null,
+        motorcyclePurchases: [], sparePartOrders: [], websiteRequests: [],
+      });
+    }
     if (path === '/api/v1/admin/customers/' + customer.publicId + '/profile-photo' && method === 'GET') {
       return route.fulfill({
         status: 200, contentType: 'image/png',
