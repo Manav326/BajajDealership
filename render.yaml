@@ -41,6 +41,9 @@ services:
         value: preview
       - key: APP_BOOTSTRAP_TOKEN
         sync: false
+      # Required to operate the restricted license console at /license-admin.html.
+      - key: APP_LICENSE_ADMIN_TOKEN
+        sync: false
       # Reuse the public Google OAuth web client ID configured for QuantaEdge.
       - key: GOOGLE_WEB_CLIENT_ID
         sync: false
