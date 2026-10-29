@@ -261,7 +261,7 @@ export default function BajajShowroom({ onSignIn }: {
               <label className="sr-only" htmlFor="bajaj-model-search">Search Bajaj models</label>
               <input id="bajaj-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Bajaj bikes" />
             </div>
-            <label className="showroom-price-city"><span>ON-ROAD QUOTE CITY</span>
+            <label className="showroom-price-city"><span>CITY, STATE FOR ON-ROAD ESTIMATE</span>
               <input value={priceLocation} onChange={(event) => { setPriceLocation(event.target.value); setOnRoadQuote(null); setQuoteError(''); setQuoteLocationKey(''); }} maxLength={160} aria-label="City and state for on-road estimate" />
             </label>
           </div>
