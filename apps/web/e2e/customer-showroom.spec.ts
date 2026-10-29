@@ -161,6 +161,13 @@ const retailPartFixture = {
   imageUrl: null,
   quantityAvailable: 4,
   available: true,
+  availabilityStatus: 'AVAILABLE',
+  fitmentVerified: true,
+  category: 'BRAKES',
+  partNumber: null,
+  sourceUrl: 'https://www.bajajauto.com/customer-service/spares',
+  sourceVerifiedAt: '2026-10-29',
+  sourceDataStatus: 'DEALERSHIP_VERIFIED',
 };
 
 function deliveryOrderFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -251,6 +258,14 @@ async function mockSignedInCustomerPortal(
     }
     if (path === '/api/v1/customer/notifications') {
       return json({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+    }
+    if (path === '/api/v1/customer/parts/filters' && method === 'GET') {
+      return json({
+        categories: ['BRAKES', 'ENGINE', 'FILTERS', 'TRANSMISSION'],
+        motorcycleModels: [{
+          modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200', family: 'Pulsar NS', category: 'SPORT',
+        }],
+      });
     }
     if (path === '/api/v1/customer/parts' && method === 'GET') return json([retailPartFixture]);
     if (path === '/api/v1/customer/parts/orders' && method === 'GET') {
@@ -803,6 +818,95 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await expect(page.getByRole('heading', { name: 'Privacy policy', exact: true })).toBeVisible();
 });
 
+
+test('signed-in customer filters spare parts by category, model/type, availability and price', async ({ page }) => {
+  await mockSignedInCustomerPortal(page);
+  const parts = [
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-brake-pad',
+      skuCode: 'BGP-1001',
+      partName: 'Front brake pad',
+      category: 'BRAKES',
+      retailPrice: 199,
+      fitmentModelCodes: ['BAJAJ_PULSAR_NS200'],
+      quantityAvailable: 3,
+      available: true,
+      availabilityStatus: 'AVAILABLE',
+      fitmentVerified: true,
+    },
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-oil-filter',
+      skuCode: 'BGP-1002',
+      partName: 'Oil filter',
+      category: 'FILTERS',
+      retailPrice: 89,
+      fitmentModelCodes: ['BAJAJ_DOMINAR_400'],
+      quantityAvailable: 0,
+      available: false,
+      availabilityStatus: 'OUT_OF_STOCK',
+      fitmentVerified: true,
+    },
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-clutch',
+      skuCode: 'BGP-1003',
+      partName: 'Clutch assembly',
+      category: 'CLUTCH',
+      retailPrice: null,
+      fitmentModelCodes: [],
+      quantityAvailable: 0,
+      available: false,
+      availabilityStatus: 'CHECK_WITH_DEALER',
+      fitmentVerified: false,
+    },
+  ];
+  await page.route('**/api/v1/customer/parts', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(parts) });
+    }
+    return route.fallback();
+  });
+  await page.route('**/api/v1/customer/parts/filters', async (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      categories: ['BRAKES', 'CLUTCH', 'FILTERS'],
+      motorcycleModels: [
+        { modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200', family: 'Pulsar NS', category: 'SPORT' },
+        { modelCode: 'BAJAJ_DOMINAR_400', modelName: 'Dominar 400', family: 'Dominar', category: 'TOURING' },
+      ],
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await expect(page.locator('.retail-part-card')).toHaveCount(3);
+
+  await page.getByLabel('Part category').selectOption('BRAKES');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Front brake pad' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Motorcycle type').selectOption('SPORT');
+  await page.getByLabel('Motorcycle model').selectOption('BAJAJ_PULSAR_NS200');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByText('Verified for Pulsar NS200')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Availability').selectOption('OUT_OF_STOCK');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Oil filter' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add to cart' })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Minimum price (₹)').fill('100');
+  await page.getByLabel('Maximum price (₹)').fill('250');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Front brake pad' })).toBeVisible();
+});
 
 test('signed-in customer explores the shared Bajaj catalogue and sends an enquiry through the existing sales-request flow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

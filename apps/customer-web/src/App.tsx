@@ -410,7 +410,10 @@ export default function App() {
       setSalesRequests(customerRequests);
       setRetailParts(parts);
       setRetailOrders(orders);
-      setRetailPartFilters(partFilters);
+      setRetailPartFilters({
+        categories: Array.isArray(partFilters?.categories) ? partFilters.categories : [],
+        motorcycleModels: Array.isArray(partFilters?.motorcycleModels) ? partFilters.motorcycleModels : [],
+      });
       setNotificationPage(customerNotifications);
       setAppointmentForm((current) => ({
         ...current,
