@@ -91,7 +91,7 @@ public class SalesOperationsService {
   }
 
   /** Every CRM enquiry for this customer, regardless of whether it started online, by phone or in person. */
-  public List<EnquiryView> listEnquiriesForCustomerRecord(StaffPrincipal actor, UUID customerPublicId) {
+  public List<EnquiryDetailView> listEnquiryDetailsForCustomerRecord(StaffPrincipal actor, UUID customerPublicId) {
     List<UUID> ids = jdbc.query("""
         select enquiry.public_id
         from sales_enquiry enquiry
@@ -99,8 +99,9 @@ public class SalesOperationsService {
         where enquiry.dealership_id = ? and customer.public_id = ?
         order by enquiry.created_at desc, enquiry.id desc
         """, (rs, rowNum) -> rs.getObject(1, UUID.class), actor.dealershipId(), customerPublicId);
-    return ids.stream().map(id -> getEnquiry(actor, id)).toList();
+    return ids.stream().map(id -> getEnquiryDetail(actor, id)).toList();
   }
+
   @Transactional
   public EnquiryView createEnquiry(StaffPrincipal actor, EnquiryRequest request) {
     if (request == null || request.customerPublicId() == null) throw badRequest("Choose a customer.");

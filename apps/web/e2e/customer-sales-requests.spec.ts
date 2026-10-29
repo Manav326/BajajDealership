@@ -176,13 +176,18 @@ async function mockSalesJourney(page: Page): Promise<SalesJourneyState> {
           invoiceIssuedAt: '2026-09-15T10:00:00Z', deliveredAt: '2026-09-16T10:00:00Z', deliveredToName: 'Test Rider',
         }],
         salesEnquiries: [{
-          publicId: 'walk-in-enquiry-e2e-001', enquiryCode: 'ENQ-WALKIN-001', customerPublicId: customer.publicId,
-          customerCode: customer.customerCode, customerName: customer.fullName, customerPhone: customer.phone,
-          customerEmail: customer.email, interestedModelPublicId: modelPublicId, modelCode: model.modelCode,
-          modelName: 'Discover 125', variantName: 'Drum', colourName: 'Red', assignedStaffPublicId: null,
-          assignedStaffName: 'Amit Sharma', status: 'CONTACTED', leadSource: 'WALK_IN', contactPreference: 'CALL',
-          nextFollowUpAt: '2026-10-30T10:00:00Z', lastContactedAt: '2026-10-29T09:00:00Z',
-          notes: 'Walk-in customer asked for finance options.', createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-29T09:00:00Z',
+          enquiry: {
+            publicId: 'walk-in-enquiry-e2e-001', enquiryCode: 'ENQ-WALKIN-001', customerPublicId: customer.publicId,
+            customerCode: customer.customerCode, customerName: customer.fullName, customerPhone: customer.phone,
+            customerEmail: customer.email, interestedModelPublicId: modelPublicId, modelCode: model.modelCode,
+            modelName: 'Discover 125', variantName: 'Drum', colourName: 'Red', assignedStaffPublicId: null,
+            assignedStaffName: 'Amit Sharma', status: 'CONTACTED', leadSource: 'WALK_IN', contactPreference: 'CALL',
+            nextFollowUpAt: '2026-10-30T10:00:00Z', lastContactedAt: '2026-10-29T09:00:00Z',
+            notes: 'Walk-in customer asked for finance options.', createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-29T09:00:00Z',
+          },
+          activities: [{ publicId: 'walk-in-activity-1', activityType: 'ENQUIRY_CREATED', fromStatus: null, toStatus: 'NEW', note: 'Walk-in customer asked for finance options.', followUpAt: null, referenceType: null, referenceId: null, actorName: 'Amit Sharma', createdAt: '2026-10-28T10:00:00Z' }],
+          testRides: [{ publicId: 'walk-in-ride-1', testRideCode: 'TR-WALKIN-001', status: 'COMPLETED', scheduledStart: '2026-10-28T11:00:00Z', scheduledEnd: '2026-10-28T11:30:00Z', notes: null, modelName: 'Discover 125', modelCode: 'DISCOVER125', completedAt: '2026-10-28T11:35:00Z', cancelledAt: null, cancellationReason: null }],
+          bookings: [{ publicId: 'walk-in-booking-1', bookingCode: 'BK-WALKIN-001', status: 'CONFIRMED', modelName: 'Discover 125', modelCode: 'DISCOVER125', notes: 'Booking deposit received', createdAt: '2026-10-28T12:00:00Z', cancelledAt: null, cancellationReason: null }],
         }],
         sparePartOrders: [{
           publicId: 'parts-history-e2e-001', orderCode: 'RPO-E2E-001', status: 'RETURNED',
@@ -318,6 +323,8 @@ test('staff customer profile displays complete motorcycle, parts-return and webs
   await expect(dialog.getByRole('heading', { name: 'Sales enquiries · all channels' })).toBeVisible();
   await expect(dialog).toContainText('ENQ-WALKIN-001');
   await expect(dialog).toContainText('Walk-in customer asked for finance options.');
+  await expect(dialog).toContainText('TR-WALKIN-001');
+  await expect(dialog).toContainText('BK-WALKIN-001');
   await expect(dialog.getByRole('heading', { name: 'Bike enquiries & test rides' })).toBeVisible();
   await expect(dialog).toContainText('ENQ-E2E-001');
   await expect(dialog).toContainText('TR-E2E-001');

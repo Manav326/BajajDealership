@@ -162,8 +162,8 @@ public class CustomerService {
         retailParts.listOrdersForCustomerRecord(principal, publicId);
     List<CustomerSalesRequestService.RequestView> websiteRequests =
         salesRequests.listForCustomerRecord(principal, publicId);
-    List<SalesOperationsService.EnquiryView> salesEnquiries =
-        salesOperations.listEnquiriesForCustomerRecord(principal, publicId);
+    List<SalesOperationsService.EnquiryDetailView> salesEnquiries =
+        salesOperations.listEnquiryDetailsForCustomerRecord(principal, publicId);
     return new CustomerHistoryView(customer, metadata.notes(), metadata.marketingConsentAt(),
         metadata.marketingConsentSource(), motorcyclePurchases, partOrders, salesEnquiries, websiteRequests);
   }

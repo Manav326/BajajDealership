@@ -59,12 +59,24 @@ type CustomerWebsiteRequestHistory = {
   bookingCode: string | null; bookingStatus: string | null; invoiceNumber: string | null; invoiceStatus: string | null;
   invoiceTotal: number | null; paidAmount: number; creditedAmount: number | null; balanceDue: number | null; deliveredAt: string | null;
 };
-type CustomerSalesEnquiryHistory = {
+type CustomerSalesEnquiryRecord = {
   publicId: string; enquiryCode: string; customerPublicId: string; customerCode: string; customerName: string;
   customerPhone: string | null; customerEmail: string | null; interestedModelPublicId: string | null; modelCode: string | null;
   modelName: string | null; variantName: string | null; colourName: string | null; assignedStaffPublicId: string | null;
   assignedStaffName: string | null; status: string; leadSource: string; contactPreference: string;
   nextFollowUpAt: string | null; lastContactedAt: string | null; notes: string | null; createdAt: string; updatedAt: string;
+};
+type CustomerSalesEnquiryHistory = {
+  enquiry: CustomerSalesEnquiryRecord;
+  activities: Array<{ publicId: string; activityType: string; fromStatus: string | null; toStatus: string | null;
+    note: string | null; followUpAt: string | null; referenceType: string | null; referenceId: string | null;
+    actorName: string; createdAt: string }>;
+  testRides: Array<{ publicId: string; testRideCode: string; status: string; scheduledStart: string | null;
+    scheduledEnd: string | null; notes: string | null; modelName: string | null; modelCode: string | null;
+    completedAt: string | null; cancelledAt: string | null; cancellationReason: string | null }>;
+  bookings: Array<{ publicId: string; bookingCode: string; status: string; modelName: string | null;
+    modelCode: string | null; notes: string | null; createdAt: string; cancelledAt: string | null;
+    cancellationReason: string | null }>;
 };
 type CustomerHistory = {
   customer: Customer; notes: string | null; marketingConsentAt: string | null; marketingConsentSource: string | null;
@@ -575,13 +587,16 @@ export default function CustomerWorkspace({
                     ? <div className="customer-profile-address-empty">No dealership sales enquiries are linked to this customer yet.</div>
                     : <div className="customer-history-list">{(selectedHistory.salesEnquiries ?? []).map((enquiry) => <article className="customer-history-record" key={enquiry.publicId}>
                       <span className="customer-history-record-icon request-history-icon">E</span>
-                      <div className="customer-history-record-main"><div className="customer-history-title"><strong>{enquiry.modelName || "Motorcycle enquiry"}</strong><span className="customer-history-status">{enquiry.status.replaceAll("_"," ")}</span></div>
-                        <p>{enquiry.enquiryCode} · {enquiry.leadSource.replaceAll("_"," ")} · {enquiry.contactPreference.replaceAll("_"," ")}</p>
-                        <small>Created {formatCustomerHistoryDate(enquiry.createdAt)} · Updated {formatCustomerHistoryDate(enquiry.updatedAt)}</small>
-                        {enquiry.assignedStaffName && <small>Assigned to {enquiry.assignedStaffName}</small>}
-                        {enquiry.nextFollowUpAt && <small>Next follow-up {formatCustomerHistoryDate(enquiry.nextFollowUpAt)}</small>}
-                        {enquiry.lastContactedAt && <small>Last contacted {formatCustomerHistoryDate(enquiry.lastContactedAt)}</small>}
-                        {enquiry.notes && <small>Enquiry note: {enquiry.notes}</small>}</div>
+                      <div className="customer-history-record-main"><div className="customer-history-title"><strong>{enquiry.enquiry.modelName || "Motorcycle enquiry"}</strong><span className="customer-history-status">{enquiry.enquiry.status.replaceAll("_"," ")}</span></div>
+                        <p>{enquiry.enquiry.enquiryCode} · {enquiry.enquiry.leadSource.replaceAll("_"," ")} · {enquiry.enquiry.contactPreference.replaceAll("_"," ")}</p>
+                        <small>Created {formatCustomerHistoryDate(enquiry.enquiry.createdAt)} · Updated {formatCustomerHistoryDate(enquiry.enquiry.updatedAt)}</small>
+                        {enquiry.enquiry.assignedStaffName && <small>Assigned to {enquiry.enquiry.assignedStaffName}</small>}
+                        {enquiry.enquiry.nextFollowUpAt && <small>Next follow-up {formatCustomerHistoryDate(enquiry.enquiry.nextFollowUpAt)}</small>}
+                        {enquiry.enquiry.lastContactedAt && <small>Last contacted {formatCustomerHistoryDate(enquiry.enquiry.lastContactedAt)}</small>}
+                        {enquiry.enquiry.notes && <small>Enquiry note: {enquiry.enquiry.notes}</small>}
+                        {enquiry.testRides.map((ride) => <small key={ride.publicId}>Test ride {ride.testRideCode} · {ride.status.replaceAll("_"," ")}{ride.scheduledStart ? " · " + formatCustomerHistoryDate(ride.scheduledStart) : ""}{ride.completedAt ? " · Completed " + formatCustomerHistoryDate(ride.completedAt) : ""}{ride.cancellationReason ? " · " + ride.cancellationReason : ""}</small>)}
+                        {enquiry.bookings.map((booking) => <small key={booking.publicId}>Booking {booking.bookingCode} · {booking.status.replaceAll("_"," ")}{booking.cancelledAt ? " · Cancelled " + formatCustomerHistoryDate(booking.cancelledAt) : ""}{booking.cancellationReason ? " · " + booking.cancellationReason : ""}</small>)}
+                        {enquiry.activities.slice(0, 3).map((activity) => <small key={activity.publicId}>{activity.activityType.replaceAll("_"," ")} · {formatCustomerHistoryDate(activity.createdAt)} · {activity.actorName}{activity.note ? " · " + activity.note : ""}</small>)}</div>
                     </article>)}</div>}
               </section>
               <section className="customer-profile-history-section">
