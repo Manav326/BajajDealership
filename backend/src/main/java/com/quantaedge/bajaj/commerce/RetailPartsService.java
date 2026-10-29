@@ -111,12 +111,29 @@ public class RetailPartsService {
     return getRetailSetting(actor, partPublicId);
   }
 
-  /** Reload the saved retail listing inside the caller's dealership scope. */
+  /** Reload one saved listing without scanning every spare-part SKU in the dealership. */
   private AdminPartView getRetailSetting(StaffPrincipal actor, UUID partPublicId) {
-    return listRetailSettings(actor).stream()
-        .filter(part -> part.publicId().equals(partPublicId))
-        .findFirst()
-        .orElseThrow(() -> notFound("Spare-part SKU was not found in this dealership."));
+    List<AdminPartView> rows = jdbc.query("""
+        select part.public_id, part.sku_code, part.part_name, part.description, part.unit_of_measure,
+          part.active, part.retail_enabled, part.retail_price, part.retail_description,
+          part.fitment_model_codes::text as fitment_model_codes, part.retail_image_url,
+          balance.quantity_on_hand, balance.quantity_reserved,
+          balance.quantity_on_hand - balance.quantity_reserved as quantity_available,
+          balance.average_unit_cost
+        from spare_part part
+        join spare_part_balance balance
+          on balance.dealership_id = part.dealership_id and balance.part_id = part.id
+        where part.dealership_id = ? and part.public_id = ?
+        """, (rs, rowNum) -> new AdminPartView(
+            rs.getObject("public_id", UUID.class), rs.getString("sku_code"), rs.getString("part_name"),
+            rs.getString("description"), rs.getString("unit_of_measure"), rs.getBoolean("active"),
+            rs.getBoolean("retail_enabled"), rs.getBigDecimal("retail_price"),
+            rs.getString("retail_description"), readStringList(rs.getString("fitment_model_codes")),
+            rs.getString("retail_image_url"), rs.getBigDecimal("quantity_on_hand"),
+            rs.getBigDecimal("quantity_reserved"), rs.getBigDecimal("quantity_available"),
+            rs.getBigDecimal("average_unit_cost")), actor.dealershipId(), partPublicId);
+    if (rows.isEmpty()) throw notFound("Spare-part SKU was not found in this dealership.");
+    return rows.getFirst();
   }
 
   public List<RetailPartView> listCustomerCatalogue(CustomerPrincipal actor) {
