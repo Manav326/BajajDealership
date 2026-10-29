@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { apiFetch } from './apiClient';
 import styles from './SocialMediaArtworkStudio.module.css';
 
 type ArtworkFormat = {
@@ -102,6 +103,8 @@ type ArtworkDraft = {
   updatedAt: string;
 };
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
+type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
+type MetaStatus = { configured: boolean; code: string; message: string; destinations: MetaDestination[] };
 
 function openArtworkDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -216,9 +219,40 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [savedDrafts, setSavedDrafts] = useState<ArtworkDraftSummary[]>([]);
   const [draftBusy, setDraftBusy] = useState(false);
+  const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaConnecting, setMetaConnecting] = useState(false);
+  const [metaError, setMetaError] = useState('');
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
+
+  useEffect(() => {
+    let disposed = false;
+    setMetaLoading(true);
+    apiFetch('/api/v1/admin/social/meta/status', { cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as MetaStatus | { message?: string };
+        if (!response.ok) throw new Error(('message' in payload && payload.message) || 'Social account status could not be loaded.');
+        if (!disposed) setMetaStatus(payload as MetaStatus);
+      })
+      .catch((cause) => {
+        if (!disposed) setMetaError(cause instanceof Error ? cause.message : 'Social account status could not be loaded.');
+      })
+      .finally(() => { if (!disposed) setMetaLoading(false); });
+
+    const hash = window.location.hash;
+    const queryStart = hash.indexOf('?');
+    if (queryStart >= 0) {
+      const outcome = new URLSearchParams(hash.slice(queryStart + 1)).get('meta');
+      if (outcome === 'connected') setNotice('Meta account connected. Review the available destinations below.');
+      else if (outcome === 'cancelled') setNotice('Meta account connection was cancelled.');
+      else if (outcome && outcome !== 'error') setNotice('Meta account connection could not be verified. Review the connection status below.');
+      else if (outcome === 'error') setMetaError('Meta could not complete account connection. Check the server configuration and try again.');
+    }
+
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -383,6 +417,22 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
     reader.readAsDataURL(file);
   }
 
+
+  async function connectMeta() {
+    setMetaConnecting(true);
+    setMetaError('');
+    try {
+      const response = await apiFetch('/api/v1/admin/social/meta/connect', { method: 'POST' });
+      const payload = await response.json().catch(() => ({})) as { authorizationUrl?: string; message?: string };
+      if (!response.ok || !payload.authorizationUrl) {
+        throw new Error(payload.message || 'Meta account connection is not available.');
+      }
+      window.location.assign(payload.authorizationUrl);
+    } catch (cause) {
+      setMetaError(cause instanceof Error ? cause.message : 'Meta account connection could not be started.');
+      setMetaConnecting(false);
+    }
+  }
 
   async function refreshSavedDrafts() {
     try {
@@ -582,6 +632,37 @@ export default function SocialMediaArtworkStudio({ onClose }: { onClose: () => v
           </div>
           <button type="button" className={styles.close} onClick={onClose} aria-label="Close social media artwork studio">×</button>
         </header>
+        <section className={styles.metaPanel} aria-label="Meta account connections">
+          <div className={styles.metaPanelHeader}>
+            <div>
+              <strong>Facebook & Instagram accounts</strong>
+              <p>{metaLoading ? 'Checking server configuration and connected destinations…' : metaStatus?.message ?? 'Account connection status is unavailable.'}</p>
+            </div>
+            <button type="button" className={styles.secondary} disabled={metaLoading || metaConnecting || !metaStatus?.configured} onClick={() => void connectMeta()}>
+              {metaConnecting ? 'Opening Meta…' : 'Connect account'}
+            </button>
+          </div>
+          {metaError && <div className={styles.error} role="alert">{metaError}</div>}
+          {!metaLoading && metaStatus?.destinations?.length ? (
+            <div className={styles.destinations}>
+              {metaStatus.destinations.map((destination) => (
+                <div className={styles.destination} key={destination.publicId}>
+                  <span className={destination.type === 'FACEBOOK_PAGE' ? styles.facebookMark : styles.instagramMark}>
+                    {destination.type === 'FACEBOOK_PAGE' ? 'f' : '◎'}
+                  </span>
+                  <div className={styles.destinationCopy}>
+                    <strong>{destination.displayName}</strong>
+                    <small>{destination.type === 'FACEBOOK_PAGE' ? 'Facebook Page' : 'Instagram professional account'}{destination.username ? ' · @' + destination.username.replace(/^@/, '') : ''}</small>
+                  </div>
+                  <span className={destination.status === 'ACTIVE' ? styles.connectedState : styles.disconnectedState}>
+                    {destination.status === 'ACTIVE' ? 'Connected' : 'Reconnect'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <p className={styles.metaFootnote}>Connecting an account does not publish content. Publishing stays unavailable until each destination is authorized and the provider-backed publishing flow is released.</p>
+        </section>
         <div className={styles.content}>
           <aside className={styles.controls}>
             <div className={styles.draftPanel}>
