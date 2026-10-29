@@ -237,7 +237,7 @@ public class SocialMetaService {
 
   boolean isMetaConfigured() { return isConfigured(); }
 
-  private List<String> missingConnectionSettings() {
+  List<String> missingConnectionSettings() {
     List<String> missing = new ArrayList<>();
     if (!enabled) missing.add("SOCIAL_META_ENABLED (set to true after credentials are supplied)");
     if (appId.isBlank()) missing.add("SOCIAL_META_APP_ID");
@@ -249,7 +249,7 @@ public class SocialMetaService {
     return List.copyOf(missing);
   }
 
-  private List<String> missingPublishingSettings() {
+  List<String> missingPublishingSettings() {
     List<String> missing = new ArrayList<>();
     if (!isSafePublicBaseUrl(socialMediaPublicBaseUrl)) {
       missing.add("SOCIAL_MEDIA_PUBLIC_BASE_URL (must be a public HTTPS origin; localhost HTTP is allowed for development)");
