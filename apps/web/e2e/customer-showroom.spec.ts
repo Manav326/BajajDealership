@@ -108,7 +108,8 @@ test('public showroom remains responsive and truthful when no dealer offer or re
     await page.goto('http://127.0.0.1:4173');
     await expect(page.getByRole('heading', { name: 'Pulsar NS200', exact: true })).toBeVisible();
     await expect(page.getByText('No public offers are currently published.', { exact: false })).toBeVisible();
-    await expect(page.getByText('Out of stock', { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open official Bajaj Auto website' })).toHaveAttribute('href', 'https://www.bajajauto.com/');
+    await expect(page.locator('.showroom-bike-card').first().getByText('Out of stock', { exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
