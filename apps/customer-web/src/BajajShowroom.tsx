@@ -61,8 +61,17 @@ function splitPriceLocation(raw: string): { city: string; state: string } | null
 }
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+const renderApiFallback = window.location.hostname === 'lucky-bajaj-customer-web.onrender.com'
+  ? 'https://lucky-bajaj-api.onrender.com' : '';
+// Vite variables are baked into a static build. Keep a Render-specific fallback for
+// dashboards that were configured manually instead of being created from render.yaml.
+const apiBaseUrl = /^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : renderApiFallback;
 function endpoint(path: string): string {
-  return configuredApiBaseUrl ? new URL(path, `${configuredApiBaseUrl}/`).toString() : path;
+  return apiBaseUrl ? new URL(path, `${apiBaseUrl}/`).toString() : path;
+}
+function catalogueAssetUrl(path: string): string {
+  if (!path || /^(?:data:|blob:|https?:\/\/)/i.test(path)) return path;
+  return apiBaseUrl ? new URL(path, `${apiBaseUrl}/`).toString() : path;
 }
 const money = (value: number | null | undefined) => value == null
   ? 'Ask for price'
