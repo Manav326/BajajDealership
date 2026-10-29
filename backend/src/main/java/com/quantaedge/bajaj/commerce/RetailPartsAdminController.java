@@ -46,7 +46,8 @@ public class RetailPartsAdminController {
   @PreAuthorize("hasAuthority('parts.manage')")
   public RetailPartsService.AdminPartView mapInventory(@AuthenticationPrincipal StaffPrincipal principal,
       @PathVariable UUID cataloguePublicId, @Valid @RequestBody InventoryMapRequest request) {
-    return retail.mapRetailCatalogueStock(principal, cataloguePublicId, request.stockPartPublicId());
+    return retail.mapRetailCatalogueStock(principal, cataloguePublicId, request.stockPartPublicId(),
+        Boolean.TRUE.equals(request.reassignExistingMapping()));
   }
   @PutMapping("/retail-parts/{partPublicId}")
   @PreAuthorize("hasAuthority('parts.manage')")
@@ -95,7 +96,7 @@ public class RetailPartsAdminController {
       @Size(max = 40) List<@NotBlank @Size(max = 60) String> fitmentModelCodes,
       @Size(max = 1000) String imageUrl,
       Boolean fitmentVerified) { }
-  public record InventoryMapRequest(UUID stockPartPublicId) { }
+  public record InventoryMapRequest(UUID stockPartPublicId, Boolean reassignExistingMapping) { }
 
   @PostMapping("/retail-part-orders/{publicId}/return")
   @PreAuthorize("hasAuthority('parts.manage')")

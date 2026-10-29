@@ -32,6 +32,7 @@ type RetailOrder = {
 type SettingsDraft = {
   retailEnabled: boolean; retailPrice: string; retailDescription: string;
   fitmentModelCodes: string; imageUrl: string; fitmentVerified: boolean; stockPartPublicId: string;
+  reassignExistingMapping: boolean;
 };
 type CollectionDraft = {
   collectionMethod: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER';
@@ -57,6 +58,7 @@ function toDraft(part: RetailPartSetting): SettingsDraft {
     imageUrl: part.imageUrl ?? '',
     fitmentVerified: part.fitmentVerified,
     stockPartPublicId: part.stockPartPublicId ?? '',
+    reassignExistingMapping: false,
   };
 }
 
@@ -163,16 +165,30 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
 
   async function saveInventoryMapping(part: RetailPartSetting) {
     const draft = drafts[part.publicId] ?? toDraft(part);
+    const selectedStock = stockOptions.find((option) => option.publicId === draft.stockPartPublicId);
+    const sourceProduct = selectedStock?.mappedCataloguePublicId
+      && selectedStock.mappedCataloguePublicId !== part.publicId ? selectedStock : null;
+    const targetLinkWillBeReplaced = Boolean(part.stockPartPublicId
+      && part.stockPartPublicId !== draft.stockPartPublicId);
+    const requiresReassignment = Boolean(sourceProduct || targetLinkWillBeReplaced);
+    if (requiresReassignment && !draft.reassignExistingMapping) {
+      setError('Confirm this inventory-link change before saving it.');
+      return;
+    }
     setBusyId(part.publicId); setError(''); setMessage('');
     try {
       const updated = await apiFetch<RetailPartSetting>(
         `/api/v1/admin/retail-parts/${part.publicId}/inventory-map`, token, {
           method: 'PUT',
-          body: JSON.stringify({ stockPartPublicId: draft.stockPartPublicId || null }),
+          body: JSON.stringify({
+            stockPartPublicId: draft.stockPartPublicId || null,
+            reassignExistingMapping: draft.reassignExistingMapping,
+          }),
         });
       setParts((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
       setDrafts((current) => ({ ...current, [updated.publicId]: { ...(current[updated.publicId] ?? toDraft(updated)),
-        stockPartPublicId: updated.stockPartPublicId ?? '', fitmentVerified: updated.fitmentVerified } }));
+        stockPartPublicId: updated.stockPartPublicId ?? '', fitmentVerified: updated.fitmentVerified,
+        reassignExistingMapping: false } }));
       setMessage(updated.stockSkuCode
         ? `Catalogue item linked to inventory SKU ${updated.stockSkuCode}. Current sellable quantity: ${updated.quantityAvailable} ${updated.unitOfMeasure.toLowerCase()}.`
         : 'The catalogue item is now unlinked from inventory and cannot be ordered until a stock SKU is mapped.');
@@ -326,21 +342,39 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
             {open && <form className="retail-admin-editor" onSubmit={(event) => { event.preventDefault(); void saveSettings(part); }}>
               <div className="retail-stock-link-box">
                 <div><strong>Link to existing inventory</strong><p>Choose the precise SKU already used for receiving, stock movements and workshop reservations. This does not create inventory or stock.</p></div>
-                <label>Inventory SKU<select value={draft.stockPartPublicId} onChange={(event) => updateDraft(part, { stockPartPublicId: event.target.value })} disabled={!canManage || busyId === part.publicId}>
+                <label>Inventory SKU<select value={draft.stockPartPublicId} onChange={(event) => updateDraft(part, { stockPartPublicId: event.target.value, reassignExistingMapping: false })} disabled={!canManage || busyId === part.publicId}>
                   <option value="">Not linked</option>
                   {part.stockPartPublicId && !stockOptions.some((option) => option.publicId === part.stockPartPublicId)
                     && <option value={part.stockPartPublicId}>{part.stockSkuCode ?? 'Linked inventory SKU'} · inactive or no longer selectable</option>}
                   {stockOptions.map((option) => {
                     const mappedElsewhere = Boolean(option.mappedCataloguePublicId
                       && option.mappedCataloguePublicId !== part.publicId);
-                    return <option key={option.publicId} value={option.publicId} disabled={mappedElsewhere}>
+                    return <option key={option.publicId} value={option.publicId}>
                       {option.skuCode} · {option.partName} · {option.quantityAvailable} available
-                      {mappedElsewhere ? ` · already linked to ${option.mappedCatalogueCode} (${option.mappedCatalogueName})` : ''}
+                      {mappedElsewhere ? ` · currently linked to ${option.mappedCatalogueCode} (${option.mappedCatalogueName})` : ''}
                     </option>;
                   })}
                 </select></label>
                 <button type="button" className="secondary-button" disabled={!canManage || busyId === part.publicId || draft.stockPartPublicId === (part.stockPartPublicId ?? '')}
                   onClick={() => void saveInventoryMapping(part)}>{busyId === part.publicId ? 'Saving…' : 'Save inventory link'}</button>
+                {(() => {
+                  const selectedStock = stockOptions.find((option) => option.publicId === draft.stockPartPublicId);
+                  const sourceProduct = selectedStock?.mappedCataloguePublicId
+                    && selectedStock.mappedCataloguePublicId !== part.publicId ? selectedStock : null;
+                  const targetLinkWillBeReplaced = Boolean(part.stockPartPublicId
+                    && part.stockPartPublicId !== draft.stockPartPublicId);
+                  if (!sourceProduct && !targetLinkWillBeReplaced) return null;
+                  return <div className="retail-stock-reassignment-warning" role="group" aria-label="Confirm inventory link reassignment">
+                    <strong>{sourceProduct
+                      ? `This inventory SKU is currently linked to ${sourceProduct.mappedCatalogueCode} · ${sourceProduct.mappedCatalogueName}.`
+                      : 'This catalogue product already has a different inventory SKU linked.'}</strong>
+                    <p>{sourceProduct
+                      ? `Moving ${sourceProduct.skuCode} removes its live stock link from ${sourceProduct.mappedCatalogueCode}.`
+                      : 'Replacing the current link removes the previous SKU from this catalogue product.'} The old product identity remains in the catalogue; local inventory-derived products are hidden from retail to prevent duplicates. Saved orders keep their original product, price and inventory item; no quantity is copied or changed.</p>
+                    <label><input type="checkbox" checked={draft.reassignExistingMapping} onChange={(event) => updateDraft(part, { reassignExistingMapping: event.target.checked })} />
+                      I explicitly confirm this inventory-link change{sourceProduct ? ` from ${sourceProduct.mappedCatalogueCode}` : ''} to {part.skuCode}.</label>
+                  </div>;
+                })()}
                 {part.stockSkuCode && <small className="retail-stock-link-current">Current mapping: {part.stockSkuCode} · On hand {part.quantityOnHand} · Reserved {part.quantityReserved} · Available {part.quantityAvailable}</small>}
               </div>
               <label className="retail-admin-enable"><input type="checkbox" checked={draft.retailEnabled} onChange={(event) => updateDraft(part, { retailEnabled: event.target.checked })} /> Enable customer ordering for this catalogue item</label>

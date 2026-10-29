@@ -149,43 +149,122 @@ public class RetailPartsService {
 
   @Transactional
   public AdminPartView mapRetailCatalogueStock(StaffPrincipal actor, UUID cataloguePublicId, UUID stockPartPublicId) {
-    Long catalogueId = jdbc.query("""
-        select catalogue.id from bajaj_spare_part_catalogue catalogue
-        left join retail_part_catalogue_listing listing on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
-        where catalogue.public_id = ? and (catalogue.is_global_catalogue = true or listing.dealership_id = ?) for update of catalogue
-        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), cataloguePublicId, actor.dealershipId()).stream().findFirst().orElse(null);
-    if (catalogueId == null) throw notFound("Spare-part catalogue item was not found.");
+    return mapRetailCatalogueStock(actor, cataloguePublicId, stockPartPublicId, false);
+  }
+
+  /**
+   * Link a catalogue item to an actual inventory SKU. Moving the SKU from another catalogue item,
+   * or replacing a product's existing SKU, requires explicit confirmation from a staff user.
+   */
+  @Transactional
+  public AdminPartView mapRetailCatalogueStock(
+      StaffPrincipal actor, UUID cataloguePublicId, UUID stockPartPublicId, boolean reassignExistingMapping) {
+    List<Map<String, Object>> catalogueRows = jdbc.queryForList("""
+        select catalogue.id, catalogue.is_global_catalogue, catalogue.catalogue_code, catalogue.unit_of_measure
+        from bajaj_spare_part_catalogue catalogue
+        left join retail_part_catalogue_listing listing
+          on listing.catalogue_product_id = catalogue.id and listing.dealership_id = ?
+        where catalogue.public_id = ?
+          and (catalogue.is_global_catalogue = true or listing.dealership_id = ?)
+        for update of catalogue
+        """, actor.dealershipId(), cataloguePublicId, actor.dealershipId());
+    if (catalogueRows.isEmpty()) throw notFound("Spare-part catalogue item was not found in this dealership.");
+    Map<String, Object> target = catalogueRows.getFirst();
+    long catalogueId = ((Number) target.get("id")).longValue();
+
+    UUID reassignedFromPublicId = null;
+    String reassignedFromCode = null;
+    Long replacedStockPartId = null;
     if (stockPartPublicId == null) {
-      jdbc.update("delete from retail_part_catalogue_stock_map where dealership_id = ? and catalogue_product_id = ?", actor.dealershipId(), catalogueId);
+      jdbc.update("delete from retail_part_catalogue_stock_map where dealership_id = ? and catalogue_product_id = ?",
+          actor.dealershipId(), catalogueId);
     } else {
-      String catalogueUnit = jdbc.query("""
-          select unit_of_measure from bajaj_spare_part_catalogue where id = ?
-          """, (rs, rowNum) -> rs.getString(1), catalogueId).stream().findFirst().orElse(null);
-      List<Map<String, Object>> stockRows = jdbc.queryForList("""
+      List<Map<String, Object>> inventoryRows = jdbc.queryForList("""
           select id, unit_of_measure from spare_part
           where dealership_id = ? and public_id = ? and active = true
+          for update
           """, actor.dealershipId(), stockPartPublicId);
-      if (stockRows.isEmpty()) throw notFound("Inventory SKU was not found in this dealership.");
-      String stockUnit = String.valueOf(stockRows.getFirst().get("unit_of_measure"));
-      if (catalogueUnit == null || !catalogueUnit.equals(stockUnit)) {
+      if (inventoryRows.isEmpty()) throw notFound("Inventory SKU was not found in this dealership.");
+      long stockId = ((Number) inventoryRows.getFirst().get("id")).longValue();
+      String stockUnit = String.valueOf(inventoryRows.getFirst().get("unit_of_measure"));
+      String catalogueUnit = String.valueOf(target.get("unit_of_measure"));
+      if (!catalogueUnit.equals(stockUnit)) {
         throw conflict("Catalogue unit (" + catalogueUnit + ") does not match inventory SKU unit (" + stockUnit
             + "). Select an SKU with the matching unit or correct the inventory master first.");
       }
-      Long stockId = ((Number) stockRows.getFirst().get("id")).longValue();
-      try {
-        jdbc.update("""
-            insert into retail_part_catalogue_stock_map(dealership_id, catalogue_product_id, stock_part_id, updated_by_staff_user_id)
-            values (?, ?, ?, ?) on conflict (dealership_id, catalogue_product_id) do update set stock_part_id = excluded.stock_part_id,
-              updated_by_staff_user_id = excluded.updated_by_staff_user_id, updated_at = now()
-            """, actor.dealershipId(), catalogueId, stockId, actor.staffUserId());
-      } catch (DuplicateKeyException duplicate) {
-        throw conflict("That inventory SKU is already linked to another catalogue product. Unlink the other product first.");
+
+      List<Map<String, Object>> targetMaps = jdbc.queryForList("""
+          select stock_part_id from retail_part_catalogue_stock_map
+          where dealership_id = ? and catalogue_product_id = ? for update
+          """, actor.dealershipId(), catalogueId);
+      if (!targetMaps.isEmpty()) {
+        long currentTargetStockId = ((Number) targetMaps.getFirst().get("stock_part_id")).longValue();
+        if (currentTargetStockId != stockId) {
+          if (!reassignExistingMapping) {
+            throw conflict("This catalogue product is already linked to another inventory SKU. Confirm replacing that link.");
+          }
+          replacedStockPartId = currentTargetStockId;
+          jdbc.update("""
+              delete from retail_part_catalogue_stock_map
+              where dealership_id = ? and catalogue_product_id = ? and stock_part_id = ?
+              """, actor.dealershipId(), catalogueId, currentTargetStockId);
+        }
       }
+
+      List<Map<String, Object>> currentMaps = jdbc.queryForList("""
+          select stock_map.catalogue_product_id, old_product.public_id,
+            old_product.catalogue_code, old_product.part_name as old_product_name,
+            old_product.is_global_catalogue
+          from retail_part_catalogue_stock_map stock_map
+          join bajaj_spare_part_catalogue old_product on old_product.id = stock_map.catalogue_product_id
+          where stock_map.dealership_id = ? and stock_map.stock_part_id = ?
+          for update of stock_map
+          """, actor.dealershipId(), stockId);
+      for (Map<String, Object> existing : currentMaps) {
+        long existingCatalogueId = ((Number) existing.get("catalogue_product_id")).longValue();
+        if (existingCatalogueId == catalogueId) continue;
+        if (!reassignExistingMapping) {
+          throw conflict("This inventory SKU is already linked to " + existing.get("catalogue_code")
+              + " (" + existing.get("old_product_name") + "). Confirm moving it to the selected catalogue product.");
+        }
+        reassignedFromPublicId = (UUID) existing.get("public_id");
+        reassignedFromCode = String.valueOf(existing.get("catalogue_code"));
+        jdbc.update("""
+            delete from retail_part_catalogue_stock_map
+            where dealership_id = ? and stock_part_id = ? and catalogue_product_id = ?
+            """, actor.dealershipId(), stockId, existingCatalogueId);
+        if (!Boolean.TRUE.equals(existing.get("is_global_catalogue"))) {
+          jdbc.update("""
+              update retail_part_catalogue_listing
+              set retail_enabled = false, updated_at = now()
+              where dealership_id = ? and catalogue_product_id = ?
+              """, actor.dealershipId(), existingCatalogueId);
+        }
+      }
+
+      jdbc.update("""
+          insert into retail_part_catalogue_stock_map(
+            dealership_id, catalogue_product_id, stock_part_id, updated_by_staff_user_id)
+          values (?, ?, ?, ?)
+          on conflict (dealership_id, catalogue_product_id) do update set
+            stock_part_id = excluded.stock_part_id,
+            updated_by_staff_user_id = excluded.updated_by_staff_user_id,
+            updated_at = now()
+          """, actor.dealershipId(), catalogueId, stockId, actor.staffUserId());
     }
+
     jdbc.update("""
-        insert into audit_event(dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
-        values (?, 'STAFF', ?, 'RETAIL_PART_STOCK_LINK_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?, jsonb_build_object('stockPartPublicId', ?::text))
-        """, actor.dealershipId(), actor.staffUserId(), cataloguePublicId.toString(), stockPartPublicId == null ? null : stockPartPublicId.toString());
+        insert into audit_event(
+          dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
+        values (?, 'STAFF', ?, 'RETAIL_PART_STOCK_LINK_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?,
+          jsonb_build_object('stockPartPublicId', ?::text,
+            'reassignedFromCataloguePublicId', ?::text, 'reassignedFromCatalogueCode', ?::text,
+            'replacedStockPartId', ?::text, 'reassignmentConfirmed', ?))
+        """, actor.dealershipId(), actor.staffUserId(), cataloguePublicId.toString(),
+        stockPartPublicId == null ? null : stockPartPublicId.toString(),
+        reassignedFromPublicId == null ? null : reassignedFromPublicId.toString(),
+        reassignedFromCode, replacedStockPartId == null ? null : replacedStockPartId.toString(),
+        reassignExistingMapping);
     return getRetailSetting(actor, cataloguePublicId);
   }
   public RetailPartFilters listCustomerFilters(CustomerPrincipal actor) {
@@ -880,7 +959,7 @@ public class RetailPartsService {
     String placeholders = String.join(",", publicIds.stream().map(ignored -> "?").toList());
     List<Object> args = new ArrayList<>(); args.add(dealershipId); args.add(dealershipId); args.add(dealershipId); args.addAll(publicIds);
     String sql = """
-        select stock.id, catalogue.id as catalogue_id, catalogue.public_id, catalogue.catalogue_code as sku_code,
+        select stock.id, catalogue.id as catalogue_id, catalogue.public_id, stock.sku_code as sku_code,
           catalogue.part_name, catalogue.unit_of_measure, (catalogue.active and stock.active) as active,
           listing.retail_enabled, listing.retail_price, listing.fitment_model_codes::text as fitment_model_codes, listing.fitment_verified,
           balance.quantity_on_hand, balance.quantity_reserved, balance.average_unit_cost
