@@ -1016,6 +1016,78 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 <button type="button" className={styles.textButton} disabled={draftBusy || !activeDraftId} onClick={() => void deleteDraft()}>Delete</button>
               </div>
             </div>
+            <section className={styles.templatePanel} aria-label="Ready-made campaign templates">
+              <div className={styles.panelHeading}>
+                <div><strong>Ready-made campaigns</strong><small>Festival, national and awareness designs</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setTemplateGalleryOpen((open) => !open)}>
+                  {templateGalleryOpen ? 'Collapse' : 'Browse'}
+                </button>
+              </div>
+              {templateGalleryOpen && <div className={styles.templateGrid}>
+                {ARTWORK_TEMPLATES.map((template) => {
+                  const asset = artworkAssets.find((item) => item.id === template.assetId);
+                  const thumbnail = assetPreviewSources[template.assetId] || asset?.sourceUrl || '';
+                  return <button key={template.id} type="button"
+                    className={styles.templateTile}
+                    disabled={assetBusyId !== null}
+                    aria-label={'Use ' + template.name + ' template'}
+                    onClick={() => void applyArtworkTemplate(template)}>
+                    {thumbnail ? <img src={thumbnail} alt="" loading="lazy" /> : <span className={styles.templatePlaceholder}>Festival artwork</span>}
+                    <span><strong>{template.name}</strong><small>{template.occasion}</small></span>
+                  </button>;
+                })}
+              </div>}
+              <p className={styles.panelFootnote}>Choose a design, then edit its headline, message, colours, image and call to action. Confirm text and any offer details before export.</p>
+            </section>
+            <section className={styles.assetPanel} aria-label="Artwork asset library">
+              <div className={styles.panelHeading}>
+                <div><strong>Asset library</strong><small>{artworkAssets.length} / {ARTWORK_ASSET_LIMIT} images · JPEG or PNG</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setAssetLibraryOpen((open) => !open)}>
+                  {assetLibraryOpen ? 'Hide library' : 'Browse library'}
+                </button>
+              </div>
+              <label className={styles.assetUpload}>Upload image to library
+                <input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} />
+              </label>
+              <p className={styles.panelFootnote}>Maximum 50 assets total; each upload is limited to 4.5 MB and 20 megapixels. Starter images are imported and kept in this browser when selected. Uploaded files are browser-local and are not synced to other staff devices.</p>
+              {assetLibraryOpen && <div className={styles.assetGrid}>
+                {artworkAssets.map((asset) => <article key={asset.id} className={styles.assetTile}>
+                  {assetPreviewSources[asset.id]
+                    ? <img src={assetPreviewSources[asset.id]} alt="" loading="lazy" />
+                    : <div className={styles.templatePlaceholder}>Image preview</div>}
+                  <strong>{asset.name}</strong>
+                  <small>{asset.category}</small>
+                  <small>{asset.fileData ? 'Stored in this browser' : 'Online starter · imported on use'}</small>
+                  <a href={asset.sourcePage} target="_blank" rel="noreferrer">Source &amp; license</a>
+                  <div className={styles.assetActions}>
+                    <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
+                      onClick={() => void selectArtworkAsset(asset)}>
+                      {assetBusyId === asset.id ? 'Importing…' : selectedAssetId === asset.id ? 'Selected' : 'Use image'}
+                    </button>
+                    {!asset.isStarter && <button type="button" className={styles.textButton}
+                      disabled={assetBusyId !== null} onClick={() => void deleteLibraryAsset(asset)}>Remove</button>}
+                  </div>
+                </article>)}
+              </div>}
+            </section>
+            <section className={styles.layerPanel} aria-label="Artwork layers">
+              <div className={styles.panelHeading}><div><strong>Canvas layers</strong><small>Show or hide individual parts</small></div></div>
+              <div className={styles.layerGrid}>
+                {([
+                  ['brand', 'Dealership name & mark'],
+                  ['headline', 'Main heading'],
+                  ['message', 'Supporting message'],
+                  ['photo', 'Campaign image'],
+                  ['callToAction', 'Call-to-action badge'],
+                  ['decorations', 'Background decorations'],
+                  ['footer', 'Footer tagline'],
+                ] as Array<[keyof ArtworkLayerVisibility, string]>).map(([layer, label]) =>
+                  <label className={styles.layerToggle} key={layer}>
+                    <input type="checkbox" checked={layerVisibility[layer]} onChange={(event) => toggleArtworkLayer(layer, event.target.checked)} />
+                    <span>{label}</span>
+                  </label>)}
+              </div>
+            </section>
             <label>Artwork format
               <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
                 {formats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}
@@ -1028,13 +1100,13 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <label>Call to action<input maxLength={45} value={callToAction} onChange={(event) => setCallToAction(event.target.value)} /></label>
             <label>Caption<textarea rows={3} maxLength={700} value={caption} onChange={(event) => setCaption(event.target.value)} /></label>
             <label>Hashtags<input maxLength={220} value={hashtags} onChange={(event) => setHashtags(event.target.value)} /></label>
-            <label>Optional campaign photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePhotoUpload} /></label>
+            <label>Upload JPEG / PNG to asset library<input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} /></label>
             {photoSource && <button className={styles.textButton} type="button" onClick={() => setPhotoSource(null)}>Remove photo</button>}
             <div className={styles.colors}>
               <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
               <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
             </div>
-            <p className={styles.privacy}>Artwork remains browser-local until you choose to upload, publish or share it. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
+            <p className={styles.privacy}>Drafts and your 50-item asset library are stored in this browser. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
           </aside>
           <main className={styles.previewColumn}>
             <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
