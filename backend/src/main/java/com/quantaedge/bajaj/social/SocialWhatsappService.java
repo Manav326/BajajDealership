@@ -329,8 +329,11 @@ public class SocialWhatsappService {
   if (phoneNumberId.isBlank()) missing.add("SOCIAL_WHATSAPP_PHONE_NUMBER_ID");
   if (verifyToken.isBlank()) missing.add("SOCIAL_WHATSAPP_VERIFY_TOKEN");
   if (appSecret.isBlank()) missing.add("SOCIAL_META_APP_SECRET");
-  if (dealershipCode.isBlank() || configuredDealershipId()==null) {
+  if (dealershipCode.isBlank()) {
    missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE (must match an active dealership)");
+  } else {
+   List<Long> ids = jdbc.query("select id from dealership where code=? and status='ACTIVE'", (rs,n)->rs.getLong(1), dealershipCode);
+   if (ids.size()!=1) missing.add("SOCIAL_WHATSAPP_DEALERSHIP_CODE (must match an active dealership)");
   }
   return List.copyOf(missing);
  }
