@@ -677,13 +677,13 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   ['CUSTOMER', 'Customers', 'Customer messages'],
                   ['STAFF', 'Staff', 'Internal updates'],
                   ['DEALERSHIP', 'Dealership-wide', 'Choose either or both groups'],
-                ] as const).map(([value, label, help]) => <button type="button" key={value} onClick={() => changeScope(value)} className={scope === value ? 'scope-choice active' : 'scope-choice'}><strong>{label}</strong><span>{help}</span></button>)}
+                ] as const).map(([value, label, help]) => <button type="button" key={value} disabled={sending} onClick={() => changeScope(value)} className={scope === value ? 'scope-choice active' : 'scope-choice'}><strong>{label}</strong><span>{help}</span></button>)}
               </div>
               {scope === 'DEALERSHIP' && <div className="recipient-type-choices">
-                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} disabled={marketingOnly} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
-                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} disabled={marketingOnly} onChange={() => toggleType('STAFF')} /> Staff</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('CUSTOMER')} disabled={sending || marketingOnly} onChange={() => toggleType('CUSTOMER')} /> Customers</label>
+                <label><input type="checkbox" checked={recipientTypes.includes('STAFF')} disabled={sending || marketingOnly} onChange={() => toggleType('STAFF')} /> Staff</label>
               </div>}
-              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} onChange={(event) => {
+              {scope !== 'STAFF' && <label className="consent-panel studio-consent"><span className="consent-check"><input type="checkbox" checked={marketingOnly} disabled={sending} onChange={(event) => {
                 const enabled = event.target.checked;
                 setMarketingOnly(enabled);
                 setSelectedRecipients([]);
@@ -697,11 +697,11 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               }} /> Marketing campaign — include only customers with recorded marketing consent</span><p>Do not use the marketing audience for service or safety messages. Enabling this filter resets recipient choices and limits the audience to consented customers.</p></label>}
               <div className="audience-mode">
                 <label>
-                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); invalidatePreview(); }} />
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'ALL'} disabled={sending} onChange={() => { setSelectionMode('ALL'); setSelectedRecipients([]); invalidatePreview(); }} />
                   <span><strong>All eligible {audienceDescription.toLowerCase()}</strong><small>Everyone receives it unless you uncheck specific people below.</small></span>
                 </label>
                 <label>
-                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); invalidatePreview(); }} />
+                  <input type="radio" name="audience-mode" checked={selectionMode === 'SELECTED'} disabled={sending} onChange={() => { setSelectionMode('SELECTED'); setExcludedRecipients([]); invalidatePreview(); }} />
                   <span><strong>Choose recipients manually</strong><small>Only the people you check will receive it.</small></span>
                 </label>
               </div>
@@ -711,25 +711,25 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
                   <span>{selectionMode === 'SELECTED' ? `${selectedRecipients.length} selected` : `${excludedRecipients.length} excluded`}</span>
                 </div>
                 <form className="recipient-search-form" onSubmit={searchRecipients}>
-                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); invalidateRecipientSearch(); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
-                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
-                  <button type="submit" className="secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search people'}</button>
+                  <div className="studio-field"><label htmlFor="recipient-search-kind">Search group</label><select id="recipient-search-kind" value={searchKind} disabled={sending || availableSearchKinds.length === 0} onChange={(event) => { setSearchKind(event.target.value as 'CUSTOMER' | 'STAFF'); invalidateRecipientSearch(); }}>{availableSearchKinds.map((kind) => <option key={kind} value={kind}>{kind === 'CUSTOMER' ? 'Customers' : 'Staff'}</option>)}</select></div>
+                  <div className="studio-field recipient-search-input"><label htmlFor="recipient-search-query">Find a customer or staff member</label><input id="recipient-search-query" maxLength={100} disabled={sending} value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, mobile, email or code" /></div>
+                  <button type="submit" className="secondary-button" disabled={searching || sending}>{searching ? 'Searching…' : 'Search people'}</button>
                 </form>
                 <p className="recipient-search-hint">Showing up to 50 matching people per search. Search again to find additional recipients.</p>
                 {recipientResults.length > 0 && <div className="recipient-results">
                   <div className="recipient-results-heading">
                     <span>{recipientResults.length} matching {searchKind === 'CUSTOMER' ? 'customers' : 'staff members'}</span>
                     <div>
-                      <button type="button" className="text-button" onClick={() => setVisibleRecipientsIncluded(true)}>{selectionMode === 'SELECTED' ? 'Select all results' : 'Include all results'}</button>
-                      <button type="button" className="text-button" onClick={() => setVisibleRecipientsIncluded(false)}>{selectionMode === 'SELECTED' ? 'Deselect results' : 'Exclude all results'}</button>
-                      <button type="button" className="text-button" onClick={() => setRecipientResults([])}>Clear search</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setVisibleRecipientsIncluded(true)}>{selectionMode === 'SELECTED' ? 'Select all results' : 'Include all results'}</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setVisibleRecipientsIncluded(false)}>{selectionMode === 'SELECTED' ? 'Deselect results' : 'Exclude all results'}</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => setRecipientResults([])}>Clear search</button>
                     </div>
                   </div>
                   {recipientResults.map((recipient) => {
                     const key = recipientKey(recipient);
                     const included = isRecipientIncluded(recipient);
                     return <label className={included ? 'recipient-option active' : 'recipient-option excluded'} key={key}>
-                      <input aria-label={`${included ? 'Deselect' : 'Select'} ${recipient.recipientName}`} type="checkbox" checked={included} onChange={() => toggleRecipient(recipient)} />
+                      <input aria-label={`${included ? 'Deselect' : 'Select'} ${recipient.recipientName}`} type="checkbox" checked={included} disabled={sending} onChange={() => toggleRecipient(recipient)} />
                       <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
                       <span className="recipient-option-main"><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
                       <span className="recipient-option-action">{included ? (selectionMode === 'SELECTED' ? 'Will receive' : 'Included') : (selectionMode === 'SELECTED' ? 'Not selected' : 'Excluded')}</span>
@@ -740,14 +740,14 @@ export default function NotificationStudio({ staff }: { staff: StaffSummary }) {
               {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).length > 0 && <div className="recipient-selection-review">
                 <div className="recipient-selection-review-heading">
                   <div><strong>{selectionMode === 'SELECTED' ? 'Selected recipients' : 'Excluded recipients'}</strong><span>{selectionMode === 'SELECTED' ? 'Only these people will receive this notification.' : 'These people will not receive this notification.'}</span></div>
-                  <button type="button" className="text-button" onClick={clearRecipientChanges}>{selectionMode === 'SELECTED' ? 'Clear selection' : 'Remove all exclusions'}</button>
+                  <button type="button" className="text-button" disabled={sending} onClick={clearRecipientChanges}>{selectionMode === 'SELECTED' ? 'Clear selection' : 'Remove all exclusions'}</button>
                 </div>
                 <div className="recipient-selection-review-list">
                   {(selectionMode === 'SELECTED' ? selectedRecipients : excludedRecipients).map((recipient) => (
                     <div className="recipient-selection-review-row" key={recipientKey(recipient)}>
                       <span className="recipient-option-avatar">{recipient.recipientName.trim().slice(0, 1).toUpperCase()}</span>
                       <span><strong>{recipient.recipientName}</strong><small>{recipient.recipientKind === 'CUSTOMER' ? 'Customer' : 'Staff'} · {recipient.institutionCode}</small></span>
-                      <button type="button" className="text-button" onClick={() => restoreRecipient(recipient)}>{selectionMode === 'SELECTED' ? 'Deselect' : 'Restore'}</button>
+                      <button type="button" className="text-button" disabled={sending} onClick={() => restoreRecipient(recipient)}>{selectionMode === 'SELECTED' ? 'Deselect' : 'Restore'}</button>
                     </div>
                   ))}
                 </div>
