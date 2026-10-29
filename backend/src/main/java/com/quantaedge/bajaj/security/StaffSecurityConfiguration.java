@@ -65,6 +65,10 @@ public class StaffSecurityConfiguration {
             }))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            // Fallback for bootstrap if the dedicated chain is bypassed by a servlet-path customization.
+            // Keep the scope to these two setup endpoints; all dealership business APIs stay authenticated.
+            .requestMatchers(HttpMethod.POST, "/api/v1/system/bootstrap").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/system/bootstrap/status").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/v1/auth/staff/login", "/api/v1/auth/staff/activate", "/api/v1/customer/auth/login", "/api/v1/customer/auth/activate").permitAll()
             .requestMatchers("/api/v1/auth/staff/me", "/api/v1/auth/staff/logout").authenticated()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
