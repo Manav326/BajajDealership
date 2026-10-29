@@ -89,8 +89,6 @@ async function mockApi(page: Page) {
     publicId: string; modelCode: string; contentType: string; sizeBytes: number;
     primary: boolean; uploadedAt: string;
   }> = [];
-  let galleryUploadContentType = '';
-
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'responsive-e2e-session');
   });
@@ -164,7 +162,6 @@ async function mockApi(page: Page) {
       return json({ items: galleryImages });
     }
     if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'POST') {
-      galleryUploadContentType = route.request().headers()['content-type'] ?? '';
       galleryImages = [{
         publicId: 'e2e-catalogue-image-1',
         modelCode: 'BAJAJ_PULSAR_NS200',
@@ -523,6 +520,13 @@ test('approved campaign history offers Send now before a schedule exists', async
 
 
 test('staff manage Bajaj model gallery with multipart upload and primary-image removal', async ({ page }) => {
+  let galleryUploadContentType = '';
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/admin/catalogue/models/BAJAJ_PULSAR_NS200/images'
+        && request.method() === 'POST') {
+      galleryUploadContentType = request.headers()['content-type'] ?? '';
+    }
+  });
   await mockApi(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
