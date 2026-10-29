@@ -20,6 +20,7 @@ permissions:
 jobs:
   android-changes:
     name: Detect Android source changes
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       android: ${{ steps.filter.outputs.android }}
@@ -189,9 +190,9 @@ jobs:
   android:
     name: Build Lucky Bajaj Android APK
     needs: [android-changes]
-    # Native Android builds are costly. Run them for Android source changes on PRs;
-    # always build on push/main and manual runs so releases keep a fresh APK.
-    if: ${{ github.event_name != 'pull_request' || needs.android-changes.outputs.android == 'true' }}
+    # Native Android builds are costly. Build only for Android source changes,
+    # or when explicitly requested through workflow_dispatch.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.android-changes.outputs.android == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     # Build the APK against the deployed Bajaj API by default.
@@ -263,7 +264,9 @@ jobs:
 
   publish-images:
     name: Publish API and web images to GHCR
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Android may be skipped for non-mobile changes; still publish images when all
+    # required backend/web/Docker checks pass and Android either passes or is skipped.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.backend.result == 'success' && needs.web.result == 'success' && needs['docker-stack'].result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
     needs: [backend, web, docker-stack, android]
     runs-on: ubuntu-latest
     permissions:
