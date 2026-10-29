@@ -27,6 +27,7 @@ export type CustomerGoogleSession = {
 };
 
 type Props = {
+  requestUrl: (path: string) => string;
   dealershipCode: string;
   context: 'signin' | 'signup';
   onAuthenticated: (session: CustomerGoogleSession) => void;
@@ -60,8 +61,8 @@ function loadGoogleIdentityServices(): Promise<void> {
   return googleScriptPromise;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+async function request<T>(requestUrl: (path: string) => string, path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(requestUrl(path), {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
   });
@@ -79,7 +80,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
-export default function GoogleSignInButton({ dealershipCode, context, onAuthenticated }: Props) {
+export default function GoogleSignInButton({ requestUrl, dealershipCode, context, onAuthenticated }: Props) {
   const target = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -99,7 +100,7 @@ export default function GoogleSignInButton({ dealershipCode, context, onAuthenti
     setBusy(true);
     setError('');
     try {
-      const session = await request<CustomerGoogleSession>('/api/v1/customer/auth/google', {
+      const session = await request<CustomerGoogleSession>(requestUrl, '/api/v1/customer/auth/google', {
         method: 'POST',
         body: JSON.stringify({ dealershipCode: code, credential }),
       });
@@ -110,7 +111,7 @@ export default function GoogleSignInButton({ dealershipCode, context, onAuthenti
     } finally {
       setBusy(false);
     }
-  }, [dealershipCode, onAuthenticated]);
+  }, [requestUrl, dealershipCode, onAuthenticated]);
 
   useEffect(() => {
     let active = true;
@@ -118,7 +119,7 @@ export default function GoogleSignInButton({ dealershipCode, context, onAuthenti
     setError('');
     const initialize = async () => {
       const config = await request<{ configured: boolean; clientId: string }>(
-        '/api/v1/customer/auth/google/config',
+        requestUrl, '/api/v1/customer/auth/google/config',
       );
       if (!config.configured || !config.clientId?.trim()) {
         throw new Error('Google sign-in is not configured on this server yet. Ask the administrator to set GOOGLE_WEB_CLIENT_ID.');
@@ -150,7 +151,7 @@ export default function GoogleSignInButton({ dealershipCode, context, onAuthenti
       if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in could not be loaded.');
     });
     return () => { active = false; };
-  }, [context, receiveCredential]);
+  }, [requestUrl, context, receiveCredential]);
 
   return (
     <div className="google-signin">

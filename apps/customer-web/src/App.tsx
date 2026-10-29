@@ -184,7 +184,7 @@ export default function App() {
     setCustomer(session.customer);
     setError('');
     setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
-  }, [loginIdentifierMode]);
+  }, []);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -426,7 +426,7 @@ export default function App() {
             <div className="auth-divider"><span>OR CONTINUE WITH</span></div>
             <div className="google-auth-panel">
               <div className="google-auth-panel__heading"><span className="google-auth-panel__spark">G</span><div><strong>{authMode === 'login' ? 'A simpler way to sign in' : 'Create access with Google'}</strong><small>Verified by Google · protected by QuantaEdge</small></div></div>
-              <GoogleSignInButton dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={acceptGoogleSession} />
+              <GoogleSignInButton requestUrl={apiRequestUrl} dealershipCode={loginForm.dealershipCode} context={authMode === 'activate' ? 'signup' : 'signin'} onAuthenticated={acceptGoogleSession} />
             </div>
             <div className="invite-note"><strong>Need portal access?</strong><span>Ask Lucky Bajaj Agency to verify your customer record and issue an invitation. No account is created from public phone/email matching alone.</span></div>
             <div className="portal-auth-footer">Protected by QuantaEdge <span>•</span> Lucky Bajaj Agency</div>
