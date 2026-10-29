@@ -77,11 +77,90 @@ APP_BOOTSTRAP_TOKEN=$newToken
 }
 
 if ($generatedBootstrapToken) {
+    $tokenContent = Get-Content $rootEnv -Raw
+    $newTokenValue = [regex]::Match($tokenContent, '(?m)^\s*APP_BOOTSTRAP_TOKEN\s*=\s*(\S.*?)\s*
+
+# Match the physical-device convention while discovering the current host LAN IP.
+$lanIp = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
+    ForEach-Object { $_.IPv4Address.IPAddress } |
+    Where-Object { $_ -notmatch '^(127\.|169\.254\.)' } |
+    Select-Object -First 1
+if (-not $lanIp) { $lanIp = '192.168.31.47' }
+
+$androidBaseUrl = $env:BAJAJ_ANDROID_API_BASE_URL
+if ([string]::IsNullOrWhiteSpace($androidBaseUrl)) {
+    $androidBaseUrl = 'http://' + $lanIp + ':8080/'
+}
+$androidEnv = Join-Path $repoRoot 'apps/android/.env'
+if (-not (Test-Path $androidEnv) -or -not [string]::IsNullOrWhiteSpace($env:BAJAJ_ANDROID_API_BASE_URL)) {
+    "EXPO_PUBLIC_API_BASE_URL=$androidBaseUrl" | Set-Content -Path $androidEnv -Encoding ascii
+} else {
+    $configured = Get-Content $androidEnv | Where-Object { $_ -match '^\s*EXPO_PUBLIC_API_BASE_URL\s*=' } | Select-Object -First 1
+    if ($configured) {
+        $configuredUrl = ($configured -split '=', 2)[1].Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($configuredUrl)) { $androidBaseUrl = $configuredUrl }
+    }
+}
+
+Invoke-Compose -ComposeArgs @('config', '--quiet')
+if ($Mode -eq 'Pull') {
+    Write-Host "Pulling prebuilt GHCR API/web images (tag: $Tag)…" -ForegroundColor Cyan
+    try {
+        Invoke-Compose -ComposeArgs @('pull', 'api', 'customer-web', 'staff-web')
+    } catch {
+        Write-Host 'If the GHCR packages are private, authenticate first with: docker login ghcr.io' -ForegroundColor Yellow
+        Write-Host "Then rerun: .\scripts\start.ps1 -Mode Pull -Tag $Tag" -ForegroundColor Yellow
+        throw
+    }
+    Invoke-Compose -ComposeArgs @('up', '--no-build', '-d')
+} else {
+    Write-Host 'Building API and both web images locally, then starting the full stack…' -ForegroundColor Cyan
+    if ($Rebuild) { Invoke-Compose -ComposeArgs @('build', '--no-cache') }
+    Invoke-Compose -ComposeArgs @('up', '--build', '-d')
+}
+
+$checks = @(
+    @{ Name = 'Backend API'; Uri = 'http://localhost:8080/actuator/health' },
+    @{ Name = 'Customer web'; Uri = 'http://localhost:3000/' },
+    @{ Name = 'Staff web'; Uri = 'http://localhost:3001/' }
+)
+$pending = @()
+$ready = $false
+for ($attempt = 1; $attempt -le 90; $attempt++) {
+    $pending = @()
+    foreach ($check in $checks) {
+        try {
+            $response = Invoke-WebRequest -Uri $check.Uri -TimeoutSec 3 -UseBasicParsing
+            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { $pending += $check }
+        } catch { $pending += $check }
+    }
+    if ($pending.Count -eq 0) { $ready = $true; break }
+    Start-Sleep -Seconds 2
+}
+
+if (-not $ready) {
     Write-Host ''
-    Write-Host 'A one-time owner bootstrap token was saved to the ignored .env file (value not printed).' -ForegroundColor Yellow
-    Write-Host 'This is NOT a staff invitation token; do not enter it on the staff activation page.' -ForegroundColor DarkYellow
-    Write-Host 'Create the first owner with: .\scripts\bootstrap-owner.ps1' -ForegroundColor DarkYellow
-    Write-Host 'After owner sign-in, set APP_BOOTSTRAP_TOKEN= (keep the key but leave it blank) in .env, then recreate the API with: docker compose up -d --force-recreate api.' -ForegroundColor DarkYellow
+    Write-Host 'The stack did not become fully healthy. Recent logs follow:' -ForegroundColor Red
+    & docker compose -f (Join-Path $repoRoot 'compose.yaml') logs --tail=100
+    throw "Timed out waiting for: $($pending.Name -join ', ')."
+}
+
+Write-Host ''
+Write-Host 'All local services responded successfully.' -ForegroundColor Green
+Write-Host 'Customer website : http://localhost:3000' -ForegroundColor Green
+Write-Host 'Staff portal     : http://localhost:3001' -ForegroundColor Green
+Write-Host 'Backend API      : http://localhost:8080' -ForegroundColor Green
+Write-Host "Android device   : $androidBaseUrl" -ForegroundColor Green
+Write-Host ''
+Invoke-Compose -ComposeArgs @('ps')
+if ($null -eq $previousImageTag) { Remove-Item Env:BAJAJ_IMAGE_TAG -ErrorAction SilentlyContinue } else { $env:BAJAJ_IMAGE_TAG = $previousImageTag }
+).Groups[1].Value.Trim().Trim('"').Trim("'")
+    Write-Host ''
+    Write-Host 'One-time FIRST OWNER setup token (paste into the Owner setup screen at http://localhost:3001):' -ForegroundColor Yellow
+    Write-Host $newTokenValue -ForegroundColor Yellow
+    Write-Host 'This is not a staff invitation token. After startup, use the web UI to create the first dealership owner.' -ForegroundColor DarkYellow
+    Write-Host 'The API will reject any further bootstrap attempts once the first owner has been created.' -ForegroundColor DarkYellow
     Write-Host ''
 }
 
