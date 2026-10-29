@@ -1153,7 +1153,7 @@ test('customer profile entry point, private photo, saved addresses and purchase 
   });
 
   // Purchases are a different, direct tab; they are not lost when editable contact data changes.
-  await page.getByRole('button', { name: 'Purchases', exact: true }).click();
+  await page.getByRole('button', { name: /Purchases/ }).click();
   await expect(page.getByRole('heading', { name: 'Purchase history', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Motorcycles purchased' })).toBeVisible();
   await expect(page.getByText('SALE-E2E-001', { exact: false })).toBeVisible();
