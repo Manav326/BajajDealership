@@ -1566,7 +1566,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   onChange={(event) => void handleMusicFile(event)}
                   disabled={videoExporting || musicAssets.length >= ARTWORK_MUSIC_LIMIT} />
               </label>
-              <p className={styles.panelFootnote}>Maximum 50 songs and 250 MB total audio, separately from the 50 images. Each file is limited to 25 MB. Tracks must be at least 20 seconds; videos can use 20–120 seconds, with 30 seconds as the default. The 10 curated festive picks below link to their source pages: download the MP3 there and attach it once to keep it in this browser. Please check each track's current licence and rights before commercial use.</p>
+              <p className={styles.panelFootnote}>Maximum 50 songs and {Math.round(ARTWORK_MUSIC_LIBRARY_MAX_BYTES / (1024 * 1024))} MB total audio, separately from the 50 images. Each file is limited to 25 MB. Tracks must be at least 20 seconds; videos can use 20–120 seconds, with 30 seconds as the default. The 10 curated festive picks below link to their source pages: download the MP3 there and attach it once to keep it in this browser. Please check each track's current licence and rights before commercial use.</p>
               {musicLibraryOpen && <div className={styles.musicGrid}>
                 {musicAssets.map((track) => (
                   <article key={track.id} className={styles.musicTile} data-ready={Boolean(track.fileData)} data-selected={selectedMusicId === track.id}>
