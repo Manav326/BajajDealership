@@ -181,7 +181,7 @@ async function mockApi(page: Page, extraPermissions: string[] = []) {
       return route.fulfill({
         status: 200,
         contentType: 'image/png',
-        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
       });
     }
     if (path.endsWith('/admin/notifications/media/e2e-image')) {
@@ -192,6 +192,20 @@ async function mockApi(page: Page, extraPermissions: string[] = []) {
       });
     }
     if (path.endsWith('/admin/notifications/templates')) return json({ templates: [] });
+    if (path.endsWith('/admin/social/meta/status')) return json({
+      configured: false, publishingReady: false, code: 'NOT_CONFIGURED',
+      message: 'Meta connection is not configured for this test.',
+      missingConfigurationKeys: [], missingPublishingConfigurationKeys: [], destinations: [],
+    });
+    if (path.endsWith('/admin/social/whatsapp/status')) return json({
+      configured: false, webhookConfigured: false,
+      message: 'WhatsApp is not configured for this test.',
+      webhookMessage: 'Webhook is not configured for this test.',
+      missingConfigurationKeys: [], missingWebhookConfigurationKeys: [],
+    });
+    if (path.endsWith('/admin/social/whatsapp/customers')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/scheduled')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/templates')) return json([]);
     if (/\/admin\/notifications\/campaigns\/[^/]+\/preview$/.test(path) && method === 'GET') {
       const publicId = path.split('/').slice(-2, -1)[0];
       return json({
@@ -541,7 +555,7 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
   await page.locator('.catalogue-gallery-upload input[type="file"]').setInputFiles({
     name: 'pulsar-ns200.png',
     mimeType: 'image/png',
-    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
   });
   await page.getByRole('button', { name: 'Upload as primary image' }).click();
   await expect(page.getByText('PRIMARY', { exact: true })).toBeVisible();
@@ -644,4 +658,113 @@ test('staff can open a customer profile and view the saved delivery address and 
 
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+
+
+function silentWav(seconds = 35, sampleRate = 8_000): Buffer {
+  const dataBytes = seconds * sampleRate * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+  return buffer;
+}
+
+test('Social Media Artwork Studio offers festival templates, bounded image/music libraries, and Story video export', async ({ page }) => {
+  test.setTimeout(120_000);
+  const browserDiagnostics: string[] = [];
+  page.on('pageerror', (cause) => browserDiagnostics.push('pageerror: ' + (cause.stack || cause.message)));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      browserDiagnostics.push(message.type() + ': ' + message.text());
+    }
+  });
+  await mockApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await page.getByRole('button', { name: 'Social Media Studio', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Social Media Artwork Studio' });
+  try {
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+  } catch (cause) {
+    throw new Error(String(cause) + '\\nBrowser diagnostics:\\n' + (browserDiagnostics.join('\\n') || 'No browser console/page errors captured.'));
+  }
+  await expect(dialog.getByRole('button', { name: 'Use Shubh Deepawali template' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use Chhath Puja · Sunrise template' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use Eid Mubarak · Elegant template' })).toBeVisible();
+  await expect(dialog.getByText(/12 \/ 50 images · JPEG or PNG/)).toBeVisible();
+  await expect(dialog.getByRole('slider', { name: /Position X/ })).toBeVisible();
+  await expect(dialog.getByLabel('Headline colour')).toBeVisible();
+
+  // Keep image selection deterministic and offline in CI; the real asset flow still validates
+  // JPEG/PNG signatures, dimensions, size and IndexedDB persistence.
+  await page.route('https://images.unsplash.com/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
+    });
+  });
+  await dialog.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Headline', exact: true })).toHaveValue('शुभ दीपावली');
+  await expect(dialog.getByText(/template loaded/)).toBeVisible();
+
+  await dialog.getByTestId('artwork-image-upload').setInputFiles({
+    name: 'dealer-logo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
+  });
+  await expect(dialog.getByText(/13 \/ 50 images · JPEG or PNG/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use as logo' }).first()).toBeVisible();
+
+  const musicLibrary = dialog.getByRole('region', { name: 'Music asset library' });
+  await expect(musicLibrary).toBeVisible();
+  await expect(musicLibrary.getByText(/10 \/ 50 tracks/)).toBeVisible();
+  await expect(musicLibrary.getByText('Chhath · Hindu Festive Music')).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Story video creator' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeDisabled();
+
+  // Use a generated audio file for deterministic coverage; actual curated tracks are imported from their source pages.
+  await dialog.locator('[data-testid="artwork-music-upload"]').setInputFiles({
+    name: 'festive-instrumental.wav',
+    mimeType: 'audio/wav',
+    buffer: silentWav(125),
+  });
+  await expect(dialog.getByText(/11 \/ 50 tracks/)).toBeVisible();
+  await expect(musicLibrary.getByRole('article').filter({ hasText: 'festive-instrumental' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Use 9:16 Story format' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Use 9:16 Story format' }).click();
+  await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeEnabled();
+  await expect(dialog.getByRole('slider', { name: 'Music snippet start' })).toBeEnabled();
+  await expect(dialog.getByRole('slider', { name: 'Music volume' })).toBeEnabled();
+
+  const videoDestination = dialog.getByLabel('Story video destination');
+  await expect(videoDestination).toHaveValue('whatsapp-status');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await videoDestination.selectOption('instagram-story');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await videoDestination.selectOption('social-reel');
+  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeEnabled();
+
+  // Exercise the real canvas/audio MediaRecorder path with a generated local WAV.
+  await dialog.getByRole('button', { name: '20s', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
+  await dialog.getByRole('button', { name: 'Create story video' }).click();
+  await expect(dialog.getByRole('button', { name: 'Rendering story video…' })).toBeDisabled();
+  const videoDownload = await downloadPromise;
+  expect(videoDownload.suggestedFilename()).toMatch(/^lucky-bajaj-story-20s\.(mp4|webm)$/);
+  await expect(dialog.getByRole('status').filter({ hasText: /Vertical video exported for Instagram \/ Facebook Reel \(20 seconds/ })).toBeVisible();
 });

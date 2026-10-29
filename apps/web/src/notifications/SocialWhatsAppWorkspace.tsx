@@ -14,6 +14,12 @@ async function readResponse<T>(response: Response): Promise<T> {
   if (!response.ok) throw new Error(payload.message ?? payload.detail ?? 'Request failed (' + response.status + ').');
   return payload;
 }
+
+async function readArrayResponse<T>(response: Response, label: string): Promise<T[]> {
+  const payload = await readResponse<unknown>(response);
+  if (!Array.isArray(payload)) throw new Error(label + ' returned an invalid response. Refresh the workspace and try again.');
+  return payload as T[];
+}
 function localDateTimeMin(minutes = 2): string {
   const date = new Date(Date.now() + minutes * 60_000);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -42,8 +48,8 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [scheduledMessages, setScheduledMessages] = useState<Message[]>([]);
 
-  const customer = customers.find((item) => item.publicId === customerId) ?? null;
-  const template = templates.find((item) => item.name + '|' + item.language === templateId) ?? null;
+  const customer = (Array.isArray(customers) ? customers : []).find((item) => item.publicId === customerId) ?? null;
+  const template = (Array.isArray(templates) ? templates : []).find((item) => item.name + '|' + item.language === templateId) ?? null;
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -51,8 +57,8 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     try {
       const [currentStatus, list, scheduled] = await Promise.all([
         apiFetch('/api/v1/admin/social/whatsapp/status', { cache: 'no-store' }).then(readResponse<Status>),
-        apiFetch('/api/v1/admin/social/whatsapp/customers?limit=100', { cache: 'no-store' }).then(readResponse<Customer[]>),
-        apiFetch('/api/v1/admin/social/whatsapp/scheduled?limit=25', { cache: 'no-store' }).then(readResponse<Message[]>)
+        apiFetch('/api/v1/admin/social/whatsapp/customers?limit=100', { cache: 'no-store' }).then((response) => readArrayResponse<Customer>(response, 'WhatsApp customer list')),
+        apiFetch('/api/v1/admin/social/whatsapp/scheduled?limit=25', { cache: 'no-store' }).then((response) => readArrayResponse<Message>(response, 'Scheduled WhatsApp messages'))
       ]);
       setStatus(currentStatus);
       setCustomers(list);
@@ -68,7 +74,7 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
   useEffect(() => {
-    const selected = templates.find((item) => item.name + '|' + item.language === templateId);
+    const selected = (Array.isArray(templates) ? templates : []).find((item) => item.name + '|' + item.language === templateId);
     if (!selected) {
       setParameters([]);
       setIncludeArtwork(false);
@@ -81,7 +87,7 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
   async function loadTemplates() {
     setBusy(true); setError(''); setNotice('');
     try {
-      const values = await apiFetch('/api/v1/admin/social/whatsapp/templates', { cache: 'no-store' }).then(readResponse<Template[]>);
+      const values = await apiFetch('/api/v1/admin/social/whatsapp/templates', { cache: 'no-store' }).then((response) => readArrayResponse<Template>(response, 'WhatsApp templates'));
       setTemplates(values);
       const preferred = values.find((item) => item.supported);
       setTemplateId(preferred ? preferred.name + '|' + preferred.language : '');

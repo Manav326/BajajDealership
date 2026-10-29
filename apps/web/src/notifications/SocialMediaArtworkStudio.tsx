@@ -2,6 +2,17 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { apiFetch } from './apiClient';
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import styles from './SocialMediaArtworkStudio.module.css';
+import {
+  addArtworkAsset, ARTWORK_ASSET_LIMIT, ARTWORK_ASSET_MAX_BYTES, ARTWORK_TEMPLATES,
+  blobToDataUrl, loadArtworkAssets, removeArtworkAsset, resolveArtworkAssetSource,
+  type ArtworkAsset, type ArtworkTemplate,
+} from './artworkAssets';
+import {
+  addArtworkMusicAsset, ARTWORK_MUSIC_LIMIT, ARTWORK_MUSIC_MAX_BYTES, ARTWORK_MUSIC_LIBRARY_MAX_BYTES,
+  MUSIC_CLIP_DEFAULT_SECONDS, MUSIC_CLIP_MAX_SECONDS, MUSIC_CLIP_MIN_SECONDS,
+  loadArtworkMusicAssets, removeArtworkMusicAsset, updateArtworkMusicAsset,
+  type ArtworkMusicAsset,
+} from './artworkMusic';
 
 type ArtworkFormat = {
   id: string;
@@ -16,8 +27,19 @@ const formats: ArtworkFormat[] = [
   { id: 'facebook-feed', label: 'Facebook Feed · Landscape', channel: 'Facebook Feed', width: 1200, height: 630, note: 'Landscape promotional artwork for a Facebook Page post.' },
   { id: 'square-feed', label: 'Square Feed Post', channel: 'Facebook / Instagram Feed', width: 1080, height: 1080, note: 'A square creative for feed placements.' },
   { id: 'instagram-portrait', label: 'Instagram Feed · Portrait', channel: 'Instagram Feed', width: 1080, height: 1350, note: 'A portrait feed creative with room for readable copy.' },
-  { id: 'story-status', label: 'Story / Status · Vertical', channel: 'Instagram Story / WhatsApp Status export', width: 1080, height: 1920, note: 'Exports artwork for manual sharing. Direct WhatsApp Status publishing is not provided by this tool.' },
+  { id: 'story-status', label: 'Story / Status · Vertical', channel: 'Social Story / Status / Reel export', width: 1080, height: 1920, note: 'Exports vertical video for manual sharing. Native Story music stickers and direct Status publishing are not provided by this tool.' },
 ];
+
+type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
+const storyTargets: Array<{ id: StoryTarget; label: string; maxDuration: number; description: string }> = [
+  { id: 'whatsapp-status', label: 'WhatsApp Status', maxDuration: 90, description: 'Up to 90 seconds for supported Status-video clients. The app may show a shorter limit.' },
+  { id: 'instagram-story', label: 'Instagram Story', maxDuration: 60, description: 'Keep Story video to 60 seconds; use Reels for longer videos.' },
+  { id: 'facebook-story', label: 'Facebook Story', maxDuration: 60, description: 'Use the conservative 60-second Story preset.' },
+  { id: 'social-reel', label: 'Instagram / Facebook Reel', maxDuration: 120, description: 'Longer vertical video up to 2 minutes; this editor still exports a single file.' },
+];
+function storyTargetSettings(id: StoryTarget) {
+  return storyTargets.find((target) => target.id === id) ?? storyTargets[0];
+}
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
   const r = Math.min(radius, width / 2, height / 2);
@@ -100,8 +122,29 @@ type ArtworkDraft = {
   hashtags: string;
   primary: string;
   accent: string;
+  headlineColor?: string;
+  messageColor?: string;
   photoSource: string | null;
+  logoSource?: string | null;
+  layers?: ArtworkLayerVisibility;
+  transforms?: ArtworkTransforms;
+  musicAssetId?: string | null;
+  musicClipStart?: number;
+  musicClipDuration?: number;
+  musicVolume?: number;
+  storyTarget?: StoryTarget;
   updatedAt: string;
+};
+type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
+type ArtworkLayerKey = keyof ArtworkLayerVisibility;
+type ArtworkTransform = { x: number; y: number; scale: number };
+type ArtworkTransforms = Record<ArtworkLayerKey, ArtworkTransform>;
+const defaultArtworkLayers: ArtworkLayerVisibility = { decorations: true, brand: true, headline: true, message: true, photo: true, callToAction: true, footer: true };
+const defaultArtworkTransforms: ArtworkTransforms = {
+  decorations: { x: 0, y: 0, scale: 100 }, brand: { x: 0, y: 0, scale: 100 },
+  headline: { x: 0, y: 0, scale: 100 }, message: { x: 0, y: 0, scale: 100 },
+  photo: { x: 0, y: 0, scale: 100 }, callToAction: { x: 0, y: 0, scale: 100 },
+  footer: { x: 0, y: 0, scale: 100 },
 };
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
@@ -114,10 +157,16 @@ function openArtworkDraftDb(): Promise<IDBDatabase> {
       reject(new Error('Saved drafts are not available in this browser context.'));
       return;
     }
-    const request = indexedDB.open('bajaj-social-media-artwork', 1);
+    const request = indexedDB.open('bajaj-social-media-artwork', 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains('drafts')) {
         request.result.createObjectStore('drafts', { keyPath: 'id' });
+      }
+      if (!request.result.objectStoreNames.contains('assets')) {
+        request.result.createObjectStore('assets', { keyPath: 'id' });
+      }
+      if (!request.result.objectStoreNames.contains('music')) {
+        request.result.createObjectStore('music', { keyPath: 'id' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -203,6 +252,19 @@ function localDateTimeMin(minutes = 2): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { window.clearTimeout(timeoutId); resolve(value); },
+      (cause: unknown) => {
+        window.clearTimeout(timeoutId);
+        reject(cause instanceof Error ? cause : new Error(message));
+      },
+    );
+  });
+}
+
 function newDraftId() {
   return globalThis.crypto?.randomUUID?.()
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -219,7 +281,32 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [hashtags, setHashtags] = useState('#LuckyBajaj #Bajaj #RideWithConfidence');
   const [primary, setPrimary] = useState('#15213a');
   const [accent, setAccent] = useState('#f97316');
+  const [headlineColor, setHeadlineColor] = useState('#ffffff');
+  const [messageColor, setMessageColor] = useState('#e4eaf3');
   const [photoSource, setPhotoSource] = useState<string | null>(null);
+  const [logoSource, setLogoSource] = useState<string | null>(null);
+  const [layerVisibility, setLayerVisibility] = useState<ArtworkLayerVisibility>(defaultArtworkLayers);
+  const [layerTransforms, setLayerTransforms] = useState<ArtworkTransforms>(defaultArtworkTransforms);
+  const [selectedLayer, setSelectedLayer] = useState<ArtworkLayerKey>('headline');
+  const [artworkAssets, setArtworkAssets] = useState<ArtworkAsset[]>([]);
+  const [assetPreviewSources, setAssetPreviewSources] = useState<Record<string, string>>({});
+  const assetPreviewUrlsRef = useRef<Record<string, string>>({});
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [selectedLogoAssetId, setSelectedLogoAssetId] = useState<string | null>(null);
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
+  const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
+  const [musicAssets, setMusicAssets] = useState<ArtworkMusicAsset[]>([]);
+  const [musicLibraryOpen, setMusicLibraryOpen] = useState(true);
+  const [selectedMusicId, setSelectedMusicId] = useState<string | null>(null);
+  const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
+  const [musicPreviewUrl, setMusicPreviewUrl] = useState<string | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [musicClipStart, setMusicClipStart] = useState(0);
+  const [musicClipDuration, setMusicClipDuration] = useState(MUSIC_CLIP_DEFAULT_SECONDS);
+  const [musicVolume, setMusicVolume] = useState(78);
+  const [musicIsPlaying, setMusicIsPlaying] = useState(false);
+  const [videoExporting, setVideoExporting] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [draftName, setDraftName] = useState('New campaign draft');
@@ -245,11 +332,19 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   useEffect(() => { void refreshPublishRequests(); }, []);
   useEffect(() => () => {
     Object.values(publishPreviewUrlRefs.current).forEach((url) => URL.revokeObjectURL(url));
+    Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
   }, []);
 
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
-  const activeMetaDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE') ?? [];
+  const selectedMusicTrack = musicAssets.find((track) => track.id === selectedMusicId) ?? null;
+  const selectedStoryTarget = storyTargetSettings(storyTarget);
+  const storyDurationLimit = selectedStoryTarget.maxDuration;
+  const selectedMusicReady = Boolean(selectedMusicTrack?.fileData && musicPreviewUrl);
+  const musicStartLimit = Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - musicClipDuration);
+  const activeMetaDestinations = Array.isArray(metaStatus?.destinations)
+    ? metaStatus.destinations.filter((destination) => destination.status === 'ACTIVE')
+    : [];
   const canPublishSelectedFormat = selectedFormat.id !== 'story-status';
   const fullCaption = [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n');
 
@@ -292,8 +387,33 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     listArtworkDrafts()
       .then((drafts) => { if (!disposed) setSavedDrafts(drafts); })
       .catch(() => { if (!disposed) setSavedDrafts([]); });
+    refreshArtworkAssets().catch((cause) => {
+      if (!disposed) setError(cause instanceof Error ? cause.message : 'The asset library could not be loaded.');
+    });
+    refreshArtworkMusicAssets().catch((cause) => {
+      if (!disposed) setError(cause instanceof Error ? cause.message : 'The music library could not be loaded.');
+    });
     return () => { disposed = true; };
   }, []);
+
+  useEffect(() => {
+    const track = musicAssets.find((item) => item.id === selectedMusicId);
+    if (!track?.fileData) {
+      setMusicPreviewUrl(null);
+      setMusicIsPlaying(false);
+      return;
+    }
+    const url = URL.createObjectURL(track.fileData);
+    setMusicPreviewUrl(url);
+    setMusicIsPlaying(false);
+    return () => URL.revokeObjectURL(url);
+  }, [musicAssets, selectedMusicId]);
+
+  useEffect(() => {
+    const audio = musicAudioRef.current;
+    if (!audio) return;
+    audio.volume = musicVolume / 100;
+  }, [musicVolume, musicPreviewUrl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -301,7 +421,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     if (!canvas || !ctx) return;
 
     let cancelled = false;
-    const render = (photo?: HTMLImageElement) => {
+    const render = (photo?: HTMLImageElement, logo?: HTMLImageElement) => {
       if (cancelled) return;
       const width = selectedFormat.width;
       const height = selectedFormat.height;
@@ -318,74 +438,102 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, width, height);
 
-      ctx.save();
-      ctx.globalAlpha = 0.2;
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(width * 0.94, height * 0.09, Math.min(width, height) * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 0.1;
-      ctx.beginPath();
-      ctx.arc(width * 0.04, height * 0.96, Math.min(width, height) * 0.18, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      if (layerVisibility.decorations) {
+        const transform = layerTransforms.decorations;
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(width * (0.94 + transform.x / 100), height * (0.09 + transform.y / 100), Math.min(width, height) * 0.22 * transform.scale / 100, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.1;
+        ctx.beginPath();
+        ctx.arc(width * (0.04 + transform.x / 100), height * (0.96 + transform.y / 100), Math.min(width, height) * 0.18 * transform.scale / 100, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       const margin = width * 0.075;
-      const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075));
-      const brandY = height * (landscape ? 0.18 : 0.105);
-      ctx.fillStyle = accent;
-      ctx.beginPath();
-      ctx.arc(margin + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
-      ctx.fillText('LB', margin + markSize * 0.42, brandY - markSize * 0.18);
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035)) + 'px Arial, sans-serif';
-      ctx.fillText(brandName.trim() || 'Your Dealership', margin + markSize * 1.05, brandY);
+      if (layerVisibility.brand) {
+        const transform = layerTransforms.brand;
+        const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075) * transform.scale / 100);
+        const brandX = margin + width * transform.x / 100;
+        const brandY = height * (landscape ? 0.18 : 0.105) + height * transform.y / 100;
+        if (logo) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(logo, brandX, brandY - markSize * 0.6, markSize, markSize);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = accent;
+          ctx.beginPath();
+          ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
+          ctx.fillText('LB', brandX + markSize * 0.42, brandY - markSize * 0.18);
+        }
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035 * transform.scale / 100)) + 'px Arial, sans-serif';
+        ctx.fillText(brandName.trim() || 'Your Dealership', brandX + markSize * 1.05, brandY);
+      }
 
-      const titleFontSize = Math.max(32, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066)));
+      const headlineTransform = layerTransforms.headline;
+      const titleFontSize = Math.max(24, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066) * headlineTransform.scale / 100));
       const titleLineHeight = titleFontSize * 1.12;
-      const titleX = margin;
-      const titleY = height * (landscape ? 0.43 : 0.245);
-      const titleMaxWidth = width * (landscape ? 0.52 : 0.85);
-      ctx.fillStyle = '#ffffff';
+      const titleX = margin + width * headlineTransform.x / 100;
+      const titleY = height * (landscape ? 0.43 : 0.245) + height * headlineTransform.y / 100;
+      const titleMaxWidth = width * (landscape ? 0.52 : 0.85) * headlineTransform.scale / 100;
+      ctx.fillStyle = headlineColor;
       ctx.textAlign = 'left';
       ctx.font = '800 ' + titleFontSize + 'px Arial, sans-serif';
-      const titleEnd = wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3);
+      const titleEnd = layerVisibility.headline
+        ? wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3)
+        : titleY;
 
-      const messageFontSize = Math.max(19, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027)));
+      const messageTransform = layerTransforms.message;
+      const messageFontSize = Math.max(14, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027) * messageTransform.scale / 100));
       const messageLineHeight = messageFontSize * 1.45;
-      const messageY = titleEnd + messageLineHeight * 0.15;
-      ctx.fillStyle = '#e4eaf3';
+      const messageX = margin + width * messageTransform.x / 100;
+      const messageY = titleEnd + messageLineHeight * 0.15 + height * messageTransform.y / 100;
+      const messageMaxWidth = width * (landscape ? 0.52 : 0.85) * messageTransform.scale / 100;
+      ctx.fillStyle = messageColor;
       ctx.font = '400 ' + messageFontSize + 'px Arial, sans-serif';
-      const messageEnd = wrapText(ctx, message, titleX, messageY, titleMaxWidth, messageLineHeight, landscape ? 2 : 3);
+      const messageEnd = layerVisibility.message
+        ? wrapText(ctx, message, messageX, messageY, messageMaxWidth, messageLineHeight, landscape ? 2 : 3)
+        : titleEnd;
 
-      const ctaY = height * (landscape ? 0.81 : 0.855);
-      const buttonHeight = Math.max(42, Math.min(height * 0.085, 72 * scale));
-      const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale));
-      const buttonX = landscape ? margin : (width - buttonWidth) / 2;
-      const buttonTop = Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.075);
-      ctx.fillStyle = accent;
-      roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '800 ' + Math.round(Math.max(17, messageFontSize * 0.84)) + 'px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(callToAction.trim() || 'Learn more', buttonX + buttonWidth / 2, buttonTop + buttonHeight / 2, buttonWidth - 24 * scale);
-      ctx.textBaseline = 'alphabetic';
+      const ctaTransform = layerTransforms.callToAction;
+      const ctaY = height * (landscape ? 0.81 : 0.855) + height * ctaTransform.y / 100;
+      const buttonHeight = Math.max(30, Math.min(height * 0.085, 72 * scale) * ctaTransform.scale / 100);
+      const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale)) * ctaTransform.scale / 100;
+      const buttonX = (landscape ? margin : (width - buttonWidth) / 2) + width * ctaTransform.x / 100;
+      const buttonTop = Math.max(0, Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.04));
+      if (layerVisibility.callToAction) {
+        ctx.fillStyle = accent;
+        roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 ' + Math.round(Math.max(17, messageFontSize * 0.84)) + 'px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(callToAction.trim() || 'Learn more', buttonX + buttonWidth / 2, buttonTop + buttonHeight / 2, buttonWidth - 24 * scale);
+        ctx.textBaseline = 'alphabetic';
+      }
 
-      if (photo) {
+      if (photo && layerVisibility.photo) {
+        const photoTransform = layerTransforms.photo;
         if (landscape) {
-          const photoX = width * 0.65;
-          const photoY = height * 0.22;
-          const photoW = width * 0.28;
-          const photoH = height * 0.55;
+          const photoX = width * (0.65 + photoTransform.x / 100);
+          const photoY = height * (0.22 + photoTransform.y / 100);
+          const photoW = width * 0.28 * photoTransform.scale / 100;
+          const photoH = height * 0.55 * photoTransform.scale / 100;
           ctx.fillStyle = '#ffffff';
           ctx.globalAlpha = 0.12;
           roundedRect(ctx, photoX - 8 * scale, photoY - 8 * scale, photoW + 16 * scale, photoH + 16 * scale, 28 * scale);
@@ -393,12 +541,12 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
           ctx.globalAlpha = 1;
           drawPhotoCover(ctx, photo, photoX, photoY, photoW, photoH, 22 * scale);
         } else {
-          const photoTop = messageEnd + messageLineHeight * 0.2;
-          const photoY = Math.min(photoTop, buttonTop - height * 0.08 - height * 0.2);
-          const photoH = Math.max(0, Math.min(height * 0.23, buttonTop - photoY - height * 0.07));
+          const photoTop = messageEnd + messageLineHeight * 0.2 + height * photoTransform.y / 100;
+          const photoY = Math.max(0, Math.min(photoTop, buttonTop - height * 0.08 - height * 0.2));
+          const photoH = Math.max(0, Math.min(height * 0.23 * photoTransform.scale / 100, buttonTop - photoY - height * 0.07));
           if (photoH > height * 0.06) {
-            const photoX = margin;
-            const photoW = width - margin * 2;
+            const photoX = margin + width * photoTransform.x / 100;
+            const photoW = (width - margin * 2) * photoTransform.scale / 100;
             ctx.fillStyle = '#ffffff';
             ctx.globalAlpha = 0.12;
             roundedRect(ctx, photoX - 6 * scale, photoY - 6 * scale, photoW + 12 * scale, photoH + 12 * scale, 28 * scale);
@@ -409,45 +557,357 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         }
       }
 
-      ctx.fillStyle = '#cbd5e1';
-      ctx.textAlign = landscape ? 'left' : 'center';
-      ctx.font = '600 ' + Math.max(13, Math.round(17 * scale)) + 'px Arial, sans-serif';
-      ctx.fillText('SERVICE YOU CAN TRUST', landscape ? margin : width / 2, height * 0.965);
-      ctx.textAlign = 'left';
+      if (layerVisibility.footer) {
+        const footerTransform = layerTransforms.footer;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = landscape ? 'left' : 'center';
+        ctx.font = '600 ' + Math.max(10, Math.round(17 * scale * footerTransform.scale / 100)) + 'px Arial, sans-serif';
+        ctx.fillText('SERVICE YOU CAN TRUST', (landscape ? margin : width / 2) + width * footerTransform.x / 100, height * 0.965 + height * footerTransform.y / 100);
+        ctx.textAlign = 'left';
+      }
     };
 
+    let photoLoaded = !photoSource;
+    let logoLoaded = !logoSource;
+    let loadedPhoto: HTMLImageElement | undefined;
+    let loadedLogo: HTMLImageElement | undefined;
+    const renderWhenReady = () => {
+      if (!cancelled && photoLoaded && logoLoaded) render(loadedPhoto, loadedLogo);
+    };
     if (photoSource) {
       const image = new Image();
-      image.onload = () => render(image);
-      image.onerror = () => render();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => { loadedPhoto = image; photoLoaded = true; renderWhenReady(); };
+      image.onerror = () => { photoLoaded = true; renderWhenReady(); };
       image.src = photoSource;
-    } else {
-      render();
     }
+    if (logoSource) {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => { loadedLogo = image; logoLoaded = true; renderWhenReady(); };
+      image.onerror = () => { logoLoaded = true; renderWhenReady(); };
+      image.src = logoSource;
+    }
+    renderWhenReady();
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms]);
 
-  function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
+  async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
+    const assets = await loadArtworkAssets();
+    Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    const previews: Record<string, string> = {};
+    const createdUrls: Record<string, string> = {};
+    for (const asset of assets) {
+      if (asset.fileData) {
+        const url = URL.createObjectURL(asset.fileData);
+        previews[asset.id] = url;
+        createdUrls[asset.id] = url;
+      } else {
+        previews[asset.id] = asset.sourceUrl ?? '';
+      }
+    }
+    assetPreviewUrlsRef.current = createdUrls;
+    setArtworkAssets(assets);
+    setAssetPreviewSources(previews);
+    return assets;
+  }
+
+  async function selectArtworkAsset(asset: ArtworkAsset, target: 'photo' | 'logo' = 'photo'): Promise<boolean> {
+    setAssetBusyId(asset.id);
+    setError('');
+    setNotice('');
+    try {
+      const source = await resolveArtworkAssetSource(asset);
+      if (target === 'logo') {
+        setLogoSource(source);
+        setSelectedLogoAssetId(asset.id);
+      } else {
+        setPhotoSource(source);
+        setSelectedAssetId(asset.id);
+      }
+      await refreshArtworkAssets();
+      setNotice(asset.name + (target === 'logo' ? ' is now used as the dealership logo.' : ' is now selected as the campaign image.') + ' It is cached in this browser.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be imported into the asset library.');
+      return false;
+    } finally {
+      setAssetBusyId(null);
+    }
+  }
+
+  async function refreshArtworkMusicAssets(): Promise<ArtworkMusicAsset[]> {
+    const tracks = await loadArtworkMusicAssets();
+    setMusicAssets(tracks);
+    return tracks;
+  }
+
+  async function selectMusicTrack(track: ArtworkMusicAsset) {
+    if (!track.fileData) {
+      window.open(track.sourcePage, '_blank', 'noopener,noreferrer');
+      setNotice('Download the MP3 from the linked source page, then attach it to this track below. Source pages are not direct audio files.');
+      return;
+    }
+    setSelectedMusicId(track.id);
+    setMusicClipStart(0);
+    setMusicClipDuration(Math.min(MUSIC_CLIP_DEFAULT_SECONDS, Math.floor(track.durationSeconds)));
+    setError('');
+    setNotice(track.name + ' is ready for your Story / Status video. The track is saved in this browser.');
+  }
+
+  async function handleMusicFile(event: ChangeEvent<HTMLInputElement>, starterTrackId?: string) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    setError('');
+    setNotice('');
+    if (!file) return;
+
+    const acceptedTypes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/x-m4a'];
+    const hasAudioExtension = /\.(mp3|m4a|mp4|wav|ogg|webm|aac)$/i.test(file.name);
+    if (!acceptedTypes.includes(file.type.toLowerCase()) && !hasAudioExtension) {
+      setError('Choose a supported MP3, M4A, WAV, OGG or WebM audio file.');
+      return;
+    }
+    if (file.size < 1 || file.size > ARTWORK_MUSIC_MAX_BYTES) {
+      setError('Audio files must be smaller than 25 MB.');
+      return;
+    }
+
+    const temporaryUrl = URL.createObjectURL(file);
+    let durationSeconds = 0;
+    try {
+      const audioDuration = await new Promise<number>((resolve, reject) => {
+        const probe = new Audio();
+        probe.preload = 'metadata';
+        probe.onloadedmetadata = () => resolve(probe.duration);
+        probe.onerror = () => reject(new Error('The selected audio file could not be decoded by this browser.'));
+        probe.src = temporaryUrl;
+        probe.load();
+      });
+      durationSeconds = audioDuration;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The selected audio file could not be read.');
+      URL.revokeObjectURL(temporaryUrl);
+      return;
+    }
+    URL.revokeObjectURL(temporaryUrl);
+
+    if (!Number.isFinite(durationSeconds) || durationSeconds < MUSIC_CLIP_MIN_SECONDS) {
+      setError('Choose an audio track at least 20 seconds long so it can be trimmed for a Story.');
+      return;
+    }
+
+    const existingTrack = starterTrackId ? musicAssets.find((track) => track.id === starterTrackId) : undefined;
+    if (starterTrackId && !existingTrack) {
+      setError('That catalogue track is no longer available. Refresh the studio and try again.');
+      return;
+    }
+    const trackId = existingTrack?.id ?? newDraftId();
+    const guessedMime = file.type || (file.name.toLowerCase().endsWith('.mp3') ? 'audio/mpeg' : 'application/octet-stream');
+    const track: ArtworkMusicAsset = existingTrack
+      ? { ...existingTrack, fileData: file, mimeType: guessedMime, durationSeconds }
+      : {
+          id: trackId,
+          name: file.name.replace(/\.[^.]+$/, '').slice(0, 100) || 'Uploaded music',
+          category: 'Uploaded',
+          creator: 'Added by staff',
+          sourcePage: 'Uploaded locally by staff',
+          licenseLabel: 'Confirm permission for commercial use before exporting a public promotion.',
+          durationSeconds,
+          isStarter: false,
+          createdAt: new Date().toISOString(),
+          mimeType: guessedMime,
+          fileData: file,
+        };
+
+    setVideoExporting(false);
+    try {
+      if (existingTrack) await updateArtworkMusicAsset(track);
+      else await addArtworkMusicAsset(track);
+      const refreshedTracks = await refreshArtworkMusicAssets();
+      setSelectedMusicId(trackId);
+      setMusicClipStart(0);
+      setMusicClipDuration(Math.min(MUSIC_CLIP_DEFAULT_SECONDS, Math.floor(durationSeconds)));
+      setMusicVolume(78);
+      setNotice(track.name + ' is saved in this browser and ready to use in composed videos.');
+      if (!refreshedTracks.some((item) => item.id === trackId)) {
+        throw new Error('The music track was saved but could not be found in the refreshed library. Reopen the studio.');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The music track could not be stored in this browser.');
+    }
+  }
+
+  async function deleteMusicTrack(track: ArtworkMusicAsset) {
+    if (track.isStarter) return;
+    if (!window.confirm('Remove this uploaded music track from this browser? Existing exported videos are not affected.')) return;
+    setError('');
+    setNotice('');
+    try {
+      await removeArtworkMusicAsset(track.id);
+      if (selectedMusicId === track.id) setSelectedMusicId(null);
+      await refreshArtworkMusicAssets();
+      setNotice('Uploaded music removed from this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The music track could not be removed.');
+    }
+  }
+
+  async function toggleMusicPreview() {
+    const audio = musicAudioRef.current;
+    if (!audio || !selectedMusicReady) {
+      setError('Import a track and select it before previewing audio.');
+      return;
+    }
+    if (musicIsPlaying) {
+      audio.pause();
+      setMusicIsPlaying(false);
+      return;
+    }
+    try {
+      const start = Math.min(musicClipStart, musicStartLimit);
+      audio.currentTime = start;
+      audio.volume = musicVolume / 100;
+      await audio.play();
+      setMusicIsPlaying(true);
+    } catch {
+      setError('The selected track could not be previewed in this browser.');
+    }
+  }
+
+  function handleMusicTimeUpdate() {
+    const audio = musicAudioRef.current;
+    if (!audio || !musicIsPlaying) return;
+    const end = musicClipStart + musicClipDuration;
+    if (audio.currentTime >= end) {
+      audio.pause();
+      audio.currentTime = musicClipStart;
+      setMusicIsPlaying(false);
+    }
+  }
+
+  async function applyArtworkTemplate(template: ArtworkTemplate) {
+    setFormatId(template.formatId);
+    setHeadline(template.headline);
+    setMessage(template.message);
+    setCallToAction(template.callToAction);
+    setCaption(template.caption);
+    setHashtags(template.hashtags);
+    setPrimary(template.primary);
+    setAccent(template.accent);
+    setHeadlineColor('#ffffff');
+    setMessageColor('#e4eaf3');
+    setLayerVisibility(defaultArtworkLayers);
+    setLayerTransforms(defaultArtworkTransforms);
+    setSelectedLayer('headline');
+    setError('');
+    setNotice('');
+    let asset = artworkAssets.find((item) => item.id === template.assetId);
+    if (!asset) {
+      const refreshedAssets = await refreshArtworkAssets();
+      asset = refreshedAssets.find((item) => item.id === template.assetId);
+    }
+    if (!asset) {
+      setError('The template image is missing from the asset library. Refresh the studio and try again.');
+      return;
+    }
+    const selected = await selectArtworkAsset(asset);
+    if (!selected) return;
+    setNotice(template.name + ' template loaded. Review the wording, dealership details and any offer terms before exporting.');
+  }
+
+  async function handlePhotoUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     setError('');
     setNotice('');
     if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      setError('Choose a PNG, JPEG or WebP image.');
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setError('Only PNG and JPEG files can be stored in the asset library.');
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setError('Choose an image smaller than 8 MB.');
+    if (file.size < 1 || file.size > ARTWORK_ASSET_MAX_BYTES) {
+      setError('Choose a JPEG or PNG image no larger than 4.5 MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setPhotoSource(reader.result);
-      else setError('The image could not be read.');
+    if (typeof createImageBitmap === 'function') {
+      let bitmap: ImageBitmap | undefined;
+      try {
+        bitmap = await createImageBitmap(file);
+        if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 20_000_000) {
+          setError('This image has invalid or excessive dimensions (maximum 20 megapixels).');
+          return;
+        }
+      } catch {
+        setError('The selected file is not a readable PNG or JPEG image.');
+        return;
+      } finally {
+        bitmap?.close();
+      }
+    }
+    const asset: ArtworkAsset = {
+      id: newDraftId(),
+      name: file.name.replace(/\.[^.]+$/, '').slice(0, 100) || 'Uploaded image',
+      category: 'Uploaded',
+      sourceUrl: null,
+      sourcePage: 'Uploaded locally by an authorized staff user',
+      credit: 'User-uploaded asset',
+      mimeType: file.type as ArtworkAsset['mimeType'],
+      isStarter: false,
+      createdAt: new Date().toISOString(),
+      fileData: file.slice(0, file.size, file.type),
     };
-    reader.onerror = () => setError('The image could not be read.');
-    reader.readAsDataURL(file);
+    setAssetBusyId(asset.id);
+    try {
+      await addArtworkAsset(asset);
+      setPhotoSource(await blobToDataUrl(asset.fileData!));
+      setSelectedAssetId(asset.id);
+      await refreshArtworkAssets();
+      setAssetLibraryOpen(true);
+      setNotice('Image uploaded to the browser-local asset library.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be added to the asset library.');
+    } finally {
+      setAssetBusyId(null);
+    }
+  }
+
+  async function deleteLibraryAsset(asset: ArtworkAsset) {
+    if (asset.isStarter) return;
+    if (!window.confirm('Remove "' + asset.name + '" from this browser’s artwork asset library? Saved drafts that already use it will not be changed.')) return;
+    setError('');
+    setNotice('');
+    try {
+      await removeArtworkAsset(asset.id);
+      if (selectedAssetId === asset.id) {
+        setSelectedAssetId(null);
+        setPhotoSource(null);
+      }
+      if (selectedLogoAssetId === asset.id) {
+        setSelectedLogoAssetId(null);
+        setLogoSource(null);
+      }
+      await refreshArtworkAssets();
+      setNotice('Uploaded asset removed from this browser.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be removed.');
+    }
+  }
+
+  function toggleArtworkLayer(layer: ArtworkLayerKey, visible: boolean) {
+    setSelectedLayer(layer);
+    setLayerVisibility((current) => ({ ...current, [layer]: visible }));
+  }
+
+  function updateSelectedLayerTransform(axis: keyof ArtworkTransform, value: number) {
+    setLayerTransforms((current) => ({
+      ...current,
+      [selectedLayer]: { ...current[selectedLayer], [axis]: value },
+    }));
+  }
+
+  function resetSelectedLayerTransform() {
+    setLayerTransforms((current) => ({ ...current, [selectedLayer]: { ...defaultArtworkTransforms[selectedLayer] } }));
   }
 
 
@@ -618,7 +1078,17 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         hashtags,
         primary,
         accent,
+        headlineColor,
+        messageColor,
         photoSource,
+        logoSource,
+        layers: layerVisibility,
+        transforms: layerTransforms,
+        musicAssetId: selectedMusicId,
+        musicClipStart,
+        musicClipDuration,
+        musicVolume,
+        storyTarget,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -659,7 +1129,21 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setHashtags(draft.hashtags);
       setPrimary(draft.primary);
       setAccent(draft.accent);
+      setHeadlineColor(draft.headlineColor ?? '#ffffff');
+      setMessageColor(draft.messageColor ?? '#e4eaf3');
       setPhotoSource(draft.photoSource);
+      setLogoSource(draft.logoSource ?? null);
+      setLayerVisibility(draft.layers ?? defaultArtworkLayers);
+      setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
+      const restoredTarget = draft.storyTarget ?? 'whatsapp-status';
+      setStoryTarget(restoredTarget);
+      setSelectedMusicId(draft.musicAssetId ?? null);
+      setMusicClipDuration(Math.min(draft.musicClipDuration ?? MUSIC_CLIP_DEFAULT_SECONDS, storyTargetSettings(restoredTarget).maxDuration));
+      setMusicClipStart(draft.musicClipStart ?? 0);
+      setMusicVolume(draft.musicVolume ?? 78);
+      setSelectedLayer('headline');
+      setSelectedAssetId(null);
+      setSelectedLogoAssetId(null);
       setNotice('Saved draft loaded.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected draft could not be loaded.');
@@ -701,7 +1185,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setHashtags('#LuckyBajaj #Bajaj #RideWithConfidence');
     setPrimary('#15213a');
     setAccent('#f97316');
+    setHeadlineColor('#ffffff');
+    setMessageColor('#e4eaf3');
     setPhotoSource(null);
+    setLogoSource(null);
+    setSelectedAssetId(null);
+    setSelectedLogoAssetId(null);
+    setLayerVisibility(defaultArtworkLayers);
+    setLayerTransforms(defaultArtworkTransforms);
+    setSelectedMusicId(null);
+    setStoryTarget('whatsapp-status');
+    setMusicClipStart(0);
+    setMusicClipDuration(MUSIC_CLIP_DEFAULT_SECONDS);
+    setMusicVolume(78);
+    setSelectedLayer('headline');
     setError('');
     setNotice('Started a new draft. Save it to keep it on this browser.');
   }
@@ -783,6 +1280,163 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
   }
 
+  async function createStoryVideo() {
+    const sourceCanvas = canvasRef.current;
+    const track = musicAssets.find((item) => item.id === selectedMusicId);
+    if (!track?.fileData || !musicPreviewUrl) {
+      setError('Import and select a music track before creating the Story video.');
+      return;
+    }
+    if (formatId !== 'story-status') {
+      setFormatId('story-status');
+      setNotice('Switched the artwork to the 9:16 Story / Status layout. Review the preview, then create the video again.');
+      return;
+    }
+    if (!sourceCanvas || typeof MediaRecorder === 'undefined' || typeof sourceCanvas.captureStream !== 'function') {
+      setError('This browser does not support video export. Try the latest Chrome, Edge or Safari.');
+      return;
+    }
+
+    setVideoExporting(true);
+    setError('');
+    setNotice('Preparing a vertical Story video with your selected music. Keep this tab open until export finishes.');
+    let audioContext: AudioContext | null = null;
+    let audioSource: AudioBufferSourceNode | null = null;
+    let outputStream: MediaStream | null = null;
+    let frameId = 0;
+    let recorder: MediaRecorder | null = null;
+    let videoBlobPromise: Promise<Blob> | null = null;
+
+    try {
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = 1080;
+      outputCanvas.height = 1920;
+      const outputContext = outputCanvas.getContext('2d');
+      if (!outputContext) throw new Error('The Story video canvas could not be created.');
+
+      // Resume the Web Audio context directly from the user's click before any file decode awaits.
+      audioContext = new AudioContext();
+      await withTimeout(audioContext.resume(), 5_000, 'The browser audio engine did not start. Try the latest Chrome, Edge or Safari.');
+      const sourceBytes = await track.fileData.arrayBuffer();
+      const decodedAudio = await withTimeout(audioContext.decodeAudioData(sourceBytes), 15_000, 'The selected audio file could not be decoded for video export. Try an MP3 or WAV file.');
+      const requestedDuration = Math.min(storyDurationLimit, MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration));
+      const duration = Math.min(requestedDuration, Math.floor(decodedAudio.duration));
+      if (duration < MUSIC_CLIP_MIN_SECONDS) {
+        throw new Error('The audio file has less than 20 seconds of usable audio. Choose a longer track.');
+      }
+      const selectionStart = Math.max(0, Math.min(musicClipStart, Math.max(0, decodedAudio.duration - duration)));
+
+      const gain = audioContext.createGain();
+      const audioDestination = audioContext.createMediaStreamDestination();
+      audioSource = audioContext.createBufferSource();
+      audioSource.buffer = decodedAudio;
+      const volume = Math.max(0, Math.min(1, musicVolume / 100));
+      const audioStartAt = audioContext.currentTime + 0.12;
+      gain.gain.setValueAtTime(0, audioStartAt);
+      gain.gain.linearRampToValueAtTime(volume, audioStartAt + Math.min(0.6, duration / 4));
+      gain.gain.setValueAtTime(volume, audioStartAt + Math.max(0.6, duration - 0.8));
+      gain.gain.linearRampToValueAtTime(0, audioStartAt + duration);
+      audioSource.connect(gain);
+      gain.connect(audioDestination);
+
+      const videoStream = outputCanvas.captureStream(30);
+      outputStream = new MediaStream([
+        ...videoStream.getVideoTracks(),
+        ...audioDestination.stream.getAudioTracks(),
+      ]);
+      const mimeCandidates = [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ];
+      const supportedMime = mimeCandidates.find((mime) => MediaRecorder.isTypeSupported(mime));
+      recorder = supportedMime
+        ? new MediaRecorder(outputStream, { mimeType: supportedMime, videoBitsPerSecond: 2_500_000, audioBitsPerSecond: 128_000 })
+        : new MediaRecorder(outputStream);
+
+      videoBlobPromise = new Promise<Blob>((resolve, reject) => {
+        if (!recorder) return reject(new Error('The video recorder could not be created.'));
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
+        recorder.onerror = () => reject(new Error('Video recording failed. Try a shorter clip or another browser.'));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: recorder?.mimeType || supportedMime || 'video/webm' }));
+      });
+
+      const drawFrame = (elapsedSeconds: number) => {
+        const zoom = 1 + Math.min(0.025, 0.025 * elapsedSeconds / duration);
+        outputContext.fillStyle = '#0b1220';
+        outputContext.fillRect(0, 0, 1080, 1920);
+        outputContext.save();
+        outputContext.translate(540, 960);
+        outputContext.scale(zoom, zoom);
+        outputContext.drawImage(sourceCanvas, -540, -960, 1080, 1920);
+        outputContext.restore();
+
+        // Gentle floating light flecks give the campaign image the motion feel of a social Story.
+        for (let index = 0; index < 16; index += 1) {
+          const phase = (elapsedSeconds * (18 + (index % 5) * 3) + index * 127) % 1920;
+          const x = (index * 193 + Math.sin(elapsedSeconds * 0.55 + index) * 44 + 1080) % 1080;
+          outputContext.globalAlpha = 0.08 + (Math.sin(elapsedSeconds * 2 + index) + 1) * 0.08;
+          outputContext.fillStyle = index % 3 === 0 ? '#ffffff' : '#fbbf24';
+          outputContext.beginPath();
+          outputContext.arc(x, 1920 - phase, index % 4 === 0 ? 3 : 1.6, 0, Math.PI * 2);
+          outputContext.fill();
+        }
+        outputContext.globalAlpha = 1;
+      };
+
+      recorder.start(250);
+      audioSource.start(audioStartAt, selectionStart, duration);
+      const startTimestamp = performance.now();
+      await withTimeout(new Promise<void>((resolve, reject) => {
+        const draw = (now: number) => {
+          try {
+            const elapsed = Math.max(0, (now - startTimestamp) / 1000);
+            drawFrame(elapsed);
+            if (elapsed >= duration) {
+              resolve();
+              return;
+            }
+            frameId = window.requestAnimationFrame(draw);
+          } catch (cause) {
+            reject(cause instanceof Error ? cause : new Error('A Story video frame could not be rendered.'));
+          }
+        };
+        frameId = window.requestAnimationFrame(draw);
+      }), (duration * 1000) + 10_000, 'The browser stopped rendering video frames. Keep this tab visible and try again.');
+      if (recorder.state !== 'inactive') recorder.stop();
+      const videoBlob = await withTimeout(videoBlobPromise, 10_000, 'The browser recorder did not finish the video. Try another supported browser.');
+      if (!videoBlob.size) throw new Error('Video export produced an empty file. Try again.');
+      const mimeType = videoBlob.type || supportedMime || 'video/webm';
+      const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const url = URL.createObjectURL(videoBlob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'lucky-bajaj-story-' + duration + 's.' + extension;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      const uploadNote = extension === 'mp4'
+        ? 'Upload it manually in the selected social app; this file is not published automatically.'
+        : 'This browser exported WebM. Some social upload flows accept MP4/MOV only, so convert it to MP4 before posting if the app rejects it.';
+      setNotice('Vertical video exported for ' + selectedStoryTarget.label + ' (' + duration + ' seconds, ' + extension.toUpperCase() + '). ' + uploadNote);
+    } catch (cause) {
+      if (recorder && recorder.state !== 'inactive') {
+        try { recorder.stop(); } catch { /* The recorder may already be stopping. */ }
+      }
+      setError(cause instanceof Error ? cause.message : 'The Story video could not be exported.');
+    } finally {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      try { audioSource?.stop(); } catch { /* The scheduled source may have already ended. */ }
+      outputStream?.getTracks().forEach((trackItem) => trackItem.stop());
+      if (audioContext && audioContext.state !== 'closed') {
+        try { await audioContext.close(); } catch { /* The browser may already have closed the audio context. */ }
+      }
+      setVideoExporting(false);
+    }
+  }
+
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="social-artwork-title">
       <section className={styles.studio}>
@@ -859,6 +1513,192 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 <button type="button" className={styles.textButton} disabled={draftBusy || !activeDraftId} onClick={() => void deleteDraft()}>Delete</button>
               </div>
             </div>
+            <section className={styles.templatePanel} aria-label="Ready-made campaign templates">
+              <div className={styles.panelHeading}>
+                <div><strong>Ready-made campaigns</strong><small>Festival, national and awareness designs</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setTemplateGalleryOpen((open) => !open)}>
+                  {templateGalleryOpen ? 'Collapse' : 'Browse'}
+                </button>
+              </div>
+              {templateGalleryOpen && <div className={styles.templateGrid}>
+                {ARTWORK_TEMPLATES.map((template) => {
+                  const asset = artworkAssets.find((item) => item.id === template.assetId);
+                  const thumbnail = assetPreviewSources[template.assetId] || asset?.sourceUrl || '';
+                  return <button key={template.id} type="button"
+                    className={styles.templateTile}
+                    disabled={assetBusyId !== null}
+                    aria-label={'Use ' + template.name + ' template'}
+                    onClick={() => void applyArtworkTemplate(template)}>
+                    {thumbnail ? <img src={thumbnail} alt="" loading="lazy" /> : <span className={styles.templatePlaceholder}>Festival artwork</span>}
+                    <span><strong>{template.name}</strong><small>{template.occasion}</small></span>
+                  </button>;
+                })}
+              </div>}
+              <p className={styles.panelFootnote}>Choose a design, then edit its headline, message, colours, image and call to action. Confirm text and any offer details before export.</p>
+            </section>
+            <section className={styles.assetPanel} aria-label="Artwork asset library">
+              <div className={styles.panelHeading}>
+                <div><strong>Asset library</strong><small>{artworkAssets.length} / {ARTWORK_ASSET_LIMIT} images · JPEG or PNG</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setAssetLibraryOpen((open) => !open)}>
+                  {assetLibraryOpen ? 'Hide library' : 'Browse library'}
+                </button>
+              </div>
+              <label className={styles.assetUpload}>Upload image to library
+                <input data-testid="artwork-image-upload" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} />
+              </label>
+              <p className={styles.panelFootnote}>Maximum 50 assets total; each upload is limited to 4.5 MB and 20 megapixels. Starter images are imported and kept in this browser when selected. Uploaded files are browser-local and are not synced to other staff devices.</p>
+              {assetLibraryOpen && <div className={styles.assetGrid}>
+                {artworkAssets.map((asset) => <article key={asset.id} className={styles.assetTile}>
+                  {assetPreviewSources[asset.id]
+                    ? <img src={assetPreviewSources[asset.id]} alt="" loading="lazy" />
+                    : <div className={styles.templatePlaceholder}>Image preview</div>}
+                  <strong>{asset.name}</strong>
+                  <small>{asset.category}</small>
+                  <small>{asset.fileData ? 'Stored in this browser' : 'Online starter · imported on use'}</small>
+                  <a href={asset.sourcePage} target="_blank" rel="noreferrer">Source &amp; license</a>
+                  <div className={styles.assetActions}>
+                    <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
+                      onClick={() => void selectArtworkAsset(asset)}>
+                      {assetBusyId === asset.id ? 'Importing…' : selectedAssetId === asset.id ? 'Image selected' : 'Use image'}
+                    </button>
+                    <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
+                      onClick={() => void selectArtworkAsset(asset, 'logo')}>
+                      {selectedLogoAssetId === asset.id ? 'Logo selected' : 'Use as logo'}
+                    </button>
+                    {!asset.isStarter && <button type="button" className={styles.textButton}
+                      disabled={assetBusyId !== null} onClick={() => void deleteLibraryAsset(asset)}>Remove</button>}
+                  </div>
+                </article>)}
+              </div>}
+            </section>
+            <section className={styles.musicPanel} aria-label="Music asset library">
+              <div className={styles.panelHeading}>
+                <div><strong>Music library</strong><small>{musicAssets.length} / {ARTWORK_MUSIC_LIMIT} tracks · separate from image assets</small></div>
+                <button type="button" className={styles.textButton} onClick={() => setMusicLibraryOpen((open) => !open)}>
+                  {musicLibraryOpen ? 'Hide music' : 'Browse music'}
+                </button>
+              </div>
+              <label className={styles.musicUpload}>Add your own song
+                <input data-testid="artwork-music-upload" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/aac,.mp3,.m4a,.wav,.ogg,.webm,.aac"
+                  onChange={(event) => void handleMusicFile(event)}
+                  disabled={videoExporting || musicAssets.length >= ARTWORK_MUSIC_LIMIT} />
+              </label>
+              <p className={styles.panelFootnote}>Maximum 50 songs and {Math.round(ARTWORK_MUSIC_LIBRARY_MAX_BYTES / (1024 * 1024))} MB total audio, separately from the 50 images. Each file is limited to 25 MB. Tracks must be at least 20 seconds; videos can use 20–120 seconds, with 30 seconds as the default. The 10 curated festive picks below link to their source pages: download the MP3 there and attach it once to keep it in this browser. Please check each track's current licence and rights before commercial use.</p>
+              {musicLibraryOpen && <div className={styles.musicGrid}>
+                {musicAssets.map((track) => (
+                  <article key={track.id} className={styles.musicTile} data-ready={Boolean(track.fileData)} data-selected={selectedMusicId === track.id}>
+                    <div className={styles.musicTileTop}>
+                      <span className={styles.musicDisc} aria-hidden="true">♫</span>
+                      <div className={styles.musicTileCopy}>
+                        <strong>{track.name}</strong>
+                        <small>{track.category} · {track.creator}</small>
+                      </div>
+                      <span className={styles.musicDuration}>{Math.floor(track.durationSeconds / 60)}:{String(Math.floor(track.durationSeconds % 60)).padStart(2, '0')}</span>
+                    </div>
+                    <span className={styles.musicStatus}>{track.fileData ? 'Saved in this browser' : 'MP3 not imported yet'}</span>
+                    <a href={track.sourcePage} target="_blank" rel="noreferrer">Download from source</a>
+                    <label className={styles.musicUpload}>{track.fileData ? 'Replace audio file' : 'Attach downloaded MP3'}
+                      <input data-testid={'attach-music-' + track.id} type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/aac,.mp3,.m4a,.wav,.ogg,.webm,.aac"
+                        onChange={(event) => void handleMusicFile(event, track.id)}
+                        disabled={videoExporting} />
+                    </label>
+                    <div className={styles.musicActions}>
+                      <button type="button" className={styles.secondary} onClick={() => void selectMusicTrack(track)} disabled={!track.fileData || videoExporting}>
+                        {selectedMusicId === track.id ? 'Selected track' : 'Use track'}
+                      </button>
+                      {selectedMusicId === track.id && <button type="button" className={styles.secondary} onClick={() => void toggleMusicPreview()} disabled={!selectedMusicReady || videoExporting}>
+                        {musicIsPlaying ? 'Pause preview' : 'Preview clip'}
+                      </button>}
+                      {!track.isStarter && <button type="button" className={styles.textButton} onClick={() => void deleteMusicTrack(track)} disabled={videoExporting}>Remove</button>}
+                    </div>
+                    {track.contentIdRegistered && <small className={styles.musicRightsWarning}>Content ID registered · automated claims, muting or blocking may occur on social platforms.</small>}
+                    <small className={styles.musicLicense}>{track.licenseLabel}</small>
+                  </article>
+                ))}
+              </div>}
+            </section>
+            <section className={styles.storyVideoPanel} aria-label="Story video creator">
+              <div className={styles.panelHeading}><div><strong>Story video creator</strong><small>9:16 vertical video · choose where it will be used</small></div><span className={styles.storyDurationPill}>{musicClipDuration}s</span></div>
+              <label className={styles.storyTargetLabel}>Destination
+                <select aria-label="Story video destination" value={storyTarget} disabled={videoExporting}
+                  onChange={(event) => {
+                    const nextTarget = event.target.value as StoryTarget;
+                    const maxDuration = storyTargetSettings(nextTarget).maxDuration;
+                    setStoryTarget(nextTarget);
+                    setMusicClipDuration((duration) => Math.min(duration, maxDuration));
+                    setMusicClipStart((start) => Math.min(start, Math.max(0, (selectedMusicTrack?.durationSeconds ?? 0) - Math.min(musicClipDuration, maxDuration))));
+                  }}>
+                  {storyTargets.map((target) => <option key={target.id} value={target.id}>{target.label} · up to {target.maxDuration}s</option>)}
+                </select>
+              </label>
+              <p className={styles.panelFootnote}>{selectedStoryTarget.description}</p>
+              <audio ref={musicAudioRef} src={musicPreviewUrl ?? undefined} preload="metadata" hidden
+                onTimeUpdate={handleMusicTimeUpdate}
+                onPause={() => setMusicIsPlaying(false)}
+                onEnded={() => setMusicIsPlaying(false)} />
+              <div className={styles.storyMusicSummary}>
+                <span className={styles.musicDisc} aria-hidden="true">♫</span>
+                <div><strong>{selectedMusicTrack?.name ?? 'Choose a song from the Music library'}</strong><small>{selectedMusicReady ? 'Ready to mix into the video' : 'Import an MP3 from the catalogue or upload a track'}</small></div>
+              </div>
+              <div className={styles.clipPresets} aria-label="Clip length">
+                {[20, 30, 60, 90, 120].map((seconds) => (
+                  <button key={seconds} type="button" className={musicClipDuration === seconds ? styles.clipPresetActive : styles.clipPreset}
+                    aria-pressed={musicClipDuration === seconds}
+                    disabled={videoExporting || seconds > storyDurationLimit || (selectedMusicTrack?.fileData ? seconds > selectedMusicTrack.durationSeconds : false)}
+                    onClick={() => { setMusicClipDuration(seconds); setMusicClipStart((start) => Math.min(start, Math.max(0, (selectedMusicTrack?.durationSeconds ?? seconds) - seconds))); }}>
+                    {seconds}s
+                  </button>
+                ))}
+              </div>
+              <label className={styles.musicRange}>Snippet start <strong>{musicClipStart.toFixed(1)}s</strong>
+                <input aria-label="Music snippet start" type="range" min={0} max={musicStartLimit} step={0.5} value={Math.min(musicClipStart, musicStartLimit)}
+                  onChange={(event) => { setMusicClipStart(Number(event.target.value)); setMusicIsPlaying(false); musicAudioRef.current?.pause(); }}
+                  disabled={!selectedMusicReady || videoExporting || musicStartLimit <= 0} />
+              </label>
+              <label className={styles.musicRange}>Music volume <strong>{musicVolume}%</strong>
+                <input aria-label="Music volume" type="range" min={0} max={100} step={1} value={musicVolume}
+                  onChange={(event) => setMusicVolume(Number(event.target.value))} disabled={!selectedMusicReady || videoExporting} />
+              </label>
+              {formatId !== 'story-status' && <button type="button" className={styles.secondary} onClick={() => setFormatId('story-status')} disabled={videoExporting}>Use 9:16 Story format</button>}
+              <button type="button" className={styles.primary} onClick={() => void createStoryVideo()} disabled={!selectedMusicReady || videoExporting || formatId !== 'story-status'}>
+                {videoExporting ? 'Rendering story video…' : 'Create story video'}
+              </button>
+              <p className={styles.panelFootnote}>{videoExporting ? 'Rendering the selected clip in real time. Keep this tab open until download begins.' : 'The export combines the current artwork, gentle story-style motion and chosen music. Direct publishing and native music stickers remain inside the social app. MP4 is preferred; if this browser exports WebM instead, convert it before uploading to a platform that only accepts MP4/MOV.'}</p>
+            </section>
+            <section className={styles.layerPanel} aria-label="Artwork layers">
+              <div className={styles.panelHeading}><div><strong>Canvas layers</strong><small>Show or hide individual parts</small></div></div>
+              <div className={styles.layerGrid}>
+                {([
+                  ['brand', 'Dealership name & mark'],
+                  ['headline', 'Main heading'],
+                  ['message', 'Supporting message'],
+                  ['photo', 'Campaign image'],
+                  ['callToAction', 'Call-to-action badge'],
+                  ['decorations', 'Background decorations'],
+                  ['footer', 'Footer tagline'],
+                ] as Array<[keyof ArtworkLayerVisibility, string]>).map(([layer, label]) =>
+                  <label className={styles.layerToggle} key={layer} data-selected={selectedLayer === layer} onClick={() => setSelectedLayer(layer)}>
+                    <input type="checkbox" checked={layerVisibility[layer]} onChange={(event) => toggleArtworkLayer(layer, event.target.checked)} />
+                    <span>{label}</span>
+                  </label>)}
+              </div>
+              <div className={styles.transformControls}>
+                <div className={styles.panelHeading}><div><strong>Selected layer: {selectedLayer === 'brand' ? 'Dealership name & mark' : selectedLayer === 'headline' ? 'Main heading' : selectedLayer === 'message' ? 'Supporting message' : selectedLayer === 'photo' ? 'Campaign image' : selectedLayer === 'callToAction' ? 'Call-to-action badge' : selectedLayer === 'decorations' ? 'Background decorations' : 'Footer tagline'}</strong><small>Move or resize this part of the artwork</small></div></div>
+                <label className={styles.rangeControl}>Position X <span>{layerTransforms[selectedLayer].x}%</span>
+                  <input type="range" min={-35} max={35} step={1} value={layerTransforms[selectedLayer].x} onChange={(event) => updateSelectedLayerTransform('x', Number(event.target.value))} />
+                </label>
+                <label className={styles.rangeControl}>Position Y <span>{layerTransforms[selectedLayer].y}%</span>
+                  <input type="range" min={-25} max={25} step={1} value={layerTransforms[selectedLayer].y} onChange={(event) => updateSelectedLayerTransform('y', Number(event.target.value))} />
+                </label>
+                <label className={styles.rangeControl}>Size <span>{layerTransforms[selectedLayer].scale}%</span>
+                  <input type="range" min={60} max={150} step={5} value={layerTransforms[selectedLayer].scale} onChange={(event) => updateSelectedLayerTransform('scale', Number(event.target.value))} />
+                </label>
+                <div className={styles.assetActions}>
+                  <button type="button" className={styles.secondary} onClick={resetSelectedLayerTransform}>Reset selected layer</button>
+                  <button type="button" className={styles.secondary} onClick={() => setLayerTransforms(defaultArtworkTransforms)}>Reset all layers</button>
+                </div>
+              </div>
+            </section>
             <label>Artwork format
               <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
                 {formats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}
@@ -871,13 +1711,16 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <label>Call to action<input maxLength={45} value={callToAction} onChange={(event) => setCallToAction(event.target.value)} /></label>
             <label>Caption<textarea rows={3} maxLength={700} value={caption} onChange={(event) => setCaption(event.target.value)} /></label>
             <label>Hashtags<input maxLength={220} value={hashtags} onChange={(event) => setHashtags(event.target.value)} /></label>
-            <label>Optional campaign photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePhotoUpload} /></label>
+            <label>Upload JPEG / PNG to asset library<input type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} /></label>
             {photoSource && <button className={styles.textButton} type="button" onClick={() => setPhotoSource(null)}>Remove photo</button>}
             <div className={styles.colors}>
-              <label>Brand colour<input aria-label="Brand colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
+              <label>Background colour<input aria-label="Background colour" type="color" value={primary} onChange={(event) => setPrimary(event.target.value)} /></label>
               <label>Accent colour<input aria-label="Accent colour" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
+              <label>Headline colour<input aria-label="Headline colour" type="color" value={headlineColor} onChange={(event) => setHeadlineColor(event.target.value)} /></label>
+              <label>Message colour<input aria-label="Message colour" type="color" value={messageColor} onChange={(event) => setMessageColor(event.target.value)} /></label>
             </div>
-            <p className={styles.privacy}>Artwork remains browser-local until you choose to upload, publish or share it. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
+            {logoSource && <button type="button" className={styles.textButton} onClick={() => { setLogoSource(null); setSelectedLogoAssetId(null); }}>Remove logo image</button>}
+            <p className={styles.privacy}>Drafts and your 50-item asset library are stored in this browser. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
           </aside>
           <main className={styles.previewColumn}>
             <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
