@@ -160,7 +160,7 @@ export default function BajajShowroom({ onSignIn }: {
 
       <section className="showroom-marquee" aria-label="Bajaj range">
         <div className="showroom-marquee-track" aria-hidden="true">
-          {Array.from({ length: 2 }).flatMap((_, index) => ['FREEDOM', 'PULSAR', 'DOMINAR', 'AVENGER', 'PLATINA', 'CT'].map((name, item) =>
+          {Array.from({ length: 2 }).flatMap((_, index) => ['FREEDOM', 'PULSAR', 'DOMINAR', 'AVENGER', 'PLATINA', 'CT'].map((name) =>
             <span key={`${index}-${name}`}>{name}<i>✳</i></span>))}
         </div>
       </section>
@@ -170,9 +170,15 @@ export default function BajajShowroom({ onSignIn }: {
           <div><div className="showroom-eyebrow">THE COLLECTION / {catalogue?.bikes.length ?? '—'} MACHINES</div>
             <h2>Find your <em>kind of ride.</em></h2>
             <p>From daily commutes to sport-minded weekends: explore the Bajaj range, model by model.</p></div>
-          <div className="showroom-search-wrap"><span aria-hidden="true">⌕</span>
-            <label className="sr-only" htmlFor="bajaj-model-search">Search Bajaj models</label>
-            <input id="bajaj-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Bajaj bikes" /></div>
+          <div className="showroom-toolbar-fields">
+            <div className="showroom-search-wrap"><span aria-hidden="true">⌕</span>
+              <label className="sr-only" htmlFor="bajaj-model-search">Search Bajaj models</label>
+              <input id="bajaj-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Bajaj bikes" />
+            </div>
+            <label className="showroom-price-city"><span>ON-ROAD QUOTE CITY</span>
+              <input value={priceLocation} onChange={(event) => setPriceLocation(event.target.value)} maxLength={80} aria-label="City for on-road quote" />
+            </label>
+          </div>
         </div>
         <div className="showroom-filter-row" role="group" aria-label="Filter motorcycles">
           {categories.map((item) => <button key={item.value} type="button"
