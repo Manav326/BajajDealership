@@ -67,7 +67,6 @@ public class CustomerAlternativeAuthService {
             and upper(dealership.code) = upper(?)
             and customer.public_id = ?::uuid
             and account.status = 'ACTIVE'
-            and account.username is null
           """, username, session.customer().dealershipCode(), session.customer().publicId());
     } catch (DuplicateKeyException ex) {
       throw conflict("That username is already in use. Choose another username.");

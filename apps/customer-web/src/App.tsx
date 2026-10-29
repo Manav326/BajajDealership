@@ -33,6 +33,7 @@ type NotificationPage = {
 };
 
 type AuthMode = 'login' | 'activate';
+type LoginIdentifierMode = 'customerCode' | 'username';
 type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications';
 
 const SESSION_KEY = 'qe_customer_portal_token';
@@ -94,6 +95,7 @@ export default function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(SESSION_KEY) ?? '');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [loginIdentifierMode, setLoginIdentifierMode] = useState<LoginIdentifierMode>('customerCode');
   const [tab, setTab] = useState<PortalTab>('home');
   const [loadingSession, setLoadingSession] = useState(Boolean(window.sessionStorage.getItem(SESSION_KEY)));
   const [loadingData, setLoadingData] = useState(false);
@@ -182,24 +184,23 @@ export default function App() {
     setCustomer(session.customer);
     setError('');
     setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
-  }, []);
+  }, [loginIdentifierMode]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true); setError(''); setSuccess('');
     try {
-      const identifier = loginForm.username.trim();
       const dealershipCode = loginForm.dealershipCode.trim().toUpperCase();
-      // Older accounts keep their dealership-issued CUS-XXXXXXXX credential; new accounts use usernames.
-      const legacyCustomerCode = /^CUS-[A-F0-9]{8}$/i.test(identifier);
+      // Keep the established customer-code endpoint as the default; username login is an explicit alternative.
+      const useUsername = loginIdentifierMode === 'username';
       const session = await api<PortalSession>(
-        legacyCustomerCode ? '/api/v1/customer/auth/login' : '/api/v1/customer/auth/username-login',
+        useUsername ? '/api/v1/customer/auth/username-login' : '/api/v1/customer/auth/login',
         undefined,
         {
           method: 'POST',
-          body: JSON.stringify(legacyCustomerCode
-            ? { dealershipCode, customerCode: identifier.toUpperCase(), password: loginForm.password }
-            : { dealershipCode, username: identifier, password: loginForm.password }),
+          body: JSON.stringify(useUsername
+            ? { dealershipCode, username: loginForm.username.trim(), password: loginForm.password }
+            : { dealershipCode, customerCode: loginForm.customerCode.trim().toUpperCase(), password: loginForm.password }),
         });
       window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
       setToken(session.accessToken);
@@ -402,7 +403,16 @@ export default function App() {
             </div>
             {authMode === 'login' ? <form className="portal-form" onSubmit={submitLogin}>
               <label>Dealership code<input autoComplete="organization" required maxLength={40} value={loginForm.dealershipCode} onChange={(event) => setLoginForm((current) => ({ ...current, dealershipCode: event.target.value }))} placeholder="Lucky Bajaj code" /></label>
-              <label>Username or customer code<input autoComplete="username" required minLength={3} maxLength={40} value={loginForm.username} onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value, customerCode: event.target.value }))} placeholder="Your username or CUS-XXXXXXXX" /></label>
+              <div className="auth-login-identifier">
+                <div className="auth-login-identifier__label">Sign in with</div>
+                <div className="auth-mode-tabs auth-identifier-tabs" role="group" aria-label="Choose sign-in method">
+                  <button type="button" className={loginIdentifierMode === 'customerCode' ? 'active' : ''} aria-pressed={loginIdentifierMode === 'customerCode'} onClick={() => setLoginIdentifierMode('customerCode')}>Customer code</button>
+                  <button type="button" className={loginIdentifierMode === 'username' ? 'active' : ''} aria-pressed={loginIdentifierMode === 'username'} onClick={() => setLoginIdentifierMode('username')}>Username</button>
+                </div>
+              </div>
+              {loginIdentifierMode === 'customerCode'
+                ? <label>Customer code<input autoComplete="username" required maxLength={40} value={loginForm.customerCode} onChange={(event) => setLoginForm((current) => ({ ...current, customerCode: event.target.value }))} placeholder="Your customer code" /></label>
+                : <label>Username<input autoComplete="username" required minLength={3} maxLength={40} pattern="[A-Za-z0-9._-]{3,40}" value={loginForm.username} onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value }))} placeholder="Your username" /></label>}
               <label>Password<input type="password" autoComplete="current-password" required maxLength={128} value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} placeholder="Your password" /></label>
               <button className="primary-button portal-submit" type="submit" disabled={saving}>{saving ? 'Signing in…' : 'Sign in securely'} <span>↗</span></button>
             </form> : <form className="portal-form" onSubmit={submitActivation}>

@@ -18,11 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/customer/auth")
 public class CustomerGoogleAuthController {
   private final CustomerGoogleIdentityService identities;
-  private final CustomerPortalService portal;
+  private final CustomerAlternativeAuthService authentication;
 
-  public CustomerGoogleAuthController(CustomerGoogleIdentityService identities, CustomerPortalService portal) {
+  public CustomerGoogleAuthController(CustomerGoogleIdentityService identities, CustomerAlternativeAuthService authentication) {
     this.identities = identities;
-    this.portal = portal;
+    this.authentication = authentication;
   }
 
   @GetMapping("/google/config")
@@ -36,7 +36,7 @@ public class CustomerGoogleAuthController {
   public CustomerPortalService.PortalSession login(
       @Valid @RequestBody GoogleRequest request, HttpServletRequest httpRequest) {
     CustomerGoogleIdentityService.VerifiedIdentity identity = identities.verify(request.credential());
-    return portal.loginWithGoogle(request.dealershipCode(), identity,
+    return authentication.loginWithGoogle(request.dealershipCode(), identity,
         httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
   }
 
