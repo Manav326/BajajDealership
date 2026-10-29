@@ -32,6 +32,9 @@ jobs:
           node-version: "24"
       - name: Install web and browser test dependencies
         run: npm install
+      - name: Install customer showroom dependencies
+        working-directory: apps/customer-web
+        run: npm install
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Run responsive and interaction tests
