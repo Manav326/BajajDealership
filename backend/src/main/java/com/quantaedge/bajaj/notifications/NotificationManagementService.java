@@ -605,9 +605,31 @@ public class NotificationManagementService {
     return true;
   }
 
-  /** Dispatch an already-approved scheduled campaign immediately, with the scheduler sharing its row lock. */
-  @Transactional
+  /** Dispatch an already-approved scheduled campaign immediately, sharing the scheduler's transaction boundary. */
   public SendNowResult sendNow(StaffPrincipal actor, UUID publicId) {
+    java.util.concurrent.atomic.AtomicBoolean attemptClaimed = new java.util.concurrent.atomic.AtomicBoolean();
+    try {
+      SendNowResult result = dispatchTransactionTemplate.execute(
+          status -> sendNowInTransaction(actor, publicId, attemptClaimed));
+      if (result == null) throw new IllegalStateException("Send now transaction returned no result.");
+      return result;
+    } catch (RuntimeException failure) {
+      // The dispatch transaction has rolled back here, so persist retry state independently.
+      // Validation/state errors raised before PROCESSING is claimed must not count as dispatch attempts.
+      if (attemptClaimed.get()) {
+        try {
+          recordDispatchFailure(publicId, failure);
+        } catch (RuntimeException persistenceFailure) {
+          failure.addSuppressed(persistenceFailure);
+        }
+      }
+      throw failure;
+    }
+  }
+
+  private SendNowResult sendNowInTransaction(
+      StaffPrincipal actor, UUID publicId,
+      java.util.concurrent.atomic.AtomicBoolean attemptClaimed) {
     CampaignRecord campaign = loadCampaign(actor.dealershipId(), publicId, true);
     if ("SENT".equals(campaign.status())) return new SendNowResult(toView(campaign), true);
     boolean retryableFailure = "FAILED".equals(campaign.status())
@@ -638,6 +660,7 @@ public class NotificationManagementService {
         where id = ? and dealership_id = ? and status = ?
         """, campaign.id(), actor.dealershipId(), campaign.status());
     if (claimed != 1) throw conflict("Campaign state changed while Send now was being confirmed.");
+    attemptClaimed.set(true);
 
     List<RecipientCandidate> currentAudience = resolveAudience(
         actor, campaign.scope(), parseObject(campaign.audienceFilterJson()));
@@ -662,19 +685,21 @@ public class NotificationManagementService {
     return new SendNowResult(toView(loadCampaign(actor.dealershipId(), publicId, false)), false);
   }
 
-  /** Called after a failed per-campaign transaction has rolled back. Persist bounded retry state separately. */
+  /** Persist bounded retry state only after a campaign's dispatch transaction has rolled back. */
   private void recordDispatchFailure(UUID publicId, RuntimeException failure) {
     String reason = "Dispatch error: " + failure.getClass().getSimpleName();
     dispatchTransactionTemplate.executeWithoutResult(status -> {
       List<CampaignRecord> rows = jdbc.query("""
           select """ + CAMPAIGN_COLUMNS + """
-          from notification_campaign where public_id = ? and status = 'SCHEDULED'
+          from notification_campaign
+          where public_id = ? and status in ('SCHEDULED', 'FAILED')
           for update
           """, CAMPAIGN_ROW, publicId);
       if (rows.isEmpty()) return;
       CampaignRecord campaign = rows.getFirst();
+      boolean previouslyFailed = "FAILED".equals(campaign.status());
       int nextAttempt = campaign.dispatchAttemptCount() + 1;
-      boolean terminal = nextAttempt >= MAX_AUTOMATIC_DISPATCH_ATTEMPTS;
+      boolean terminal = previouslyFailed || nextAttempt >= MAX_AUTOMATIC_DISPATCH_ATTEMPTS;
       long retrySeconds = Math.min(300L, 15L << Math.min(campaign.dispatchAttemptCount(), 4));
       String savedError = reason.length() > 300 ? reason.substring(0, 300) : reason;
       jdbc.update("""
@@ -683,13 +708,17 @@ public class NotificationManagementService {
             next_dispatch_attempt_at = case when ? then null else now() + (? * interval '1 second') end,
             last_dispatch_error = ?, status = case when ? then 'FAILED' else status end,
             updated_at = now()
-          where id = ? and dealership_id = ? and status = 'SCHEDULED'
+          where id = ? and dealership_id = ? and status in ('SCHEDULED', 'FAILED')
           """, nextAttempt, terminal, retrySeconds, savedError, terminal, campaign.id(), campaign.dealershipId());
-      auditSystem(campaign, terminal ? "CAMPAIGN_DISPATCH_FAILED" : "CAMPAIGN_DISPATCH_RETRY_SCHEDULED",
+      auditSystem(campaign,
+          previouslyFailed ? "CAMPAIGN_SEND_NOW_RETRY_FAILED"
+              : terminal ? "CAMPAIGN_DISPATCH_FAILED" : "CAMPAIGN_DISPATCH_RETRY_SCHEDULED",
           Map.of("attempt", nextAttempt, "automaticRetryLimit", MAX_AUTOMATIC_DISPATCH_ATTEMPTS,
             "reason", savedError, "retryInSeconds", terminal ? 0 : retrySeconds));
     });
-    LOGGER.error("Scheduled notification dispatch failed for campaign {}. Retry state was recorded.", publicId, failure);
+    // Deliberately log only the sanitized campaign identifier and exception class, never content/recipient data.
+    LOGGER.error("Notification dispatch failed for campaign {} ({})",
+        publicId, failure.getClass().getSimpleName());
   }
 
   public Page<InboxItem> inbox(StaffPrincipal actor, int requestedPage, int requestedSize, boolean unreadOnly) {
