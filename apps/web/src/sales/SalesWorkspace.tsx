@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
 import { printFinanceDocument } from '../finance/printFinanceDocument';
 import type { StaffSummary } from '../auth/StaffLogin';
+import CustomerSalesRequestsPanel from './CustomerSalesRequestsPanel';
 
 type Page<T> = { items: T[]; page: number; pageSize: number; total: number };
 type Customer = {
@@ -113,7 +114,7 @@ function newSaleKey() {
 export default function SalesWorkspace({ token, staff }: { token: string; staff: StaffSummary }) {
   const canRead = staff.permissions.includes('sales.read');
   const canManage = staff.permissions.includes('sales.manage');
-  const [activeTab, setActiveTab] = useState<'enquiries' | 'bookings'>('enquiries');
+  const [activeTab, setActiveTab] = useState<'enquiries' | 'bookings' | 'website-requests'>('enquiries');
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -696,6 +697,7 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
       <div className="sales-tabs" role="tablist" aria-label="Sales workspaces">
         <button type="button" className={activeTab === 'enquiries' ? 'sales-tab active' : 'sales-tab'} onClick={() => setActiveTab('enquiries')}>Enquiries <span>{enquiries.length}</span></button>
         <button type="button" className={activeTab === 'bookings' ? 'sales-tab active' : 'sales-tab'} onClick={() => setActiveTab('bookings')}>Bike bookings <span>{bookings.filter((booking) => booking.status === 'ACTIVE').length}</span></button>
+        <button type="button" className={activeTab === 'website-requests' ? 'sales-tab active' : 'sales-tab'} onClick={() => setActiveTab('website-requests')}>Website requests</button>
       </div>
 
       {activeTab === 'enquiries' && <div className="sales-layout">
@@ -910,6 +912,8 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
           {saleBooking.status === 'ACTIVE' && saleInvoice?.status === 'ISSUED' && saleInvoice.balanceDue > 0 && <div className="sales-sale-balance-note">Delivery is blocked until the outstanding balance of {money(saleInvoice.balanceDue)} is fully recorded against the issued invoice.</div>}
         </>}
       </section>}
+
+      {activeTab === 'website-requests' && <CustomerSalesRequestsPanel token={token} staff={staff} onOpenEnquiry={async (publicId) => { setActiveTab('enquiries'); await loadEnquiries(); await openEnquiry(publicId); }} />}
 
       {activeTab === 'bookings' && <section className="sales-list-panel sales-bookings-panel">
         <div className="sales-section-heading"><div><h2>Bike bookings</h2><p>Active bookings hold one specific vehicle unit. Cancelling releases that unit and records a movement.</p></div><span className="sales-counter">{bookings.length} records</span></div>
