@@ -16,6 +16,19 @@ type StockOption = {
   mappedCataloguePublicId: string | null; mappedCatalogueCode: string | null; mappedCatalogueName: string | null;
 };
 
+type RetailOrderLine = {
+  partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
+  quantity: number; unitPrice: number; lineTotal: number;
+};
+type RetailOrder = {
+  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
+  orderTotal: number; fulfillmentMethod: 'PICKUP' | 'DELIVERY'; deliveryAddress: string | null;
+  deliveryFee: number; deliveryQuoteStatus: string; deliveryQuoteNote: string | null; deliveryQuotedAt: string | null;
+  customerNote: string | null; createdAt: string; updatedAt: string;
+  cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
+  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
+  customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
+};
 type SettingsDraft = {
   retailEnabled: boolean; retailPrice: string; retailDescription: string;
   fitmentModelCodes: string; imageUrl: string; fitmentVerified: boolean; stockPartPublicId: string;
