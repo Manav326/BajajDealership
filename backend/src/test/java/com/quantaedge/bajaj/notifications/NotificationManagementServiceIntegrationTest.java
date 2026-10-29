@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.web.server.ResponseStatusException;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.notifications.dispatch-interval-ms=3600000")
 @ActiveProfiles("test")
 @Transactional
 class NotificationManagementServiceIntegrationTest {
