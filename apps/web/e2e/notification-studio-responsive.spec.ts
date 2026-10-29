@@ -668,13 +668,24 @@ function silentWav(seconds = 35, sampleRate = 8_000): Buffer {
 }
 
 test('Social Media Artwork Studio offers festival templates, a bounded asset library, and layer transforms', async ({ page }) => {
+  const browserDiagnostics: string[] = [];
+  page.on('pageerror', (cause) => browserDiagnostics.push('pageerror: ' + (cause.stack || cause.message)));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      browserDiagnostics.push(message.type() + ': ' + message.text());
+    }
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
   await page.getByRole('button', { name: 'Social Media Studio', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Social Media Artwork Studio' });
-  await expect(dialog).toBeVisible();
+  try {
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+  } catch (cause) {
+    throw new Error(String(cause) + '\\nBrowser diagnostics:\\n' + (browserDiagnostics.join('\\n') || 'No browser console/page errors captured.'));
+  }
   await expect(dialog.getByRole('button', { name: 'Use Shubh Deepawali template' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Use Chhath Puja · Sunrise template' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Use Eid Mubarak · Elegant template' })).toBeVisible();
