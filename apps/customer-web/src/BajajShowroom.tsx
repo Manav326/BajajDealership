@@ -506,11 +506,11 @@ export default function BajajShowroom({
           {heroBikes.map((bike, index) => {
             const angle = ((index - heroSelectedIndex) / Math.max(heroBikes.length, 1)) * Math.PI * 2;
             const depth = Math.cos(angle);
-            const x = Math.sin(angle) * 190;
+            const x = Math.sin(angle) * 31;
             const y = Math.sin(angle * 2) * 14;
             const scale = 0.64 + ((depth + 1) / 2) * 0.36;
             const style = {
-              '--orbit-x': `${x}px`,
+              '--orbit-x': `${x}%`,
               '--orbit-y': `${y}px`,
               '--orbit-depth': `${depth * 105}px`,
               '--orbit-scale': scale,
