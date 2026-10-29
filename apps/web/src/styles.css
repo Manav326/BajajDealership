@@ -2521,3 +2521,21 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 .retail-admin-fulfilled-note{padding:11px 12px;border-radius:10px;background:rgba(232,247,239,.76);color:#286b4c;font-size:10px;line-height:1.5}
 @media(max-width:860px){.retail-admin-collection-form{grid-template-columns:repeat(2,minmax(0,1fr))}.retail-admin-collection-form button{grid-column:1/-1;justify-self:start}}
 @media(max-width:600px){.retail-admin-summaries{grid-template-columns:1fr}.retail-admin-part-summary{grid-template-columns:48px minmax(0,1fr)}.retail-admin-part-summary>img,.retail-admin-part-mark{width:48px;height:48px}.retail-admin-part-right{grid-column:1/-1;display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap}.retail-admin-editor-actions{justify-content:flex-start}.retail-admin-collection-form{grid-template-columns:1fr}.retail-admin-collection-form button{grid-column:auto}.retail-admin-order-head{flex-direction:column}.retail-admin-order-total{justify-items:start}}
+
+
+.promotion-publish-toggle {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  align-self: end;
+  gap: 10px !important;
+  min-height: 42px;
+  color: var(--text-primary, inherit);
+  font-size: 12px;
+}
+.promotion-publish-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #dcaa4f;
+  flex: 0 0 auto;
+}
