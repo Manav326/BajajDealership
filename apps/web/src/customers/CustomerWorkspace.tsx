@@ -59,10 +59,17 @@ type CustomerWebsiteRequestHistory = {
   bookingCode: string | null; bookingStatus: string | null; invoiceNumber: string | null; invoiceStatus: string | null;
   invoiceTotal: number | null; paidAmount: number; creditedAmount: number | null; balanceDue: number | null; deliveredAt: string | null;
 };
+type CustomerSalesEnquiryHistory = {
+  publicId: string; enquiryCode: string; customerPublicId: string; customerCode: string; customerName: string;
+  customerPhone: string | null; customerEmail: string | null; interestedModelPublicId: string | null; modelCode: string | null;
+  modelName: string | null; variantName: string | null; colourName: string | null; assignedStaffPublicId: string | null;
+  assignedStaffName: string | null; status: string; leadSource: string; contactPreference: string;
+  nextFollowUpAt: string | null; lastContactedAt: string | null; notes: string | null; createdAt: string; updatedAt: string;
+};
 type CustomerHistory = {
   customer: Customer; notes: string | null; marketingConsentAt: string | null; marketingConsentSource: string | null;
   motorcyclePurchases: CustomerMotorcyclePurchase[]; sparePartOrders: CustomerPartOrderHistory[];
-  websiteRequests: CustomerWebsiteRequestHistory[];
+  salesEnquiries: CustomerSalesEnquiryHistory[]; websiteRequests: CustomerWebsiteRequestHistory[];
 };
 function formatCustomerHistoryMoney(value: number | null | undefined): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value ?? 0));
@@ -559,6 +566,23 @@ export default function CustomerWorkspace({
                       {order.customerNote && <small>Customer note: {order.customerNote}</small>}</div>
                     <div className="customer-history-money"><strong>{formatCustomerHistoryMoney(order.orderTotal)}</strong><span>{order.status === 'FULFILLED' ? 'Fulfilled ' + formatCustomerHistoryDate(order.fulfilledAt) : order.status === 'RETURNED' ? 'Returned ' + formatCustomerHistoryDate(order.returnedAt) : order.status === 'CANCELLED' ? 'Cancelled ' + formatCustomerHistoryDate(order.cancelledAt) : 'Updated ' + formatCustomerHistoryDate(order.updatedAt)}</span></div>
                   </article>)}</div>}
+              </section>
+              <section className="customer-profile-history-section">
+                <div className="customer-profile-address-heading"><div><h3>Sales enquiries · all channels</h3><p>Walk-ins, phone leads, referrals, campaigns and online enquiries retained in the dealership CRM.</p></div><span>{selectedHistory?.salesEnquiries.length ?? 0}</span></div>
+                {!selectedHistory
+                  ? <div className="customer-profile-address-empty">Sales enquiry history could not be loaded. Reopen the profile to retry.</div>
+                  : selectedHistory.salesEnquiries.length === 0
+                    ? <div className="customer-profile-address-empty">No dealership sales enquiries are linked to this customer yet.</div>
+                    : <div className="customer-history-list">{selectedHistory.salesEnquiries.map((enquiry) => <article className="customer-history-record" key={enquiry.publicId}>
+                      <span className="customer-history-record-icon request-history-icon">E</span>
+                      <div className="customer-history-record-main"><div className="customer-history-title"><strong>{enquiry.modelName || "Motorcycle enquiry"}</strong><span className="customer-history-status">{enquiry.status.replaceAll("_"," ")}</span></div>
+                        <p>{enquiry.enquiryCode} · {enquiry.leadSource.replaceAll("_"," ")} · {enquiry.contactPreference.replaceAll("_"," ")}</p>
+                        <small>Created {formatCustomerHistoryDate(enquiry.createdAt)} · Updated {formatCustomerHistoryDate(enquiry.updatedAt)}</small>
+                        {enquiry.assignedStaffName && <small>Assigned to {enquiry.assignedStaffName}</small>}
+                        {enquiry.nextFollowUpAt && <small>Next follow-up {formatCustomerHistoryDate(enquiry.nextFollowUpAt)}</small>}
+                        {enquiry.lastContactedAt && <small>Last contacted {formatCustomerHistoryDate(enquiry.lastContactedAt)}</small>}
+                        {enquiry.notes && <small>Enquiry note: {enquiry.notes}</small>}</div>
+                    </article>)}</div>}
               </section>
               <section className="customer-profile-history-section">
                 <div className="customer-profile-address-heading"><div><h3>Bike enquiries & test rides</h3><p>Website requests retained after conversion, booking, cancellation or delivery.</p></div><span>{selectedHistory?.websiteRequests.length ?? 0}</span></div>

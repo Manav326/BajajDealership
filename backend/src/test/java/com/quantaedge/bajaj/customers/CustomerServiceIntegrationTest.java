@@ -116,6 +116,7 @@ class CustomerServiceIntegrationTest {
     assertThat(history.notes()).isEqualTo("Prefers a call before arranging delivery.");
     assertThat(history.motorcyclePurchases()).isEmpty();
     assertThat(history.sparePartOrders()).isEmpty();
+    assertThat(history.salesEnquiries()).isEmpty();
     assertThat(history.websiteRequests()).isEmpty();
 
     StaffPrincipal otherDealership = createOwner("HISTORY_OTHER");

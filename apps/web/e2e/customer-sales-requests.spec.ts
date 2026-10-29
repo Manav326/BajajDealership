@@ -175,6 +175,15 @@ async function mockSalesJourney(page: Page): Promise<SalesJourneyState> {
           invoiceTotal: 145000, paidAmount: 145000, creditedAmount: 0, balanceDue: 0,
           invoiceIssuedAt: '2026-09-15T10:00:00Z', deliveredAt: '2026-09-16T10:00:00Z', deliveredToName: 'Test Rider',
         }],
+        salesEnquiries: [{
+          publicId: 'walk-in-enquiry-e2e-001', enquiryCode: 'ENQ-WALKIN-001', customerPublicId: customer.publicId,
+          customerCode: customer.customerCode, customerName: customer.fullName, customerPhone: customer.phone,
+          customerEmail: customer.email, interestedModelPublicId: modelPublicId, modelCode: model.modelCode,
+          modelName: 'Discover 125', variantName: 'Drum', colourName: 'Red', assignedStaffPublicId: null,
+          assignedStaffName: 'Amit Sharma', status: 'CONTACTED', leadSource: 'WALK_IN', contactPreference: 'CALL',
+          nextFollowUpAt: '2026-10-30T10:00:00Z', lastContactedAt: '2026-10-29T09:00:00Z',
+          notes: 'Walk-in customer asked for finance options.', createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-29T09:00:00Z',
+        }],
         sparePartOrders: [{
           publicId: 'parts-history-e2e-001', orderCode: 'RPO-E2E-001', status: 'RETURNED',
           paymentMethod: 'PAY_ON_DELIVERY', paymentStatus: 'REFUND_REVIEW_REQUIRED', orderTotal: 249,
@@ -306,6 +315,9 @@ test('staff customer profile displays complete motorcycle, parts-return and webs
   await expect(dialog.getByRole('heading', { name: 'Spare-parts orders & returns' })).toBeVisible();
   await expect(dialog).toContainText('RPO-E2E-001');
   await expect(dialog).toContainText('Wrong size supplied');
+  await expect(dialog.getByRole('heading', { name: 'Sales enquiries · all channels' })).toBeVisible();
+  await expect(dialog).toContainText('ENQ-WALKIN-001');
+  await expect(dialog).toContainText('Walk-in customer asked for finance options.');
   await expect(dialog.getByRole('heading', { name: 'Bike enquiries & test rides' })).toBeVisible();
   await expect(dialog).toContainText('ENQ-E2E-001');
   await expect(dialog).toContainText('TR-E2E-001');

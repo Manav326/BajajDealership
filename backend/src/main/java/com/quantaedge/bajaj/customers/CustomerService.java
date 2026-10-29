@@ -3,6 +3,7 @@ package com.quantaedge.bajaj.customers;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import com.quantaedge.bajaj.commerce.RetailPartsService;
 import com.quantaedge.bajaj.sales.CustomerSalesRequestService;
+import com.quantaedge.bajaj.sales.SalesOperationsService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -34,11 +35,14 @@ public class CustomerService {
   private final JdbcTemplate jdbc;
   private final RetailPartsService retailParts;
   private final CustomerSalesRequestService salesRequests;
+  private final SalesOperationsService salesOperations;
 
-  public CustomerService(JdbcTemplate jdbc, RetailPartsService retailParts, CustomerSalesRequestService salesRequests) {
+  public CustomerService(JdbcTemplate jdbc, RetailPartsService retailParts,
+      CustomerSalesRequestService salesRequests, SalesOperationsService salesOperations) {
     this.jdbc = jdbc;
     this.retailParts = retailParts;
     this.salesRequests = salesRequests;
+    this.salesOperations = salesOperations;
   }
 
   public Page<CustomerView> list(
@@ -158,8 +162,10 @@ public class CustomerService {
         retailParts.listOrdersForCustomerRecord(principal, publicId);
     List<CustomerSalesRequestService.RequestView> websiteRequests =
         salesRequests.listForCustomerRecord(principal, publicId);
+    List<SalesOperationsService.EnquiryView> salesEnquiries =
+        salesOperations.listEnquiriesForCustomerRecord(principal, publicId);
     return new CustomerHistoryView(customer, metadata.notes(), metadata.marketingConsentAt(),
-        metadata.marketingConsentSource(), motorcyclePurchases, partOrders, websiteRequests);
+        metadata.marketingConsentSource(), motorcyclePurchases, partOrders, salesEnquiries, websiteRequests);
   }
 
 
@@ -330,6 +336,7 @@ public class CustomerService {
       CustomerView customer, String notes, Instant marketingConsentAt, String marketingConsentSource,
       List<MotorcyclePurchaseHistoryView> motorcyclePurchases,
       List<RetailPartsService.RetailOrderView> sparePartOrders,
+      List<SalesOperationsService.EnquiryView> salesEnquiries,
       List<CustomerSalesRequestService.RequestView> websiteRequests) {}
   private record JourneyMetadata(String notes, Instant marketingConsentAt, String marketingConsentSource) {}
   public record Page<T>(List<T> items, int page, int pageSize, long total) {}
