@@ -10,8 +10,10 @@ The first vertical slice is a browser-local artwork composer:
 - platform/placement presets with explicit pixel dimensions;
 - editable dealership brand, headline, supporting message, call-to-action, caption and hashtags;
 - optional campaign photo and brand/accent colours;
-- live canvas preview, PNG download and caption copy;
-- clear UI copy that export does not publish or send anything.
+- live canvas preview, PNG/JPEG download and caption copy;
+- browser-native share-sheet handoff when supported, with manual download/copy fallback;
+- named drafts stored in this browser's IndexedDB, with load/update/delete and photo persistence;
+- clear UI copy that export/share handoff does not publish automatically or send messages.
 
 Artwork composition in this slice stays local to the browser. It does not upload campaign photos, store external credentials, or send customer messages.
 
@@ -56,7 +58,8 @@ Keep provider secrets out of source control and browser responses. Production se
 
 - [x] GitHub tracking issue created.
 - [x] Work branch created: feature/issue-9-social-media-studio.
-- [x] Add browser-local composer, format presets, PNG download and caption copy (initial implementation; CI validation pending).
-- [ ] Run web typecheck/build and existing CI on this branch.
+- [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
+- [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
+- [ ] Confirm web typecheck/build and full CI on the latest revision.
 - [ ] Implement and test Meta account connection/publishing.
 - [ ] Implement and test WhatsApp Business messaging; keep Status on manual share/export unless official API capability is verified.
