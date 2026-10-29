@@ -10,6 +10,11 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -18,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -140,6 +146,76 @@ class RetailPartsServiceIntegrationTest {
 
     assertThat(retailParts.listRetailSettings(dealershipB))
         .anyMatch(item -> item.publicId().equals(partB.publicId()) && !item.retailEnabled());
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void concurrentOrdersCannotReserveTheSameLastUnit() throws Exception {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("RACE-" + UUID.randomUUID().toString().substring(0, 8),
+            "Last-unit oil filter", "Concurrency regression part", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(
+            true, new BigDecimal("119.00"), "Concurrency test listing", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance
+        set quantity_on_hand = 1.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ?
+          and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+
+    CustomerPrincipal customer = customerIn(manager);
+    String firstKey = "race-a-" + UUID.randomUUID();
+    String secondKey = "race-b-" + UUID.randomUUID();
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      java.util.concurrent.Callable<Boolean> firstCheckout = () -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Checkout race did not start.");
+        try {
+          retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+              List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+              null, "Concurrent checkout A", firstKey));
+          return true;
+        } catch (ResponseStatusException expected) {
+          if (expected.getStatusCode() != HttpStatus.CONFLICT) throw expected;
+          return false;
+        }
+      };
+      java.util.concurrent.Callable<Boolean> secondCheckout = () -> {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Checkout race did not start.");
+        try {
+          retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+              List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+              null, "Concurrent checkout B", secondKey));
+          return true;
+        } catch (ResponseStatusException expected) {
+          if (expected.getStatusCode() != HttpStatus.CONFLICT) throw expected;
+          return false;
+        }
+      };
+      Future<Boolean> first = executor.submit(firstCheckout);
+      Future<Boolean> second = executor.submit(secondCheckout);
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+          .containsExactlyInAnyOrder(true, false);
+    }
+
+    var balance = jdbc.queryForMap("""
+        select quantity_on_hand, quantity_reserved from spare_part_balance
+        where dealership_id = ?
+          and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    assertThat((BigDecimal) balance.get("quantity_on_hand")).isEqualByComparingTo("1.000");
+    assertThat((BigDecimal) balance.get("quantity_reserved")).isEqualByComparingTo("1.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from retail_part_order
+        where dealership_id = ? and customer_id = ?
+        """, Integer.class, manager.dealershipId(), customer.customerId())).isEqualTo(1);
   }
 
   private CustomerPrincipal customerIn(StaffPrincipal manager) {
