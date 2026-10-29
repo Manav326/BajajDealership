@@ -71,7 +71,8 @@ public class BajajCatalogueService {
         select c.manufacturer, c.model_code, c.model_name, c.family, c.category, c.engine_cc,
           c.max_power, c.max_torque, c.gearbox, c.braking, c.front_suspension, c.rear_suspension,
           c.fuel_tank_l, c.ground_clearance_mm, c.kerb_weight_kg, c.ride_character, c.highlights,
-          c.hero_image_url, c.official_model_url, c.official_specs_url, c.ex_showroom_price,
+          coalesce(uploaded.hero_image_url, c.hero_image_url) as hero_image_url,
+          c.official_model_url, c.official_specs_url, c.ex_showroom_price,
           c.price_city, c.price_source_url, c.price_verified_at,
           inventory.inventory_model_public_id,
           coalesce(inventory.available_units, 0)::int as available_units,
@@ -89,6 +90,14 @@ public class BajajCatalogueService {
           on settings.model_code = c.model_code and settings.dealership_id = ?
           and settings.is_published = true
         left join lateral (
+          select concat('/api/v1/public/catalogue/bikes/images/', i.model_code, '/', i.public_id,
+            '?dealershipCode=', ?) as hero_image_url
+          from bajaj_catalogue_image i
+          where i.dealership_id = ? and i.model_code = c.model_code and i.is_primary = true
+          order by i.sort_order, i.id desc
+          limit 1
+        ) uploaded on true
+        left join lateral (
           select (array_agg(vm.public_id order by vm.id))[1] as inventory_model_public_id,
             coalesce(count(distinct vu.id) filter (where vu.stock_status = 'AVAILABLE'), 0)::int as available_units,
             coalesce(count(distinct vu.id) filter (where vu.stock_status = 'EXPECTED'), 0)::int as expected_units,
@@ -100,7 +109,7 @@ public class BajajCatalogueService {
         ) inventory on true
         where c.active = true and c.manufacturer = 'BAJAJ'
         order by c.featured_rank, lower(c.model_name)
-        """, BIKE_ROW, dealershipId, dealershipId);
+        """, BIKE_ROW, dealershipId, dealership.code(), dealershipId, dealershipId);
 
     return new CatalogueView("BAJAJ",
         dealership == null ? null : dealership.code(),
