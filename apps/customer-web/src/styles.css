@@ -887,3 +887,15 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .pending-showroom-retry-actions { justify-content:stretch; }
   .pending-showroom-retry-actions button { flex:1 1 100%; white-space:normal; }
 }
+
+.customer-appointment-copy p.customer-request-note {
+  padding: 9px 10px;
+  margin: 8px 0;
+  border: 1px solid rgba(130,150,180,.22);
+  border-radius: 9px;
+  background: rgba(245,248,252,.72);
+  color: #4f6179;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.customer-appointment-copy p.customer-request-note strong { color:#354965; font-weight:800; }

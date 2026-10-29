@@ -792,6 +792,7 @@ export default function App() {
                     <h4>{request.modelName}</h4>
                     <span>{request.requestType === 'TEST_RIDE' ? 'Test-ride request' : 'Purchase enquiry'} · {dateTime(request.createdAt)}</span>
                     {request.preferredAt && <p>Preferred time: {dateTime(request.preferredAt)}</p>}
+                    {request.notes && <p className="customer-request-note"><strong>Your note:</strong> {request.notes}</p>}
                     <p>{request.status === 'CONVERTED'
                       ? 'The dealership has added this request to its sales pipeline. Progress below reflects saved dealership transactions.'
                       : request.status === 'CANCELLED' ? 'You cancelled this request.'
