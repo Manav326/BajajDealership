@@ -184,7 +184,7 @@ public class RetailPartsService {
     }
     jdbc.update("""
         insert into audit_event(dealership_id, actor_kind, actor_staff_user_id, action, entity_type, entity_id, details)
-        values (?, 'STAFF', ?, 'RETAIL_PART_STOCK_LINK_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?, jsonb_build_object('stockPartPublicId', ?))
+        values (?, 'STAFF', ?, 'RETAIL_PART_STOCK_LINK_UPDATED', 'BAJAJ_SPARE_PART_CATALOGUE', ?, jsonb_build_object('stockPartPublicId', ?::text))
         """, actor.dealershipId(), actor.staffUserId(), cataloguePublicId.toString(), stockPartPublicId == null ? null : stockPartPublicId.toString());
     return getRetailSetting(actor, cataloguePublicId);
   }
