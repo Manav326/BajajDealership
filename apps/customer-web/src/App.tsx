@@ -289,11 +289,13 @@ export default function App() {
 
   const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-    setToken(session.accessToken);
-    setCustomer(session.customer);
     setError('');
     setSuccess('');
+    // Submit a saved showroom intent before the token effect refreshes portal data.
+    // This prevents a slower initial GET from replacing the newly created request with a stale list.
     const resumed = await resumePendingShowroomIntent(session.accessToken);
+    setCustomer(session.customer);
+    setToken(session.accessToken);
     if (resumed === null) setSuccess('Google sign-in verified. Welcome to your Lucky Bajaj customer portal.');
   }, [resumePendingShowroomIntent]);
 
@@ -314,10 +316,10 @@ export default function App() {
             : { dealershipCode, customerCode: loginForm.customerCode.trim().toUpperCase(), password: loginForm.password }),
         });
       window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-      setToken(session.accessToken);
-      setCustomer(session.customer);
       setLoginForm((current) => ({ ...current, password: '' }));
       const resumed = await resumePendingShowroomIntent(session.accessToken);
+      setCustomer(session.customer);
+      setToken(session.accessToken);
       if (resumed === null) setSuccess('You are signed in securely.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
@@ -342,10 +344,10 @@ export default function App() {
         }),
       });
       window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
-      setToken(session.accessToken);
-      setCustomer(session.customer);
       setActivationForm({ activationToken: '', username: '', password: '', confirmPassword: '' });
       const resumed = await resumePendingShowroomIntent(session.accessToken);
+      setCustomer(session.customer);
+      setToken(session.accessToken);
       if (resumed === null) setSuccess('Your customer account is active. Welcome to Lucky Bajaj.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Account activation failed.');
@@ -454,6 +456,28 @@ export default function App() {
       setSaving(false);
     }
   }
+  async function retrySavedShowroomRequest() {
+    if (!token) {
+      setError('Sign in again before retrying the saved showroom request.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const resumed = await resumePendingShowroomIntent(token);
+      if (resumed === null) setError('There is no saved showroom request to retry.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function discardSavedShowroomRequest() {
+    window.sessionStorage.removeItem('qe_bajaj_pending_intent');
+    setError('');
+    setSuccess('Saved showroom selection cleared. Choose a motorcycle again from the public showroom.');
+  }
+
   async function cancelCustomerSalesRequest(request: CustomerSalesRequest) {
     setSaving(true);
     setError('');
@@ -597,6 +621,7 @@ export default function App() {
     .slice().sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime())[0];
   const outstanding = history.reduce((sum, job) => sum + Number(job.balanceDue ?? 0), 0);
   const mostRecentService = history[0];
+  const hasPendingShowroomIntent = Boolean(window.sessionStorage.getItem('qe_bajaj_pending_intent'));
 
   if (loadingSession) {
     return <main className="portal-loading"><div className="brand-mark">Q</div><h1>Opening your customer space</h1><p>Checking your secure session…</p></main>;
@@ -748,6 +773,13 @@ export default function App() {
           </>}
           {!loadingData && tab === 'requests' && <>
             <div className="portal-section-heading"><div><h2>My Bajaj requests</h2><p>Requests from the showroom stay connected to your account. A request is not yet a confirmed test-ride slot or vehicle booking.</p></div><span className="section-mark">{salesRequests.length} REQUESTS</span></div>
+            {hasPendingShowroomIntent && <section className="glass-panel pending-showroom-retry" role="region" aria-label="Saved showroom request not submitted">
+              <div><strong>Your selected bike is saved</strong><p>The last request did not reach the dealership. Retry it with the same safe request key, or discard the saved selection.</p></div>
+              <div className="pending-showroom-retry-actions">
+                <button type="button" className="primary-button" disabled={saving} onClick={() => void retrySavedShowroomRequest()}>{saving ? 'Retrying…' : 'Retry saved request'}</button>
+                <button type="button" className="secondary-button" disabled={saving} onClick={discardSavedShowroomRequest}>Discard selection</button>
+              </div>
+            </section>}
             {salesRequests.length === 0
               ? <div className="glass-panel inline-empty"><strong>No bike requests yet.</strong><span>Browse the Bajaj showroom to choose a motorcycle and start a test-ride or purchase enquiry.</span></div>
               : <div className="appointment-list">{salesRequests.map((request) => <article className="glass-panel customer-appointment-card" key={request.publicId}>

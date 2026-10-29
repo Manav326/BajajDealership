@@ -33,7 +33,19 @@ const bike = {
   expectedAvailableOn: null,
 };
 
-async function mockShowroomApi(page: Page, promotions: unknown[] = []) {
+type ShowroomAuthJourney = {
+  loginPayload: Record<string, unknown> | null;
+  requestPayloads: Array<Record<string, unknown>>;
+  requests: Array<Record<string, unknown>>;
+};
+
+async function mockShowroomApi(
+  page: Page,
+  promotions: unknown[] = [],
+  options: { failFirstSalesRequest?: boolean } = {},
+): Promise<ShowroomAuthJourney> {
+  const journey: ShowroomAuthJourney = { loginPayload: null, requestPayloads: [], requests: [] };
+  let failFirstSalesRequest = Boolean(options.failFirstSalesRequest);
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -69,8 +81,65 @@ async function mockShowroomApi(page: Page, promotions: unknown[] = []) {
         detail: 'No current, sourced on-road estimate is configured for this Bajaj model and location. Please request a dealer quote.',
       }, 404);
     }
+    const customer = {
+      publicId: 'customer-public-e2e-auth',
+      customerCode: 'CUS-E2E-AUTH',
+      fullName: 'Test Rider',
+      phone: '9000000002',
+      email: 'test-rider@example.test',
+      preferredLanguage: 'en',
+      dealershipCode: 'LBA',
+      dealershipName: 'Lucky Bajaj Agency',
+    };
+    if (url.pathname === '/api/v1/customer/auth/login' && method === 'POST') {
+      journey.loginPayload = request.postDataJSON() as Record<string, unknown>;
+      return json({ accessToken: 'synthetic-auth-token', expiresAt: '2026-10-30T00:00:00Z', customer });
+    }
+    if (url.pathname === '/api/v1/customer/auth/me') return json(customer);
+    if (url.pathname === '/api/v1/customer/vehicles'
+      || url.pathname === '/api/v1/customer/service-history'
+      || url.pathname === '/api/v1/customer/appointments') return json([]);
+    if (url.pathname === '/api/v1/customer/notifications') {
+      return json({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'POST') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      journey.requestPayloads.push(payload);
+      if (failFirstSalesRequest) {
+        failFirstSalesRequest = false;
+        return json({ message: 'Synthetic temporary sales-request outage. Please retry.' }, 503);
+      }
+      const created = {
+        publicId: 'sales-request-e2e-1',
+        requestCode: 'SR-E2E-0001',
+        requestType: payload.requestType,
+        modelCode: payload.modelCode,
+        modelName: payload.modelCode === 'BAJAJ_PULSAR_NS200' ? 'Pulsar NS200' : String(payload.modelCode),
+        preferredAt: payload.preferredAt ?? null,
+        notes: payload.notes ?? null,
+        status: 'REQUESTED',
+        createdAt: '2026-10-29T08:00:00Z',
+        updatedAt: '2026-10-29T08:00:00Z',
+        convertedEnquiryPublicId: null,
+        customerPublicId: customer.publicId,
+        customerCode: customer.customerCode,
+        customerName: customer.fullName,
+        customerPhone: customer.phone,
+        customerEmail: customer.email,
+        enquiryCode: null, enquiryStatus: null,
+        testRideCode: null, testRideStatus: null, testRideScheduledStart: null,
+        bookingCode: null, bookingStatus: null,
+        invoiceNumber: null, invoiceStatus: null, invoiceTotal: null,
+        paidAmount: 0, creditedAmount: null, balanceDue: null, deliveredAt: null,
+      } as Record<string, unknown>;
+      journey.requests = [created];
+      return json(created);
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'GET') return json(journey.requests);
+    if (url.pathname === '/api/v1/customer/auth/logout' && method === 'POST') return json({ success: true });
     return json({});
   });
+  return journey;
 }
 
 const retailPartFixture = {
@@ -478,4 +547,77 @@ test('customer can cancel an accepted delivery request before fulfilment without
   expect(state.cancellationRequested).toBe(true);
   expect(state.currentOrder).toMatchObject({ status: 'CANCELLED', deliveryQuoteStatus: 'CANCELLED' });
   await expect(page.getByRole('button', { name: 'Accept delivery quote' })).toHaveCount(0);
+});
+
+
+test('customer login resumes the selected showroom purchase as a saved sales request', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+  await expect(page.locator('.portal-auth-screen')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  await expect(page.getByRole('heading', { name: 'My Bajaj requests' })).toBeVisible();
+  await expect(page.getByText('Purchase enquiry for Pulsar NS200 was sent to Lucky Bajaj.', { exact: false })).toBeVisible();
+  await expect(page.getByText('SR-E2E-0001')).toBeVisible();
+  expect(journey.loginPayload).toMatchObject({ dealershipCode: 'LBA', customerCode: 'CUS-E2E-AUTH' });
+  expect(journey.requestPayloads).toHaveLength(1);
+  expect(journey.requestPayloads[0]).toMatchObject({
+    requestType: 'PURCHASE',
+    modelCode: 'BAJAJ_PULSAR_NS200',
+    preferredAt: null,
+    notes: 'Request started from the public Bajaj showroom.',
+  });
+  expect(typeof journey.requestPayloads[0].idempotencyKey).toBe('string');
+  expect(journey.requestPayloads[0].idempotencyKey).toHaveLength(36);
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('failed showroom handoff remains recoverable and retry reuses the original idempotency key', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = await mockShowroomApi(page, [], { failFirstSalesRequest: true });
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  const recovery = page.getByRole('region', { name: 'Saved showroom request not submitted' });
+  await expect(recovery).toBeVisible();
+  await expect(recovery).toContainText('Synthetic temporary sales-request outage');
+  await recovery.getByRole('button', { name: 'Retry saved request' }).click();
+
+  await expect(page.getByText('SR-E2E-0001')).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('purchase enquiry for Pulsar NS200 was sent');
+  expect(journey.requestPayloads).toHaveLength(2);
+  expect(journey.requestPayloads[0].idempotencyKey).toBe(journey.requestPayloads[1].idempotencyKey);
+  await expect(page.getByRole('region', { name: 'Saved showroom request not submitted' })).toHaveCount(0);
+});
+
+test('a customer can discard a failed showroom selection and return to a clean request list', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page, [], { failFirstSalesRequest: true });
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  const recovery = page.getByRole('region', { name: 'Saved showroom request not submitted' });
+  await expect(recovery).toBeVisible();
+  await recovery.getByRole('button', { name: 'Discard selection' }).click();
+  await expect(recovery).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('Saved showroom selection cleared.');
+  expect(await page.evaluate(() => window.sessionStorage.getItem('qe_bajaj_pending_intent'))).toBeNull();
 });

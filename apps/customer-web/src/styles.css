@@ -874,3 +874,16 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   .retail-delivery-quote-actions { justify-content:stretch; }
   .retail-delivery-quote-actions button { flex:1 1 100%; }
 }
+
+/* Keep a failed showroom handoff recoverable without forcing customers to sign out. */
+.pending-showroom-retry { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; margin:0 0 18px; padding:16px; border-color:rgba(198,110,66,.32); }
+.pending-showroom-retry>div:first-child { min-width:0; }
+.pending-showroom-retry strong { color:#263b54; font-size:13px; }
+.pending-showroom-retry p { margin:5px 0 0; color:#78869a; font-size:11px; line-height:1.65; }
+.pending-showroom-retry-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.pending-showroom-retry-actions button { min-height:36px; padding:8px 12px; white-space:nowrap; }
+@media (max-width:620px) {
+  .pending-showroom-retry { grid-template-columns:minmax(0,1fr); }
+  .pending-showroom-retry-actions { justify-content:stretch; }
+  .pending-showroom-retry-actions button { flex:1 1 100%; white-space:normal; }
+}
