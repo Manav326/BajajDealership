@@ -304,6 +304,68 @@ class NotificationManagementServiceIntegrationTest {
   }
 
   @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void oneBrokenDueCampaignDoesNotRollBackOtherCampaignsInTheBatch() {
+    StaffPrincipal owner = createOwner();
+    String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    Long customerId = jdbc.queryForObject("""
+        insert into customer(dealership_id, customer_code, full_name, phone, status)
+        values (?, ?, 'Campaign Batch Customer', '9230000001', 'ACTIVE') returning id
+        """, Long.class, owner.dealershipId(), code);
+
+    NotificationManagementService.PreviewResult brokenPreview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "CUSTOMER", "Isolated failure", "This selected audience will become ineligible",
+            Map.of("recipientTypes", List.of("CUSTOMER"), "marketingOnly", false,
+                "selectionMode", "SELECTED",
+                "selectedRecipients", List.of(Map.of("kind", "CUSTOMER", "id", customerId)),
+                "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, brokenPreview.campaignPublicId(), brokenPreview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        brokenPreview.campaignPublicId(), brokenPreview.previewToken(), "broken-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+
+    NotificationManagementService.PreviewResult healthyPreview = notifications.preview(owner,
+        new NotificationManagementService.PreviewRequest(
+            "STAFF", "Healthy due campaign", "This campaign must still dispatch",
+            Map.of("recipientTypes", List.of("STAFF"), "excludedRecipients", List.of()),
+            CONTENT, null, null));
+    notifications.approve(owner, healthyPreview.campaignPublicId(), healthyPreview.previewToken());
+    notifications.send(owner, new NotificationManagementService.SendRequest(
+        healthyPreview.campaignPublicId(), healthyPreview.previewToken(), "healthy-" + UUID.randomUUID(),
+        Instant.now().plusSeconds(3600), null));
+
+    jdbc.update("update customer set status = 'INACTIVE' where dealership_id = ? and id = ?",
+        owner.dealershipId(), customerId);
+    jdbc.update("""
+        update notification_campaign
+        set scheduled_at = now() - interval '2 seconds', next_dispatch_attempt_at = null
+        where dealership_id = ? and public_id in (?, ?) and status = 'SCHEDULED'
+        """, owner.dealershipId(), brokenPreview.campaignPublicId(), healthyPreview.campaignPublicId());
+
+    assertThat(notifications.dispatchDueScheduledCampaigns()).isEqualTo(1);
+    assertThat(jdbc.queryForObject("""
+        select status from notification_campaign where public_id = ?
+        """, String.class, healthyPreview.campaignPublicId())).isEqualTo("SENT");
+    assertThat(jdbc.queryForObject("""
+        select status from notification_campaign where public_id = ?
+        """, String.class, brokenPreview.campaignPublicId())).isEqualTo("SCHEDULED");
+    assertThat(jdbc.queryForObject("""
+        select last_dispatch_error from notification_campaign where public_id = ?
+        """, String.class, brokenPreview.campaignPublicId()))
+        .contains("Dispatch error: ResponseStatusException");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, brokenPreview.campaignPublicId())).isZero();
+    assertThat(jdbc.queryForObject("""
+        select count(*) from notification_recipient
+        where campaign_id = (select id from notification_campaign where public_id = ?)
+        """, Integer.class, healthyPreview.campaignPublicId())).isEqualTo(1);
+  }
+
+  @Test
   void marketingAudienceIncludesOnlyCustomersWithRecordedConsent() {
     StaffPrincipal owner = createOwner();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
