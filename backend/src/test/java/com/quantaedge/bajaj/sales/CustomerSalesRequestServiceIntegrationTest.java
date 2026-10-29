@@ -63,7 +63,7 @@ class CustomerSalesRequestServiceIntegrationTest {
   @Test
   void customerJourneyReflectsRealTestRideBookingInvoicePaymentAndHandoverRecords() {
     Fixture fixture = createFixture();
-    Instant preferredAt = Instant.now().plus(2, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS);
+    Instant preferredAt = Instant.now().plus(5, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
     var request = requests.create(fixture.customer(), new CustomerSalesRequestService.CreateRequest(
         "TEST_RIDE", MODEL_CODE, preferredAt,
         "Synthetic full journey integration test.", "full-journey-" + UUID.randomUUID()));
