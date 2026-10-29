@@ -62,7 +62,8 @@ type RetailOrderLine = {
 type RetailOrder = {
   publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
   orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
-  cancelledAt: string | null; fulfilledAt: string | null; customerName: string;
+  cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
+  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
   customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
 };
 type CartLine = { partPublicId: string; quantity: string };
@@ -806,7 +807,7 @@ export default function App() {
                 ? <div className="inline-empty">Your spare-parts orders will appear here.</div>
                 : <div className="retail-order-list">{retailOrders.map((order) => <article className="retail-order-row" key={order.publicId}>
                     <div><strong>{order.orderCode}</strong><small>{dateTime(order.createdAt)} · {order.lines.length} line(s)</small><p>{order.lines.map((line) => `${line.quantity} × ${line.partName}`).join(' · ')}</p></div>
-                    <div className="retail-order-state"><strong>{money(order.orderTotal)}</strong><span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span><small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Collected at pickup' : 'Pay at dealership pickup'}</small></div>
+                    <div className="retail-order-state"><strong>{money(order.orderTotal)}</strong><span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span><small>{order.paymentStatus === 'PAID_AT_PICKUP' ? 'Collected at pickup' : order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)' : 'Pay at dealership pickup'}</small>{order.status === 'RETURNED' && order.returnReason && <small>Return reason: {order.returnReason}. Returned quantity {order.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</small>}</div>
                     {order.status === 'PLACED' && <button type="button" className="text-link danger-link" disabled={saving} onClick={() => void cancelRetailOrder(order)}>Cancel and release stock</button>}
                   </article>)}</div>}
             </section>

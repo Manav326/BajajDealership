@@ -15,7 +15,8 @@ type RetailOrderLine = {
 type RetailOrder = {
   publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string;
   orderTotal: number; customerNote: string | null; createdAt: string; updatedAt: string;
-  cancelledAt: string | null; fulfilledAt: string | null; customerName: string;
+  cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
+  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string;
   customerCode: string; customerPhone: string | null; lines: RetailOrderLine[];
 };
 type SettingsDraft = {
@@ -26,6 +27,7 @@ type CollectionDraft = {
   collectionMethod: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'OTHER';
   externalReference: string; note: string; idempotencyKey: string;
 };
+type ReturnDraft = { reason: string; restockable: boolean; idempotencyKey: string };
 const newKey = () => globalThis.crypto?.randomUUID?.() ?? `retail-pickup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const money = (value: number | null | undefined) => `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateLabel = (value: string | null | undefined) => {
@@ -52,6 +54,7 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
   const [drafts, setDrafts] = useState<Record<string, SettingsDraft>>({});
   const [openEditor, setOpenEditor] = useState('');
   const [collections, setCollections] = useState<Record<string, CollectionDraft>>({});
+  const [returns, setReturns] = useState<Record<string, ReturnDraft>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
@@ -78,6 +81,13 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
           next[order.publicId] = next[order.publicId] ?? {
             collectionMethod: 'UPI', externalReference: '', note: '', idempotencyKey: newKey(),
           };
+        }
+        return next;
+      });
+      setReturns((current) => {
+        const next = { ...current };
+        for (const order of loadedOrders ?? []) {
+          next[order.publicId] = next[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() };
         }
         return next;
       });
@@ -149,6 +159,35 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
     }
   }
 
+
+  async function recordReturn(order: RetailOrder) {
+    const draft = returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() };
+    if (!draft.reason.trim()) {
+      setError('Enter the reason for this full-order return.');
+      return;
+    }
+    setBusyId(order.publicId); setError(''); setMessage('');
+    try {
+      const updated = await apiFetch<RetailOrder>(
+        '/api/v1/admin/retail-part-orders/' + order.publicId + '/return', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason: draft.reason.trim(),
+            restockable: draft.restockable,
+            idempotencyKey: draft.idempotencyKey,
+          }),
+        });
+      setOrders((current) => current.map((item) => item.publicId === updated.publicId ? updated : item));
+      setReturns((current) => ({ ...current, [order.publicId]: { ...draft, idempotencyKey: newKey() } }));
+      setMessage('Return recorded for ' + updated.orderCode + '. The collected amount is flagged for refund review; no automatic refund was issued.');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The return could not be recorded.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
   function updateDraft(part: RetailPartSetting, patch: Partial<SettingsDraft>) {
     setDrafts((current) => ({ ...current, [part.publicId]: { ...(current[part.publicId] ?? toDraft(part)), ...patch } }));
   }
@@ -214,12 +253,30 @@ export default function RetailPartsCommercePanel({ token, staff }: { token: stri
             <div className="retail-admin-order-head"><div><strong>{order.orderCode}</strong><small>{order.customerName} · {order.customerPhone || order.customerCode} · {dateLabel(order.createdAt)}</small></div><div className="retail-admin-order-total"><strong>{money(order.orderTotal)}</strong><span className={`sales-status status-${order.status.toLowerCase().replaceAll('_', '-')}`}>{pretty(order.status)}</span></div></div>
             <div className="retail-admin-order-lines">{order.lines.map((line) => <div key={line.partPublicId}><span>{line.skuCode} · {line.partName} <small>({line.quantity} {line.unitOfMeasure})</small></span><strong>{money(line.lineTotal)}</strong></div>)}</div>
             {order.customerNote && <p className="retail-admin-order-note">Customer note: {order.customerNote}</p>}
-            {order.status === 'PLACED' ? <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void fulfill(order); }}>
-              <label>Collection method<select value={draft.collectionMethod} onChange={(event) => updateCollection(order, { collectionMethod: event.target.value as CollectionDraft['collectionMethod'] })}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
-              <label>Receipt / reference<input maxLength={160} value={draft.externalReference} onChange={(event) => updateCollection(order, { externalReference: event.target.value })} placeholder="Optional transaction reference" /></label>
-              <label>Collection note<input maxLength={1000} value={draft.note} onChange={(event) => updateCollection(order, { note: event.target.value })} placeholder="Optional collection note" /></label>
-              <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : 'Record collection & fulfil'}</button>
-            </form> : <div className="retail-admin-fulfilled-note">{order.status === 'FULFILLED' ? `Collected ${dateLabel(order.fulfilledAt)} · ${order.paymentStatus.replaceAll('_', ' ')}` : `Cancelled ${dateLabel(order.cancelledAt)}`}</div>}
+            {order.status === 'PLACED' ? (
+              <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void fulfill(order); }}>
+                <label>Collection method<select value={draft.collectionMethod} onChange={(event) => updateCollection(order, { collectionMethod: event.target.value as CollectionDraft['collectionMethod'] })}><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></label>
+                <label>Receipt / reference<input maxLength={160} value={draft.externalReference} onChange={(event) => updateCollection(order, { externalReference: event.target.value })} placeholder="Optional transaction reference" /></label>
+                <label>Collection note<input maxLength={1000} value={draft.note} onChange={(event) => updateCollection(order, { note: event.target.value })} placeholder="Optional collection note" /></label>
+                <button type="submit" className="primary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : 'Record collection & fulfil'}</button>
+              </form>
+            ) : order.status === 'FULFILLED' ? (
+              <>
+                <div className="retail-admin-fulfilled-note">{'Collected ' + dateLabel(order.fulfilledAt) + ' · ' + pretty(order.paymentStatus)}</div>
+                <form className="retail-admin-collection-form" onSubmit={(event) => { event.preventDefault(); void recordReturn(order); }}>
+                  <label>Return reason *<input required maxLength={1000} value={(returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }).reason} onChange={(event) => setReturns((current) => ({ ...current, [order.publicId]: { ...(current[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }), reason: event.target.value } }))} placeholder="Record why the full order is returned" /></label>
+                  <label className="retail-admin-enable"><input type="checkbox" checked={(returns[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }).restockable} onChange={(event) => setReturns((current) => ({ ...current, [order.publicId]: { ...(current[order.publicId] ?? { reason: '', restockable: false, idempotencyKey: newKey() }), restockable: event.target.checked } }))} /> I inspected every returned item and confirm it is fit for resale</label>
+                  <small>Full-order return only. If any item is not resaleable, leave unchecked so no returned quantity becomes available. This does not issue a refund.</small>
+                  <button type="submit" className="secondary-button" disabled={!canManage || busyId === order.publicId}>{busyId === order.publicId ? 'Recording…' : 'Record full return'}</button>
+                </form>
+              </>
+            ) : order.status === 'RETURNED' ? (
+              <div className="retail-admin-fulfilled-note">
+                {'Returned ' + dateLabel(order.returnedAt) + ' · ' + (order.restockedOnReturn ? 'restocked after inspection' : 'held out of sellable stock') + ' · refund review required. ' + (order.returnReason ?? '')}
+              </div>
+            ) : (
+              <div className="retail-admin-fulfilled-note">{'Cancelled ' + dateLabel(order.cancelledAt)}</div>
+            )}
           </article>;
         })}</div>}
     </section>

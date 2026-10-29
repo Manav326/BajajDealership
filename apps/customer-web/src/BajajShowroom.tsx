@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export type ShowroomAction = 'TEST_RIDE' | 'PURCHASE';
 
@@ -91,6 +91,8 @@ export default function BajajShowroom({ onSignIn }: {
   const [category, setCategory] = useState('ALL');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ShowroomBike | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousModalFocusRef = useRef<HTMLElement | null>(null);
   const [preferredRideAt, setPreferredRideAt] = useState('');
   const [actionError, setActionError] = useState('');
   const [priceLocation, setPriceLocation] = useState('Bettiah, Bihar');
@@ -99,6 +101,51 @@ export default function BajajShowroom({ onSignIn }: {
   const [quoteError, setQuoteError] = useState('');
   const [quoteLocationKey, setQuoteLocationKey] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+
+  useEffect(() => {
+    if (!selected) return;
+    previousModalFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+
+    function keepModalKeyboardAccessible(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelected(null);
+        setPreferredRideAt('');
+        setActionError('');
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = document.querySelector<HTMLElement>('.showroom-bike-modal');
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && currentIndex <= 0) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (currentIndex === -1 || currentIndex === focusable.length - 1)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', keepModalKeyboardAccessible);
+    return () => {
+      document.removeEventListener('keydown', keepModalKeyboardAccessible);
+      const previous = previousModalFocusRef.current;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [selected]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -378,7 +425,7 @@ export default function BajajShowroom({ onSignIn }: {
 
       {selected && <div className="showroom-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setSelected(null); setPreferredRideAt(''); setActionError(''); } }}>
         <section className="showroom-bike-modal" role="dialog" aria-modal="true" aria-labelledby="showroom-modal-title">
-          <button className="showroom-modal-close" type="button" onClick={() => { setSelected(null); setPreferredRideAt(''); setActionError(''); }} aria-label="Close bike details">×</button>
+          <button ref={closeButtonRef} className="showroom-modal-close" type="button" onClick={() => { setSelected(null); setPreferredRideAt(''); setActionError(''); }} aria-label="Close bike details">×</button>
           <div className="showroom-modal-image"><img src={selected.heroImageUrl} alt={`Bajaj ${selected.modelName}`} /></div>
           <div className="showroom-modal-copy"><div className="showroom-eyebrow">BAJAJ / {selected.family.toUpperCase()}</div><h2 id="showroom-modal-title">{selected.modelName}</h2>
             <p>{selected.rideCharacter}. Explore the key details before requesting a test ride or purchase discussion.</p>

@@ -387,6 +387,96 @@ class RetailPartsServiceIntegrationTest {
         """, Integer.class, manager.dealershipId(), manager.dealershipId(), placed.publicId())).isEqualTo(1);
   }
 
+
+  @Test
+  void collectedReturnRestocksOnlyAfterInspectionAndIsIdempotent() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("RETURN-" + UUID.randomUUID().toString().substring(0, 8),
+            "Resealable chain lube", "Return restock regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("199.00"),
+            "Bajaj-compatible chain lube", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 5.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), new BigDecimal("2.000"))),
+        null, "Full order return", "return-place-" + UUID.randomUUID()));
+    retailParts.fulfillOrder(manager, placed.publicId(),
+        new RetailPartsService.FulfillRequest("CASH", "TEST-RETURN-COLLECTION",
+            "return-collect-" + UUID.randomUUID(), "Synthetic collection before return"));
+
+    String returnKey = "return-key-" + UUID.randomUUID();
+    var request = new RetailPartsService.ReturnRequest("Customer returned unopened items", true, returnKey);
+    var returned = retailParts.returnOrder(manager, placed.publicId(), request);
+
+    assertThat(returned.status()).isEqualTo("RETURNED");
+    assertThat(returned.paymentStatus()).isEqualTo("REFUND_REVIEW_REQUIRED");
+    assertThat(returned.returnReason()).isEqualTo("Customer returned unopened items");
+    assertThat(returned.restockedOnReturn()).isTrue();
+    assertThat(returned.returnedAt()).isNotNull();
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("5.000");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from retail_part_order_return
+        where dealership_id = ? and order_id = (select id from retail_part_order where dealership_id = ? and public_id = ?)
+        """, Integer.class, manager.dealershipId(), manager.dealershipId(), placed.publicId())).isEqualTo(1);
+
+    var replay = retailParts.returnOrder(manager, placed.publicId(), request);
+    assertThat(replay.status()).isEqualTo("RETURNED");
+    assertThat(replay.publicId()).isEqualTo(returned.publicId());
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("5.000");
+    assertThatThrownBy(() -> retailParts.returnOrder(manager, placed.publicId(),
+        new RetailPartsService.ReturnRequest("Different payload", true, returnKey)))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.CONFLICT));
+  }
+
+  @Test
+  void collectedReturnWithoutResaleInspectionDoesNotIncreaseSellableStock() {
+    StaffPrincipal manager = createManager();
+    var part = spareParts.createPart(manager,
+        new SparePartsService.PartRequest("NOSALE-" + UUID.randomUUID().toString().substring(0, 8),
+            "Damaged mirror", "Non-resale return regression", "EACH"));
+    retailParts.updateRetailSettings(manager, part.publicId(),
+        new RetailPartsService.RetailSettingsRequest(true, new BigDecimal("450.00"),
+            "Replacement mirror", List.of(), null));
+    jdbc.update("""
+        update spare_part_balance set quantity_on_hand = 2.000, quantity_reserved = 0.000, updated_at = now()
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, manager.dealershipId(), manager.dealershipId(), part.publicId());
+    CustomerPrincipal customer = registeredCustomerIn(manager);
+    var placed = retailParts.placeOrder(customer, new RetailPartsService.PlaceOrderRequest(
+        List.of(new RetailPartsService.OrderLineRequest(part.publicId(), BigDecimal.ONE)),
+        null, "Damage in transport", "damaged-place-" + UUID.randomUUID()));
+    retailParts.fulfillOrder(manager, placed.publicId(),
+        new RetailPartsService.FulfillRequest("UPI", "TEST-DAMAGED-COLLECTION",
+            "damaged-collect-" + UUID.randomUUID(), "Synthetic collection before return"));
+
+    var returned = retailParts.returnOrder(manager, placed.publicId(),
+        new RetailPartsService.ReturnRequest("Mirror arrived damaged", false, "damaged-return-" + UUID.randomUUID()));
+
+    assertThat(returned.status()).isEqualTo("RETURNED");
+    assertThat(returned.restockedOnReturn()).isFalse();
+    assertThat(returned.paymentStatus()).isEqualTo("REFUND_REVIEW_REQUIRED");
+    assertThat(jdbc.queryForObject("""
+        select quantity_on_hand from spare_part_balance
+        where dealership_id = ? and part_id = (select id from spare_part where dealership_id = ? and public_id = ?)
+        """, BigDecimal.class, manager.dealershipId(), manager.dealershipId(), part.publicId()))
+        .isEqualByComparingTo("1.000");
+  }
+
   private CustomerPrincipal registeredCustomerIn(StaffPrincipal manager) {
     String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
     StaffPrincipal owner = new StaffPrincipal(

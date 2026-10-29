@@ -143,3 +143,20 @@ test('selecting a bike preserves the requested test ride intent through sign-in 
   expect(typeof intent.idempotencyKey).toBe('string');
   expect(intent.idempotencyKey.length).toBeGreaterThan(8);
 });
+
+
+test('bike details dialog supports Escape and restores keyboard focus', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+  const trigger = page.locator('.showroom-bike-card').getByRole('button', { name: 'Explore specs' });
+  await trigger.click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const closeButton = dialog.getByRole('button', { name: 'Close bike details' });
+  await expect(closeButton).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
