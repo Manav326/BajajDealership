@@ -224,8 +224,10 @@ public class SocialWhatsappService {
   audit(job.dealershipId(),null,"STATUS_"+next,Map.of("messagePublicId",job.publicId().toString(),"providerMessageIdHash",TokenDigests.sha256(providerId).substring(0,16)));
  }
  private static String nextStatus(String current,String incoming){
-  if(Set.of("READ","DELIVERED","FAILED").contains(current))return current;
-  if("READ".equals(incoming))return "READ";if("DELIVERED".equals(incoming))return "DELIVERED";
+  if(Set.of("READ","FAILED").contains(current))return current;
+  if("READ".equals(incoming))return "READ";
+  if("DELIVERED".equals(current))return current;
+  if("DELIVERED".equals(incoming))return "DELIVERED";
   if("SENT".equals(incoming)&&Set.of("PROCESSING","ACCEPTED","UNKNOWN").contains(current))return "SENT";
   if("FAILED".equals(incoming)&&Set.of("PROCESSING","ACCEPTED","SENT","UNKNOWN").contains(current))return "FAILED";
   return current;
