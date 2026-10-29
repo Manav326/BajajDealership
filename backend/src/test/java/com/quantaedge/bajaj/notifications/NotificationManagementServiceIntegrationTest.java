@@ -177,7 +177,7 @@ class NotificationManagementServiceIntegrationTest {
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void sendNowDispatchesScheduledCampaignOnceAndPreservesApprovedContent() {
-    StaffPrincipal owner = createOwner();
+    StaffPrincipal owner = createNotificationOperator();
     NotificationManagementService.PreviewResult preview = notifications.preview(owner,
         new NotificationManagementService.PreviewRequest(
             "STAFF", "Send now notice", "Scheduled content must dispatch once",
@@ -207,7 +207,7 @@ class NotificationManagementServiceIntegrationTest {
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void sendNowRaceWithScheduledDispatcherCreatesOnlyOneInboxDelivery() throws Exception {
-    StaffPrincipal owner = createOwner();
+    StaffPrincipal owner = createNotificationOperator();
     NotificationManagementService.PreviewResult preview = notifications.preview(owner,
         new NotificationManagementService.PreviewRequest(
             "STAFF", "Dispatch race", "Only one dispatch may win",
@@ -260,7 +260,7 @@ class NotificationManagementServiceIntegrationTest {
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void failedSendNowPersistsRetryStateAfterDispatchTransactionRollsBack() {
-    StaffPrincipal owner = createOwner();
+    StaffPrincipal owner = createNotificationOperator();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     Long customerId = jdbc.queryForObject("""
         insert into customer(dealership_id, customer_code, full_name, phone, status)
@@ -307,7 +307,7 @@ class NotificationManagementServiceIntegrationTest {
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void oneBrokenDueCampaignDoesNotRollBackOtherCampaignsInTheBatch() {
-    StaffPrincipal owner = createOwner();
+    StaffPrincipal owner = createNotificationOperator();
     String code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     Long customerId = jdbc.queryForObject("""
         insert into customer(dealership_id, customer_code, full_name, phone, status)
@@ -433,6 +433,18 @@ class NotificationManagementServiceIntegrationTest {
   }
 
   private StaffPrincipal createOwner() {
+    return createNotificationActor("OWNER");
+  }
+
+  /**
+   * Non-transactional dispatch tests use a non-owner role so their committed fixtures cannot
+   * interfere with the system-wide one-time initial-owner bootstrap test.
+   */
+  private StaffPrincipal createNotificationOperator() {
+    return createNotificationActor("MANAGER");
+  }
+
+  private StaffPrincipal createNotificationActor(String roleCode) {
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     String code = "NOTIF-" + unique;
     Long dealershipId = jdbc.queryForObject("""
@@ -440,9 +452,9 @@ class NotificationManagementServiceIntegrationTest {
         """, Long.class, code, "Notification Test Agency");
     Long staffId = jdbc.queryForObject("""
         insert into staff_user(dealership_id, full_name, email, password_hash, status)
-        values (?, 'Test Owner', ?, 'test-hash-not-used', 'ACTIVE') returning id
-        """, Long.class, dealershipId, "notification-owner-" + unique.toLowerCase() + "@example.test");
-    Long roleId = jdbc.queryForObject("select id from role where code='OWNER'", Long.class);
+        values (?, 'Test Notification Actor', ?, 'test-hash-not-used', 'ACTIVE') returning id
+        """, Long.class, dealershipId, "notification-test-" + unique.toLowerCase() + "@example.test");
+    Long roleId = jdbc.queryForObject("select id from role where code = ?", Long.class, roleCode);
     jdbc.update("""
         insert into staff_user_role(dealership_id, staff_user_id, role_id)
         values (?, ?, ?)
@@ -453,7 +465,7 @@ class NotificationManagementServiceIntegrationTest {
         "select public_id from staff_user where id = ?", UUID.class, staffId);
     return new StaffPrincipal(
         1, staffId, staffPublicId.toString(), dealershipId, dealerPublicId.toString(),
-        code, "Test Owner", Set.of("OWNER"),
+        code, "Test Notification Actor", Set.of(roleCode),
         Set.of("notification.read", "notification.create", "notification.approve", "notification.send"));
   }
 }
