@@ -198,7 +198,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const width of [320, 768, 1280]) {
-  test(`Notification Studio stays within the viewport at ${width}px and supports each preview mode`, async ({ page }) => {
+  test(`Notification Studio stays within the viewport at ${width}px and supports each preview mode`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 850 });
     await openNotificationStudio(page);
 
@@ -261,6 +261,11 @@ for (const width of [320, 768, 1280]) {
       .toBeLessThanOrEqual(1);
     expect(viewportMetrics.bodyWidth - viewportMetrics.clientWidth, JSON.stringify(viewportMetrics))
       .toBeLessThanOrEqual(1);
+
+    // Keep actual rendered evidence from each target viewport with the workflow artifact.
+    await page.screenshot({ path: testInfo.outputPath(`notification-studio-${width}px.png`), fullPage: false });
+    await page.locator('.preview-result').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`notification-studio-audience-${width}px.png`), fullPage: false });
   });
 }
 
