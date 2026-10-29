@@ -48,6 +48,10 @@ type OnRoadQuote = {
   breakdown: { label: string; amount: number; calculation: string }[];
   estimatedOnRoadTotal: number; sourceUrl: string; note: string | null; disclaimer: string;
 };
+type ShowroomPromotion = {
+  publicId: string; modelCode: string | null; modelName: string | null; title: string; summary: string;
+  terms: string | null; startsOn: string; endsOn: string | null; sourceUrl: string; published: boolean; disclaimer: string;
+};
 function splitPriceLocation(raw: string): { city: string; state: string } | null {
   const comma = raw.lastIndexOf(',');
   if (comma < 1) return null;
@@ -82,6 +86,8 @@ export default function BajajShowroom({ onSignIn }: {
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [promotions, setPromotions] = useState<ShowroomPromotion[]>([]);
+  const [promotionsLoading, setPromotionsLoading] = useState(true);
   const [category, setCategory] = useState('ALL');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ShowroomBike | null>(null);
@@ -121,6 +127,28 @@ export default function BajajShowroom({ onSignIn }: {
         setError(cause instanceof Error ? cause.message : 'Unable to load Bajaj bikes.');
       })
       .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(endpoint('/api/v1/public/catalogue/promotions'), {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return { promotions: [] as ShowroomPromotion[] };
+        const result = await response.json() as { promotions?: ShowroomPromotion[] };
+        if (!Array.isArray(result.promotions)) return { promotions: [] as ShowroomPromotion[] };
+        return { promotions: result.promotions.filter((item) =>
+          item.published === true && typeof item.title === 'string' && typeof item.summary === 'string'
+          && typeof item.sourceUrl === 'string') };
+      })
+      .then((result) => setPromotions(result.promotions))
+      .catch((cause: unknown) => {
+        if (!(cause instanceof DOMException && cause.name === 'AbortError')) setPromotions([]);
+      })
+      .finally(() => setPromotionsLoading(false));
     return () => controller.abort();
   }, []);
 
@@ -250,6 +278,29 @@ export default function BajajShowroom({ onSignIn }: {
           {Array.from({ length: 2 }).flatMap((_, index) => ['FREEDOM', 'PULSAR', 'DOMINAR', 'AVENGER', 'PLATINA', 'CT'].map((name) =>
             <span key={`${index}-${name}`}>{name}<i>✳</i></span>))}
         </div>
+      </section>
+
+      <section id="offers" className="showroom-offers" aria-labelledby="showroom-offers-title">
+        <div className="showroom-offers-heading">
+          <div><div className="showroom-eyebrow">CURRENT DEALER INFORMATION</div><h2 id="showroom-offers-title">Offers worth <em>checking.</em></h2>
+            <p>Only active announcements published by Lucky Bajaj with a source link appear here.</p></div>
+          <span className="showroom-offers-count">{promotions.length.toString().padStart(2, '0')} LIVE</span>
+        </div>
+        {promotionsLoading
+          ? <p className="showroom-offers-empty" role="status">Checking current dealer announcements…</p>
+          : promotions.length === 0
+            ? <p className="showroom-offers-empty">No public offers are currently published. Contact Lucky Bajaj for current availability and dealer-confirmed terms.</p>
+            : <div className="showroom-offers-grid">
+              {promotions.map((promotion) => <article key={promotion.publicId} className="showroom-offer-card">
+                <div className="showroom-offer-card-overline"><span>LUCKY BAJAJ</span><span>{promotion.modelName || 'BAJAJ RANGE'}</span></div>
+                <h3>{promotion.title}</h3>
+                <p>{promotion.summary}</p>
+                {promotion.terms && <details><summary>Terms and exclusions</summary><p>{promotion.terms}</p></details>}
+                <div className="showroom-offer-dates">Valid from {dateLabel(promotion.startsOn)}{promotion.endsOn ? ` to ${dateLabel(promotion.endsOn)}` : ''}</div>
+                <a href={promotion.sourceUrl} target="_blank" rel="noreferrer">Review source ↗</a>
+                <small>{promotion.disclaimer}</small>
+              </article>)}
+            </div>}
       </section>
 
       <section id="collection" className="showroom-collection">
