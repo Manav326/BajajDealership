@@ -252,6 +252,19 @@ function localDateTimeMin(minutes = 2): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { window.clearTimeout(timeoutId); resolve(value); },
+      (cause: unknown) => {
+        window.clearTimeout(timeoutId);
+        reject(cause instanceof Error ? cause : new Error(message));
+      },
+    );
+  });
+}
+
 function newDraftId() {
   return globalThis.crypto?.randomUUID?.()
     ?? 'draft-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -1303,9 +1316,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
       // Resume the Web Audio context directly from the user's click before any file decode awaits.
       audioContext = new AudioContext();
-      await audioContext.resume();
+      await withTimeout(audioContext.resume(), 5_000, 'The browser audio engine did not start. Try the latest Chrome, Edge or Safari.');
       const sourceBytes = await track.fileData.arrayBuffer();
-      const decodedAudio = await audioContext.decodeAudioData(sourceBytes);
+      const decodedAudio = await withTimeout(audioContext.decodeAudioData(sourceBytes), 15_000, 'The selected audio file could not be decoded for video export. Try an MP3 or WAV file.');
       const requestedDuration = Math.min(storyDurationLimit, MUSIC_CLIP_MAX_SECONDS, Math.max(MUSIC_CLIP_MIN_SECONDS, musicClipDuration));
       const duration = Math.min(requestedDuration, Math.floor(decodedAudio.duration));
       if (duration < MUSIC_CLIP_MIN_SECONDS) {
@@ -1377,20 +1390,24 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       recorder.start(250);
       audioSource.start(audioStartAt, selectionStart, duration);
       const startTimestamp = performance.now();
-      await new Promise<void>((resolve) => {
+      await withTimeout(new Promise<void>((resolve, reject) => {
         const draw = (now: number) => {
-          const elapsed = Math.max(0, (now - startTimestamp) / 1000);
-          drawFrame(elapsed);
-          if (elapsed >= duration) {
-            resolve();
-            return;
+          try {
+            const elapsed = Math.max(0, (now - startTimestamp) / 1000);
+            drawFrame(elapsed);
+            if (elapsed >= duration) {
+              resolve();
+              return;
+            }
+            frameId = window.requestAnimationFrame(draw);
+          } catch (cause) {
+            reject(cause instanceof Error ? cause : new Error('A Story video frame could not be rendered.'));
           }
-          frameId = window.requestAnimationFrame(draw);
         };
         frameId = window.requestAnimationFrame(draw);
-      });
+      }), (duration * 1000) + 10_000, 'The browser stopped rendering video frames. Keep this tab visible and try again.');
       if (recorder.state !== 'inactive') recorder.stop();
-      const videoBlob = await videoBlobPromise;
+      const videoBlob = await withTimeout(videoBlobPromise, 10_000, 'The browser recorder did not finish the video. Try another supported browser.');
       if (!videoBlob.size) throw new Error('Video export produced an empty file. Try again.');
       const mimeType = videoBlob.type || supportedMime || 'video/webm';
       const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
@@ -1416,8 +1433,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       if (audioContext && audioContext.state !== 'closed') {
         try { await audioContext.close(); } catch { /* The browser may already have closed the audio context. */ }
       }
+      setVideoExporting(false);
     }
-    setVideoExporting(false);
   }
 
   return (
