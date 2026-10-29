@@ -183,7 +183,8 @@ export default function App() {
 
   const loadPortalData = useCallback(async (sessionToken: string) => {
     setLoadingData(true);
-    setError('');
+    // Keep action-specific recovery feedback visible while a saved showroom intent is unresolved.
+    if (!window.sessionStorage.getItem('qe_bajaj_pending_intent')) setError('');
     try {
       const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
@@ -248,8 +249,10 @@ export default function App() {
           idempotencyKey: intent.idempotencyKey,
         }),
       });
-      window.sessionStorage.removeItem('qe_bajaj_pending_intent');
+      // Keep the original idempotency key until the request can be confirmed in the refreshed list.
+      // A failed GET after a successful POST must remain safely retryable without creating duplicates.
       const current = await api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken);
+      window.sessionStorage.removeItem('qe_bajaj_pending_intent');
       setSalesRequests(current);
       setTab('requests');
       setSuccess(intent.action === 'TEST_RIDE'
@@ -774,7 +777,7 @@ export default function App() {
           {!loadingData && tab === 'requests' && <>
             <div className="portal-section-heading"><div><h2>My Bajaj requests</h2><p>Requests from the showroom stay connected to your account. A request is not yet a confirmed test-ride slot or vehicle booking.</p></div><span className="section-mark">{salesRequests.length} REQUESTS</span></div>
             {hasPendingShowroomIntent && <section className="glass-panel pending-showroom-retry" role="region" aria-label="Saved showroom request not submitted">
-              <div><strong>Your selected bike is saved</strong><p>The last request did not reach the dealership. Retry it with the same safe request key, or discard the saved selection.</p></div>
+              <div><strong>Your request result is not confirmed yet</strong><p>The connection did not confirm whether the dealership saved your request. Retry with the same safe request key to avoid creating a duplicate, or discard the saved selection.</p></div>
               <div className="pending-showroom-retry-actions">
                 <button type="button" className="primary-button" disabled={saving} onClick={() => void retrySavedShowroomRequest()}>{saving ? 'Retrying…' : 'Retry saved request'}</button>
                 <button type="button" className="secondary-button" disabled={saving} onClick={discardSavedShowroomRequest}>Discard selection</button>

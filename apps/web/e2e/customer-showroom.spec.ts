@@ -42,10 +42,11 @@ type ShowroomAuthJourney = {
 async function mockShowroomApi(
   page: Page,
   promotions: unknown[] = [],
-  options: { failFirstSalesRequest?: boolean } = {},
+  options: { failFirstSalesRequest?: boolean; failFirstSalesRequestList?: boolean } = {},
 ): Promise<ShowroomAuthJourney> {
   const journey: ShowroomAuthJourney = { loginPayload: null, requestPayloads: [], requests: [] };
   let failFirstSalesRequest = Boolean(options.failFirstSalesRequest);
+  let failFirstSalesRequestList = Boolean(options.failFirstSalesRequestList);
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -135,7 +136,13 @@ async function mockShowroomApi(
       journey.requests = [created];
       return json(created);
     }
-    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'GET') return json(journey.requests);
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'GET') {
+      if (failFirstSalesRequestList) {
+        failFirstSalesRequestList = false;
+        return json({ message: 'Synthetic temporary request-list outage. Please retry.' }, 503);
+      }
+      return json(journey.requests);
+    }
     if (url.pathname === '/api/v1/customer/auth/logout' && method === 'POST') return json({ success: true });
     return json({});
   });
@@ -594,6 +601,7 @@ test('failed showroom handoff remains recoverable and retry reuses the original 
   const recovery = page.getByRole('region', { name: 'Saved showroom request not submitted' });
   await expect(recovery).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Synthetic temporary sales-request outage');
+  await expect(recovery).toContainText('Retry with the same safe request key');
   await recovery.getByRole('button', { name: 'Retry saved request' }).click();
 
   await expect(page.getByText('SR-E2E-0001')).toBeVisible();
@@ -653,4 +661,31 @@ test('customer login resumes a test-ride request with its preferred local date a
     modelCode: 'BAJAJ_PULSAR_NS200',
     preferredAt: expectedPreferredAt,
   });
+});
+
+
+test('successful sales-request POST with failed confirmation GET remains safely retryable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const journey = await mockShowroomApi(page, [], { failFirstSalesRequestList: true });
+  await page.goto('http://127.0.0.1:4173');
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+  await page.getByRole('textbox', { name: 'Dealership code' }).fill('LBA');
+  await page.getByRole('textbox', { name: 'Customer code' }).fill('CUS-E2E-AUTH');
+  await page.getByLabel('Password').fill('Synthetic-Only-Password-123!');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+
+  const recovery = page.getByRole('region', { name: 'Saved showroom request not submitted' });
+  await expect(recovery).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Synthetic temporary request-list outage');
+  expect(journey.requests).toHaveLength(1);
+  const firstKey = journey.requestPayloads[0].idempotencyKey;
+
+  await recovery.getByRole('button', { name: 'Retry saved request' }).click();
+  await expect(page.getByText('SR-E2E-0001')).toBeVisible();
+  expect(journey.requests).toHaveLength(1);
+  expect(journey.requestPayloads).toHaveLength(2);
+  expect(journey.requestPayloads[1].idempotencyKey).toBe(firstKey);
+  expect(await page.evaluate(() => window.sessionStorage.getItem('qe_bajaj_pending_intent'))).toBeNull();
+  await expect(page.getByRole('region', { name: 'Saved showroom request not submitted' })).toHaveCount(0);
 });
