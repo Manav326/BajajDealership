@@ -2746,3 +2746,37 @@ input:not([type="checkbox"]):not([type="radio"]):focus,select:focus,textarea:foc
 @media (prefers-reduced-motion:reduce) {
   .customer-profile-dialog { animation:none; }
 }
+
+
+/* Lifetime purchase history inside the existing staff customer profile drawer. */
+.customer-profile-history { margin-top:22px; }
+.customer-profile-history-section { padding:20px 0; border-top:1px solid var(--border-subtle,#e7ecf4); }
+.customer-profile-history-section .customer-profile-address-heading { margin:0 0 13px; }
+.customer-profile-history-section .customer-profile-address-heading h3 { color:var(--text-primary,#25344c); font-size:13px; font-weight:900; letter-spacing:-.25px; }
+.customer-profile-history-section .customer-profile-address-heading p { color:var(--text-muted,#8793a4); font-size:9px; line-height:1.7; }
+.customer-profile-history-section .customer-profile-address-heading>span { display:inline-grid; place-items:center; min-width:29px; height:27px; padding:0 7px; border:1px solid var(--border-subtle,#e5eaf2); border-radius:8px; background:var(--surface-card,#fff); color:var(--text-muted,#718096); font-size:9px; font-weight:900; }
+.customer-history-list { display:flex; flex-direction:column; }
+.customer-history-record { display:grid; grid-template-columns:38px minmax(0,1fr) minmax(112px,auto); align-items:start; gap:12px; padding:14px 0; border-top:1px solid var(--border-subtle,#e7ecf4); }
+.customer-history-record:first-child { border-top:0; padding-top:0; }
+.customer-history-record-icon { display:grid; place-items:center; width:38px; height:38px; border:1px solid var(--border-subtle,#e5eaf2); border-radius:11px; background:var(--surface-card,#fff); color:var(--text-primary,#31445f); font-size:12px; font-weight:900; }
+.motorcycle-history-icon { background:linear-gradient(145deg,#fff0e3,#fff); color:#a85d23; }
+.parts-history-icon { background:linear-gradient(145deg,#eaf4ff,#fff); color:#4874aa; }
+.request-history-icon { background:linear-gradient(145deg,#f2edff,#fff); color:#7461ab; }
+.customer-history-record-main { min-width:0; display:flex; flex-direction:column; gap:5px; }
+.customer-history-title { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.customer-history-title strong { color:var(--text-primary,#283b55); font-size:11px; font-weight:900; overflow-wrap:anywhere; }
+.customer-history-status { display:inline-block; border:1px solid var(--border-subtle,#e2e8f1); border-radius:6px; padding:4px 6px; color:var(--text-muted,#64758c); background:var(--surface-subtle,#f3f6fa); font-size:7px; font-weight:900; letter-spacing:.3px; }
+.customer-history-record-main p { margin:0; color:var(--text-secondary,#61758d); font-size:9px; line-height:1.75; overflow-wrap:anywhere; }
+.customer-history-record-main small { color:var(--text-muted,#8794a7); font-size:8px; line-height:1.7; overflow-wrap:anywhere; }
+.customer-history-money { display:flex; flex-direction:column; align-items:flex-end; gap:5px; text-align:right; }
+.customer-history-money strong { color:var(--text-primary,#243751); font-size:11px; font-weight:900; white-space:nowrap; }
+.customer-history-money span { color:var(--text-muted,#8491a4); font-size:8px; line-height:1.6; }
+.customer-profile-history-section.customer-history-metadata>p { margin:0 0 12px; padding:12px 14px; border:1px solid var(--border-subtle,#e6ebf3); border-radius:10px; background:var(--surface-card,#fff); color:var(--text-secondary,#596c84); font-size:10px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.customer-history-consent { display:inline-flex; align-items:center; border:1px solid var(--border-subtle,#e3e8f0); border-radius:7px; padding:5px 8px; color:var(--text-muted,#7d8a9e); background:var(--surface-subtle,#f0f3f8); font-size:8px; font-weight:800; }
+.customer-history-consent.yes { border-color:#ccead9; color:#287b52; background:#ecf9f1; }
+.customer-history-metadata small { color:var(--text-muted,#8491a4); font-size:8px; line-height:1.7; }
+@media(max-width:720px) {
+  .customer-history-record { grid-template-columns:34px minmax(0,1fr); gap:10px; }
+  .customer-history-record-icon { width:34px; height:34px; }
+  .customer-history-money { grid-column:2; align-items:flex-start; text-align:left; }
+}

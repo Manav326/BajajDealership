@@ -34,6 +34,47 @@ type CustomerAddress = {
   createdAt: string;
   updatedAt: string;
 };
+
+
+type CustomerMotorcyclePurchase = {
+  publicId: string; invoiceNumber: string; modelName: string; variantName: string | null; colourName: string | null;
+  modelYear: number | null; invoiceTotal: number; paidAmount: number; creditedAmount: number; balanceDue: number;
+  invoiceIssuedAt: string | null; deliveredAt: string; deliveredToName: string;
+};
+type CustomerPartOrderHistory = {
+  publicId: string; orderCode: string; status: string; paymentMethod: string; paymentStatus: string; orderTotal: number;
+  fulfillmentMethod: string; deliveryAddress: string | null; deliveryFee: number | null; deliveryQuoteStatus: string | null;
+  deliveryQuoteNote: string | null; deliveryQuotedAt: string | null; customerNote: string | null; createdAt: string;
+  updatedAt: string; cancelledAt: string | null; fulfilledAt: string | null; returnedAt: string | null;
+  returnReason: string | null; restockedOnReturn: boolean | null; customerName: string; customerCode: string;
+  customerPhone: string | null; lines: Array<{ partPublicId: string; skuCode: string; partName: string;
+    unitOfMeasure: string; quantity: number; unitPrice: number; lineTotal: number }>;
+};
+type CustomerWebsiteRequestHistory = {
+  publicId: string; requestCode: string; requestType: string; modelCode: string; modelName: string;
+  preferredAt: string | null; notes: string | null; status: string; createdAt: string; updatedAt: string;
+  convertedEnquiryPublicId: string | null; customerPublicId: string; customerCode: string; customerName: string;
+  customerPhone: string | null; customerEmail: string | null; enquiryCode: string | null; enquiryStatus: string | null;
+  testRideCode: string | null; testRideStatus: string | null; testRideScheduledStart: string | null;
+  bookingCode: string | null; bookingStatus: string | null; invoiceNumber: string | null; invoiceStatus: string | null;
+  invoiceTotal: number | null; paidAmount: number; creditedAmount: number | null; balanceDue: number | null; deliveredAt: string | null;
+};
+type CustomerHistory = {
+  customer: Customer; notes: string | null; marketingConsentAt: string | null; marketingConsentSource: string | null;
+  motorcyclePurchases: CustomerMotorcyclePurchase[]; sparePartOrders: CustomerPartOrderHistory[];
+  websiteRequests: CustomerWebsiteRequestHistory[];
+};
+function formatCustomerHistoryMoney(value: number | null | undefined): string {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value ?? 0));
+}
+function formatCustomerHistoryDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(date);
+}
+
 type PortalInvitation = {
   customerPublicId: string;
   customerName: string;
@@ -74,6 +115,7 @@ export default function CustomerWorkspace({
   const [portalTokenCopied, setPortalTokenCopied] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedAddresses, setSelectedAddresses] = useState<CustomerAddress[]>([]);
+  const [selectedHistory, setSelectedHistory] = useState<CustomerHistory | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState('');
   const [selectedProfileLoading, setSelectedProfileLoading] = useState(false);
   const [selectedProfileError, setSelectedProfileError] = useState('');
@@ -174,16 +216,19 @@ export default function CustomerWorkspace({
     setSelectedPhotoUrl('');
     setSelectedCustomer(customer);
     setSelectedAddresses([]);
+    setSelectedHistory(null);
     setSelectedProfileError('');
     setSelectedProfileLoading(true);
     try {
-      const [detail, addresses] = await Promise.all([
+      const [detail, addresses, history] = await Promise.all([
         apiFetch<Customer>(`/api/v1/admin/customers/${customer.publicId}`, token),
         apiFetch<CustomerAddress[]>(`/api/v1/admin/customers/${customer.publicId}/saved-addresses`, token),
+        apiFetch<CustomerHistory>(`/api/v1/admin/customers/${customer.publicId}/history`, token),
       ]);
       if (requestId !== selectedProfileRequestId.current) return;
       setSelectedCustomer(detail);
       setSelectedAddresses(Array.isArray(addresses) ? addresses : []);
+      setSelectedHistory(history);
       const response = await fetch(apiRequestUrl(`/api/v1/admin/customers/${customer.publicId}/profile-photo`), {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -207,6 +252,7 @@ export default function CustomerWorkspace({
     setSelectedPhotoUrl('');
     setSelectedCustomer(null);
     setSelectedAddresses([]);
+    setSelectedHistory(null);
     setSelectedProfileError('');
     setSelectedProfileLoading(false);
   }
@@ -352,7 +398,61 @@ export default function CustomerWorkspace({
                     .filter((part): part is string => Boolean(part && part.trim())).join(', ')}</p>
                   <small>Contact at this address: {address.phone}</small>
                 </article>)}</div>}
-            <div className="customer-profile-dialog-footer"><span>Address book changes do not overwrite the delivery address saved on previous orders.</span><button type="button" className="primary-button" onClick={closeCustomerProfile}>Done</button></div>
+
+            <div className="customer-profile-history">
+              <section className="customer-profile-history-section">
+                <div className="customer-profile-address-heading"><div><h3>Motorcycles purchased</h3><p>Completed and acknowledged vehicle handovers, including in-store purchases.</p></div><span>{selectedHistory?.motorcyclePurchases.length ?? 0}</span></div>
+                {!selectedHistory || selectedHistory.motorcyclePurchases.length === 0
+                  ? <div className="customer-profile-address-empty">No completed motorcycle handovers are linked to this customer yet. Current enquiries and bookings are shown below.</div>
+                  : <div className="customer-history-list">{selectedHistory.motorcyclePurchases.map((purchase) => <article className="customer-history-record" key={purchase.publicId}>
+                    <span className="customer-history-record-icon motorcycle-history-icon">B</span>
+                    <div className="customer-history-record-main"><div className="customer-history-title"><strong>{purchase.modelName}{purchase.variantName ? ' · ' + purchase.variantName : ''}</strong><span className="customer-history-status">DELIVERED</span></div>
+                      <p>{[purchase.colourName, purchase.modelYear ? String(purchase.modelYear) : null].filter(Boolean).join(' · ') || 'Bajaj motorcycle'} · Invoice {purchase.invoiceNumber}</p>
+                      <small>Delivered {formatCustomerHistoryDate(purchase.deliveredAt)} · Acknowledged by {purchase.deliveredToName}</small></div>
+                    <div className="customer-history-money"><strong>{formatCustomerHistoryMoney(purchase.invoiceTotal)}</strong><span>Paid {formatCustomerHistoryMoney(purchase.paidAmount)}</span>{purchase.creditedAmount > 0 && <span>Credits {formatCustomerHistoryMoney(purchase.creditedAmount)}</span>}<span>Balance {formatCustomerHistoryMoney(purchase.balanceDue)}</span></div>
+                  </article>)}</div>}
+              </section>
+              <section className="customer-profile-history-section">
+                <div className="customer-profile-address-heading"><div><h3>Spare-parts orders & returns</h3><p>Full saved order history with cancellation, collection, delivery and return states.</p></div><span>{selectedHistory?.sparePartOrders.length ?? 0}</span></div>
+                {!selectedHistory || selectedHistory.sparePartOrders.length === 0
+                  ? <div className="customer-profile-address-empty">No spare-parts orders recorded for this customer.</div>
+                  : <div className="customer-history-list">{selectedHistory.sparePartOrders.map((order) => <article className="customer-history-record" key={order.publicId}>
+                    <span className="customer-history-record-icon parts-history-icon">P</span>
+                    <div className="customer-history-record-main"><div className="customer-history-title"><strong>{order.orderCode}</strong><span className="customer-history-status">{order.status.replaceAll('_',' ')}</span></div>
+                      <p>{order.lines.map((line) => line.quantity + ' × ' + line.partName + ' (' + line.skuCode + ')').join(' · ')}</p>
+                      <small>Placed {formatCustomerHistoryDate(order.createdAt)} · {order.fulfillmentMethod === 'PICKUP' ? 'Pickup' : 'Delivery'} · {order.paymentStatus.replaceAll('_',' ')}</small>
+                      {order.deliveryAddress && <small>Delivery address snapshot: {order.deliveryAddress}</small>}
+                      {order.deliveryFee != null && Number(order.deliveryFee) > 0 && <small>Delivery fee {formatCustomerHistoryMoney(order.deliveryFee)}{order.deliveryQuoteStatus ? ' · ' + order.deliveryQuoteStatus.replaceAll('_',' ') : ''}</small>}
+                      {order.returnReason && <small>Return reason: {order.returnReason}{order.restockedOnReturn ? ' · Restocked after inspection' : ' · Not returned to sellable stock'}</small>}
+                      {order.customerNote && <small>Customer note: {order.customerNote}</small>}</div>
+                    <div className="customer-history-money"><strong>{formatCustomerHistoryMoney(order.orderTotal)}</strong><span>{order.status === 'FULFILLED' ? 'Fulfilled ' + formatCustomerHistoryDate(order.fulfilledAt) : order.status === 'RETURNED' ? 'Returned ' + formatCustomerHistoryDate(order.returnedAt) : order.status === 'CANCELLED' ? 'Cancelled ' + formatCustomerHistoryDate(order.cancelledAt) : 'Updated ' + formatCustomerHistoryDate(order.updatedAt)}</span></div>
+                  </article>)}</div>}
+              </section>
+              <section className="customer-profile-history-section">
+                <div className="customer-profile-address-heading"><div><h3>Bike enquiries & test rides</h3><p>Website requests retained after conversion, booking, cancellation or delivery.</p></div><span>{selectedHistory?.websiteRequests.length ?? 0}</span></div>
+                {!selectedHistory || selectedHistory.websiteRequests.length === 0
+                  ? <div className="customer-profile-address-empty">No website-originated bike requests are recorded for this customer.</div>
+                  : <div className="customer-history-list">{selectedHistory.websiteRequests.map((request) => <article className="customer-history-record" key={request.publicId}>
+                    <span className="customer-history-record-icon request-history-icon">{request.requestType === 'TEST_RIDE' ? 'T' : 'E'}</span>
+                    <div className="customer-history-record-main"><div className="customer-history-title"><strong>{request.modelName}</strong><span className="customer-history-status">{request.status.replaceAll('_',' ')}</span></div>
+                      <p>{request.requestCode} · {request.requestType === 'TEST_RIDE' ? 'Test ride' : 'Purchase enquiry'} · Created {formatCustomerHistoryDate(request.createdAt)}</p>
+                      {request.preferredAt && <small>Preferred time {formatCustomerHistoryDate(request.preferredAt)}</small>}
+                      {request.enquiryCode && <small>Sales enquiry {request.enquiryCode} · {request.enquiryStatus}</small>}
+                      {request.testRideCode && <small>Test ride {request.testRideCode} · {request.testRideStatus}{request.testRideScheduledStart ? ' · ' + formatCustomerHistoryDate(request.testRideScheduledStart) : ''}</small>}
+                      {request.bookingCode && <small>Booking {request.bookingCode} · {request.bookingStatus}</small>}
+                      {request.invoiceNumber && <small>Invoice {request.invoiceNumber} · {request.invoiceStatus} · Total {formatCustomerHistoryMoney(request.invoiceTotal)} · Balance {formatCustomerHistoryMoney(request.balanceDue)}</small>}
+                      {request.notes && <small>Customer request note: {request.notes}</small>}</div>
+                    {request.deliveredAt && <div className="customer-history-money"><span>Delivered {formatCustomerHistoryDate(request.deliveredAt)}</span></div>}
+                  </article>)}</div>}
+              </section>
+              <section className="customer-profile-history-section customer-history-metadata">
+                <div className="customer-profile-address-heading"><div><h3>Customer notes & consent</h3><p>Context for support and eligibility for marketing communications.</p></div></div>
+                <p>{selectedHistory?.notes?.trim() || 'No internal customer note has been added.'}</p>
+                <div><span className={selectedHistory?.marketingConsentAt ? 'customer-history-consent yes' : 'customer-history-consent'}>{selectedHistory?.marketingConsentAt ? 'Marketing consent recorded' : 'No marketing consent recorded'}</span>
+                  {selectedHistory?.marketingConsentAt && <small> · {formatCustomerHistoryDate(selectedHistory.marketingConsentAt)} · Source: {selectedHistory.marketingConsentSource ?? 'Not recorded'}</small>}</div>
+              </section>
+            </div>
+            <div className="customer-profile-dialog-footer"><span>Address book changes do not overwrite the delivery address saved on previous orders. Historic purchases and payment amounts are read from saved transaction records.</span><button type="button" className="primary-button" onClick={closeCustomerProfile}>Done</button></div>
           </>}
         </section>
       </div>}

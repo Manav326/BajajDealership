@@ -97,6 +97,28 @@ class CustomerServiceIntegrationTest {
     assertThat(consentRemains).isTrue();
   }
 
+
+  @Test
+  void customerHistoryReturnsEveryHistorySectionAndRespectsDealershipBoundary() {
+    StaffPrincipal owner = createOwner("HISTORY");
+    CustomerService.CustomerView created = customers.create(owner,
+        new CustomerService.CustomerRequest("History Customer", "9876500011", null, "history@example.test",
+            "en", false, null, "Prefers a call before arranging delivery."));
+
+    CustomerService.CustomerHistoryView history = customers.history(owner, created.publicId());
+    assertThat(history.customer().publicId()).isEqualTo(created.publicId());
+    assertThat(history.notes()).isEqualTo("Prefers a call before arranging delivery.");
+    assertThat(history.motorcyclePurchases()).isEmpty();
+    assertThat(history.sparePartOrders()).isEmpty();
+    assertThat(history.websiteRequests()).isEmpty();
+
+    StaffPrincipal otherDealership = createOwner("HISTORY_OTHER");
+    assertThatThrownBy(() -> customers.history(otherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+  }
+
   private StaffPrincipal createOwner(String suffix) {
     String unique = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     String code = "TST-" + suffix + "-" + unique;

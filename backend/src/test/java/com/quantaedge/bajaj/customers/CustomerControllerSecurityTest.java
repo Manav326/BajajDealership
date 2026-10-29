@@ -23,5 +23,7 @@ class CustomerControllerSecurityTest {
         .andExpect(status().isUnauthorized());
     mvc.perform(get("/api/v1/admin/customers/00000000-0000-0000-0000-000000000001/profile-photo"))
         .andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/admin/customers/00000000-0000-0000-0000-000000000001/history"))
+        .andExpect(status().isUnauthorized());
   }
 }

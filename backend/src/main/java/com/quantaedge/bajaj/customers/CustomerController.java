@@ -44,6 +44,13 @@ public class CustomerController {
     return customers.get(principal, publicId);
   }
 
+  @GetMapping("/{publicId}/history")
+  @PreAuthorize("hasAuthority('customer.read')")
+  public CustomerService.CustomerHistoryView history(
+      @AuthenticationPrincipal StaffPrincipal principal, @PathVariable UUID publicId) {
+    return customers.history(principal, publicId);
+  }
+
   @PostMapping
   @PreAuthorize("hasAuthority('customer.create')")
   public CustomerService.CustomerView create(

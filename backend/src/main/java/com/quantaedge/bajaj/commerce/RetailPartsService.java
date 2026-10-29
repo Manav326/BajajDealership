@@ -608,6 +608,20 @@ public class RetailPartsService {
     return ids.stream().map(id -> getOrderForStaff(actor, id)).toList();
   }
 
+  /** Full order history for one customer, scoped to the authenticated dealership and preserving all states. */
+  public List<RetailOrderView> listOrdersForCustomerRecord(StaffPrincipal actor, UUID customerPublicId) {
+    List<Long> customers = jdbc.query("""
+        select id from customer where dealership_id = ? and public_id = ?
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), customerPublicId);
+    if (customers.isEmpty()) throw notFound("Customer was not found in this dealership.");
+    long customerId = customers.getFirst();
+    List<UUID> ids = jdbc.query("""
+        select public_id from retail_part_order where dealership_id = ? and customer_id = ?
+        order by created_at desc, id desc
+        """, (rs, rowNum) -> rs.getObject(1, UUID.class), actor.dealershipId(), customerId);
+    return ids.stream().map(id -> getOrderForStaff(actor, id)).toList();
+  }
+
   @Transactional
   public RetailOrderView quoteDelivery(StaffPrincipal actor, UUID orderPublicId, DeliveryQuoteRequest request) {
     if (request == null || request.deliveryFee() == null) throw badRequest("A delivery fee quote is required.");
