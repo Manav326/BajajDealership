@@ -19,6 +19,10 @@ Artwork composition in this slice stays local to the browser. It does not upload
 
 ## Channel contracts
 
+### Meta account connection foundation now in code
+
+The backend now has a disabled-by-default Meta OAuth connection foundation: a 10-minute random state whose hash is persisted and consumed once; an allowlisted, server-configured completion URL; server-to-server authorization-code and long-lived-token exchange; AES-GCM encryption of provider tokens with a required 32-byte Base64 key; dealership-scoped Page/Instagram destination records; and an audit trail that excludes tokens and provider response bodies. Owner/Manager roles receive dedicated `social_media.read` and `social_media.manage` permissions. Provider credentials and a real Meta app are not configured in this repository by default, so connection remains unavailable until explicit deployment configuration is supplied. Do not claim the flow is production-verified until it passes Meta app review/configuration and authorized-account E2E testing.
+
 ### Facebook / Instagram
 
 Publish through official Meta APIs only. First supported vertical slice should target Facebook Page posts and eligible Instagram professional-account feed publishing. Account linking must use an authenticated OAuth state/CSRF flow; the server stores encrypted credentials, maps provider account IDs to the authenticated dealership, and checks destination permissions. Access tokens never reach the browser or logs. Publishing results are only successful after provider confirmation and must persist the external post ID and status.
@@ -46,7 +50,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 ## Delivery phases
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
-- **Phase 2 — Meta publishing:** Meta app prerequisites, account connection, Facebook Page photo/text posts, Instagram feed publishing, provider confirmation and disconnection/revocation.
+- **Phase 2 — Meta publishing:** finish E2E validation of the new account-connection foundation, then implement Facebook Page photo/text posts, Instagram feed publishing through media containers, provider-confirmed results, destination management and revocation/disconnect.
 - **Phase 3 — WhatsApp:** Cloud API setup, approved templates, media support, consent/opt-out, message status webhooks and explicit channel approval.
 - **Phase 4 — operations:** scheduled jobs, outbox/idempotency, bounded retries, status reconciliation, audit, permissions and production media storage.
 
@@ -61,5 +65,6 @@ Keep provider secrets out of source control and browser responses. Production se
 - [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
 - [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
 - [ ] Confirm web typecheck/build and full CI on the latest revision.
-- [ ] Implement and test Meta account connection/publishing.
+- [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
+- [ ] Implement and test Facebook Page / Instagram feed publishing, external media hosting, provider status reconciliation and destination disconnect.
 - [ ] Implement and test WhatsApp Business messaging; keep Status on manual share/export unless official API capability is verified.
