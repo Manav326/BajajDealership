@@ -5,9 +5,9 @@ import com.quantaedge.bajaj.security.CustomerPortalAttemptRecorder;
 import com.quantaedge.bajaj.security.CustomerPrincipal;
 import com.quantaedge.bajaj.security.StaffPrincipal;
 import com.quantaedge.bajaj.security.TokenDigests;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CustomerPortalService {
   private static final int MAX_FAILED_ATTEMPTS = 8;
+  private static final int MAX_PROFILE_PHOTO_BYTES = 2 * 1024 * 1024;
   private static final Duration ATTEMPT_WINDOW = Duration.ofMinutes(15);
   private static final Duration INVITATION_LIFETIME = Duration.ofHours(48);
   private static final Duration SESSION_LIFETIME = Duration.ofDays(30);
@@ -260,7 +262,9 @@ public class CustomerPortalService {
   public CustomerProfile profile(CustomerPrincipal actor) {
     List<CustomerProfile> rows = jdbc.query("""
         select customer.public_id, customer.customer_code, customer.full_name,
-          customer.phone, customer.email, customer.preferred_language,
+          customer.phone, customer.alternate_phone, customer.email, customer.preferred_language,
+          exists(select 1 from customer_profile_photo photo
+            where photo.dealership_id = customer.dealership_id and photo.customer_id = customer.id) as profile_photo_available,
           dealership.code as dealership_code, dealership.name as dealership_name
         from customer
         join dealership on dealership.id = customer.dealership_id
@@ -268,12 +272,358 @@ public class CustomerPortalService {
           and dealership.status = 'ACTIVE'
         """, (rs, rowNum) -> new CustomerProfile(
             rs.getObject("public_id", UUID.class), rs.getString("customer_code"), rs.getString("full_name"),
-            rs.getString("phone"), rs.getString("email"), rs.getString("preferred_language"),
+            rs.getString("phone"), rs.getString("alternate_phone"), rs.getString("email"),
+            rs.getString("preferred_language"), rs.getBoolean("profile_photo_available"),
             rs.getString("dealership_code"), rs.getString("dealership_name")),
         actor.dealershipId(), actor.customerId());
     if (rows.isEmpty()) throw notFound("Customer profile is no longer active.");
     return rows.getFirst();
   }
+
+
+  @Transactional
+  public CustomerProfile updateProfile(CustomerPrincipal actor, CustomerProfileUpdate request) {
+    if (request == null) throw badRequest("Profile details are required.");
+    String name = required(request.fullName(), "Full name", 160);
+    if (name.length() < 2) throw badRequest("Full name must contain at least two characters.");
+    String phone = optional(request.phone(), 32);
+    String alternatePhone = optional(request.alternatePhone(), 32);
+    String email = optional(request.email(), 320);
+    if (phone != null) phone = phone.replaceAll("[\\s()\\-]", "");
+    if (alternatePhone != null) alternatePhone = alternatePhone.replaceAll("[\\s()\\-]", "");
+    if (email != null) email = email.toLowerCase(Locale.ROOT);
+    if (phone == null && email == null) throw badRequest("Keep at least one contact method: mobile number or email.");
+    String language = normalizeLanguage(request.preferredLanguage());
+    int changed = jdbc.update("""
+        update customer set full_name = ?, phone = ?, alternate_phone = ?, email = ?,
+          preferred_language = ?, updated_at = now()
+        where dealership_id = ? and id = ? and status = 'ACTIVE'
+        """, name, phone, alternatePhone, email, language, actor.dealershipId(), actor.customerId());
+    if (changed != 1) throw notFound("Customer profile is no longer active.");
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, 'CUSTOMER_PROFILE_UPDATED', 'CUSTOMER', ?,
+          jsonb_build_object('fields', jsonb_build_array('fullName','phone','alternatePhone','email','preferredLanguage')))
+        """, actor.dealershipId(), actor.customerId(), actor.customerPublicId());
+    return profile(actor);
+  }
+
+  public List<CustomerAddressView> addresses(CustomerPrincipal actor) {
+    return jdbc.query("""
+        select public_id, label, recipient_name, phone, address_line1, address_line2,
+          landmark, locality, city, district, state, postal_code, country,
+          is_default_delivery, created_at, updated_at
+        from customer_address
+        where dealership_id = ? and customer_id = ?
+        order by is_default_delivery desc, lower(label), updated_at desc, id desc
+        """, (rs, rowNum) -> new CustomerAddressView(
+            rs.getObject("public_id", UUID.class), rs.getString("label"), rs.getString("recipient_name"),
+            rs.getString("phone"), rs.getString("address_line1"), rs.getString("address_line2"),
+            rs.getString("landmark"), rs.getString("locality"), rs.getString("city"),
+            rs.getString("district"), rs.getString("state"), rs.getString("postal_code"),
+            rs.getString("country"), rs.getBoolean("is_default_delivery"),
+            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+        actor.dealershipId(), actor.customerId());
+  }
+
+  @Transactional
+  public CustomerAddressView createAddress(CustomerPrincipal actor, AddressRequest request) {
+    NormalizedAddress address = normalizeAddress(actor, request);
+    Integer existing = jdbc.queryForObject(
+        "select count(*) from customer_address where dealership_id = ? and customer_id = ?",
+        Integer.class, actor.dealershipId(), actor.customerId());
+    boolean makeDefault = address.isDefaultDelivery() || existing == null || existing == 0;
+    if (makeDefault) clearDefaultAddress(actor);
+    UUID publicId = jdbc.queryForObject("""
+        insert into customer_address(
+          dealership_id, customer_id, label, recipient_name, phone, address_line1, address_line2,
+          landmark, locality, city, district, state, postal_code, country, is_default_delivery)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        returning public_id
+        """, UUID.class, actor.dealershipId(), actor.customerId(), address.label(), address.recipientName(),
+        address.phone(), address.addressLine1(), address.addressLine2(), address.landmark(), address.locality(),
+        address.city(), address.district(), address.state(), address.postalCode(), address.country(), makeDefault);
+    auditAddress(actor, "CUSTOMER_ADDRESS_CREATED", publicId, address.label(), makeDefault);
+    return findAddress(actor, publicId);
+  }
+
+  @Transactional
+  public CustomerAddressView updateAddress(CustomerPrincipal actor, UUID publicId, AddressRequest request) {
+    NormalizedAddress address = normalizeAddress(actor, request);
+    Integer owned = jdbc.queryForObject("""
+        select count(*) from customer_address
+        where dealership_id = ? and customer_id = ? and public_id = ?
+        """, Integer.class, actor.dealershipId(), actor.customerId(), publicId);
+    if (owned == null || owned != 1) throw notFound("This address was not found in your profile.");
+    if (address.isDefaultDelivery()) clearDefaultAddress(actor);
+    int changed = jdbc.update("""
+        update customer_address set label = ?, recipient_name = ?, phone = ?,
+          address_line1 = ?, address_line2 = ?, landmark = ?, locality = ?, city = ?,
+          district = ?, state = ?, postal_code = ?, country = ?, is_default_delivery = ?, updated_at = now()
+        where dealership_id = ? and customer_id = ? and public_id = ?
+        """, address.label(), address.recipientName(), address.phone(), address.addressLine1(),
+        address.addressLine2(), address.landmark(), address.locality(), address.city(), address.district(),
+        address.state(), address.postalCode(), address.country(), address.isDefaultDelivery(),
+        actor.dealershipId(), actor.customerId(), publicId);
+    if (changed != 1) throw conflict("The address changed while saving. Refresh and retry.");
+    ensureDefaultAddress(actor);
+    auditAddress(actor, "CUSTOMER_ADDRESS_UPDATED", publicId, address.label(), address.isDefaultDelivery());
+    return findAddress(actor, publicId);
+  }
+
+  @Transactional
+  public List<CustomerAddressView> deleteAddress(CustomerPrincipal actor, UUID publicId) {
+    List<Map<String, Object>> rows = jdbc.queryForList("""
+        select label, is_default_delivery from customer_address
+        where dealership_id = ? and customer_id = ? and public_id = ? for update
+        """, actor.dealershipId(), actor.customerId(), publicId);
+    if (rows.isEmpty()) throw notFound("This address was not found in your profile.");
+    Map<String, Object> row = rows.getFirst();
+    int changed = jdbc.update("""
+        delete from customer_address
+        where dealership_id = ? and customer_id = ? and public_id = ?
+        """, actor.dealershipId(), actor.customerId(), publicId);
+    if (changed != 1) throw conflict("The address changed while deleting. Refresh and retry.");
+    ensureDefaultAddress(actor);
+    auditAddress(actor, "CUSTOMER_ADDRESS_DELETED", publicId,
+        String.valueOf(row.get("label")), Boolean.TRUE.equals(row.get("is_default_delivery")));
+    return addresses(actor);
+  }
+
+  @Transactional
+  public ProfilePhoto uploadProfilePhoto(CustomerPrincipal actor, MultipartFile file) {
+    if (file == null || file.isEmpty()) throw badRequest("Choose a profile photo.");
+    if (file.getSize() > MAX_PROFILE_PHOTO_BYTES) {
+      throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Profile photos must be 2 MiB or smaller.");
+    }
+    byte[] bytes;
+    try { bytes = file.getBytes(); } catch (IOException ex) { throw badRequest("The profile photo could not be read."); }
+    String type = detectProfileImageType(bytes);
+    if (type == null) throw badRequest("Upload a valid JPEG, PNG or WebP image.");
+    String declared = file.getContentType();
+    if (declared != null && !declared.isBlank() && !declared.equalsIgnoreCase(type)) {
+      throw badRequest("The selected file content does not match its image type.");
+    }
+    jdbc.update("""
+        insert into customer_profile_photo(dealership_id, customer_id, content_type, image_bytes, byte_length, updated_at)
+        values (?, ?, ?, ?, ?, now())
+        on conflict (dealership_id, customer_id) do update set
+          content_type = excluded.content_type, image_bytes = excluded.image_bytes,
+          byte_length = excluded.byte_length, updated_at = now()
+        """, actor.dealershipId(), actor.customerId(), type, bytes, bytes.length);
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, 'CUSTOMER_PROFILE_PHOTO_UPDATED', 'CUSTOMER', ?,
+          jsonb_build_object('contentType', ?, 'sizeBytes', ?))
+        """, actor.dealershipId(), actor.customerId(), actor.customerPublicId(), type, bytes.length);
+    return new ProfilePhoto(type, bytes);
+  }
+
+  public ProfilePhoto readProfilePhoto(CustomerPrincipal actor) {
+    List<ProfilePhoto> photos = jdbc.query("""
+        select content_type, image_bytes, byte_length
+        from customer_profile_photo
+        where dealership_id = ? and customer_id = ?
+        """, (rs, rowNum) -> new ProfilePhoto(rs.getString("content_type"), rs.getBytes("image_bytes")),
+        actor.dealershipId(), actor.customerId());
+    if (photos.isEmpty()) throw notFound("No profile photo has been added yet.");
+    ProfilePhoto photo = photos.getFirst();
+    if (photo.bytes() == null || photo.bytes().length == 0 || photo.bytes().length > MAX_PROFILE_PHOTO_BYTES
+        || !List.of("image/jpeg", "image/png", "image/webp").contains(photo.contentType())
+        || !photo.contentType().equals(detectProfileImageType(photo.bytes()))) {
+      throw notFound("The profile photo is unavailable. Upload it again.");
+    }
+    return photo;
+  }
+
+  @Transactional
+  public void deleteProfilePhoto(CustomerPrincipal actor) {
+    int deleted = jdbc.update("delete from customer_profile_photo where dealership_id = ? and customer_id = ?",
+        actor.dealershipId(), actor.customerId());
+    if (deleted == 0) throw notFound("No profile photo has been added yet.");
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, 'CUSTOMER_PROFILE_PHOTO_REMOVED', 'CUSTOMER', ?,
+          '{}'::jsonb)
+        """, actor.dealershipId(), actor.customerId(), actor.customerPublicId());
+  }
+
+
+  public List<CustomerAddressView> addressesForStaff(StaffPrincipal actor, UUID customerPublicId) {
+    List<Long> customers = jdbc.query("""
+        select id from customer where dealership_id = ? and public_id = ?
+        """, (rs, rowNum) -> rs.getLong(1), actor.dealershipId(), customerPublicId);
+    if (customers.isEmpty()) throw notFound("Customer was not found in this dealership.");
+    long customerId = customers.getFirst();
+    return jdbc.query("""
+        select address.public_id, address.label, address.recipient_name, address.phone,
+          address.address_line1, address.address_line2, address.landmark, address.locality,
+          address.city, address.district, address.state, address.postal_code, address.country,
+          address.is_default_delivery, address.created_at, address.updated_at
+        from customer_address address
+        join customer on customer.dealership_id = address.dealership_id
+          and customer.id = address.customer_id
+        where address.dealership_id = ? and address.customer_id = ?
+          and customer.public_id = ?
+        order by address.is_default_delivery desc, lower(address.label), address.updated_at desc, address.id desc
+        """, (rs, rowNum) -> new CustomerAddressView(
+            rs.getObject("public_id", UUID.class), rs.getString("label"), rs.getString("recipient_name"),
+            rs.getString("phone"), rs.getString("address_line1"), rs.getString("address_line2"),
+            rs.getString("landmark"), rs.getString("locality"), rs.getString("city"),
+            rs.getString("district"), rs.getString("state"), rs.getString("postal_code"),
+            rs.getString("country"), rs.getBoolean("is_default_delivery"),
+            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+        actor.dealershipId(), customerId, customerPublicId);
+  }
+
+  public ProfilePhoto readProfilePhotoForStaff(StaffPrincipal actor, UUID customerPublicId) {
+    List<ProfilePhoto> photos = jdbc.query("""
+        select photo.content_type, photo.image_bytes
+        from customer_profile_photo photo
+        join customer on customer.dealership_id = photo.dealership_id
+          and customer.id = photo.customer_id
+        where photo.dealership_id = ? and customer.public_id = ?
+        """, (rs, rowNum) -> new ProfilePhoto(rs.getString("content_type"), rs.getBytes("image_bytes")),
+        actor.dealershipId(), customerPublicId);
+    if (photos.isEmpty()) throw notFound("Customer profile photo was not found.");
+    ProfilePhoto photo = photos.getFirst();
+    if (photo.bytes() == null || photo.bytes().length == 0 || photo.bytes().length > MAX_PROFILE_PHOTO_BYTES
+        || !List.of("image/jpeg", "image/png", "image/webp").contains(photo.contentType())
+        || !photo.contentType().equals(detectProfileImageType(photo.bytes()))) {
+      throw notFound("Customer profile photo is unavailable. Ask the customer to upload it again.");
+    }
+    return photo;
+  }
+
+  public List<MotorcyclePurchaseView> motorcyclePurchases(CustomerPrincipal actor) {
+    return jdbc.query("""
+        select handover.public_id, invoice.invoice_number, invoice.invoice_total,
+          invoice.issued_at, handover.delivered_at, handover.delivered_to_name,
+          model.model_name, model.variant_name, model.colour_name, model.model_year,
+          coalesce(payment.paid_amount, 0)::numeric(16,2) as paid_amount,
+          coalesce(credit.credited_amount, 0)::numeric(16,2) as credited_amount
+        from vehicle_sale_handover handover
+        join vehicle_sale_invoice invoice
+          on invoice.dealership_id = handover.dealership_id and invoice.id = handover.invoice_id
+        join vehicle_unit vehicle
+          on vehicle.dealership_id = handover.dealership_id and vehicle.id = handover.vehicle_unit_id
+        join vehicle_model model
+          on model.dealership_id = vehicle.dealership_id and model.id = vehicle.vehicle_model_id
+        left join lateral (
+          select greatest(
+            coalesce(sum(receipt.amount) filter (where receipt.status = 'RECORDED'), 0)
+              - coalesce((select sum(refund.amount) from finance_invoice_adjustment refund
+                  where refund.dealership_id = handover.dealership_id
+                    and refund.source_type = 'SALES' and refund.sales_invoice_id = invoice.id
+                    and refund.adjustment_type = 'REFUND' and refund.status = 'PAID'), 0),
+            0)::numeric(16,2) as paid_amount
+          from vehicle_sale_payment receipt
+          where receipt.dealership_id = handover.dealership_id and receipt.invoice_id = invoice.id
+        ) payment on true
+        left join lateral (
+          select coalesce(sum(credit.amount), 0)::numeric(16,2) as credited_amount
+          from finance_invoice_adjustment credit
+          where credit.dealership_id = handover.dealership_id and credit.sales_invoice_id = invoice.id
+            and credit.source_type = 'SALES' and credit.adjustment_type = 'CREDIT_NOTE'
+            and credit.status = 'APPROVED'
+        ) credit on true
+        where handover.dealership_id = ? and handover.customer_id = ?
+        order by handover.delivered_at desc, handover.id desc
+        """, (rs, rowNum) -> {
+          BigDecimal total = rs.getBigDecimal("invoice_total");
+          BigDecimal paid = rs.getBigDecimal("paid_amount");
+          BigDecimal credited = rs.getBigDecimal("credited_amount");
+          BigDecimal balance = total.subtract(paid).subtract(credited).max(BigDecimal.ZERO)
+              .setScale(2, java.math.RoundingMode.HALF_UP);
+          return new MotorcyclePurchaseView(
+              rs.getObject("public_id", UUID.class), rs.getString("invoice_number"),
+              rs.getString("model_name"), rs.getString("variant_name"), rs.getString("colour_name"),
+              (Integer) rs.getObject("model_year"), total, paid, credited, balance,
+              rs.getTimestamp("issued_at") == null ? null : rs.getTimestamp("issued_at").toInstant(),
+              rs.getTimestamp("delivered_at").toInstant(), rs.getString("delivered_to_name"));
+        }, actor.dealershipId(), actor.customerId());
+  }
+
+  private NormalizedAddress normalizeAddress(CustomerPrincipal actor, AddressRequest request) {
+    if (request == null) throw badRequest("Address details are required.");
+    String label = required(request.label(), "Address label", 16).toUpperCase(Locale.ROOT);
+    if (!List.of("HOME", "WORK", "OTHER").contains(label)) throw badRequest("Choose Home, Work or Other.");
+    String recipient = required(request.recipientName(), "Recipient name", 160);
+    String phone = optional(request.phone(), 32);
+    if (phone != null) phone = phone.replaceAll("[\\s()\\-]", "");
+    if (phone == null || phone.isBlank()) {
+      phone = jdbc.queryForObject("select phone from customer where dealership_id = ? and id = ?",
+          String.class, actor.dealershipId(), actor.customerId());
+    }
+    if (phone == null || phone.isBlank()) throw badRequest("Add a contact number to this address.");
+    if (!phone.matches("[+0-9]{7,16}")) throw badRequest("Enter a valid contact number for this address.");
+    String line1 = required(request.addressLine1(), "Address line 1", 240);
+    String line2 = optional(request.addressLine2(), 240);
+    String landmark = optional(request.landmark(), 160);
+    String locality = optional(request.locality(), 160);
+    String city = required(request.city(), "City or town", 120);
+    String district = optional(request.district(), 120);
+    String state = required(request.state(), "State", 120);
+    String pin = required(request.postalCode(), "PIN or postal code", 12).toUpperCase(Locale.ROOT);
+    if (!pin.matches("[A-Z0-9][A-Z0-9 -]{2,11}")) throw badRequest("Enter a valid PIN or postal code.");
+    String country = optional(request.country(), 80);
+    if (country == null) country = "India";
+    boolean isDefault = Boolean.TRUE.equals(request.isDefaultDelivery());
+    return new NormalizedAddress(label, recipient, phone, line1, line2, landmark, locality,
+        city, district, state, pin, country, isDefault);
+  }
+
+  private void clearDefaultAddress(CustomerPrincipal actor) {
+    jdbc.update("update customer_address set is_default_delivery = false, updated_at = now() where dealership_id = ? and customer_id = ? and is_default_delivery = true",
+        actor.dealershipId(), actor.customerId());
+  }
+
+  private void ensureDefaultAddress(CustomerPrincipal actor) {
+    Integer count = jdbc.queryForObject(
+        "select count(*) from customer_address where dealership_id = ? and customer_id = ? and is_default_delivery = true",
+        Integer.class, actor.dealershipId(), actor.customerId());
+    if (count != null && count == 0) {
+      jdbc.update("""
+          update customer_address set is_default_delivery = true, updated_at = now()
+          where dealership_id = ? and id = (
+            select id from customer_address where dealership_id = ? and customer_id = ?
+            order by updated_at desc, id desc limit 1
+          )
+          """, actor.dealershipId(), actor.dealershipId(), actor.customerId());
+    }
+  }
+
+  private CustomerAddressView findAddress(CustomerPrincipal actor, UUID publicId) {
+    return addresses(actor).stream().filter(address -> address.publicId().equals(publicId)).findFirst()
+        .orElseThrow(() -> notFound("This address was not found in your profile."));
+  }
+
+  private void auditAddress(CustomerPrincipal actor, String action, UUID publicId, String label, boolean isDefault) {
+    jdbc.update("""
+        insert into audit_event(dealership_id, actor_kind, actor_customer_id,
+          action, entity_type, entity_id, details)
+        values (?, 'CUSTOMER', ?, ?, 'CUSTOMER_ADDRESS', ?,
+          jsonb_build_object('label', ?, 'isDefaultDelivery', ?))
+        """, actor.dealershipId(), actor.customerId(), action, publicId.toString(), label, isDefault);
+  }
+
+  private static String detectProfileImageType(byte[] bytes) {
+    if (bytes == null || bytes.length < 12) return null;
+    if ((bytes[0] & 255) == 255 && (bytes[1] & 255) == 216 && (bytes[2] & 255) == 255) return "image/jpeg";
+    if ((bytes[0] & 255) == 137 && bytes[1] == 80 && bytes[2] == 78 && bytes[3] == 71
+        && bytes[4] == 13 && bytes[5] == 10 && bytes[6] == 26 && bytes[7] == 10) return "image/png";
+    if (bytes[0] == 82 && bytes[1] == 73 && bytes[2] == 70 && bytes[3] == 70
+        && bytes[8] == 87 && bytes[9] == 69 && bytes[10] == 66 && bytes[11] == 80) return "image/webp";
+    return null;
+  }
+
+  private record NormalizedAddress(
+      String label, String recipientName, String phone, String addressLine1, String addressLine2,
+      String landmark, String locality, String city, String district, String state,
+      String postalCode, String country, boolean isDefaultDelivery) {}
 
   public List<VehicleView> vehicles(CustomerPrincipal actor) {
     return jdbc.query("""
@@ -660,6 +1010,16 @@ public class CustomerPortalService {
     return value.length() <= maximum ? value : value.substring(0, maximum);
   }
 
+  private static String optional(String value, int maximum) {
+    if (value == null) return null;
+    String cleaned = value.trim();
+    if (cleaned.isEmpty()) return null;
+    if (cleaned.length() > maximum || cleaned.chars().anyMatch(Character::isISOControl)) {
+      throw badRequest("Optional text is invalid.");
+    }
+    return cleaned;
+  }
+
   private static String required(String value, String label, int maximum) {
     if (value == null) throw badRequest(label + " is required.");
     String cleaned = value.trim();
@@ -698,8 +1058,22 @@ public class CustomerPortalService {
   public record SessionRequest(String accessToken, Instant expiresAt, CustomerProfile customer) {}
   public record PortalSession(String accessToken, Instant expiresAt, CustomerProfile customer) {}
   public record CustomerProfile(
-      UUID publicId, String customerCode, String fullName, String phone, String email,
-      String preferredLanguage, String dealershipCode, String dealershipName) {}
+      UUID publicId, String customerCode, String fullName, String phone, String alternatePhone, String email,
+      String preferredLanguage, boolean profilePhotoAvailable, String dealershipCode, String dealershipName) {}
+  public record CustomerProfileUpdate(String fullName, String phone, String alternatePhone, String email, String preferredLanguage) {}
+  public record AddressRequest(
+      String label, String recipientName, String phone, String addressLine1, String addressLine2,
+      String landmark, String locality, String city, String district, String state,
+      String postalCode, String country, Boolean isDefaultDelivery) {}
+  public record CustomerAddressView(
+      UUID publicId, String label, String recipientName, String phone, String addressLine1, String addressLine2,
+      String landmark, String locality, String city, String district, String state, String postalCode,
+      String country, boolean isDefaultDelivery, Instant createdAt, Instant updatedAt) {}
+  public record ProfilePhoto(String contentType, byte[] bytes) {}
+  public record MotorcyclePurchaseView(
+      UUID publicId, String invoiceNumber, String modelName, String variantName, String colourName,
+      Integer modelYear, BigDecimal invoiceTotal, BigDecimal paidAmount, BigDecimal creditedAmount,
+      BigDecimal balanceDue, Instant invoiceIssuedAt, Instant deliveredAt, String deliveredToName) {}
   public record InvitationView(
       UUID customerPublicId, String customerName, String purpose, String activationToken, Instant expiresAt) {}
   public record CustomerAppointmentRequest(

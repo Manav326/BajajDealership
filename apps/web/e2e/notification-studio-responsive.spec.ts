@@ -84,7 +84,11 @@ function preview() {
   };
 }
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, extraPermissions: string[] = []) {
+  let galleryImages: Array<{
+    publicId: string; modelCode: string; contentType: string; sizeBytes: number;
+    primary: boolean; uploadedAt: string;
+  }> = [];
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'responsive-e2e-session');
   });
@@ -110,6 +114,8 @@ async function mockApi(page: Page) {
           'customer.read',
           'sales.read',
           'vehicle.read',
+          'catalogue.read',
+          'catalogue.manage',
           'workshop.read',
           'parts.read',
           'finance.read',
@@ -125,6 +131,7 @@ async function mockApi(page: Page) {
           'social_media.whatsapp.manage',
           'social_media.whatsapp.send',
           'report.read',
+          ...extraPermissions,
         ],
       });
     }
@@ -132,6 +139,51 @@ async function mockApi(page: Page) {
       return json({ status: 'UP', service: 'bajaj-api', version: 'e2e', timestamp: previewExpiry });
     }
     if (path.endsWith('/system/bootstrap/status')) return json({ available: false });
+    if (path.endsWith('/admin/vehicle-models') && method === 'GET') {
+      return json({ items: [], page: 0, pageSize: 100, total: 0 });
+    }
+    if (path.endsWith('/admin/vehicle-units') && method === 'GET') {
+      return json({ items: [], page: 0, pageSize: 100, total: 0 });
+    }
+    if (path.endsWith('/admin/catalogue/models') && method === 'GET') {
+      return json({ models: [{
+        modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200',
+        family: 'Pulsar NS', category: 'SPORT', published: true,
+        markedOutOfStock: false, expectedAvailableOn: null, internalNote: null, updatedAt: null,
+        availableUnits: 0, expectedUnits: 0, reservedUnits: 0,
+      }] });
+    }
+    if (path.endsWith('/admin/catalogue/pricing-profiles') && method === 'GET') {
+      return json({ profiles: [] });
+    }
+    if (path.endsWith('/admin/catalogue/promotions') && method === 'GET') {
+      return json({ promotions: [] });
+    }
+    if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'GET') {
+      return json({ items: galleryImages });
+    }
+    if (path.endsWith('/admin/catalogue/models/BAJAJ_PULSAR_NS200/images') && method === 'POST') {
+      galleryImages = [{
+        publicId: 'e2e-catalogue-image-1',
+        modelCode: 'BAJAJ_PULSAR_NS200',
+        contentType: 'image/png',
+        sizeBytes: 68,
+        primary: true,
+        uploadedAt: '2026-10-29T12:00:00Z',
+      }];
+      return json(galleryImages[0]);
+    }
+    if (/\/admin\/catalogue\/models\/BAJAJ_PULSAR_NS200\/images\/[^/]+$/.test(path) && method === 'DELETE') {
+      galleryImages = [];
+      return json({ success: true, message: 'Image removed.' });
+    }
+    if (path.startsWith('/api/v1/public/catalogue/bikes/images/')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+      });
+    }
     if (path.endsWith('/admin/notifications/media/e2e-image')) {
       return route.fulfill({
         status: 200,
@@ -465,4 +517,131 @@ test('approved campaign history offers Send now before a schedule exists', async
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Send now ↗' })).toBeVisible();
   await expect(dialog.getByText('EXACT SAVED CONTENT', { exact: true })).toBeVisible();
+});
+
+
+test('staff manage Bajaj model gallery with multipart upload and primary-image removal', async ({ page }) => {
+  let galleryUploadContentType = '';
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/admin/catalogue/models/BAJAJ_PULSAR_NS200/images'
+        && request.method() === 'POST') {
+      galleryUploadContentType = request.headers()['content-type'] ?? '';
+    }
+  });
+  await mockApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+
+  await page.getByRole('button', { name: /Bike inventory/ }).click();
+  await expect(page.getByRole('heading', { name: 'Motorcycle image gallery', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Bajaj catalogue model')).toHaveValue('BAJAJ_PULSAR_NS200');
+  await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
+
+  await page.locator('.catalogue-gallery-upload input[type="file"]').setInputFiles({
+    name: 'pulsar-ns200.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8e0AAAAASUVORK5CYII=', 'base64'),
+  });
+  await page.getByRole('button', { name: 'Upload as primary image' }).click();
+  await expect(page.getByText('PRIMARY', { exact: true })).toBeVisible();
+  expect(galleryUploadContentType).toContain('multipart/form-data');
+  expect(galleryUploadContentType).not.toContain('application/json');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Remove image' }).click();
+  await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
+});
+
+
+test('staff can open a customer profile and view the saved delivery address and private photo', async ({ page }) => {
+  await mockApi(page, ['customer.update']);
+  let customer = {
+    publicId: '00000000-0000-0000-0000-000000000321',
+    customerCode: 'CUS-E2E-0321',
+    fullName: 'Asha Customer',
+    phone: '9000000032',
+    alternatePhone: '9000000033',
+    email: 'asha@example.test',
+    preferredLanguage: 'hi',
+    status: 'ACTIVE',
+    createdAt: '2026-10-20T10:00:00Z',
+    updatedAt: '2026-10-29T10:00:00Z',
+  };
+  let savedCustomerUpdate: Record<string, unknown> | null = null;
+  let customerNotes = 'Calls preferred during office hours.';
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    const json = (payload: unknown, status = 200) => route.fulfill({
+      status, contentType: 'application/json', body: JSON.stringify(payload),
+    });
+    if (path === '/api/v1/admin/customers' && method === 'GET') {
+      return json({ items: [customer], page: 0, pageSize: 25, total: 1 });
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'GET') return json(customer);
+    if (path === '/api/v1/admin/customers/' + customer.publicId && method === 'PUT') {
+      savedCustomerUpdate = route.request().postDataJSON() as Record<string, unknown>;
+      customer = { ...customer, ...savedCustomerUpdate, updatedAt: '2026-10-29T11:15:00Z' };
+      customerNotes = typeof savedCustomerUpdate.notes === 'string' ? savedCustomerUpdate.notes : '';
+      return json(customer);
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/saved-addresses' && method === 'GET') {
+      return json([{
+        publicId: 'address-e2e-0321', label: 'HOME', recipientName: 'Asha Customer',
+        phone: '9000000032', addressLine1: '12 Station Road', addressLine2: 'Flat 3B',
+        landmark: 'Near the post office', locality: 'Town Centre', city: 'Bettiah',
+        district: 'West Champaran', state: 'Bihar', postalCode: '845438', country: 'India',
+        isDefaultDelivery: true, createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-28T10:00:00Z',
+      }]);
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/history' && method === 'GET') {
+      return json({
+        customer, notes: customerNotes,
+        marketingConsentAt: null, marketingConsentSource: null,
+        motorcyclePurchases: [], sparePartOrders: [], salesEnquiries: [], websiteRequests: [],
+      });
+    }
+    if (path === '/api/v1/admin/customers/' + customer.publicId + '/profile-photo' && method === 'GET') {
+      return route.fulfill({
+        status: 200, contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64'),
+      });
+    }
+    return route.fallback();
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Customers', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: 'CUS-E2E-0321' })).toBeVisible();
+  await page.getByRole('button', { name: 'View profile for Asha Customer' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Customer profile' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Asha Customer' })).toBeVisible();
+  await expect(dialog.locator('.customer-profile-photo img')).toBeVisible();
+  await expect(dialog.getByText('12 Station Road', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Near the post office', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Default', { exact: true })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Edit customer details' }).click();
+  await dialog.getByLabel('Full name *').fill('Asha Updated');
+  await dialog.getByLabel('Mobile number').fill('9000000042');
+  await dialog.getByLabel('Internal customer note').fill('Prefers WhatsApp after 5 PM.');
+  await expect(dialog.getByLabel('Marketing consent change')).toHaveValue('UNCHANGED');
+  await dialog.getByRole('button', { name: 'Save customer details' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Customer details saved.');
+  await expect(dialog.getByRole('heading', { name: 'Asha Updated' })).toBeVisible();
+  expect(savedCustomerUpdate).toMatchObject({
+    fullName: 'Asha Updated',
+    phone: '9000000042',
+    notes: 'Prefers WhatsApp after 5 PM.',
+    marketingConsent: null,
+    consentSource: null,
+  });
+  await expect(page.getByRole('button', { name: 'View profile for Asha Updated' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });

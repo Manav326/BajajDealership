@@ -36,6 +36,10 @@ public class CustomerRetailPartsController {
     return retail.listCustomerCatalogue(principal);
   }
 
+  @GetMapping("/filters")
+  public RetailPartsService.RetailPartFilters filters(@AuthenticationPrincipal CustomerPrincipal principal) {
+    return retail.listCustomerFilters(principal);
+  }
   @GetMapping("/orders")
   public List<RetailPartsService.RetailOrderView> orders(
       @AuthenticationPrincipal CustomerPrincipal principal) {

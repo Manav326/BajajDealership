@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import com.quantaedge.bajaj.sales.SalesOperationsService;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,15 @@ class CustomerServiceIntegrationTest {
 
   @Autowired
   private CustomerService customers;
+
+  @Autowired
+  private CustomerPortalService portal;
+
+  @Autowired
+  private SalesOperationsService salesOperations;
+
+  @Autowired
+  private CustomerController customerController;
 
   @Test
   void createsCustomerWithDefaultHindiAndAuditableChange() {
@@ -95,6 +105,77 @@ class CustomerServiceIntegrationTest {
         where dealership_id = ? and public_id = ?
         """, Boolean.class, owner.dealershipId(), created.publicId());
     assertThat(consentRemains).isTrue();
+  }
+
+
+  @Test
+  void customerHistoryReturnsEveryHistorySectionAndRespectsDealershipBoundary() {
+    StaffPrincipal owner = createOwner("HISTORY");
+    CustomerService.CustomerView created = customers.create(owner,
+        new CustomerService.CustomerRequest("History Customer", "9876500011", null, "history@example.test",
+            "en", false, null, "Prefers a call before arranging delivery."));
+    salesOperations.createEnquiry(owner, new SalesOperationsService.EnquiryRequest(
+        created.publicId(), null, null, "WALK_IN", "CALL", null, "Walk-in customer asked for finance options."));
+
+    CustomerService.CustomerHistoryView history = customers.history(owner, created.publicId());
+    assertThat(history.customer().publicId()).isEqualTo(created.publicId());
+    assertThat(history.notes()).isEqualTo("Prefers a call before arranging delivery.");
+    assertThat(history.motorcyclePurchases()).isEmpty();
+    assertThat(history.sparePartOrders()).isEmpty();
+    assertThat(history.salesEnquiries()).hasSize(1);
+    assertThat(history.salesEnquiries().getFirst().enquiry().leadSource()).isEqualTo("WALK_IN");
+    assertThat(history.salesEnquiries().getFirst().activities())
+        .extracting(SalesOperationsService.ActivityView::activityType)
+        .contains("ENQUIRY_CREATED");
+    assertThat(history.websiteRequests()).isEmpty();
+
+    StaffPrincipal otherDealership = createOwner("HISTORY_OTHER");
+    assertThatThrownBy(() -> customers.history(otherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+  }
+
+
+  @Test
+  void staffProfileShowsCustomerAddressesAndPrivatePhotoOnlyInsideItsDealership() {
+    StaffPrincipal owner = createOwner("PROFILE");
+    CustomerService.CustomerView created = customers.create(owner,
+        new CustomerService.CustomerRequest("Profile Customer", "9876500099", null, "profile@example.test",
+            "en", false, null, null));
+    Long customerId = jdbc.queryForObject("""
+        select id from customer where dealership_id = ? and public_id = ?
+        """, Long.class, owner.dealershipId(), created.publicId());
+    jdbc.update("""
+        insert into customer_address(dealership_id, customer_id, label, recipient_name, phone,
+          address_line1, locality, city, district, state, postal_code, country, is_default_delivery)
+        values (?, ?, 'HOME', 'Profile Customer', '9876500099', '12 Sample Road',
+          'Station Road', 'Bettiah', 'West Champaran', 'Bihar', '845438', 'India', true)
+        """, owner.dealershipId(), customerId);
+    byte[] png = java.util.Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=");
+    jdbc.update("""
+        insert into customer_profile_photo(dealership_id, customer_id, content_type, image_bytes, byte_length)
+        values (?, ?, 'image/png', ?, ?)
+        """, owner.dealershipId(), customerId, png, png.length);
+
+    var addresses = portal.addressesForStaff(owner, created.publicId());
+    assertThat(addresses).hasSize(1);
+    assertThat(addresses.getFirst().isDefaultDelivery()).isTrue();
+    assertThat(addresses.getFirst().addressLine1()).isEqualTo("12 Sample Road");
+    var photo = portal.readProfilePhotoForStaff(owner, created.publicId());
+    assertThat(photo.contentType()).isEqualTo("image/png");
+    assertThat(photo.bytes()).containsExactly(png);
+
+    StaffPrincipal anotherDealership = createOwner("PROFILE_OTHER");
+    assertThatThrownBy(() -> portal.addressesForStaff(anotherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
+    assertThatThrownBy(() -> portal.readProfilePhotoForStaff(anotherDealership, created.publicId()))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+            .isEqualTo(HttpStatus.NOT_FOUND));
   }
 
   private StaffPrincipal createOwner(String suffix) {

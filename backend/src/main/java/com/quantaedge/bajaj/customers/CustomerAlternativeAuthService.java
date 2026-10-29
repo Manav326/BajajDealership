@@ -308,8 +308,11 @@ public class CustomerAlternativeAuthService {
         Timestamp.from(expiresAt), Timestamp.from(now), truncate(userAgent, 300), remoteHash(remoteAddress));
     CustomerPortalService.CustomerProfile profile = jdbc.queryForObject("""
         select customer.public_id, customer.customer_code, customer.full_name, customer.phone,
-          customer.email, customer.preferred_language, dealership.code as dealership_code,
-          dealership.name as dealership_name
+          customer.alternate_phone, customer.email, customer.preferred_language,
+          exists(select 1 from customer_profile_photo photo
+            where photo.dealership_id = customer.dealership_id and photo.customer_id = customer.id)
+            as profile_photo_available,
+          dealership.code as dealership_code, dealership.name as dealership_name
         from customer_portal_account account
         join customer on customer.dealership_id = account.dealership_id and customer.id = account.customer_id
         join dealership on dealership.id = account.dealership_id
@@ -317,7 +320,8 @@ public class CustomerAlternativeAuthService {
           and customer.status = 'ACTIVE' and dealership.status = 'ACTIVE'
         """, (rs, rowNum) -> new CustomerPortalService.CustomerProfile(
             rs.getObject("public_id", UUID.class), rs.getString("customer_code"), rs.getString("full_name"),
-            rs.getString("phone"), rs.getString("email"), rs.getString("preferred_language"),
+            rs.getString("phone"), rs.getString("alternate_phone"), rs.getString("email"),
+            rs.getString("preferred_language"), rs.getBoolean("profile_photo_available"),
             rs.getString("dealership_code"), rs.getString("dealership_name")),
         dealershipId, accountId);
     return new CustomerPortalService.PortalSession(token, expiresAt, profile);

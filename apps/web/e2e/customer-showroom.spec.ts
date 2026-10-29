@@ -144,6 +144,14 @@ async function mockShowroomApi(
       }
       return json(journey.requests);
     }
+    if (url.pathname === '/api/v1/customer/addresses' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/purchase-history/motorcycles' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/profile/photo' && method === 'GET') return route.fulfill({ status: 404, body: 'No profile photo' });
+    if (url.pathname === '/api/v1/customer/parts' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/parts/orders' && method === 'GET') return json([]);
+    if (url.pathname === '/api/v1/customer/parts/filters' && method === 'GET') {
+      return json({ categories: ['BRAKES', 'ENGINE', 'FILTERS'], motorcycleModels: [] });
+    }
     if (url.pathname === '/api/v1/customer/auth/logout' && method === 'POST') return json({ success: true });
     return json({});
   });
@@ -161,6 +169,13 @@ const retailPartFixture = {
   imageUrl: null,
   quantityAvailable: 4,
   available: true,
+  availabilityStatus: 'AVAILABLE',
+  fitmentVerified: true,
+  category: 'BRAKES',
+  partNumber: null,
+  sourceUrl: 'https://www.bajajauto.com/customer-service/spares',
+  sourceVerifiedAt: '2026-10-29',
+  sourceDataStatus: 'DEALERSHIP_VERIFIED',
 };
 
 function deliveryOrderFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -206,6 +221,11 @@ type CustomerRetailE2EState = {
   quoteAcceptance: boolean | null;
   cancellationRequested: boolean;
   currentOrder: Record<string, unknown> | null;
+  profileSavePayload: Record<string, unknown> | null;
+  photoUploaded: boolean;
+  photoUploadContentType: string;
+  addressPayloads: Array<Record<string, unknown>>;
+  currentAddresses: Array<Record<string, unknown>>;
 };
 
 async function mockSignedInCustomerPortal(
@@ -217,7 +237,31 @@ async function mockSignedInCustomerPortal(
     quoteAcceptance: null,
     cancellationRequested: false,
     currentOrder: initialOrder ? { ...initialOrder } : null,
+    profileSavePayload: null,
+    photoUploaded: false,
+    photoUploadContentType: '',
+    addressPayloads: [],
+    currentAddresses: [],
   };
+  let currentProfile: Record<string, unknown> = {
+    publicId: 'customer-public-e2e-1',
+    customerCode: 'CUS-E2E-001',
+    fullName: 'Manav Test Customer',
+    phone: '9000000001',
+    alternatePhone: null,
+    email: null,
+    preferredLanguage: 'en',
+    profilePhotoAvailable: false,
+    dealershipCode: 'LBA',
+    dealershipName: 'Lucky Bajaj Agency',
+  };
+  const purchases = [{
+    publicId: 'sale-handover-e2e-1', invoiceNumber: 'SALE-E2E-001',
+    modelName: 'Pulsar NS200', variantName: 'Standard', colourName: 'Black', modelYear: 2026,
+    invoiceTotal: 145000, paidAmount: 145000, creditedAmount: 0, balanceDue: 0,
+    invoiceIssuedAt: '2026-09-15T10:00:00Z', deliveredAt: '2026-09-16T10:00:00Z',
+    deliveredToName: 'Manav Test Customer',
+  }];
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_customer_portal_token', 'synthetic-customer-token');
   });
@@ -231,18 +275,62 @@ async function mockSignedInCustomerPortal(
       body: JSON.stringify(payload),
     });
 
-    if (path === '/api/v1/customer/auth/me') {
-      return json({
-        publicId: 'customer-public-e2e-1',
-        customerCode: 'CUS-E2E-001',
-        fullName: 'Manav Test Customer',
-        phone: '9000000001',
-        email: null,
-        preferredLanguage: 'en',
-        dealershipCode: 'LBA',
-        dealershipName: 'Lucky Bajaj Agency',
+    if (path === '/api/v1/customer/auth/me') return json(currentProfile);
+    if (path === '/api/v1/customer/profile' && method === 'PUT') {
+      state.profileSavePayload = request.postDataJSON() as Record<string, unknown>;
+      currentProfile = { ...currentProfile, ...state.profileSavePayload };
+      return json(currentProfile);
+    }
+    if (path === '/api/v1/customer/profile/photo' && method === 'GET') {
+      if (!state.photoUploaded) return route.fulfill({ status: 404, body: 'No profile photo' });
+      return route.fulfill({
+        status: 200, contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64'),
       });
     }
+    if (path === '/api/v1/customer/profile/photo' && method === 'POST') {
+      state.photoUploaded = true;
+      state.photoUploadContentType = request.headers()['content-type'] ?? '';
+      currentProfile = { ...currentProfile, profilePhotoAvailable: true };
+      return json({ saved: true, contentType: 'image/png', sizeBytes: 68 });
+    }
+    if (path === '/api/v1/customer/profile/photo' && method === 'DELETE') {
+      state.photoUploaded = false;
+      currentProfile = { ...currentProfile, profilePhotoAvailable: false };
+      return json({ success: true, message: 'Profile photo removed.' });
+    }
+    if (path === '/api/v1/customer/addresses' && method === 'GET') return json(state.currentAddresses);
+    if (path === '/api/v1/customer/addresses' && method === 'POST') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      state.addressPayloads.push(payload);
+      const saved = {
+        publicId: `address-e2e-${state.addressPayloads.length}`, ...payload,
+        createdAt: '2026-10-29T08:00:00Z', updatedAt: '2026-10-29T08:00:00Z',
+      };
+      if (payload.isDefaultDelivery) state.currentAddresses = state.currentAddresses.map((address) => ({ ...address, isDefaultDelivery: false }));
+      if (state.currentAddresses.length === 0 && payload.isDefaultDelivery !== true) saved.isDefaultDelivery = true;
+      state.currentAddresses.push(saved);
+      return json(saved, 201);
+    }
+    if (/^\/api\/v1\/customer\/addresses\/[^/]+$/.test(path) && method === 'PUT') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      state.addressPayloads.push(payload);
+      state.currentAddresses = state.currentAddresses.map((address) => address.publicId === path.split('/').at(-1)
+        ? { ...address, ...payload, updatedAt: '2026-10-29T08:10:00Z' } : address);
+      if (payload.isDefaultDelivery) state.currentAddresses = state.currentAddresses.map((address) => ({
+        ...address, isDefaultDelivery: address.publicId === path.split('/').at(-1),
+      }));
+      return json(state.currentAddresses.find((address) => address.publicId === path.split('/').at(-1)));
+    }
+    if (/^\/api\/v1\/customer\/addresses\/[^/]+$/.test(path) && method === 'DELETE') {
+      const id = path.split('/').at(-1);
+      state.currentAddresses = state.currentAddresses.filter((address) => address.publicId !== id);
+      if (!state.currentAddresses.some((address) => address.isDefaultDelivery) && state.currentAddresses.length) {
+        state.currentAddresses[0] = { ...state.currentAddresses[0], isDefaultDelivery: true };
+      }
+      return json(state.currentAddresses);
+    }
+    if (path === '/api/v1/customer/purchase-history/motorcycles' && method === 'GET') return json(purchases);
     if (path === '/api/v1/customer/vehicles'
       || path === '/api/v1/customer/service-history'
       || path === '/api/v1/customer/appointments'
@@ -251,6 +339,14 @@ async function mockSignedInCustomerPortal(
     }
     if (path === '/api/v1/customer/notifications') {
       return json({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+    }
+    if (path === '/api/v1/customer/parts/filters' && method === 'GET') {
+      return json({
+        categories: ['BRAKES', 'ENGINE', 'FILTERS', 'TRANSMISSION'],
+        motorcycleModels: [{
+          modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200', family: 'Pulsar NS', category: 'SPORT',
+        }],
+      });
     }
     if (path === '/api/v1/customer/parts' && method === 'GET') return json([retailPartFixture]);
     if (path === '/api/v1/customer/parts/orders' && method === 'GET') {
@@ -318,6 +414,44 @@ test('public catalogue renders at least 20 Bajaj model cards and searches the re
   await expect(cards.getByRole('heading', { name: 'Fixture Bajaj Model 07', exact: true })).toBeVisible();
 });
 
+test('bike detail deep links restore from the URL and browser Back/Forward closes and reopens the dialog', async ({ page }) => {
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173/?bike=BAJAJ_PULSAR_NS200');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Pulsar NS200', exact: true })).toBeVisible();
+
+  await page.goto('http://127.0.0.1:4173');
+  await page.getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await expect(page).toHaveURL(/bike=BAJAJ_PULSAR_NS200/);
+  await page.goBack();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.has('bike')).toBeFalsy();
+  await page.goForward();
+  await expect(page.getByRole('dialog')).toBeVisible();
+});
+
+test('bike comparison is shareable, side by side, and limited to three models', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockShowroomApi(page);
+  await page.goto('http://127.0.0.1:4173');
+
+  const cards = page.locator('.showroom-bike-card');
+  await cards.nth(0).getByRole('button', { name: 'Add Pulsar NS200 to comparison' }).click();
+  await cards.nth(1).getByRole('button', { name: 'Add Fixture Bajaj Model 01 to comparison' }).click();
+  const comparison = page.locator('.showroom-comparison-panel');
+  await expect(comparison).toBeVisible();
+  await expect(comparison.getByRole('table')).toContainText('Pulsar NS200');
+  await expect(comparison.getByRole('table')).toContainText('Fixture Bajaj Model 01');
+  expect(new URL(page.url()).searchParams.get('compare')).toBe('BAJAJ_PULSAR_NS200,BAJAJ_TEST_MODEL_01');
+
+  await cards.nth(2).getByRole('button', { name: 'Add Fixture Bajaj Model 02 to comparison' }).click();
+  await expect(comparison.getByRole('table')).toContainText('Fixture Bajaj Model 02');
+  await cards.nth(3).getByRole('button', { name: 'Add Fixture Bajaj Model 03 to comparison' }).click();
+  await expect(comparison.getByRole('status')).toContainText('Compare up to three bikes');
+  await expect(comparison.getByRole('table').getByRole('columnheader')).toHaveCount(4);
+  expect(new URL(page.url()).searchParams.get('compare')).toBe('BAJAJ_PULSAR_NS200,BAJAJ_TEST_MODEL_01,BAJAJ_TEST_MODEL_02');
+});
+
 test('showroom honors reduced-motion preference', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockShowroomApi(page);
@@ -376,12 +510,18 @@ test('public promotions expose source and terms without claiming an automatic di
   await expect(card).toBeVisible();
   await expect(card.getByRole('heading', { name: 'Verified accessory offer' })).toBeVisible();
   await expect(card.getByRole('link', { name: 'Review source ↗' })).toHaveAttribute('href', 'https://www.bajajauto.com/bike-offer');
+  await expect(card.getByRole('link', { name: 'Share offer link ↗' })).toHaveAttribute(
+    'href', '?offer=promotion-e2e-1#showroom-offer-promotion-e2e-1');
   await card.getByText('Terms and exclusions').click();
   await expect(card.getByText('Valid only for eligible customers.', { exact: false })).toBeVisible();
   await expect(card.getByText('This announcement does not change catalogue prices automatically.', { exact: false })).toHaveCount(0);
   await expect(card.getByText('Dealer-authored information only.', { exact: false })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+  await page.goto('http://127.0.0.1:4173/?offer=promotion-e2e-1#showroom-offer-promotion-e2e-1');
+  await expect(page.locator('#showroom-offer-promotion-e2e-1')).toBeInViewport();
+  await expect(page.locator('#showroom-offer-promotion-e2e-1')).toHaveClass(/showroom-offer-card-highlighted/);
 });
 
 test('selecting a bike preserves the preferred test ride time through sign-in handoff', async ({ page }) => {
@@ -801,4 +941,232 @@ test('customer auth has stable URLs, returns to the showroom, and exposes policy
   await page.getByRole('button', { name: 'Privacy policy' }).click();
   await expect(page).toHaveURL(/\/\?view=privacy$/);
   await expect(page.getByRole('heading', { name: 'Privacy policy', exact: true })).toBeVisible();
+});
+
+
+test('signed-in customer filters spare parts by category, model/type, availability and price', async ({ page }) => {
+  await mockSignedInCustomerPortal(page);
+  const parts = [
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-brake-pad',
+      skuCode: 'BGP-1001',
+      partName: 'Front brake pad',
+      category: 'BRAKES',
+      retailPrice: 199,
+      fitmentModelCodes: ['BAJAJ_PULSAR_NS200'],
+      quantityAvailable: 3,
+      available: true,
+      availabilityStatus: 'AVAILABLE',
+      fitmentVerified: true,
+    },
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-oil-filter',
+      skuCode: 'BGP-1002',
+      partName: 'Oil filter',
+      category: 'FILTERS',
+      retailPrice: 89,
+      fitmentModelCodes: ['BAJAJ_DOMINAR_400'],
+      quantityAvailable: 0,
+      available: false,
+      availabilityStatus: 'OUT_OF_STOCK',
+      fitmentVerified: true,
+    },
+    {
+      ...retailPartFixture,
+      publicId: 'part-filter-clutch',
+      skuCode: 'BGP-1003',
+      partName: 'Clutch assembly',
+      category: 'CLUTCH',
+      retailPrice: null,
+      fitmentModelCodes: [],
+      quantityAvailable: 0,
+      available: false,
+      availabilityStatus: 'CHECK_WITH_DEALER',
+      fitmentVerified: false,
+    },
+  ];
+  await page.route('**/api/v1/customer/parts', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(parts) });
+    }
+    return route.fallback();
+  });
+  await page.route('**/api/v1/customer/parts/filters', async (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      categories: ['BRAKES', 'CLUTCH', 'FILTERS'],
+      motorcycleModels: [
+        { modelCode: 'BAJAJ_PULSAR_NS200', modelName: 'Pulsar NS200', family: 'Pulsar NS', category: 'SPORT' },
+        { modelCode: 'BAJAJ_DOMINAR_400', modelName: 'Dominar 400', family: 'Dominar', category: 'TOURING' },
+      ],
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await expect(page.locator('.retail-part-card')).toHaveCount(3);
+
+  await page.getByLabel('Part category').selectOption('BRAKES');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Front brake pad' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Motorcycle type').selectOption('SPORT');
+  await page.getByLabel('Motorcycle model').selectOption('BAJAJ_PULSAR_NS200');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByText('Verified for Pulsar NS200')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Availability').selectOption('OUT_OF_STOCK');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Oil filter' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add to cart' })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Minimum price (₹)').fill('100');
+  await page.getByLabel('Maximum price (₹)').fill('250');
+  await expect(page.locator('.retail-part-card')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Front brake pad' })).toBeVisible();
+});
+
+test('signed-in customer explores the shared Bajaj catalogue and sends an enquiry through the existing sales-request flow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockSignedInCustomerPortal(page);
+  const savedRequests: Array<Record<string, unknown>> = [];
+  let submittedPayload: Record<string, unknown> | null = null;
+  let catalogueCalls = 0;
+
+  // Override only the catalogue and sales-request routes; all other portal APIs retain their normal fixtures.
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const json = (payload: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    });
+
+    if (url.pathname === '/api/v1/public/catalogue/bikes') {
+      catalogueCalls += 1;
+      return json({
+        manufacturer: 'BAJAJ', dealershipCode: 'LBA', dealershipName: 'Lucky Bajaj Agency',
+        priceReferenceCity: 'New Delhi', servedAt: '2026-10-29T00:00:00Z', bikes: [bike],
+      });
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'POST') {
+      submittedPayload = request.postDataJSON() as Record<string, unknown>;
+      const created = {
+        publicId: 'sales-request-portal-explorer', requestCode: 'SR-PORTAL-0001',
+        requestType: submittedPayload.requestType, modelCode: submittedPayload.modelCode,
+        modelName: 'Pulsar NS200', preferredAt: submittedPayload.preferredAt ?? null,
+        notes: submittedPayload.notes ?? null, status: 'REQUESTED',
+        createdAt: '2026-10-29T08:00:00Z', updatedAt: '2026-10-29T08:00:00Z',
+        convertedEnquiryPublicId: null, customerPublicId: 'customer-public-e2e-1',
+        customerCode: 'CUS-E2E-001', customerName: 'Manav Test Customer',
+        customerPhone: '9000000001', customerEmail: null,
+        enquiryCode: null, enquiryStatus: null, testRideCode: null, testRideStatus: null,
+        testRideScheduledStart: null, bookingCode: null, bookingStatus: null,
+        invoiceNumber: null, invoiceStatus: null, invoiceTotal: null,
+        paidAmount: 0, creditedAmount: null, balanceDue: null, deliveredAt: null,
+      } as Record<string, unknown>;
+      savedRequests.splice(0, savedRequests.length, created);
+      return json(created);
+    }
+    if (url.pathname === '/api/v1/customer/sales-requests' && method === 'GET') return json(savedRequests);
+    return route.fallback();
+  });
+
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+  await page.getByRole('button', { name: /Explore bikes/ }).click();
+  await expect(page.getByRole('heading', { name: /Explore the Bajaj range/ })).toBeVisible();
+  await expect(page.locator('.showroom-bike-card')).toHaveCount(1);
+  await page.locator('.showroom-bike-card').getByRole('button', { name: 'View Pulsar NS200 details' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Enquire / purchase' }).click();
+
+  await expect(page.getByRole('heading', { name: 'My Bajaj requests' })).toBeVisible();
+  await expect(page.locator('.portal-alert.alert-success')).toContainText('Your purchase enquiry for Pulsar NS200 was sent to Lucky Bajaj.');
+  expect(catalogueCalls).toBeGreaterThan(0);
+  expect(submittedPayload).toMatchObject({
+    requestType: 'PURCHASE', modelCode: 'BAJAJ_PULSAR_NS200', preferredAt: null,
+  });
+  expect(typeof submittedPayload?.idempotencyKey).toBe('string');
+  await expect(page.getByText('SR-PORTAL-0001')).toBeVisible();
+});
+
+
+test('customer profile entry point, private photo, saved addresses and purchase history stay connected', async ({ page }) => {
+  const state = await mockSignedInCustomerPortal(page, deliveryOrderFixture({ status: 'FULFILLED', paymentStatus: 'PAID_ON_DELIVERY' }));
+  await page.goto('http://127.0.0.1:4173');
+  await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
+
+  // The avatar/name control in the sticky portal header is a direct, discoverable entry point.
+  await page.getByRole('button', { name: 'Open My profile' }).click();
+  await expect(page.getByRole('heading', { name: 'My profile', exact: true })).toBeVisible();
+  await page.getByLabel('Full name *').fill('Manav Updated');
+  await page.getByLabel('Alternate number').fill('9000000011');
+  await page.getByLabel('Email address').fill('manav-updated@example.test');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toContainText('Profile saved.');
+  expect(state.profileSavePayload).toMatchObject({
+    fullName: 'Manav Updated',
+    alternatePhone: '9000000011',
+    email: 'manav-updated@example.test',
+  });
+  await expect(page.locator('.customer-profile-trigger-copy')).toContainText('Manav Updated');
+
+  const photo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwK8AAAAASUVORK5CYII=', 'base64');
+  await page.locator('input[type="file"][accept="image/jpeg,image/png,image/webp"]').setInputFiles({
+    name: 'customer-profile.png', mimeType: 'image/png', buffer: photo,
+  });
+  await expect(page.locator('.profile-large-avatar img')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove photo' })).toBeVisible();
+  expect(state.photoUploadContentType).toContain('multipart/form-data');
+  expect(state.photoUploadContentType).not.toContain('application/json');
+
+  await page.getByRole('button', { name: /Add address/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Add a saved address' })).toBeVisible();
+  await page.getByLabel('Address label *').selectOption('HOME');
+  await page.getByLabel('Recipient name *').fill('Manav Updated');
+  await page.getByLabel('Contact mobile *').fill('9000000011');
+  await page.getByLabel('Address line 1 *').fill('12 Example Street');
+  await page.getByLabel('Address line 2').fill('Floor 2');
+  await page.getByLabel('Landmark').fill('Near the post office');
+  await page.getByLabel('Locality / area').fill('Station Road');
+  await page.getByLabel('City / town *').fill('Bettiah');
+  await page.getByLabel('District').fill('West Champaran');
+  await page.getByLabel('State *').fill('Bihar');
+  await page.getByLabel('PIN / postal code *').fill('845438');
+  await page.getByRole('checkbox', { name: 'Use as my default delivery address' }).check();
+  await page.getByRole('button', { name: 'Add address', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Address saved in your address book.');
+  await expect(page.locator('.profile-address-card')).toContainText('Default delivery');
+  expect(state.addressPayloads[0]).toMatchObject({
+    label: 'HOME', addressLine1: '12 Example Street', city: 'Bettiah',
+    state: 'Bihar', postalCode: '845438', isDefaultDelivery: true,
+  });
+
+  // Purchases are a different, direct tab; they are not lost when editable contact data changes.
+  await page.getByRole('button', { name: /Purchases/ }).click();
+  await expect(page.getByRole('heading', { name: 'Purchase history', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Motorcycles purchased' })).toBeVisible();
+  await expect(page.getByText('SALE-E2E-001', { exact: false })).toBeVisible();
+  await expect(page.getByText('RPO-E2E-001', { exact: false })).toBeVisible();
+  await expect(page.getByText('Front brake pad', { exact: false })).toBeVisible();
+
+  // The saved default is preselected at checkout, but the customer may still type a one-off address.
+  await page.getByRole('button', { name: /Spare parts/ }).click();
+  await page.getByRole('button', { name: 'Add to cart' }).click();
+  await page.getByLabel('Fulfillment method').selectOption('DELIVERY');
+  await expect(page.getByLabel('Use a saved address')).toHaveValue('address-e2e-1');
+  await expect(page.getByLabel('Delivery address *')).toHaveValue(/12 Example Street/);
+  await page.getByRole('button', { name: 'Request delivery quote' }).click();
+  await expect(page.getByRole('status')).toContainText('Delivery request RPO-E2E-NEW saved.');
+  expect(String(state.checkoutPayload?.deliveryAddress)).toContain('12 Example Street');
 });

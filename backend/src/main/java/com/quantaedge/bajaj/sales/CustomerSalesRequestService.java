@@ -263,6 +263,14 @@ public class CustomerSalesRequestService {
         """, REQUEST_ROW, actor.dealershipId(), status, limit);
   }
 
+  /** All website-originated bike requests for a customer, including converted and cancelled records. */
+  public List<RequestView> listForCustomerRecord(StaffPrincipal actor, UUID customerPublicId) {
+    return jdbc.query(SELECT_REQUEST + """
+        where request.dealership_id = ? and customer.public_id = ?
+        order by request.created_at desc, request.id desc
+        """, REQUEST_ROW, actor.dealershipId(), customerPublicId);
+  }
+
   @Transactional
   public RequestView convertToEnquiry(StaffPrincipal actor, UUID publicId) {
     List<Map<String, Object>> rows = jdbc.queryForList("""

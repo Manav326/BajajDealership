@@ -1,10 +1,27 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import BajajShowroom, { type ShowroomAction, type ShowroomBike } from './BajajShowroom';
 import GoogleSignInButton, { type CustomerGoogleSession } from './auth/GoogleSignInButton';
 
 type CustomerProfile = {
-  publicId: string; customerCode: string; fullName: string; phone: string | null; email: string | null;
-  preferredLanguage: string; dealershipCode: string; dealershipName: string;
+  publicId: string; customerCode: string; fullName: string; phone: string | null; alternatePhone: string | null;
+  email: string | null; preferredLanguage: 'hi' | 'en' | 'hinglish'; profilePhotoAvailable: boolean;
+  dealershipCode: string; dealershipName: string;
+};
+type CustomerAddress = {
+  publicId: string; label: 'HOME' | 'WORK' | 'OTHER'; recipientName: string; phone: string;
+  addressLine1: string; addressLine2: string | null; landmark: string | null; locality: string | null;
+  city: string; district: string | null; state: string; postalCode: string; country: string;
+  isDefaultDelivery: boolean; createdAt: string; updatedAt: string;
+};
+type AddressForm = {
+  label: 'HOME' | 'WORK' | 'OTHER'; recipientName: string; phone: string; addressLine1: string;
+  addressLine2: string; landmark: string; locality: string; city: string; district: string;
+  state: string; postalCode: string; country: string; isDefaultDelivery: boolean;
+};
+type MotorcyclePurchase = {
+  publicId: string; invoiceNumber: string; modelName: string; variantName: string | null; colourName: string | null;
+  modelYear: number | null; invoiceTotal: number; paidAmount: number; creditedAmount: number; balanceDue: number;
+  invoiceIssuedAt: string | null; deliveredAt: string; deliveredToName: string;
 };
 type PortalSession = { accessToken: string; expiresAt: string; customer: CustomerProfile };
 type Vehicle = {
@@ -47,13 +64,20 @@ type CustomerSalesRequest = {
 };
 
 type PendingShowroomIntent = {
+  source?: 'PUBLIC_SHOWROOM' | 'CUSTOMER_PORTAL';
   action: ShowroomAction; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string;
   preferredAt?: string | null;
 };
 type RetailPart = {
   publicId: string; skuCode: string; partName: string; description: string | null; unitOfMeasure: string;
-  retailPrice: number; fitmentModelCodes: string[]; imageUrl: string | null;
-  quantityAvailable: number; available: boolean;
+  retailPrice: number | null; fitmentModelCodes: string[]; imageUrl: string | null;
+  quantityAvailable: number; available: boolean; availabilityStatus: 'AVAILABLE' | 'OUT_OF_STOCK' | 'CHECK_WITH_DEALER';
+  fitmentVerified: boolean; category: string; partNumber: string | null; sourceUrl: string | null;
+  sourceVerifiedAt: string | null; sourceDataStatus: string;
+};
+type RetailPartFilters = {
+  categories: string[];
+  motorcycleModels: Array<{ modelCode: string; modelName: string; family: string; category: string }>;
 };
 type RetailOrderLine = {
   partPublicId: string; skuCode: string; partName: string; unitOfMeasure: string;
@@ -74,8 +98,17 @@ type AuthMode = 'login' | 'activate';
 type PublicLegalRoute = 'privacy' | 'terms';
 type CustomerRoute = 'showroom' | 'signin' | 'signup' | 'portal' | PublicLegalRoute;
 type LoginIdentifierMode = 'customerCode' | 'username';
-type PortalTab = 'home' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
+type PortalTab = 'home' | 'profile' | 'purchases' | 'bikes' | 'vehicles' | 'service' | 'appointments' | 'notifications' | 'requests' | 'parts';
 
+const emptyAddressForm: AddressForm = {
+  label: 'HOME', recipientName: '', phone: '', addressLine1: '', addressLine2: '', landmark: '',
+  locality: '', city: '', district: '', state: '', postalCode: '', country: 'India', isDefaultDelivery: false,
+};
+function formatAddress(address: CustomerAddress): string {
+  return [address.addressLine1, address.addressLine2, address.landmark ? 'Near ' + address.landmark : null,
+    address.locality, address.city, address.district, address.state, address.postalCode, address.country]
+    .filter((part): part is string => Boolean(part && part.trim())).join(', ');
+}
 const SESSION_KEY = 'qe_customer_portal_token';
 
 function routeFromLocation(): CustomerRoute {
@@ -99,7 +132,8 @@ function apiRequestUrl(path: string): string {
 
 async function api<T>(path: string, token?: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body) headers.set('Content-Type', 'application/json');
+  // Let the browser generate the multipart boundary for photo uploads.
+  if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(apiRequestUrl(path), { ...options, headers });
   const body = await response.text();
@@ -295,6 +329,17 @@ function CustomerLegalPage({ kind, onNavigate }: {
 export default function App() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(SESSION_KEY) ?? '');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
+  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '', alternatePhone: '', email: '', preferredLanguage: 'hi' as CustomerProfile['preferredLanguage'] });
+  const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>([]);
+  const [addressForm, setAddressForm] = useState<AddressForm | null>(null);
+  const [editingAddressId, setEditingAddressId] = useState('');
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
+  const [photoRefreshKey, setPhotoRefreshKey] = useState(0);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const [motorcyclePurchases, setMotorcyclePurchases] = useState<MotorcyclePurchase[]>([]);
+  const [selectedDeliveryAddressId, setSelectedDeliveryAddressId] = useState('');
   const [route, setRoute] = useState<CustomerRoute>(routeFromLocation);
   const [authMode, setAuthMode] = useState<AuthMode>(() => new URLSearchParams(window.location.search).get('view') === 'signup' ? 'activate' : 'login');
   const [loginIdentifierMode, setLoginIdentifierMode] = useState<LoginIdentifierMode>('customerCode');
@@ -309,6 +354,15 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [salesRequests, setSalesRequests] = useState<CustomerSalesRequest[]>([]);
   const [retailParts, setRetailParts] = useState<RetailPart[]>([]);
+  const [retailPartFilters, setRetailPartFilters] = useState<RetailPartFilters>({ categories: [], motorcycleModels: [] });
+  const [partSearch, setPartSearch] = useState('');
+  const [partCategoryFilter, setPartCategoryFilter] = useState('ALL');
+  const [partModelFilter, setPartModelFilter] = useState('');
+  const [partBikeTypeFilter, setPartBikeTypeFilter] = useState('');
+  const [partAvailabilityFilter, setPartAvailabilityFilter] = useState('ALL');
+  const [partMinPrice, setPartMinPrice] = useState('');
+  const [partMaxPrice, setPartMaxPrice] = useState('');
+  const [partSort, setPartSort] = useState('CATEGORY');
   const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
   const [retailCart, setRetailCart] = useState<CartLine[]>([]);
   const [fitmentModelCode, setFitmentModelCode] = useState('');
@@ -349,11 +403,22 @@ export default function App() {
     window.sessionStorage.removeItem(SESSION_KEY);
     setToken('');
     setCustomer(null);
+    setProfileForm({ fullName: '', phone: '', alternatePhone: '', email: '', preferredLanguage: 'hi' });
+    setCustomerAddresses([]); setAddressForm(null); setEditingAddressId(''); setProfilePhotoUrl('');
+    setMotorcyclePurchases([]); setSelectedDeliveryAddressId('');
     setVehicles([]);
     setHistory([]);
     setAppointments([]);
     setSalesRequests([]);
     setRetailParts([]);
+    setRetailPartFilters({ categories: [], motorcycleModels: [] });
+    setPartSearch('');
+    setPartCategoryFilter('ALL');
+    setPartModelFilter('');
+    setPartBikeTypeFilter('');
+    setPartAvailabilityFilter('ALL');
+    setPartMinPrice('');
+    setPartMaxPrice('');
     setRetailOrders([]);
     setRetailCart([]);
     setRetailFulfillmentMethod('PICKUP');
@@ -368,7 +433,7 @@ export default function App() {
     // Keep action-specific recovery feedback visible while a saved showroom intent is unresolved.
     if (!window.sessionStorage.getItem('qe_bajaj_pending_intent')) setError('');
     try {
-      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders] = await Promise.all([
+      const [profile, ownedVehicles, serviceHistory, customerAppointments, customerNotifications, customerRequests, parts, orders, partFilters, addresses, bikePurchases] = await Promise.all([
         api<CustomerProfile>('/api/v1/customer/auth/me', sessionToken),
         api<Vehicle[]>('/api/v1/customer/vehicles', sessionToken),
         api<ServiceHistory[]>('/api/v1/customer/service-history', sessionToken),
@@ -377,15 +442,31 @@ export default function App() {
         api<CustomerSalesRequest[]>('/api/v1/customer/sales-requests', sessionToken),
         api<RetailPart[]>('/api/v1/customer/parts', sessionToken),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', sessionToken),
+        api<RetailPartFilters>('/api/v1/customer/parts/filters', sessionToken),
+        api<CustomerAddress[]>('/api/v1/customer/addresses', sessionToken),
+        api<MotorcyclePurchase[]>('/api/v1/customer/purchase-history/motorcycles', sessionToken),
       ]);
       setCustomer(profile);
+      setProfileForm({ fullName: profile.fullName ?? '', phone: profile.phone ?? '', alternatePhone: profile.alternatePhone ?? '',
+        email: profile.email ?? '', preferredLanguage: profile.preferredLanguage ?? 'hi' });
+      const savedAddresses = Array.isArray(addresses) ? addresses : [];
+      setCustomerAddresses(savedAddresses);
+      setMotorcyclePurchases(Array.isArray(bikePurchases) ? bikePurchases : []);
+      setSelectedDeliveryAddressId((current) => current && savedAddresses.some((address) => address.publicId === current)
+        ? current : savedAddresses.find((address) => address.isDefaultDelivery)?.publicId ?? '');
       setVehicles(ownedVehicles);
       setHistory(serviceHistory);
       setAppointments(customerAppointments);
       setSalesRequests(customerRequests);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
+      setRetailPartFilters({
+        categories: Array.isArray(partFilters?.categories) ? partFilters.categories : [],
+        motorcycleModels: Array.isArray(partFilters?.motorcycleModels) ? partFilters.motorcycleModels : [],
+      });
       setNotificationPage(customerNotifications);
+      const defaultAddress = savedAddresses.find((address) => address.isDefaultDelivery);
+      if (defaultAddress) setRetailDeliveryAddress((current) => current.trim() ? current : formatAddress(defaultAddress));
       setAppointmentForm((current) => ({
         ...current,
         vehiclePublicId: current.vehiclePublicId && ownedVehicles.some((vehicle) => vehicle.publicId === current.vehiclePublicId)
@@ -427,7 +508,9 @@ export default function App() {
           requestType: intent.action,
           modelCode: intent.modelCode,
           preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt ?? null : null,
-          notes: 'Request started from the public Bajaj showroom.',
+          notes: intent.source === 'CUSTOMER_PORTAL'
+            ? 'Request started from the customer portal bike catalogue.'
+            : 'Request started from the public Bajaj showroom.',
           idempotencyKey: intent.idempotencyKey,
         }),
       });
@@ -451,6 +534,28 @@ export default function App() {
       return false;
     }
   }, []);
+
+  async function submitPortalBikeIntent(bike: ShowroomBike, action: ShowroomAction, preferredAt: string | null) {
+    if (!token || saving) return;
+    const intent: PendingShowroomIntent = {
+      source: 'CUSTOMER_PORTAL',
+      action,
+      modelCode: bike.modelCode,
+      modelName: bike.modelName,
+      selectedAt: new Date().toISOString(),
+      idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `portal-bike-${Date.now()}-${bike.modelCode}`,
+      preferredAt: action === 'TEST_RIDE' ? preferredAt : null,
+    };
+    window.sessionStorage.setItem('qe_bajaj_pending_intent', JSON.stringify(intent));
+    setError('');
+    setSuccess('');
+    setSaving(true);
+    try {
+      await resumePendingShowroomIntent(token);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     // Keep a canonical, reload-safe URL for each public/auth/portal screen.
@@ -480,6 +585,21 @@ export default function App() {
       .finally(() => { if (!cancelled) setLoadingSession(false); });
     return () => { cancelled = true; };
   }, [token, clearSession, loadPortalData, navigateCustomerRoute, route]);
+
+  // Photo bytes are fetched only through the authenticated session; initials remain a fallback.
+  useEffect(() => {
+    if (!token || route !== 'portal') { setProfilePhotoUrl(''); return; }
+    let active = true;
+    let objectUrl = '';
+    setProfilePhotoUrl('');
+    fetch(apiRequestUrl('/api/v1/customer/profile/photo'), { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const url = URL.createObjectURL(await response.blob());
+        if (active) { objectUrl = url; setProfilePhotoUrl(url); } else URL.revokeObjectURL(url);
+      }).catch(() => { /* Keep initials visible if there is no photo. */ });
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [token, route, photoRefreshKey]);
 
   const acceptGoogleSession = useCallback(async (session: CustomerGoogleSession) => {
     window.sessionStorage.setItem(SESSION_KEY, session.accessToken);
@@ -552,6 +672,7 @@ export default function App() {
   }
 
   function updateRetailCart(part: RetailPart, delta: number) {
+    if (!part.available) return;
     setRetailCart((current) => {
       const existing = current.find((line) => line.partPublicId === part.publicId);
       const quantity = Math.max(0, Number(existing?.quantity ?? 0) + delta);
@@ -573,6 +694,18 @@ export default function App() {
       setError('Enter the delivery address before requesting delivery.');
       return;
     }
+    const fitmentRequired = retailCart
+      .map((line) => retailParts.find((part) => part.publicId === line.partPublicId))
+      .filter((part): part is RetailPart => Boolean(part && part.fitmentVerified && part.fitmentModelCodes.length > 0));
+    if (fitmentRequired.length > 0 && !fitmentModelCode) {
+      setError('Choose the motorcycle model for the part(s) in your cart before placing the order.');
+      return;
+    }
+    const incompatible = fitmentRequired.find((part) => !part.fitmentModelCodes.includes(fitmentModelCode));
+    if (incompatible) {
+      setError(`${incompatible.partName} is not verified for the selected motorcycle model. Remove it or change the model.`);
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');
@@ -592,8 +725,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setRetailCart([]);
       setPartsOrderNote('');
       setRetailFulfillmentMethod('PICKUP');
@@ -619,8 +752,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setSuccess(`Order ${order.orderCode} was cancelled and its stock reservation released.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The order could not be cancelled.');
@@ -642,8 +775,8 @@ export default function App() {
         api<RetailPart[]>('/api/v1/customer/parts', token),
         api<RetailOrder[]>('/api/v1/customer/parts/orders', token),
       ]);
-      setRetailParts(parts);
-      setRetailOrders(orders);
+      setRetailParts(Array.isArray(parts) ? parts : []);
+      setRetailOrders(Array.isArray(orders) ? orders : []);
       setSuccess(accept
         ? `Delivery quote for ${order.orderCode} accepted. Lucky Bajaj can now arrange delivery; payment is still due on delivery.`
         : `Delivery quote declined. Order ${order.orderCode} was cancelled and its stock reservation released.`);
@@ -760,6 +893,106 @@ export default function App() {
       return;
     }
     navigateCustomerRoute('showroom', true);
+  }
+
+
+  function updateAddressField<K extends keyof AddressForm>(key: K, value: AddressForm[K]) {
+    setAddressForm((current) => current ? { ...current, [key]: value } : current);
+  }
+  async function saveCustomerProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(''); setSuccess('');
+    try {
+      const updated = await api<CustomerProfile>('/api/v1/customer/profile', token, {
+        method: 'PUT', body: JSON.stringify({
+          fullName: profileForm.fullName.trim(), phone: profileForm.phone.trim() || null,
+          alternatePhone: profileForm.alternatePhone.trim() || null, email: profileForm.email.trim() || null,
+          preferredLanguage: profileForm.preferredLanguage,
+        }),
+      });
+      setCustomer(updated);
+      setProfileForm({ fullName: updated.fullName, phone: updated.phone ?? '', alternatePhone: updated.alternatePhone ?? '',
+        email: updated.email ?? '', preferredLanguage: updated.preferredLanguage });
+      setSuccess('Profile saved. Your purchase, service and payment history stays preserved.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Your profile could not be saved.'); }
+    finally { setSaving(false); }
+  }
+  function beginAddressEdit(address?: CustomerAddress) {
+    setEditingAddressId(address?.publicId ?? '');
+    setAddressForm(address ? {
+      label: address.label, recipientName: address.recipientName, phone: address.phone,
+      addressLine1: address.addressLine1, addressLine2: address.addressLine2 ?? '',
+      landmark: address.landmark ?? '', locality: address.locality ?? '', city: address.city,
+      district: address.district ?? '', state: address.state, postalCode: address.postalCode,
+      country: address.country, isDefaultDelivery: address.isDefaultDelivery,
+    } : { ...emptyAddressForm, recipientName: customer?.fullName ?? '', phone: customer?.phone ?? '',
+      isDefaultDelivery: customerAddresses.length === 0 });
+    setError(''); setSuccess('');
+  }
+  async function saveCustomerAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!addressForm) return;
+    setAddressSaving(true); setError(''); setSuccess('');
+    const wasEditing = Boolean(editingAddressId);
+    try {
+      const path = wasEditing ? `/api/v1/customer/addresses/${editingAddressId}` : '/api/v1/customer/addresses';
+      await api<CustomerAddress>(path, token, {
+        method: wasEditing ? 'PUT' : 'POST',
+        body: JSON.stringify({
+          ...addressForm, phone: addressForm.phone.trim(), recipientName: addressForm.recipientName.trim(),
+          addressLine1: addressForm.addressLine1.trim(), addressLine2: addressForm.addressLine2.trim() || null,
+          landmark: addressForm.landmark.trim() || null, locality: addressForm.locality.trim() || null,
+          district: addressForm.district.trim() || null, country: addressForm.country.trim() || 'India',
+        }),
+      });
+      const result = await api<CustomerAddress[]>('/api/v1/customer/addresses', token);
+      const list = Array.isArray(result) ? result : [];
+      setCustomerAddresses(list);
+      const defaultAddress = list.find((item) => item.isDefaultDelivery);
+      if (defaultAddress) { setSelectedDeliveryAddressId(defaultAddress.publicId); setRetailDeliveryAddress(formatAddress(defaultAddress)); }
+      setAddressForm(null); setEditingAddressId('');
+      setSuccess(wasEditing ? 'Address updated. Existing orders retain their original address.' : 'Address saved in your address book.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The address could not be saved.'); }
+    finally { setAddressSaving(false); }
+  }
+  async function deleteCustomerAddress(address: CustomerAddress) {
+    if (!window.confirm(`Remove the ${address.label.toLowerCase()} address from your address book?`)) return;
+    setAddressSaving(true); setError(''); setSuccess('');
+    try {
+      const result = await api<CustomerAddress[]>(`/api/v1/customer/addresses/${address.publicId}`, token, { method: 'DELETE' });
+      const list = Array.isArray(result) ? result : [];
+      setCustomerAddresses(list);
+      if (selectedDeliveryAddressId === address.publicId) {
+        const nextDefault = list.find((item) => item.isDefaultDelivery);
+        setSelectedDeliveryAddressId(nextDefault?.publicId ?? '');
+        setRetailDeliveryAddress(nextDefault ? formatAddress(nextDefault) : '');
+      }
+      setAddressForm(null); setEditingAddressId('');
+      setSuccess('Address removed. Previously placed orders remain unchanged.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The address could not be removed.'); }
+    finally { setAddressSaving(false); }
+  }
+  async function uploadCustomerPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setError('Choose a JPEG, PNG or WebP profile photo.'); return; }
+    if (file.size > 2 * 1024 * 1024) { setError('Profile photos must be 2 MiB or smaller.'); return; }
+    setPhotoBusy(true); setError(''); setSuccess('');
+    try {
+      const body = new FormData(); body.append('file', file);
+      await api<{ saved: boolean }>('/api/v1/customer/profile/photo', token, { method: 'POST', body });
+      setCustomer((current) => current ? { ...current, profilePhotoAvailable: true } : current);
+      setPhotoRefreshKey((current) => current + 1); setSuccess('Profile photo updated.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Profile photo could not be uploaded.'); }
+    finally { setPhotoBusy(false); }
+  }
+  async function removeCustomerPhoto() {
+    if (!window.confirm('Remove your profile photo and use your initials instead?')) return;
+    setPhotoBusy(true); setError(''); setSuccess('');
+    try {
+      await api<{ success: boolean }>('/api/v1/customer/profile/photo', token, { method: 'DELETE' });
+      setCustomer((current) => current ? { ...current, profilePhotoAvailable: false } : current);
+      setPhotoRefreshKey((current) => current + 1); setSuccess('Profile photo removed.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Profile photo could not be removed.'); }
+    finally { setPhotoBusy(false); }
   }
 
   async function submitAppointment(event: FormEvent<HTMLFormElement>) {
@@ -920,11 +1153,42 @@ export default function App() {
     );
   }
 
+  const selectedTypeModelCodes = new Set(
+    retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter)
+      .map((model) => model.modelCode),
+  );
+  const displayedRetailParts = retailParts.filter((part) => {
+    const query = partSearch.trim().toLocaleLowerCase();
+    const matchesQuery = !query || [part.partName, part.skuCode, part.partNumber ?? '', part.category]
+      .some((value) => value.toLocaleLowerCase().includes(query));
+    const matchesCategory = partCategoryFilter === 'ALL' || part.category === partCategoryFilter;
+    const matchesModel = !partModelFilter
+      || part.fitmentModelCodes.includes(partModelFilter)
+      || (part.fitmentVerified && part.fitmentModelCodes.length === 0);
+    const matchesType = !partBikeTypeFilter
+      || (part.fitmentModelCodes.some((code) => selectedTypeModelCodes.has(code))
+        || (part.fitmentVerified && part.fitmentModelCodes.length === 0));
+    const matchesAvailability = partAvailabilityFilter === 'ALL' || part.availabilityStatus === partAvailabilityFilter;
+    const price = part.retailPrice;
+    const min = partMinPrice.trim() ? Number(partMinPrice) : null;
+    const max = partMaxPrice.trim() ? Number(partMaxPrice) : null;
+    const matchesPrice = price == null
+      ? min == null && max == null
+      : (min == null || (Number.isFinite(min) && price >= min))
+        && (max == null || (Number.isFinite(max) && price <= max));
+    return matchesQuery && matchesCategory && matchesModel && matchesType && matchesAvailability && matchesPrice;
+  }).sort((left, right) => {
+    if (partSort === 'NAME') return left.partName.localeCompare(right.partName);
+    if (partSort === 'PRICE_LOW') return (left.retailPrice ?? Number.POSITIVE_INFINITY) - (right.retailPrice ?? Number.POSITIVE_INFINITY);
+    if (partSort === 'PRICE_HIGH') return (right.retailPrice ?? -1) - (left.retailPrice ?? -1);
+    return left.category.localeCompare(right.category) || left.partName.localeCompare(right.partName);
+  });
+
   return (
     <main className="portal-app">
       <header className="portal-topbar">
         <div className="portal-brand compact"><div className="brand-mark">Q</div><div><strong>Quanta<span>Edge</span></strong><small>LUCKY BAJAJ CUSTOMER CARE</small></div></div>
-        <div className="portal-top-actions"><span className="secure-pill"><i /> Secure account</span><div className="customer-avatar" aria-hidden="true">{initials(customer.fullName) || 'C'}</div><div className="customer-identity"><strong>{customer.fullName}</strong><small>{customer.customerCode}</small></div><button type="button" className="secondary-button portal-logout" onClick={() => void logout()}>Sign out</button></div>
+        <div className="portal-top-actions"><span className="secure-pill"><i /> Secure account</span><button type="button" className="customer-profile-trigger" onClick={() => { setTab('profile'); document.getElementById('portal-content')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} aria-label="Open My profile"><span className="customer-avatar">{profilePhotoUrl ? <img src={profilePhotoUrl} alt="" /> : initials(customer.fullName) || 'C'}</span><span className="customer-profile-trigger-copy"><strong>My profile</strong><small>{customer.fullName}</small></span></button><button type="button" className="secondary-button portal-logout" onClick={() => void logout()}>Sign out</button></div>
       </header>
       <div className="portal-app-content">
         <section className="portal-welcome-row">
@@ -945,6 +1209,9 @@ export default function App() {
         <nav className="portal-tabs" aria-label="Customer portal sections">
           {([
             ['home', 'Overview', '⌂'],
+            ['profile', 'My profile', '◉'],
+            ['purchases', 'Purchases', '↗'],
+            ['bikes', 'Explore bikes', '↗'],
             ['vehicles', 'My bikes', '♧'],
             ['service', 'Service history', '◷'],
             ['appointments', 'Appointments', '▦'],
@@ -971,6 +1238,80 @@ export default function App() {
               </section>
             </div>
           </>}
+          
+          {!loadingData && tab === 'profile' && <>
+            <div className="portal-section-heading"><div><h2>My profile</h2><p>Keep your contact details and addresses current for delivery and customer care.</p></div><span className="section-mark">YOUR ACCOUNT</span></div>
+            <section className="glass-panel profile-identity-card">
+              <div className="profile-identity-photo"><span className="profile-large-avatar">{profilePhotoUrl ? <img src={profilePhotoUrl} alt={customer.fullName + ' profile'} /> : initials(customer.fullName) || 'C'}</span></div>
+              <div className="profile-identity-copy"><span className="hero-overline"><i /> VERIFIED CUSTOMER ACCOUNT</span><h3>{customer.fullName}</h3><p>Customer ID <strong>{customer.customerCode}</strong> · {customer.dealershipName}</p><small>Your photo is private to your authenticated account and dealership operations.</small>
+                <div className="profile-photo-actions"><input ref={profilePhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadCustomerPhoto(event)} hidden aria-label="Choose profile photo" /><button type="button" className="primary-button" onClick={() => profilePhotoInputRef.current?.click()} disabled={photoBusy}>{photoBusy ? 'Updating photo…' : profilePhotoUrl ? 'Change photo' : 'Add profile photo'}</button>{profilePhotoUrl && <button type="button" className="secondary-button" onClick={() => void removeCustomerPhoto()} disabled={photoBusy}>Remove photo</button>}<span>JPEG, PNG or WebP · up to 2 MiB</span></div>
+              </div>
+            </section>
+            <form className="glass-panel profile-edit-card" onSubmit={saveCustomerProfile}>
+              <div className="panel-heading"><div><h3>Personal details</h3><p>Update your name and contact details.</p></div><span className="profile-section-icon">01</span></div>
+              <div className="profile-form-grid">
+                <label>Full name *<input required minLength={2} maxLength={160} autoComplete="name" value={profileForm.fullName} onChange={(event) => setProfileForm((current) => ({ ...current, fullName: event.target.value }))} /></label>
+                <label>Mobile number<input type="tel" maxLength={32} autoComplete="tel" value={profileForm.phone} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} placeholder="+91…" /></label>
+                <label>Alternate number<input type="tel" maxLength={32} value={profileForm.alternatePhone} onChange={(event) => setProfileForm((current) => ({ ...current, alternatePhone: event.target.value }))} placeholder="Optional" /></label>
+                <label>Email address<input type="email" maxLength={320} autoComplete="email" value={profileForm.email} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" /></label>
+                <label>Preferred language<select value={profileForm.preferredLanguage} onChange={(event) => setProfileForm((current) => ({ ...current, preferredLanguage: event.target.value as CustomerProfile['preferredLanguage'] }))}><option value="hi">हिन्दी</option><option value="en">English</option><option value="hinglish">Hinglish</option></select></label>
+              </div>
+              <p className="profile-form-note">Keep at least one contact method—mobile number or email—on your account.</p>
+              <div className="form-actions"><button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving profile…' : 'Save changes'}</button></div>
+            </form>
+            <section className="profile-address-section">
+              <div className="portal-section-heading"><div><h2>Saved addresses</h2><p>Keep Home, Work and other useful destinations in one secure address book.</p></div><button type="button" className="primary-button" onClick={() => beginAddressEdit()} disabled={addressSaving}>+ Add address</button></div>
+              {customerAddresses.length === 0 && !addressForm && <div className="glass-panel inline-empty"><strong>No saved addresses yet</strong><span>Add your home or work address once, then select it during parts delivery checkout.</span><button type="button" className="secondary-button" onClick={() => beginAddressEdit()}>Add your first address</button></div>}
+              <div className="profile-address-grid">{customerAddresses.map((address) => <article className="glass-panel profile-address-card" key={address.publicId}>
+                <div className="profile-address-card-heading"><span className="address-kind-icon">{address.label === 'HOME' ? '⌂' : address.label === 'WORK' ? '▦' : '⌖'}</span><div><span className="address-kind-label">{address.label}</span><h3>{address.recipientName}</h3></div>{address.isDefaultDelivery && <span className="status-pill status-active">Default delivery</span>}</div>
+                <p>{formatAddress(address)}</p><div className="profile-address-contact"><span>{address.phone}</span></div>
+                <div className="profile-address-actions"><button type="button" className="secondary-button" onClick={() => beginAddressEdit(address)} disabled={addressSaving}>Edit address</button><button type="button" className="text-link danger-link" onClick={() => void deleteCustomerAddress(address)} disabled={addressSaving}>Remove</button></div>
+              </article>)}</div>
+              {addressForm && <form className="glass-panel profile-address-form" onSubmit={saveCustomerAddress}>
+                <div className="panel-heading"><div><h3>{editingAddressId ? 'Edit address' : 'Add a saved address'}</h3><p>Complete details make delivery and customer service more reliable.</p></div><button type="button" className="text-button" onClick={() => { setAddressForm(null); setEditingAddressId(''); }}>Close</button></div>
+                <div className="profile-form-grid">
+                  <label>Address label *<select value={addressForm.label} onChange={(event) => updateAddressField('label', event.target.value as AddressForm['label'])}><option value="HOME">Home</option><option value="WORK">Work</option><option value="OTHER">Other</option></select></label>
+                  <label>Recipient name *<input required maxLength={160} autoComplete="shipping name" value={addressForm.recipientName} onChange={(event) => updateAddressField('recipientName', event.target.value)} /></label>
+                  <label>Contact mobile *<input required type="tel" maxLength={32} autoComplete="shipping tel" value={addressForm.phone} onChange={(event) => updateAddressField('phone', event.target.value)} /></label>
+                  <label className="profile-field-wide">Address line 1 *<input required maxLength={240} autoComplete="address-line1" value={addressForm.addressLine1} onChange={(event) => updateAddressField('addressLine1', event.target.value)} placeholder="House / flat, building, street" /></label>
+                  <label>Address line 2<input maxLength={240} autoComplete="address-line2" value={addressForm.addressLine2} onChange={(event) => updateAddressField('addressLine2', event.target.value)} placeholder="Optional" /></label>
+                  <label>Landmark<input maxLength={160} value={addressForm.landmark} onChange={(event) => updateAddressField('landmark', event.target.value)} placeholder="Near…" /></label>
+                  <label>Locality / area<input maxLength={160} value={addressForm.locality} onChange={(event) => updateAddressField('locality', event.target.value)} /></label>
+                  <label>City / town *<input required maxLength={120} autoComplete="address-level2" value={addressForm.city} onChange={(event) => updateAddressField('city', event.target.value)} /></label>
+                  <label>District<input maxLength={120} value={addressForm.district} onChange={(event) => updateAddressField('district', event.target.value)} /></label>
+                  <label>State *<input required maxLength={120} autoComplete="address-level1" value={addressForm.state} onChange={(event) => updateAddressField('state', event.target.value)} /></label>
+                  <label>PIN / postal code *<input required maxLength={12} autoComplete="postal-code" value={addressForm.postalCode} onChange={(event) => updateAddressField('postalCode', event.target.value)} /></label>
+                  <label>Country<input maxLength={80} autoComplete="country-name" value={addressForm.country} onChange={(event) => updateAddressField('country', event.target.value)} /></label>
+                </div>
+                <label className="profile-default-address"><input type="checkbox" checked={addressForm.isDefaultDelivery} onChange={(event) => updateAddressField('isDefaultDelivery', event.target.checked)} /> Use as my default delivery address</label>
+                <p className="profile-form-note">Updating the address book does not rewrite the addresses on previous orders.</p>
+                <div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setAddressForm(null); setEditingAddressId(''); }}>Cancel</button><button type="submit" className="primary-button" disabled={addressSaving}>{addressSaving ? 'Saving address…' : editingAddressId ? 'Save address' : 'Add address'}</button></div>
+              </form>}
+            </section>
+          </>}
+          {!loadingData && tab === 'purchases' && <>
+            <div className="portal-section-heading"><div><h2>Purchase history</h2><p>Your saved motorcycle deliveries and all spare-parts orders, including cancelled and returned orders.</p></div><span className="section-mark">{motorcyclePurchases.length + retailOrders.length} RECORDS</span></div>
+            <section className="glass-panel purchase-history-section">
+              <div className="panel-heading"><div><h3>Motorcycles purchased</h3><p>Completed purchases linked to this customer record, including purchases arranged in person.</p></div><span className="profile-section-icon">BIKES</span></div>
+              {motorcyclePurchases.length === 0 ? <div className="inline-empty">No completed motorcycle handovers are linked yet. Website enquiries and bookings remain under “Bike requests”.</div>
+                : <div className="purchase-history-list">{motorcyclePurchases.map((purchase) => <article className="purchase-history-row" key={purchase.publicId}>
+                    <div className="purchase-history-icon">B</div><div className="purchase-history-main"><div className="purchase-history-title"><strong>{purchase.modelName}{purchase.variantName ? ' · ' + purchase.variantName : ''}</strong><span className="status-pill status-active">Delivered</span></div><p>{[purchase.colourName, purchase.modelYear ? String(purchase.modelYear) : null].filter(Boolean).join(' · ') || 'Bajaj motorcycle'}</p><small>Invoice {purchase.invoiceNumber} · Delivered {dateTime(purchase.deliveredAt)}</small><small>Handover acknowledged by {purchase.deliveredToName}</small></div><div className="purchase-history-amount"><strong>{money(purchase.invoiceTotal)}</strong><span>Recorded paid {money(purchase.paidAmount)}</span>{purchase.creditedAmount > 0 && <span>Approved credits {money(purchase.creditedAmount)}</span>}<span>Balance {money(purchase.balanceDue)}</span></div>
+                  </article>)}</div>}
+              <small className="profile-form-note">History comes from saved handover, invoice and payment records—not editable profile fields.</small>
+            </section>
+            <section className="glass-panel purchase-history-section">
+              <div className="panel-heading"><div><h3>Spare-parts purchases</h3><p>Saved checkout records, quantities, order status and recorded collection.</p></div><button type="button" className="secondary-button" onClick={() => setTab('parts')}>Open spare-parts shop ↗</button></div>
+              {retailOrders.length === 0 ? <div className="inline-empty">No spare-parts orders yet. Browse the shop to place an order.</div>
+                : <div className="purchase-history-list">{retailOrders.map((order) => <article className="purchase-history-row" key={order.publicId}>
+                    <div className="purchase-history-icon">P</div><div className="purchase-history-main"><div className="purchase-history-title"><strong>{order.orderCode}</strong><span className={`status-pill status-${order.status.toLowerCase()}`}>{pretty(order.status)}</span></div><p>{order.lines.map((line) => `${line.quantity} × ${line.partName}`).join(' · ')}</p><small>Placed {dateTime(order.createdAt)} · {order.fulfillmentMethod === 'PICKUP' ? 'Pickup' : 'Delivery'}</small><small>{order.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required' : order.paymentStatus === 'PAID_AT_PICKUP' ? 'Collection recorded at pickup' : order.paymentStatus === 'PAID_ON_DELIVERY' ? 'Collection recorded on delivery' : order.status === 'CANCELLED' ? 'Cancelled; reservation released' : order.fulfillmentMethod === 'DELIVERY' ? 'Delivery fee: ' + money(order.deliveryFee) + ' · ' + pretty(order.deliveryQuoteStatus) : 'Payment due at pickup'}</small></div><div className="purchase-history-amount"><strong>{money(order.orderTotal)}</strong><span>{pretty(order.paymentStatus)}</span><button type="button" className="text-link" onClick={() => setTab('parts')}>View order ↗</button></div>
+                  </article>)}</div>}
+            </section>
+          </>}
+          {!loadingData && tab === 'bikes' && <BajajShowroom
+            mode="portal"
+            requesting={saving}
+            onCustomerRequest={(bike, action, preferredAt) => { void submitPortalBikeIntent(bike, action, preferredAt); }}
+          />}
           {!loadingData && tab === 'vehicles' && <>
             <div className="portal-section-heading"><div><h2>My bikes</h2><p>Only vehicles currently linked to your verified customer profile are shown.</p></div><span className="section-mark">{vehicles.length} LINKED</span></div>
             {vehicles.length === 0 ? <div className="glass-panel inline-empty">No currently linked vehicles were found. Ask Lucky Bajaj to verify your ownership record.</div> : <div className="vehicle-grid">{vehicles.map((vehicle) => <article className="vehicle-glass-card" key={vehicle.publicId}><div className="vehicle-card-top"><span className="vehicle-logo">LB</span><span className="status-pill status-active">Current vehicle</span></div><div className="vehicle-illustration"><div className="bike-arc" /><div className="bike-profile-wheel a" /><div className="bike-profile-wheel b" /><div className="bike-profile-frame" /><span>BAJAJ</span></div><div className="vehicle-card-copy"><span className="vehicle-overline">{vehicle.modelYear || 'BIKE'}{vehicle.colourName ? ' / ' + vehicle.colourName.toUpperCase() : ''}</span><h3>{vehicle.modelName}</h3><p>{vehicle.variantName || 'Standard variant'}</p><div className="vehicle-card-facts"><div><small>Chassis number</small><strong>{vehicle.chassisNumber}</strong></div><div><small>Engine number</small><strong>{vehicle.engineNumber}</strong></div><div><small>Linked since</small><strong>{dateOnly(vehicle.ownershipStartedAt)}</strong></div></div><button type="button" className="secondary-button wide-button" onClick={() => { setAppointmentForm((current) => ({ ...current, vehiclePublicId: vehicle.publicId })); setTab('appointments'); }}>Book a service visit <span>↗</span></button></div></article>)}</div>}
@@ -1019,26 +1360,47 @@ export default function App() {
           </>}
           {!loadingData && tab === 'parts' && <>
             <div className="portal-section-heading">
-              <div><h2>Bajaj spare-parts shop</h2><p>Shop items the dealership has explicitly listed for retail. Availability excludes stock already reserved for workshop jobs and other customers.</p></div>
-              <span className="section-mark">{retailParts.length} LISTED</span>
+              <div><h2>Bajaj spare-parts shop</h2><p>Browse common spare-part references across categories. Prices, exact OEM numbers and motorcycle compatibility are confirmed by Lucky Bajaj; items can only be ordered when the matching stock SKU is linked and sellable inventory is available.</p></div>
+              <span className="section-mark">{displayedRetailParts.length} OF {retailParts.length} PARTS</span>
             </div>
+            <section className="retail-catalogue-filters glass-panel" aria-label="Filter spare parts">
+              <div className="retail-catalogue-search"><label htmlFor="retail-parts-search">Search by name or part reference</label><input id="retail-parts-search" value={partSearch} onChange={(event) => setPartSearch(event.target.value)} placeholder="e.g. brake shoe, oil filter, BGP-0001" /></div>
+              <div className="retail-catalogue-filter-grid">
+                <label>Part category<select value={partCategoryFilter} onChange={(event) => setPartCategoryFilter(event.target.value)}><option value="ALL">All categories</option>{retailPartFilters.categories.map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                <label>Motorcycle type<select value={partBikeTypeFilter} onChange={(event) => { setPartBikeTypeFilter(event.target.value); setPartModelFilter(''); }}><option value="">All motorcycle types</option>{[...new Set(retailPartFilters.motorcycleModels.map((model) => model.category))].sort().map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                <label>Motorcycle model<select value={partModelFilter} onChange={(event) => setPartModelFilter(event.target.value)}><option value="">All models</option>{retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter).map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}</select></label>
+                <label>Availability<select value={partAvailabilityFilter} onChange={(event) => setPartAvailabilityFilter(event.target.value)}><option value="ALL">Any status</option><option value="AVAILABLE">In stock and orderable</option><option value="OUT_OF_STOCK">Out of stock</option><option value="CHECK_WITH_DEALER">Check with dealership</option></select></label>
+                <label>Minimum price (₹)<input type="number" min="0" step="1" value={partMinPrice} onChange={(event) => setPartMinPrice(event.target.value)} placeholder="No minimum" /></label>
+                <label>Maximum price (₹)<input type="number" min="0" step="1" value={partMaxPrice} onChange={(event) => setPartMaxPrice(event.target.value)} placeholder="No maximum" /></label>
+                <label>Sort by<select value={partSort} onChange={(event) => setPartSort(event.target.value)}><option value="CATEGORY">Category, then name</option><option value="NAME">Name</option><option value="PRICE_LOW">Price: low to high</option><option value="PRICE_HIGH">Price: high to low</option></select></label>
+                <div className="retail-catalogue-filter-actions"><span>{displayedRetailParts.length} matching item(s)</span><button type="button" className="text-link" onClick={() => { setPartSearch(''); setPartCategoryFilter('ALL'); setPartModelFilter(''); setPartBikeTypeFilter(''); setPartAvailabilityFilter('ALL'); setPartMinPrice(''); setPartMaxPrice(''); setPartSort('CATEGORY'); }}>Clear filters</button></div>
+              </div>
+            </section>
             <div className="retail-shop-layout">
               <section className="retail-shop-main">
-                {retailParts.length === 0
-                  ? <div className="glass-panel inline-empty"><strong>No retail parts listed yet.</strong><span>Only parts published by Lucky Bajaj will appear here. Ask the dealership if a part is missing.</span></div>
-                  : <div className="retail-parts-grid">{retailParts.map((part) => {
+                {displayedRetailParts.length === 0
+                  ? <div className="glass-panel inline-empty"><strong>No spare parts match these filters.</strong><span>Clear some filters or search another part category.</span></div>
+                  : <div className="retail-parts-grid">{displayedRetailParts.map((part) => {
                     const selectedLine = retailCart.find((line) => line.partPublicId === part.publicId);
                     const quantity = Number(selectedLine?.quantity ?? 0);
+                    const statusText = part.available
+                      ? `${part.quantityAvailable} ${part.unitOfMeasure.toLowerCase()} available`
+                      : part.availabilityStatus === 'OUT_OF_STOCK' ? 'Out of stock'
+                        : 'Availability to be confirmed';
                     return <article className="glass-panel retail-part-card" key={part.publicId}>
                       {part.imageUrl
                         ? <div className="retail-part-image"><img src={part.imageUrl} alt={part.partName} loading="lazy" /></div>
-                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>GENUINE PARTS</strong></div>}
+                        : <div className="retail-part-image retail-part-placeholder"><span>BAJAJ</span><strong>SPARE PARTS</strong></div>}
                       <div className="retail-part-copy">
-                        <span className="vehicle-overline">{part.skuCode}</span>
+                        <span className="vehicle-overline">{part.skuCode} · {pretty(part.category)}</span>
                         <h3>{part.partName}</h3>
-                        <p>{part.description || 'Dealership-listed spare part.'}</p>
-                        {part.fitmentModelCodes.length > 0 && <small>Fitment restricted to selected Bajaj model</small>}
-                        <div className="retail-part-price-row"><strong>{money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{part.available ? `${part.quantityAvailable} ${part.unitOfMeasure} available` : 'Currently unavailable'}</span></div>
+                        <p>{part.description || 'General spare-parts reference. Ask the dealership to confirm the exact part for your motorcycle.'}</p>
+                        {part.partNumber && <small>OEM part number: {part.partNumber}</small>}
+                        <small>{part.fitmentVerified
+                          ? part.fitmentModelCodes.length > 0 ? `Verified for ${part.fitmentModelCodes.map((code) => retailPartFilters.motorcycleModels.find((model) => model.modelCode === code)?.modelName ?? code).join(', ')}` : 'Dealership-confirmed universal fitment'
+                          : 'Exact model compatibility must be confirmed by Lucky Bajaj.'}</small>
+                        {part.sourceUrl && <a className="retail-part-source-link" href={part.sourceUrl} target="_blank" rel="noreferrer">Bajaj spares reference ↗</a>}
+                        <div className="retail-part-price-row"><strong>{part.retailPrice == null ? 'Price to be confirmed' : money(part.retailPrice)}</strong><span className={part.available ? 'retail-stock available' : 'retail-stock unavailable'}>{statusText}</span></div>
                         <div className="retail-part-cart-row">
                           <div className="retail-quantity-stepper">
                             <button type="button" aria-label={`Remove one ${part.partName}`} disabled={!quantity || saving} onClick={() => updateRetailCart(part, -1)}>−</button>
@@ -1054,11 +1416,11 @@ export default function App() {
               <aside className="glass-panel retail-cart-panel">
                 <div className="panel-heading"><div><h3>Your cart</h3><p>{retailCart.length} SKU(s) · {retailFulfillmentMethod === 'PICKUP' ? 'pickup at dealership' : 'delivery request'}</p></div><span className="next-visit-icon">▦</span></div>
                 {retailCart.length === 0
-                  ? <div className="inline-empty">Choose a part to start an order.</div>
+                  ? <div className="inline-empty">Choose an in-stock, published part to start an order.</div>
                   : <>
                     {retailCart.map((line) => {
                       const part = retailParts.find((item) => item.publicId === line.partPublicId);
-                      if (!part) return null;
+                      if (!part || part.retailPrice == null) return null;
                       return <div className="retail-cart-line" key={line.partPublicId}>
                         <div><strong>{part.partName}</strong><small>{line.quantity} × {money(part.retailPrice)}</small></div>
                         <strong>{money(Number(line.quantity) * part.retailPrice)}</strong>
@@ -1070,8 +1432,11 @@ export default function App() {
                       return sum + Number(line.quantity) * Number(part?.retailPrice ?? 0);
                     }, 0))}</strong></div>
                     <form className="retail-checkout-form" onSubmit={placeRetailOrder}>
-                      <label>Bike fitment (if applicable)
-                        <input maxLength={60} value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value.toUpperCase())} placeholder="Model code, e.g. BAJAJ_PULSAR_N160" />
+                      <label>Motorcycle model for fitment (if applicable)
+                        <select value={fitmentModelCode} onChange={(event) => setFitmentModelCode(event.target.value)}>
+                          <option value="">Choose model if requested by the part</option>
+                          {retailPartFilters.motorcycleModels.map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}
+                        </select>
                       </label>
                       <label>Fulfillment method
                         <select value={retailFulfillmentMethod} onChange={(event) => {
@@ -1083,11 +1448,24 @@ export default function App() {
                           <option value="DELIVERY">Request delivery (fee quoted separately)</option>
                         </select>
                       </label>
-                      {retailFulfillmentMethod === 'DELIVERY' && <label>Delivery address *
-                        <textarea required rows={3} maxLength={1500} value={retailDeliveryAddress}
-                          onChange={(event) => setRetailDeliveryAddress(event.target.value)}
-                          placeholder="House / street, locality, city, state and PIN code" />
-                      </label>}
+                      {retailFulfillmentMethod === 'DELIVERY' && <>
+                        <label>Use a saved address
+                          <select value={selectedDeliveryAddressId} onChange={(event) => {
+                            const id = event.target.value; setSelectedDeliveryAddressId(id);
+                            const selectedAddress = customerAddresses.find((address) => address.publicId === id);
+                            setRetailDeliveryAddress(selectedAddress ? formatAddress(selectedAddress) : '');
+                          }}>
+                            <option value="">Enter an address manually</option>
+                            {customerAddresses.map((address) => <option key={address.publicId} value={address.publicId}>{address.label} · {[address.locality, address.city, address.state, address.postalCode].filter(Boolean).join(', ')}{address.isDefaultDelivery ? ' · Default' : ''}</option>)}
+                          </select>
+                        </label>
+                        {customerAddresses.length === 0 && <p className="retail-address-book-hint">Save a reusable address in <button type="button" className="text-link" onClick={() => setTab('profile')}>My profile</button>.</p>}
+                        <label>Delivery address *
+                          <textarea required rows={3} maxLength={1500} value={retailDeliveryAddress}
+                            onChange={(event) => { setRetailDeliveryAddress(event.target.value); setSelectedDeliveryAddressId(''); }}
+                            placeholder="House / street, locality, city, state and PIN code" />
+                        </label>
+                      </>}
                       <label>{retailFulfillmentMethod === 'PICKUP' ? 'Pickup note (optional)' : 'Delivery instructions (optional)'}
                         <textarea rows={2} maxLength={1000} value={partsOrderNote} onChange={(event) => setPartsOrderNote(event.target.value)}
                           placeholder={retailFulfillmentMethod === 'PICKUP' ? 'Preferred pickup details' : 'Landmark or safe delivery instructions'} />

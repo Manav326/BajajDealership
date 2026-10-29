@@ -15,7 +15,11 @@ const customer = {
   fullName: 'Test Rider',
   phone: '9000000002',
   email: 'test-rider@example.test',
+  alternatePhone: '9000000003',
+  preferredLanguage: 'en',
   status: 'ACTIVE',
+  createdAt: '2026-07-01T10:00:00Z',
+  updatedAt: '2026-10-29T08:00:00Z',
 };
 
 const model = {
@@ -146,6 +150,69 @@ async function mockSalesJourney(page: Page): Promise<SalesJourneyState> {
     }
     if (path === '/api/v1/system/bootstrap/status') return json({ available: false });
     if (path === '/api/v1/admin/customers') return json(pageOf([customer]));
+    if (path === `/api/v1/admin/customers/${customer.publicId}` && method === 'GET') return json(customer);
+    if (path === `/api/v1/admin/customers/${customer.publicId}/saved-addresses` && method === 'GET') {
+      return json([{
+        publicId: 'address-history-e2e-001', label: 'HOME', recipientName: 'Test Rider', phone: customer.phone,
+        addressLine1: '12 Historic Road', addressLine2: 'Floor 2', landmark: 'Near post office',
+        locality: 'Station Road', city: 'Bettiah', district: 'West Champaran', state: 'Bihar',
+        postalCode: '845438', country: 'India', isDefaultDelivery: true,
+        createdAt: '2026-06-01T08:00:00Z', updatedAt: '2026-09-01T08:00:00Z',
+      }]);
+    }
+    if (path === `/api/v1/admin/customers/${customer.publicId}/profile-photo`) {
+      return route.fulfill({ status: 404, body: 'No profile photo' });
+    }
+    if (path === `/api/v1/admin/customers/${customer.publicId}/history` && method === 'GET') {
+      return json({
+        customer,
+        notes: 'Prefers a short phone call before delivery.',
+        marketingConsentAt: null,
+        marketingConsentSource: null,
+        motorcyclePurchases: [{
+          publicId: 'handover-history-e2e-001', invoiceNumber: 'SALE-E2E-001',
+          modelName: 'Pulsar NS200', variantName: 'Standard', colourName: 'Black', modelYear: 2026,
+          invoiceTotal: 145000, paidAmount: 145000, creditedAmount: 0, balanceDue: 0,
+          invoiceIssuedAt: '2026-09-15T10:00:00Z', deliveredAt: '2026-09-16T10:00:00Z', deliveredToName: 'Test Rider',
+        }],
+        salesEnquiries: [{
+          enquiry: {
+            publicId: 'walk-in-enquiry-e2e-001', enquiryCode: 'ENQ-WALKIN-001', customerPublicId: customer.publicId,
+            customerCode: customer.customerCode, customerName: customer.fullName, customerPhone: customer.phone,
+            customerEmail: customer.email, interestedModelPublicId: modelPublicId, modelCode: model.modelCode,
+            modelName: 'Discover 125', variantName: 'Drum', colourName: 'Red', assignedStaffPublicId: null,
+            assignedStaffName: 'Amit Sharma', status: 'CONTACTED', leadSource: 'WALK_IN', contactPreference: 'CALL',
+            nextFollowUpAt: '2026-10-30T10:00:00Z', lastContactedAt: '2026-10-29T09:00:00Z',
+            notes: 'Walk-in customer asked for finance options.', createdAt: '2026-10-28T10:00:00Z', updatedAt: '2026-10-29T09:00:00Z',
+          },
+          activities: [{ publicId: 'walk-in-activity-1', activityType: 'ENQUIRY_CREATED', fromStatus: null, toStatus: 'NEW', note: 'Walk-in customer asked for finance options.', followUpAt: null, referenceType: null, referenceId: null, actorName: 'Amit Sharma', createdAt: '2026-10-28T10:00:00Z' }],
+          testRides: [{ publicId: 'walk-in-ride-1', testRideCode: 'TR-WALKIN-001', status: 'COMPLETED', scheduledStart: '2026-10-28T11:00:00Z', scheduledEnd: '2026-10-28T11:30:00Z', notes: null, modelName: 'Discover 125', modelCode: 'DISCOVER125', completedAt: '2026-10-28T11:35:00Z', cancelledAt: null, cancellationReason: null }],
+          bookings: [{ publicId: 'walk-in-booking-1', bookingCode: 'BK-WALKIN-001', status: 'CONFIRMED', modelName: 'Discover 125', modelCode: 'DISCOVER125', notes: 'Booking deposit received', createdAt: '2026-10-28T12:00:00Z', cancelledAt: null, cancellationReason: null }],
+        }],
+        sparePartOrders: [{
+          publicId: 'parts-history-e2e-001', orderCode: 'RPO-E2E-001', status: 'RETURNED',
+          paymentMethod: 'PAY_ON_DELIVERY', paymentStatus: 'REFUND_REVIEW_REQUIRED', orderTotal: 249,
+          fulfillmentMethod: 'DELIVERY', deliveryAddress: '12 Historic Road, Bettiah, Bihar 845438',
+          deliveryFee: 50, deliveryQuoteStatus: 'ACCEPTED', deliveryQuoteNote: 'Local delivery',
+          deliveryQuotedAt: '2026-09-20T10:00:00Z', customerNote: 'Call on arrival',
+          createdAt: '2026-09-19T10:00:00Z', updatedAt: '2026-09-22T10:00:00Z',
+          cancelledAt: null, fulfilledAt: '2026-09-21T10:00:00Z', returnedAt: '2026-09-22T10:00:00Z',
+          returnReason: 'Wrong size supplied', restockedOnReturn: false, customerName: customer.fullName,
+          customerCode: customer.customerCode, customerPhone: customer.phone,
+          lines: [{ partPublicId: 'part-history-e2e-001', skuCode: 'BGP-0001', partName: 'Front brake pad',
+            unitOfMeasure: 'EACH', quantity: 1, unitPrice: 199, lineTotal: 199 }],
+        }],
+        websiteRequests: [{
+          ...customerRequest,
+          convertedEnquiryPublicId: enquiryPublicId, status: 'CONVERTED',
+          enquiryCode: 'ENQ-E2E-001', enquiryStatus: 'BOOKED', testRideCode: 'TR-E2E-001',
+          testRideStatus: 'COMPLETED', testRideScheduledStart: '2026-08-20T08:00:00Z',
+          bookingCode: 'BK-E2E-001', bookingStatus: 'CONVERTED_TO_SALE',
+          invoiceNumber: 'SALE-E2E-001', invoiceStatus: 'ISSUED', invoiceTotal: 145000,
+          paidAmount: 145000, creditedAmount: 0, balanceDue: 0, deliveredAt: '2026-09-16T10:00:00Z',
+        }],
+      });
+    }
     if (path === '/api/v1/admin/vehicle-models') return json(pageOf([model]));
     if (path === '/api/v1/admin/vehicle-units') return json(pageOf([unit]));
     if (path === '/api/v1/admin/sales/enquiries') {
@@ -232,4 +299,38 @@ test('staff can convert a showroom request to an enquiry without creating a book
   expect(state.testRideWrites).toBe(0);
   expect(state.bookingWrites).toBe(0);
   await expect(page.getByText('Not booked', { exact: true })).toHaveCount(0);
+});
+
+
+test('staff customer profile displays complete motorcycle, parts-return and website-request history', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await mockSalesJourney(page);
+  await page.goto('/');
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await page.getByRole('button', { name: 'Customers', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'View profile for Test Rider' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Customer profile', exact: true })).toBeVisible();
+  await expect(dialog).toContainText('12 Historic Road');
+  await expect(dialog.getByRole('heading', { name: 'Motorcycles purchased' })).toBeVisible();
+  await expect(dialog).toContainText('SALE-E2E-001');
+  await expect(dialog.getByRole('heading', { name: 'Spare-parts orders & returns' })).toBeVisible();
+  await expect(dialog).toContainText('RPO-E2E-001');
+  await expect(dialog).toContainText('Wrong size supplied');
+  await expect(dialog.getByRole('heading', { name: 'Sales enquiries · all channels' })).toBeVisible();
+  await expect(dialog).toContainText('ENQ-WALKIN-001');
+  await expect(dialog).toContainText('Walk-in customer asked for finance options.');
+  await expect(dialog).toContainText('TR-WALKIN-001');
+  await expect(dialog).toContainText('BK-WALKIN-001');
+  await expect(dialog.getByRole('heading', { name: 'Bike enquiries & test rides' })).toBeVisible();
+  await expect(dialog).toContainText('ENQ-E2E-001');
+  await expect(dialog).toContainText('TR-E2E-001');
+  await expect(dialog).toContainText('BK-E2E-001');
+  await expect(dialog.getByRole('heading', { name: 'Customer notes & consent' })).toBeVisible();
+  await expect(dialog).toContainText('Prefers a short phone call before delivery.');
+  await dialog.getByRole('button', { name: 'Close customer profile' }).click();
+  await expect(dialog).toHaveCount(0);
 });
