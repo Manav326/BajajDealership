@@ -107,10 +107,20 @@ type ArtworkDraft = {
   accent: string;
   photoSource: string | null;
   layers?: ArtworkLayerVisibility;
+  transforms?: ArtworkTransforms;
   updatedAt: string;
 };
 type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
+type ArtworkLayerKey = keyof ArtworkLayerVisibility;
+type ArtworkTransform = { x: number; y: number; scale: number };
+type ArtworkTransforms = Record<ArtworkLayerKey, ArtworkTransform>;
 const defaultArtworkLayers: ArtworkLayerVisibility = { decorations: true, brand: true, headline: true, message: true, photo: true, callToAction: true, footer: true };
+const defaultArtworkTransforms: ArtworkTransforms = {
+  decorations: { x: 0, y: 0, scale: 100 }, brand: { x: 0, y: 0, scale: 100 },
+  headline: { x: 0, y: 0, scale: 100 }, message: { x: 0, y: 0, scale: 100 },
+  photo: { x: 0, y: 0, scale: 100 }, callToAction: { x: 0, y: 0, scale: 100 },
+  footer: { x: 0, y: 0, scale: 100 },
+};
 type ArtworkDraftSummary = Pick<ArtworkDraft, 'id' | 'name' | 'updatedAt'>;
 type MetaDestination = { publicId: string; type: string; displayName: string; username: string | null; status: string };
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; missingConfigurationKeys: string[]; missingPublishingConfigurationKeys: string[]; destinations: MetaDestination[] };
@@ -232,6 +242,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [accent, setAccent] = useState('#f97316');
   const [photoSource, setPhotoSource] = useState<string | null>(null);
   const [layerVisibility, setLayerVisibility] = useState<ArtworkLayerVisibility>(defaultArtworkLayers);
+  const [layerTransforms, setLayerTransforms] = useState<ArtworkTransforms>(defaultArtworkTransforms);
+  const [selectedLayer, setSelectedLayer] = useState<ArtworkLayerKey>('headline');
   const [artworkAssets, setArtworkAssets] = useState<ArtworkAsset[]>([]);
   const [assetPreviewSources, setAssetPreviewSources] = useState<Record<string, string>>({});
   const assetPreviewUrlsRef = useRef<Record<string, string>>({});
@@ -342,44 +354,48 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       ctx.fillRect(0, 0, width, height);
 
       if (layerVisibility.decorations) {
+        const transform = layerTransforms.decorations;
         ctx.save();
         ctx.globalAlpha = 0.2;
         ctx.fillStyle = accent;
         ctx.beginPath();
-        ctx.arc(width * 0.94, height * 0.09, Math.min(width, height) * 0.22, 0, Math.PI * 2);
+        ctx.arc(width * (0.94 + transform.x / 100), height * (0.09 + transform.y / 100), Math.min(width, height) * 0.22 * transform.scale / 100, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 0.1;
         ctx.beginPath();
-        ctx.arc(width * 0.04, height * 0.96, Math.min(width, height) * 0.18, 0, Math.PI * 2);
+        ctx.arc(width * (0.04 + transform.x / 100), height * (0.96 + transform.y / 100), Math.min(width, height) * 0.18 * transform.scale / 100, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
 
       const margin = width * 0.075;
       if (layerVisibility.brand) {
-        const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075));
-        const brandY = height * (landscape ? 0.18 : 0.105);
+        const transform = layerTransforms.brand;
+        const markSize = Math.max(40, Math.min(width, height) * (landscape ? 0.09 : 0.075) * transform.scale / 100);
+        const brandX = margin + width * transform.x / 100;
+        const brandY = height * (landscape ? 0.18 : 0.105) + height * transform.y / 100;
         ctx.fillStyle = accent;
         ctx.beginPath();
-        ctx.arc(margin + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
+        ctx.arc(brandX + markSize * 0.42, brandY - markSize * 0.18, markSize * 0.42, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.font = '800 ' + Math.round(markSize * 0.38) + 'px Arial, sans-serif';
-        ctx.fillText('LB', margin + markSize * 0.42, brandY - markSize * 0.18);
+        ctx.fillText('LB', brandX + markSize * 0.42, brandY - markSize * 0.18);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff';
-        ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035)) + 'px Arial, sans-serif';
-        ctx.fillText(brandName.trim() || 'Your Dealership', margin + markSize * 1.05, brandY);
+        ctx.font = '700 ' + Math.round(Math.max(22, Math.min(width, height) * 0.035 * transform.scale / 100)) + 'px Arial, sans-serif';
+        ctx.fillText(brandName.trim() || 'Your Dealership', brandX + markSize * 1.05, brandY);
       }
 
-      const titleFontSize = Math.max(32, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066)));
+      const headlineTransform = layerTransforms.headline;
+      const titleFontSize = Math.max(24, Math.round(Math.min(width, height) * (landscape ? 0.075 : 0.066) * headlineTransform.scale / 100));
       const titleLineHeight = titleFontSize * 1.12;
-      const titleX = margin;
-      const titleY = height * (landscape ? 0.43 : 0.245);
-      const titleMaxWidth = width * (landscape ? 0.52 : 0.85);
+      const titleX = margin + width * headlineTransform.x / 100;
+      const titleY = height * (landscape ? 0.43 : 0.245) + height * headlineTransform.y / 100;
+      const titleMaxWidth = width * (landscape ? 0.52 : 0.85) * headlineTransform.scale / 100;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
       ctx.font = '800 ' + titleFontSize + 'px Arial, sans-serif';
@@ -387,20 +403,24 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         ? wrapText(ctx, headline.trim() || 'Your Next Ride Starts Here', titleX, titleY, titleMaxWidth, titleLineHeight, landscape ? 2 : 3)
         : titleY;
 
-      const messageFontSize = Math.max(19, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027)));
+      const messageTransform = layerTransforms.message;
+      const messageFontSize = Math.max(14, Math.round(Math.min(width, height) * (landscape ? 0.034 : 0.027) * messageTransform.scale / 100));
       const messageLineHeight = messageFontSize * 1.45;
-      const messageY = titleEnd + messageLineHeight * 0.15;
+      const messageX = margin + width * messageTransform.x / 100;
+      const messageY = titleEnd + messageLineHeight * 0.15 + height * messageTransform.y / 100;
+      const messageMaxWidth = width * (landscape ? 0.52 : 0.85) * messageTransform.scale / 100;
       ctx.fillStyle = '#e4eaf3';
       ctx.font = '400 ' + messageFontSize + 'px Arial, sans-serif';
       const messageEnd = layerVisibility.message
-        ? wrapText(ctx, message, titleX, messageY, titleMaxWidth, messageLineHeight, landscape ? 2 : 3)
+        ? wrapText(ctx, message, messageX, messageY, messageMaxWidth, messageLineHeight, landscape ? 2 : 3)
         : titleEnd;
 
-      const ctaY = height * (landscape ? 0.81 : 0.855);
-      const buttonHeight = Math.max(42, Math.min(height * 0.085, 72 * scale));
-      const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale));
-      const buttonX = landscape ? margin : (width - buttonWidth) / 2;
-      const buttonTop = Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.075);
+      const ctaTransform = layerTransforms.callToAction;
+      const ctaY = height * (landscape ? 0.81 : 0.855) + height * ctaTransform.y / 100;
+      const buttonHeight = Math.max(30, Math.min(height * 0.085, 72 * scale) * ctaTransform.scale / 100);
+      const buttonWidth = Math.min(width * (landscape ? 0.43 : 0.68), Math.max(210 * scale, (callToAction.length * messageFontSize * 0.56) + 52 * scale)) * ctaTransform.scale / 100;
+      const buttonX = (landscape ? margin : (width - buttonWidth) / 2) + width * ctaTransform.x / 100;
+      const buttonTop = Math.max(0, Math.min(ctaY - buttonHeight * 0.75, height - buttonHeight - height * 0.04));
       if (layerVisibility.callToAction) {
         ctx.fillStyle = accent;
         roundedRect(ctx, buttonX, buttonTop, buttonWidth, buttonHeight, buttonHeight * 0.3);
@@ -414,11 +434,12 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       }
 
       if (photo && layerVisibility.photo) {
+        const photoTransform = layerTransforms.photo;
         if (landscape) {
-          const photoX = width * 0.65;
-          const photoY = height * 0.22;
-          const photoW = width * 0.28;
-          const photoH = height * 0.55;
+          const photoX = width * (0.65 + photoTransform.x / 100);
+          const photoY = height * (0.22 + photoTransform.y / 100);
+          const photoW = width * 0.28 * photoTransform.scale / 100;
+          const photoH = height * 0.55 * photoTransform.scale / 100;
           ctx.fillStyle = '#ffffff';
           ctx.globalAlpha = 0.12;
           roundedRect(ctx, photoX - 8 * scale, photoY - 8 * scale, photoW + 16 * scale, photoH + 16 * scale, 28 * scale);
@@ -426,12 +447,12 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
           ctx.globalAlpha = 1;
           drawPhotoCover(ctx, photo, photoX, photoY, photoW, photoH, 22 * scale);
         } else {
-          const photoTop = messageEnd + messageLineHeight * 0.2;
-          const photoY = Math.min(photoTop, buttonTop - height * 0.08 - height * 0.2);
-          const photoH = Math.max(0, Math.min(height * 0.23, buttonTop - photoY - height * 0.07));
+          const photoTop = messageEnd + messageLineHeight * 0.2 + height * photoTransform.y / 100;
+          const photoY = Math.max(0, Math.min(photoTop, buttonTop - height * 0.08 - height * 0.2));
+          const photoH = Math.max(0, Math.min(height * 0.23 * photoTransform.scale / 100, buttonTop - photoY - height * 0.07));
           if (photoH > height * 0.06) {
-            const photoX = margin;
-            const photoW = width - margin * 2;
+            const photoX = margin + width * photoTransform.x / 100;
+            const photoW = (width - margin * 2) * photoTransform.scale / 100;
             ctx.fillStyle = '#ffffff';
             ctx.globalAlpha = 0.12;
             roundedRect(ctx, photoX - 6 * scale, photoY - 6 * scale, photoW + 12 * scale, photoH + 12 * scale, 28 * scale);
@@ -443,10 +464,11 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       }
 
       if (layerVisibility.footer) {
+        const footerTransform = layerTransforms.footer;
         ctx.fillStyle = '#cbd5e1';
         ctx.textAlign = landscape ? 'left' : 'center';
-        ctx.font = '600 ' + Math.max(13, Math.round(17 * scale)) + 'px Arial, sans-serif';
-        ctx.fillText('SERVICE YOU CAN TRUST', landscape ? margin : width / 2, height * 0.965);
+        ctx.font = '600 ' + Math.max(10, Math.round(17 * scale * footerTransform.scale / 100)) + 'px Arial, sans-serif';
+        ctx.fillText('SERVICE YOU CAN TRUST', (landscape ? margin : width / 2) + width * footerTransform.x / 100, height * 0.965 + height * footerTransform.y / 100);
         ctx.textAlign = 'left';
       }
     };
@@ -461,7 +483,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       render();
     }
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, photoSource, layerVisibility, layerTransforms]);
 
   async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
     const assets = await loadArtworkAssets();
@@ -512,6 +534,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setPrimary(template.primary);
     setAccent(template.accent);
     setLayerVisibility(defaultArtworkLayers);
+    setLayerTransforms(defaultArtworkTransforms);
+    setSelectedLayer('headline');
     setError('');
     setNotice('');
     let asset = artworkAssets.find((item) => item.id === template.assetId);
@@ -776,6 +800,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         accent,
         photoSource,
         layers: layerVisibility,
+        transforms: layerTransforms,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -818,6 +843,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setAccent(draft.accent);
       setPhotoSource(draft.photoSource);
       setLayerVisibility(draft.layers ?? defaultArtworkLayers);
+      setLayerTransforms(draft.transforms ?? defaultArtworkTransforms);
+      setSelectedLayer('headline');
       setSelectedAssetId(null);
       setNotice('Saved draft loaded.');
     } catch (cause) {
@@ -863,6 +890,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setPhotoSource(null);
     setSelectedAssetId(null);
     setLayerVisibility(defaultArtworkLayers);
+    setLayerTransforms(defaultArtworkTransforms);
+    setSelectedLayer('headline');
     setError('');
     setNotice('Started a new draft. Save it to keep it on this browser.');
   }
