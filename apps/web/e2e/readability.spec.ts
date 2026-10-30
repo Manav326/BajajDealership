@@ -45,25 +45,36 @@ test('staff dashboard card highlights sit behind readable content', async ({ pag
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.addInitScript(() => {
     document.documentElement.classList.add('tauri-desktop');
-    window.sessionStorage.setItem('qe_staff_token', 'readability-e2e-session');
   });
 
+  const staff = {
+    staffPublicId: 'READABILITY-E2E-STAFF',
+    fullName: 'Readability Test',
+    dealershipPublicId: 'READABILITY-E2E-DEALERSHIP',
+    dealershipCode: 'LBA',
+    roles: ['OWNER'],
+    permissions: [],
+  };
+
   await page.route('**/api/v1/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    const payload = path.endsWith('/auth/staff/me')
-      ? {
-          staffPublicId: 'READABILITY-E2E-STAFF',
-          fullName: 'Readability Test',
-          dealershipPublicId: 'READABILITY-E2E-DEALERSHIP',
-          dealershipCode: 'LBA',
-          roles: ['OWNER'],
-          permissions: [],
-        }
-      : path.endsWith('/system/health')
-        ? { status: 'UP', service: 'bajaj-api', version: 'e2e', timestamp: '2026-10-30T00:00:00Z' }
-        : path.endsWith('/system/license/status')
-          ? { state: 'ACTIVE', daysUntilExpiry: 30 }
-          : {};
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    let payload: unknown = {};
+
+    if (path.endsWith('/auth/staff/login') && request.method() === 'POST') {
+      payload = {
+        accessToken: 'readability-e2e-session',
+        tokenType: 'Bearer',
+        expiresAt: '2026-10-31T00:00:00Z',
+        staff,
+      };
+    } else if (path.endsWith('/auth/staff/me')) {
+      payload = staff;
+    } else if (path.endsWith('/system/health')) {
+      payload = { status: 'UP', service: 'bajaj-api', version: 'e2e', timestamp: '2026-10-30T00:00:00Z' };
+    } else if (path.endsWith('/system/license/status')) {
+      payload = { state: 'ACTIVE', daysUntilExpiry: 30 };
+    }
 
     await route.fulfill({
       status: 200,
@@ -73,7 +84,14 @@ test('staff dashboard card highlights sit behind readable content', async ({ pag
   });
 
   await page.goto('/');
-  const card = page.locator('.metric-card').first();
+  await expect(page.locator('.auth-card')).toBeVisible();
+  await page.getByPlaceholder('For example, LUCKY-BAJAJ').fill('LBA');
+  await page.getByPlaceholder('Enter your registered email or phone').fill('owner@example.com');
+  await page.getByPlaceholder('Enter your password').fill('readability-e2e-password');
+  await page.getByRole('button', { name: /sign in securely/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Good day, Readability.' })).toBeVisible();
+  const card = page.locator('.metric-grid > .metric-card').first();
   await expect(card).toBeVisible();
 
   const surface = await card.evaluate((element) => ({
@@ -88,7 +106,6 @@ test('staff dashboard card highlights sit behind readable content', async ({ pag
   expect(surface.valueColor).toBe('rgb(23, 36, 59)');
   expect(surface.noteColor).toBe('rgb(88, 105, 129)');
 });
-
 test('customer website loads its own bundled Inter font', async ({ page }) => {
   const fontResponse = page.waitForResponse(isLatinInterFont);
 
