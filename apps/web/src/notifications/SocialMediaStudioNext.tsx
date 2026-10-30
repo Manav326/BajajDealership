@@ -292,6 +292,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [destinationId, setDestinationId] = useState('');
   const [scheduleAt, setScheduleAt] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const metaConnectButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -323,13 +324,35 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
 
   useEffect(() => {
     if (!metaConsentOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setMetaConsentOpen(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMetaConsent();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = document.getElementById('meta-consent-dialog');
+      const focusable = dialog?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [metaConsentOpen]);
 
   async function loadMetaData() {
@@ -458,6 +481,11 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     finally { setPublishBusy(false); }
   }
 
+  function closeMetaConsent() {
+    setMetaConsentOpen(false);
+    window.requestAnimationFrame(() => metaConnectButtonRef.current?.focus());
+  }
+
   async function connectMeta() {
     setPublishBusy(true);
     try {
@@ -539,7 +567,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           {metaStatus?.destinations?.map((item) => <div className={styles.destinationRow} key={item.publicId}><span>{item.type === 'FACEBOOK_PAGE' ? 'f' : '◎'}</span><strong>{item.displayName}</strong><small>{item.status}</small></div>)}
           {!!metaStatus?.missingConfigurationKeys?.length && <small className={styles.missingKeys}>Missing settings: {metaStatus.missingConfigurationKeys.join(', ')}</small>}
           {!!metaStatus?.missingPublishingConfigurationKeys?.length && <small className={styles.missingKeys}>Publishing settings: {metaStatus.missingPublishingConfigurationKeys.join(', ')}</small>}
-          <div className={styles.cardActions}>{canManage && <button type="button" onClick={() => setMetaConsentOpen(true)} disabled={publishBusy}><Icon name="link"/> Connect</button>}
+          <div className={styles.cardActions}>{canManage && <button ref={metaConnectButtonRef} type="button" onClick={() => setMetaConsentOpen(true)} disabled={publishBusy}><Icon name="link"/> Connect</button>}
             {canManage && <button type="button" onClick={() => void disconnectMeta()} disabled={publishBusy}><Icon name="close"/> Disconnect</button>}</div>
         </div>
       </section>}
@@ -588,7 +616,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         </ul>
         <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. You can cancel here or decline on Meta's authorization screen.</p>
         <div className={styles.consentActions}>
-          <button type="button" autoFocus onClick={() => setMetaConsentOpen(false)}>Not now</button>
+          <button type="button" autoFocus onClick={closeMetaConsent}>Not now</button>
           <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
         </div>
       </section>
