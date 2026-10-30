@@ -144,7 +144,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/start.ps1", [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("Line {0}, column {1}: {2} ({3})" -f $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message, $e.ErrorId) }; exit 1 }'
+          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
