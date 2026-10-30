@@ -205,6 +205,8 @@ test('supports editable elements, contextual properties, custom sizes, pages and
 test('renders a selected landscape video size, previews it in the editor and does not auto-download', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('1');
   await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Landscape feed' }).click();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 566');
@@ -226,6 +228,17 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect(preview).toBeVisible({ timeout: 30000 });
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1440);
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+
+  await page.getByRole('button', { name: 'Resize' }).click();
+  await page.getByLabel('Custom width').fill('1234');
+  await page.getByLabel('Custom height').fill('987');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1234 × 987');
+  await page.getByRole('button', { name: 'Render video' }).click();
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1234);
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(987);
   await page.getByRole('button', { name: 'Close video preview' }).click();
 });
 
