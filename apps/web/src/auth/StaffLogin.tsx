@@ -373,7 +373,10 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
         </button>}
         <div className="auth-footnote"><span className="secure-mark">✓</span> Access is protected by your assigned dealership role.</div>
       </section>
-      <div className="auth-footer">Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.</div>
+      <div className="auth-footer">
+        Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.
+        <a className="desktop-download-link" href="/download.html">Download Windows desktop app</a>
+      </div>
     </main>
   );
 }
