@@ -1312,6 +1312,22 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0),start=offset+(clip.startSeconds??0),duration=Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-(clip.startSeconds??0));return <button type="button" key={clip.id} className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip} style={{left:start/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,duration/Math.max(1,totalSceneDuration)*100)+'%'}} title={clip.name+' · '+formatTime(start)+' – '+formatTime(start+duration)} onClick={()=>{setTimelinePlaying(false);Object.values(videoElementsRef.current).forEach(video=>video.pause());mutate(current=>({...current,selectedPageId:scene.id}),false);setSelectedIds([clip.id]);setTool('layers');}}><Icon name="video"/><span>{clip.name}</span></button>;}))}
             </div>
           </div>
+          <div className={styles.videoClipLane}>
+            <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
+            <div className={styles.videoClipTrack}>
+              {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{
+                const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
+                const clipStart=offset+(clip.startSeconds??0);
+                const clipDuration=Math.max(0,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-(clip.startSeconds??0)));
+                return <button type="button" key={clip.id} className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
+                  style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(1.5,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}
+                  title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
+                  onClick={()=>{setTimelinePlaying(false);Object.values(videoElementsRef.current).forEach(video=>video.pause());mutate(current=>({...current,selectedPageId:scene.id}),false);setSelectedIds([clip.id]);setTool('layers');}}>
+                  <Icon name="video"/><span>{clip.name}</span>
+                </button>;
+              }))}
+            </div>
+          </div>
           <div className={styles.timelineTrack}>
             <span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudioResource?selectedAudioResource.name:'No soundtrack selected'}<small>{selectedAudioResource?formatTime(audioPreviewTime)+' / '+formatTime(audioTrackDuration)+(audioPlaying?' · Playing':''):formatTime(totalSceneDuration)+' total'}</small></div>
             {renderedPhoto&&<button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={()=>setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
