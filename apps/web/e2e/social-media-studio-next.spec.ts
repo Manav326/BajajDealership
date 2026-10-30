@@ -238,7 +238,7 @@ test('uploaded video media becomes a timed, selectable timeline clip', async ({ 
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Uploads' }).click();
-  await page.locator('input[type="file"][accept*="video"]').setInputFiles({
+  await page.getByLabel('Import media').setInputFiles({
     name: 'scene-video.mp4',
     mimeType: 'video/mp4',
     buffer: Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50]),
