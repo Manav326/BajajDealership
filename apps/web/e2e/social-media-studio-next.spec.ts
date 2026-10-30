@@ -137,6 +137,13 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(page.getByRole('button', { name: 'Preview rendered photo' })).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Preview rendered photo' }).click();
+  const portraitOutput = page.getByRole('img', { name: 'Rendered photo output' });
+  await expect.poll(async () => portraitOutput.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(1080);
+  await expect.poll(async () => portraitOutput.evaluate(image => (image as HTMLImageElement).naturalHeight)).toBe(1440);
+  await page.getByRole('button', { name: 'Close photo preview' }).click();
   await page.getByRole('button', { name: 'Create variant 1080 by 1080' }).click();
   await expect(page.getByRole('button', { name: /2 Square feed/ })).toBeVisible();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1080');
@@ -170,6 +177,7 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await page.getByLabel('Page 1 name').fill('Opening scene');
   await page.getByRole('button', { name: 'Duplicate page' }).click();
   await expect(page.getByLabel('Page 4 name')).toHaveValue('Opening scene — Copy');
+  await expect(page.getByRole('img', { name: 'Editable design canvas' }).locator('text')).toHaveText('Ride into your next journey');
   await page.getByRole('button', { name: /1 Opening scene/ }).click();
   await page.getByRole('button', { name: 'Duplicate page' }).click();
   await expect(page.getByLabel('Page 5 name')).toHaveValue('Opening scene — Copy 2');
@@ -177,6 +185,10 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await page.getByRole('combobox', { name: 'Transition after page 1' }).selectOption('fade');
   await page.getByRole('spinbutton', { name: 'Fade duration after page 1' }).fill('1.5');
   await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 1' })).toHaveValue('1.5');
+  await page.getByRole('button', { name: 'Duplicate page' }).click();
+  await expect(page.getByLabel('Page 6 name')).toHaveValue('Opening scene — Copy 3');
+  await expect(page.getByRole('combobox', { name: 'Transition after page 6' })).toHaveValue('fade');
+  await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 6' })).toHaveValue('1.5');
   await page.getByRole('button', { name: /1 Opening scene/ }).click();
 
   await page.getByRole('button', { name: 'Back to resources' }).click();
@@ -329,9 +341,12 @@ test('element search filters presets and layer search filters the actual layer l
   await expect(page.getByRole('button', { name: 'Offer badge', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Circle' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Offer badge', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Search tool resources' }).fill('Circle');
+  await page.getByRole('button', { name: 'Circle', exact: true }).click();
   await page.getByRole('button', { name: 'Layers' }).click();
   await page.getByRole('textbox', { name: 'Search tool resources' }).fill('offer');
   await expect(page.getByRole('button', { name: 'Offer badge', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Circle', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Lock layer' }).click();
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
