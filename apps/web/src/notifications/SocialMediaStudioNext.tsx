@@ -283,6 +283,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [kindFilter, setKindFilter] = useState<'all' | StudioResourceKind>('all');
   const [toast, setToast] = useState('');
   const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null);
+  const [metaConsentOpen, setMetaConsentOpen] = useState(false);
   const [publishRequests, setPublishRequests] = useState<PublishRequest[]>([]);
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishError, setPublishError] = useState('');
@@ -319,6 +320,17 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     if (hubPage !== 'connections' && hubPage !== 'publish') return;
     void loadMetaData();
   }, [hubPage]);
+
+  useEffect(() => {
+    if (!metaConsentOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setMetaConsentOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [metaConsentOpen]);
 
   async function loadMetaData() {
     try {
@@ -527,7 +539,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           {metaStatus?.destinations?.map((item) => <div className={styles.destinationRow} key={item.publicId}><span>{item.type === 'FACEBOOK_PAGE' ? 'f' : '◎'}</span><strong>{item.displayName}</strong><small>{item.status}</small></div>)}
           {!!metaStatus?.missingConfigurationKeys?.length && <small className={styles.missingKeys}>Missing settings: {metaStatus.missingConfigurationKeys.join(', ')}</small>}
           {!!metaStatus?.missingPublishingConfigurationKeys?.length && <small className={styles.missingKeys}>Publishing settings: {metaStatus.missingPublishingConfigurationKeys.join(', ')}</small>}
-          <div className={styles.cardActions}>{canManage && <button type="button" onClick={() => void connectMeta()} disabled={publishBusy}><Icon name="link"/> Connect</button>}
+          <div className={styles.cardActions}>{canManage && <button type="button" onClick={() => setMetaConsentOpen(true)} disabled={publishBusy}><Icon name="link"/> Connect</button>}
             {canManage && <button type="button" onClick={() => void disconnectMeta()} disabled={publishBusy}><Icon name="close"/> Disconnect</button>}</div>
         </div>
       </section>}
@@ -562,6 +574,25 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           }}/>
       </section>}
     </main>
+    {metaConsentOpen && <div className={styles.consentBackdrop}>
+      <section className={styles.consentDialog} role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description">
+        <div className={styles.consentHeading}>
+          <span className={styles.consentMark} aria-hidden="true"><Icon name="link"/></span>
+          <div><h2 id="meta-consent-title">Connect Facebook and Instagram?</h2><p>Authorize the dealership's social accounts</p></div>
+        </div>
+        <p id="meta-consent-description">Continuing will start Meta's secure authorization flow. Meta will show the exact permissions requested for the account. Review that list carefully and grant only the access you approve.</p>
+        <ul className={styles.consentList}>
+          <li>Eligible Facebook Pages and connected Instagram professional accounts may become available as dealership publishing destinations.</li>
+          <li>Connecting an account does not publish anything. Every post remains subject to the separate LuckyBajaj publishing approval workflow.</li>
+          <li>Provider authorization credentials are handled by the dealership backend and are not stored in this browser.</li>
+        </ul>
+        <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. You can cancel here or decline on Meta's authorization screen.</p>
+        <div className={styles.consentActions}>
+          <button type="button" onClick={() => setMetaConsentOpen(false)}>Not now</button>
+          <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
+        </div>
+      </section>
+    </div>}
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
       onProjectChange={setActiveProject} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
