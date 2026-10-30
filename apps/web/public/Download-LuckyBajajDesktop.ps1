@@ -358,11 +358,9 @@ It is only for testing on the same Windows computer where the Lucky Bajaj Docker
 Do not distribute this local-Docker build to customers or install it on another computer.
 
 STEP 1 — Start the compatible local stack
-1. Open PowerShell in your BajajDealership repository folder.
-2. Update main if you want to use the latest committed source:
-   git switch main
-   git pull --ff-only origin main
-3. Start/build the local backend and both websites:
+1. Open PowerShell in the BajajDealership checkout that matches the installer source recorded above.
+2. For a local build, keep the same branch and working files while testing the desktop app.
+3. Build/start the local backend and both websites:
    .\scripts\start.ps1
 4. Confirm the API is healthy:
    Invoke-RestMethod http://127.0.0.1:8080/actuator/health
