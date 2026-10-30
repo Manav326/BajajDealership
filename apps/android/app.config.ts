@@ -2,6 +2,7 @@ import type { ExpoConfig } from 'expo/config';
 import { withAndroidManifest } from 'expo/config-plugins';
 
 const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/').trim();
+const customerWebUrl = (process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || 'https://lucky-bajaj-customer-web.onrender.com').trim().replace(/\/+$/, '');
 
 const baseConfig: ExpoConfig = {
   name: 'Lucky Bajaj',
@@ -19,7 +20,7 @@ const baseConfig: ExpoConfig = {
     package: 'com.quantaedge.luckybajaj',
     versionCode: 2,
   },
-  extra: { apiBaseUrl },
+  extra: { apiBaseUrl, customerWebUrl },
 };
 
 // Permit cleartext HTTP only when an explicit local development URL is supplied.
