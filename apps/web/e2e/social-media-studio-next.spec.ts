@@ -173,14 +173,20 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
 });
 
-test('renders a short promotional video, previews it in the editor and does not auto-download', async ({ page }) => {
+test('renders a selected landscape video size, previews it in the editor and does not auto-download', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Resize' }).click();
+  await page.getByRole('button', { name: 'Landscape feed' }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 566');
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
   await expect(preview).toBeVisible({ timeout: 30000 });
-  await expect(preview.locator('video')).toHaveAttribute('controls', '');
+  const video = preview.locator('video');
+  await expect(video).toHaveAttribute('controls', '');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(566);
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
   await page.getByRole('button', { name: 'Close video preview' }).click();
   await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
@@ -283,6 +289,37 @@ test('layer visibility hides and restores the selected canvas object', async ({ 
   await show.click();
   await expect(page.getByRole('button', { name: 'Hide layer' })).toHaveAttribute('aria-pressed', 'false');
   await expect(canvasObject).toHaveCount(1);
+});
+
+test('search filters Text, Uploads and Audio library entries', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Text' }).click();
+  const search = page.getByRole('textbox', { name: 'Search tool resources' });
+  await search.fill('Fine print');
+  await expect(page.getByRole('button', { name: 'Fine print', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Body text', exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Uploads' }).click();
+  await page.getByLabel('Import media').setInputFiles([
+    { name: 'campaign-alpha.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=','base64') },
+    { name: 'campaign-beta.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=','base64') },
+  ]);
+  await expect(page.getByText('campaign-alpha.png')).toBeVisible();
+  await expect(page.getByText('campaign-beta.png')).toBeVisible();
+  await search.fill('campaign-beta');
+  await expect(page.getByText('campaign-beta.png')).toBeVisible();
+  await expect(page.getByText('campaign-alpha.png')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-alpha.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
+  await expect(page.getByRole('button', { name: 'ambient-alpha.wav', exact: true })).toBeVisible();
+  await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-beta.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
+  await expect(page.getByRole('button', { name: 'ambient-beta.wav', exact: true })).toBeVisible();
+  await search.fill('ambient-beta');
+  await expect(page.getByRole('button', { name: 'ambient-beta.wav', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ambient-alpha.wav', exact: true })).toHaveCount(0);
 });
 
 test('scene timeline plays and seeks a preview without triggering a render', async ({ page }) => {
@@ -395,6 +432,74 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await page.mouse.up();
   await expect.poll(async () => Number(await start.inputValue())).toBeLessThan(35);
   await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
+});
+
+test('fade transition blends the timeline preview and the rendered video consistently', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+  await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+
+  const setBackground = async (colour: string) => {
+    await page.getByRole('button', { name: 'Brand' }).click();
+    await page.getByLabel('Page background').evaluate((element, value) => {
+      const input = element as HTMLInputElement;
+      input.value = value as string;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, colour);
+    await expect(page.getByLabel('Page background')).toHaveValue(colour);
+  };
+  await setBackground('#0000ff');
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('button', { name: /1 Page 1/ }).click();
+  await setBackground('#ff0000');
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('combobox', { name: 'Transition after page 1' }).selectOption('fade');
+  await page.getByRole('spinbutton', { name: 'Fade duration after page 1' }).fill('1.5');
+
+  const playhead = page.getByRole('slider', { name: 'Timeline playhead' });
+  await playhead.focus();
+  for (let i = 0; i < 12; i += 1) await playhead.press('ArrowRight');
+  const timelineCanvas = page.locator('canvas[aria-label="Timeline preview"]');
+  await expect(timelineCanvas).toBeVisible();
+  const previewPixel = await timelineCanvas.evaluate(canvas => {
+    const element = canvas as HTMLCanvasElement;
+    const context = element.getContext('2d');
+    if (!context) throw new Error('Timeline preview canvas is unavailable.');
+    const pixel = context.getImageData(Math.floor(element.width/2), Math.floor(element.height/2), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  expect(previewPixel[0]).toBeGreaterThan(30);
+  expect(previewPixel[2]).toBeGreaterThan(30);
+  expect(previewPixel[1]).toBeLessThan(50);
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await video.evaluate(element => new Promise<void>((resolve, reject) => {
+    const output = element as HTMLVideoElement;
+    const timeout = window.setTimeout(() => reject(new Error('Rendered video seek timed out.')), 10000);
+    output.addEventListener('seeked', () => { window.clearTimeout(timeout); resolve(); }, { once: true });
+    output.currentTime = 1.2;
+  }));
+  const renderedPixel = await video.evaluate(element => {
+    const output = element as HTMLVideoElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = output.videoWidth; canvas.height = output.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Rendered video frame canvas is unavailable.');
+    context.drawImage(output, 0, 0);
+    const pixel = context.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height/2), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  expect(renderedPixel[0]).toBeGreaterThan(30);
+  expect(renderedPixel[2]).toBeGreaterThan(30);
+  expect(renderedPixel[1]).toBeLessThan(80);
 });
 
 test('publishing caption and hashtags live in the dedicated Publishing tool', async ({ page }) => {
