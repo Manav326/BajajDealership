@@ -122,10 +122,16 @@ test('canvas fullscreen is distinct from fit-page zoom and can be exited', async
   await page.getByRole('button', { name: 'Fit page' }).click();
   await expect(page.getByRole('button', { name: 'Fullscreen canvas' })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Fullscreen canvas' }).click();
-  await expect.poll(async () => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect.poll(async () => page.evaluate(() => {
+    const editor = document.querySelector('[aria-label="Creative editor"]');
+    return Boolean(document.fullscreenElement) || getComputedStyle(editor!).gridTemplateRows.startsWith('0px');
+  })).toBe(true);
   await expect(page.getByRole('button', { name: 'Exit fullscreen canvas' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Exit fullscreen canvas' }).click();
-  await expect.poll(async () => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  await expect.poll(async () => page.evaluate(() => {
+    const editor = document.querySelector('[aria-label="Creative editor"]');
+    return !document.fullscreenElement && !getComputedStyle(editor!).gridTemplateRows.startsWith('0px');
+  })).toBe(true);
   await expect(page.getByRole('button', { name: 'Fullscreen canvas' })).toHaveAttribute('aria-pressed', 'false');
 });
 
@@ -225,7 +231,6 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
   await page.getByRole('button', { name: 'Close video preview' }).click();
   await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
-  await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
   await page.getByRole('button', { name: 'Render video' }).click();
@@ -234,7 +239,6 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1440);
   await page.getByRole('button', { name: 'Close video preview' }).click();
 
-  await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByLabel('Custom width').fill('1234');
   await page.getByLabel('Custom height').fill('987');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -247,13 +251,13 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to resources' }).click();
   await page.getByRole('button', { name: 'Resources', exact: true }).click();
-  const renderedVideoCard = page.locator('[data-testid="studio-resource-card"]').filter({ hasText: 'untitled-design-video.webm' }).first();
+  const renderedVideoCard = page.locator('[data-testid="studio-resource-card"]').filter({ hasText: /untitled-design-video\.(?:mp4|webm)/ }).first();
   await expect(renderedVideoCard).toBeVisible();
   const resourcePlayer = renderedVideoCard.locator('video');
   await expect(resourcePlayer).toHaveAttribute('controls', '');
   await expect.poll(async () => renderedVideoCard.locator('span').last().textContent()).toContain('00:01');
   const reDownload = page.waitForEvent('download');
-  await renderedVideoCard.getByRole('button', { name: 'Download untitled-design-video.webm' }).click();
+  await renderedVideoCard.getByRole('button', { name: /Download untitled-design-video\.(?:mp4|webm)/ }).click();
   expect((await reDownload).suggestedFilename()).toMatch(/\.webm$/);
 });
 
@@ -265,12 +269,12 @@ test('renders a photo first, then downloads it only after an explicit choice', a
   await page.getByRole('textbox', { name: 'Text', exact: true }).fill('Lucky Bajaj creative export');
   await page.getByRole('button', { name: 'Render photo' }).click();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 15000 });
-  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
   await page.getByRole('button', { name: 'Preview rendered photo' }).click();
   const squarePhoto = page.getByRole('img', { name: 'Rendered photo output' });
   await expect.poll(async () => squarePhoto.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(1080);
   await expect.poll(async () => squarePhoto.evaluate(image => (image as HTMLImageElement).naturalHeight)).toBe(1080);
   await page.getByRole('button', { name: 'Close photo preview' }).click();
+  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download selected' }).click();
   const download = await downloadPromise;
@@ -319,7 +323,7 @@ test('download workflow supports video-only and photo-plus-video selections', as
   await output.selectOption('video');
   const videoDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download selected' }).click();
-  expect((await videoDownload).suggestedFilename()).toMatch(/\.webm$/);
+  expect((await videoDownload).suggestedFilename()).toMatch(/\.(?:mp4|webm)$/);
 
   await page.getByRole('button', { name: 'Download rendered outputs' }).click();
   await page.getByRole('combobox', { name: 'Output selection' }).selectOption('both');
@@ -327,7 +331,7 @@ test('download workflow supports video-only and photo-plus-video selections', as
   await page.getByRole('button', { name: 'Download selected' }).click();
   const [photoDownload, secondDownload] = await bothDownloads;
   expect(photoDownload.suggestedFilename()).toMatch(/\.png$/);
-  expect(secondDownload.suggestedFilename()).toMatch(/\.webm$/);
+  expect(secondDownload.suggestedFilename()).toMatch(/\.(?:mp4|webm)$/);
 });
 
 test('resource import, filter and delete remain in the resource library', async ({ page }) => {
@@ -389,6 +393,7 @@ test('element search filters presets and layer search filters the actual layer l
   await page.getByRole('textbox', { name: 'Search tool resources' }).fill('offer');
   await expect(page.getByRole('button', { name: 'Offer badge', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Circle', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Offer badge', exact: true }).click();
   await page.getByRole('button', { name: 'Lock layer' }).click();
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
@@ -502,6 +507,9 @@ test('adds sticker presets and exposes editable text spacing and save state', as
   await page.getByLabel('Font family').selectOption('Georgia');
   await page.getByLabel('Font size').fill('88');
   await page.getByLabel('Text alignment').selectOption('center');
+  await expect(page.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Bold' }).click();
+  await expect(page.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Bold' }).click();
   await page.getByRole('button', { name: 'Italic' }).click();
   await expect(page.getByLabel('Font family')).toHaveValue('Georgia');
@@ -619,7 +627,9 @@ test('fade transition blends the timeline preview and the rendered video consist
     await page.getByRole('button', { name: 'Brand' }).click();
     await page.getByLabel('Page background').evaluate((element, value) => {
       const input = element as HTMLInputElement;
-      input.value = value as string;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      if (!setter) throw new Error('Native colour input setter is unavailable.');
+      setter.call(input, value as string);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }, colour);
@@ -636,18 +646,17 @@ test('fade transition blends the timeline preview and the rendered video consist
   const playhead = page.getByRole('slider', { name: 'Timeline playhead' });
   await playhead.focus();
   for (let i = 0; i < 12; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('1.2');
   const timelineCanvas = page.locator('canvas[aria-label="Timeline preview"]');
   await expect(timelineCanvas).toBeVisible();
-  const previewPixel = await timelineCanvas.evaluate(canvas => {
+  const readPreviewPixel = () => timelineCanvas.evaluate(canvas => {
     const element = canvas as HTMLCanvasElement;
     const context = element.getContext('2d');
     if (!context) throw new Error('Timeline preview canvas is unavailable.');
     const pixel = context.getImageData(Math.floor(element.width/2), Math.floor(element.height/2), 1, 1).data;
     return [pixel[0], pixel[1], pixel[2]];
   });
-  expect(previewPixel[0]).toBeGreaterThan(30);
-  expect(previewPixel[2]).toBeGreaterThan(30);
-  expect(previewPixel[1]).toBeLessThan(50);
+  await expect.poll(async () => { const pixel = await readPreviewPixel(); return pixel[0] > 30 && pixel[2] > 30 && pixel[1] < 50; }).toBe(true);
 
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });

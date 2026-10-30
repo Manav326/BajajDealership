@@ -102,3 +102,13 @@
 .brandAssetUpload{border:1px dashed #b7c3d2;background:#f8fafc;color:#6b7a90}
 .brandAssetUpload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .brandAssetEmpty{grid-column:1/-1;padding:12px;color:#78869a;font-size:10px;text-align:center}
+
+.editorCanvasFullscreenFallback{grid-template-rows:0 minmax(0,1fr) 0!important}
+.editorCanvasFullscreenFallback>.editorTopbar{display:none!important}
+.editorCanvasFullscreenFallback>.editorLayout{grid-row:2;grid-template-columns:minmax(0,1fr)!important}
+.editorCanvasFullscreenFallback>.editorLayout>.toolRail,
+.editorCanvasFullscreenFallback>.editorLayout>.toolPanel,
+.editorCanvasFullscreenFallback>.editorLayout>.inspector{display:none!important}
+.editorCanvasFullscreenFallback>.editorLayout>.canvasWorkspace{grid-column:1!important;grid-template-rows:44px minmax(0,1fr) 110px!important}
+.editorCanvasFullscreenFallback>.canvasSizeStatus{display:none!important}
+.editorCanvasFullscreenFallback .canvasViewport{padding:12px}

@@ -691,8 +691,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
 
   useEffect(() => {
     const updateFullscreen = () => setCanvasFullscreen(document.fullscreenElement === canvasViewportRef.current);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && document.fullscreenElement !== canvasViewportRef.current) setCanvasFullscreen(false);
+    };
     document.addEventListener('fullscreenchange', updateFullscreen);
-    return () => document.removeEventListener('fullscreenchange', updateFullscreen);
+    window.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('fullscreenchange', updateFullscreen); window.removeEventListener('keydown', onKeyDown); };
   }, []);
   useEffect(() => () => {
     if (renderedPhoto?.url) URL.revokeObjectURL(renderedPhoto.url);
@@ -768,9 +772,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   function toggleCanvasFullscreen() {
     const node = canvasViewportRef.current;
     if (!node) return;
-    if (document.fullscreenElement === node) void document.exitFullscreen();
-    else if (node.requestFullscreen) void node.requestFullscreen().catch(() => onNotify('Canvas fullscreen is unavailable.'));
-    else onNotify('Canvas fullscreen is unavailable.');
+    if (document.fullscreenElement === node) { void document.exitFullscreen().catch(() => setCanvasFullscreen(false)); return; }
+    if (canvasFullscreen) { setCanvasFullscreen(false); return; }
+    if (node.requestFullscreen) void node.requestFullscreen().then(() => setCanvasFullscreen(true)).catch(() => setCanvasFullscreen(true));
+    else setCanvasFullscreen(true);
   }
   function drawTimelinePreview(seconds:number){
     const canvas=timelineCanvasRef.current,ctx=canvas?.getContext('2d');if(!canvas||!ctx||!project.pages.length)return;
@@ -1343,7 +1348,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     ['layers','layers','Layers'], ['pages','pages','Pages'], ['resize','resize','Resize'],
   ];
 
-  return <div className={styles.editorOverlay} role="dialog" aria-modal="true" aria-label="Creative editor">
+  return <div className={styles.editorOverlay + (canvasFullscreen && document.fullscreenElement !== canvasViewportRef.current ? ' ' + styles.editorCanvasFullscreenFallback : '')} role="dialog" aria-modal="true" aria-label="Creative editor">
     <header className={styles.editorTopbar}>
       <button type="button" title="Back to resources" aria-label="Back to resources" onClick={() => void leaveEditor()}><Icon name="back"/></button>
       <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => changeProject({ ...project, name: event.target.value })}/>
