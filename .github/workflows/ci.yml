@@ -144,7 +144,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$files=@("scripts/start.ps1","scripts/test-android-maestro.ps1"); foreach ($file in $files) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}:{1}, column {2}: {3} ({4})" -f $file, $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message, $e.ErrorId) }; exit 1 } }'
+          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
