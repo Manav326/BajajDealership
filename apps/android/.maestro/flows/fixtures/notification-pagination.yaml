@@ -7,6 +7,10 @@ tags:
 - runFlow: ../../subflows/customer-login.yaml
 - tapOn: "Updates"
 - assertVisible: "Dealership updates"
-- assertVisible: "Load more updates"
+- scrollUntilVisible:
+    element:
+      text: "Load more updates"
+    direction: DOWN
+    timeout: 15000
 - tapOn: "Load more updates"
 - assertVisible: ${MAESTRO_NOTIFICATION_PAGE_TWO_TITLE}
