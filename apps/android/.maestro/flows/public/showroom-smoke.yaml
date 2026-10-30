@@ -13,5 +13,6 @@ tags:
 - assertVisible: "Explore Bajaj motorcycles"
 - tapOn: "Search motorcycles"
 - inputText: "Pulsar"
+- pressKey: Back
 - assertVisible: "Explore Bajaj motorcycles"
 - assertVisible: "Sign in / activate account"
