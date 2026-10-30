@@ -211,6 +211,35 @@ test('renders a photo first, then downloads it only after an explicit choice', a
   await page.getByRole('button', { name: /Download .*\.png/ }).click();
 });
 
+test('download workflow supports video-only and photo-plus-video selections', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const videoPreview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(videoPreview).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+  await expect(page.getByRole('button', { name: 'Render photo' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Render video' })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
+  const output = page.getByRole('combobox', { name: 'Output selection' });
+  await expect(output.locator('option')).toHaveCount(3);
+  await output.selectOption('video');
+  const videoDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download selected' }).click();
+  expect((await videoDownload).suggestedFilename()).toMatch(/\.webm$/);
+
+  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
+  await page.getByRole('combobox', { name: 'Output selection' }).selectOption('both');
+  const bothDownloads = Promise.all([page.waitForEvent('download'), page.waitForEvent('download')]);
+  await page.getByRole('button', { name: 'Download selected' }).click();
+  const [photoDownload, secondDownload] = await bothDownloads;
+  expect(photoDownload.suggestedFilename()).toMatch(/\.png$/);
+  expect(secondDownload.suggestedFilename()).toMatch(/\.webm$/);
+});
+
 test('resource import, filter and delete remain in the resource library', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Resources', exact: true }).click();
