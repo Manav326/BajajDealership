@@ -599,6 +599,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [renderedVideo, setRenderedVideo] = useState<{ blob: Blob; url: string; name: string; duration: number } | null>(null);
   const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
+  const [brandAssetPickerOpen, setBrandAssetPickerOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<'photo' | 'video' | 'both'>('photo');
   const [downloadPhotoFormat, setDownloadPhotoFormat] = useState<'png' | 'jpg'>('png');
@@ -1430,8 +1431,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <label className={styles.panelField}>Primary colour<input type="color" value={project.primaryColor} onChange={(event) => changeProject({ ...project, primaryColor: event.target.value })}/></label>
           <label className={styles.panelField}>Accent colour<input type="color" value={project.accentColor} onChange={(event) => changeProject({ ...project, accentColor: event.target.value })}/></label>
           <label className={styles.panelField}>Page background<input type="color" value={page.background} onChange={(event) => replacePage({ ...page, background: event.target.value })}/></label>
-          <button type="button" onClick={() => logoInputRef.current?.click()}><Icon name="imageplus"/>Add logo / image</button>
-          <input ref={logoInputRef} className={styles.hiddenFileInput} type="file" accept="image/*" aria-label="Upload brand logo or image" onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void(async()=>{try{const resource=await saveResource(file,file.name,'image');await onResourceAdded(resource);await addLibraryImage(resource);onNotify('Brand image added to the canvas and saved in the resource library.');}catch(cause){onNotify(cause instanceof Error?cause.message:'Brand image could not be added.');}})();}}/>
+          <button type="button" onClick={() => setBrandAssetPickerOpen(true)}><Icon name="imageplus"/>Add logo / image</button>
         </div>}
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
@@ -1603,6 +1603,21 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       </aside>}
     </div>
     <span className={styles.canvasSizeStatus} data-testid="active-page-size">{page.width} × {page.height}</span>
+    {brandAssetPickerOpen && <div className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Brand image picker">
+      <div className={styles.previewModalCard}>
+        <div className={styles.previewModalHeading}><strong>Add a brand image</strong><button type="button" aria-label="Close brand image picker" onClick={() => setBrandAssetPickerOpen(false)}><Icon name="close"/></button></div>
+        <p className={styles.panelHint}>Choose an image already in your library or upload a new one. Nothing is placed on the canvas until you select it.</p>
+        <div className={styles.brandAssetGrid}>
+          {resources.filter(resource=>resource.kind==='image').map(resource=><button type="button" key={resource.id} className={styles.brandAssetTile} onClick={()=>{void addLibraryImage(resource);setBrandAssetPickerOpen(false);}}>
+            {urls[resource.id]?<img src={urls[resource.id]} alt=""/>:<Icon name="image"/>}<span>{resource.name}</span>
+          </button>)}
+          <label className={styles.brandAssetUpload}><Icon name="upload"/><span>Upload new image</span>
+            <input ref={logoInputRef} type="file" accept="image/jpeg,image/png" aria-label="Upload brand logo or image" onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void(async()=>{try{const resource=await saveResource(file,file.name,'image');await onResourceAdded(resource);await addLibraryImage(resource);setBrandAssetPickerOpen(false);onNotify('Brand image added to the canvas and saved in the resource library.');}catch(cause){onNotify(cause instanceof Error?cause.message:'Brand image could not be added.');}})();}}/>
+          </label>
+          {!resources.some(resource=>resource.kind==='image')&&<span className={styles.brandAssetEmpty}>No saved images yet. Upload your first logo or image.</span>}
+        </div>
+      </div>
+    </div>}
     {videoPreviewOpen && renderedVideo && <div className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Rendered video preview"><div className={styles.previewModalCard}>
       <div className={styles.previewModalHeading}><strong>Rendered video preview</strong><button type="button" aria-label="Close video preview" onClick={() => setVideoPreviewOpen(false)}><Icon name="close"/></button></div>
       <video className={styles.outputVideo} src={renderedVideo.url} controls playsInline onLoadedMetadata={(event) => { const d=event.currentTarget.duration; if(Number.isFinite(d)) setRenderedVideo((v)=>v?{...v,duration:d}:v); }}/>

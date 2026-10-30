@@ -295,11 +295,22 @@ test('scene timeline plays and seeks a preview without triggering a render', asy
   await expect(page.getByRole('img',{name:'Editable design canvas'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Download rendered outputs'})).toBeDisabled();
 });
-test('brand logo picker imports and inserts the selected image once', async ({ page }) => {
+test('brand image picker supports existing library resources and explicit uploads', async ({ page }) => {
   await openNewStudio(page); await page.getByRole('button',{name:'Create',exact:true}).click();
   await page.getByRole('button',{name:'Brand'}).click();
-  await page.locator('input[aria-label="Upload brand logo or image"]').setInputFiles({name:'brand-logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=','base64')});
-  await expect(page.getByRole('img',{name:'Editable design canvas'}).locator('image')).toHaveCount(1);
+  await page.getByRole('button',{name:'Add logo / image'}).click();
+  const picker = page.getByRole('dialog',{name:'Brand image picker'});
+  await expect(picker).toBeVisible();
+  await picker.locator('input[aria-label="Upload brand logo or image"]').setInputFiles({name:'brand-logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=','base64')});
+  await expect(picker).toHaveCount(0);
+  const canvasImages = page.getByRole('img',{name:'Editable design canvas'}).locator('image');
+  await expect(canvasImages).toHaveCount(1);
+  await page.getByRole('button',{name:'Add logo / image'}).click();
+  const existingPicker = page.getByRole('dialog',{name:'Brand image picker'});
+  await expect(existingPicker.getByRole('button',{name:'brand-logo.png'})).toBeVisible();
+  await existingPicker.getByRole('button',{name:'brand-logo.png'}).click();
+  await expect(existingPicker).toHaveCount(0);
+  await expect(canvasImages).toHaveCount(2);
 });
 
 
