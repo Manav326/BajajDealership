@@ -28,7 +28,7 @@ The default target is `Web`. `-Target Web` opens Playwright UI Mode, where you c
 
 - Installs npm dependencies for each app only when their expected package is missing.
 - Installs Playwright's Chromium browser if needed.
-- Downloads the free Maestro CLI into the current Windows user's local tools directory if it is missing, too old for flow syntax validation, or cannot report its version. It does not change the machine-wide PATH.
+- Downloads the free Maestro CLI into the current Windows user's local tools directory if it is missing, older than the configured minimum version, or cannot report its version. It does not change the machine-wide PATH.
 - Starts the first configured Android Virtual Device if no device is already online.
 - Builds and installs the Android release variant, targeting the shell's `EXPO_PUBLIC_API_BASE_URL` override first, then `apps/android/.env`, then the deployed preview API fallback. It targets the same selected device in both Expo and Maestro, and disables Metro because the release bundle is self-contained.
 - Keeps generated Expo native project files out of Git status.
