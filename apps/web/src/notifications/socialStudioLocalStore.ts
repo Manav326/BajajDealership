@@ -36,6 +36,7 @@ export type StudioElement = {
   visible: boolean;
   locked: boolean;
   groupId?: string;
+  imageFit?: 'cover' | 'contain';
 };
 
 export type StudioPage = {
@@ -44,6 +45,7 @@ export type StudioPage = {
   width: number;
   height: number;
   durationSeconds: number;
+  transitionAfter?: 'cut' | 'fade';
   background: string;
   elements: StudioElement[];
 };
@@ -57,6 +59,7 @@ export type StudioProject = {
   selectedPageId: string;
   selectedAudioId: string | null;
   audioStartSeconds: number;
+  audioDurationSeconds?: number;
   audioVolume: number;
   caption: string;
   hashtags: string;

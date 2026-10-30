@@ -43,13 +43,13 @@ const SIZE_PRESETS: SizePreset[] = [
 const STARTER_TEMPLATES = ARTWORK_TEMPLATES;
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? 'studio-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 const defaultPage = (name = 'Page 1', width = 1080, height = 1080): StudioPage => ({
-  id: randomId(), name, width, height, durationSeconds: 5, background: '#15213a', elements: [],
+  id: randomId(), name, width, height, durationSeconds: 5, transitionAfter: 'cut', background: '#15213a', elements: [],
 });
 const newProject = (): StudioProject => {
   const page = defaultPage();
   return {
     id: randomId(), name: 'Untitled design', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioStartSeconds: 0, audioVolume: 80,
+    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
     caption: '', hashtags: '#LuckyBajaj #Bajaj', primaryColor: '#15213a', accentColor: '#f97316',
   };
 };
@@ -58,7 +58,7 @@ const element = (type: StudioElement['type'], x = 250, y = 240): StudioElement =
   x, y, width: type === 'text' ? 470 : type === 'line' ? 360 : 280, height: type === 'text' ? 120 : type === 'line' ? 8 : 180,
   rotation: 0, opacity: 1, fill: type === 'text' ? '#ffffff' : '#f97316', stroke: 'transparent', strokeWidth: 0,
   text: type === 'text' ? 'Your text here' : '', fontSize: 76, fontFamily: 'Arial', fontWeight: '700',
-  italic: false, align: 'left', visible: true, locked: false,
+  italic: false, align: 'left', imageFit: 'cover', visible: true, locked: false,
 });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const formatBytes = (value: number) => value < 1024 * 1024 ? Math.max(1, Math.round(value / 1024)) + ' KB' : (value / (1024 * 1024)).toFixed(1) + ' MB';
@@ -111,7 +111,7 @@ function elementSvg(item: StudioElement, url?: string) {
     </text>;
   }
   if (item.type === 'image') return url
-    ? <image href={url} x={0} y={0} width={item.width} height={item.height} preserveAspectRatio="xMidYMid slice" transform={common.transform} opacity={common.opacity} />
+    ? <image href={url} x={0} y={0} width={item.width} height={item.height} preserveAspectRatio={item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'} transform={common.transform} opacity={common.opacity} />
     : <rect x={0} y={0} width={item.width} height={item.height} fill="#94a3b8" opacity=".35" />;
   if (item.type === 'circle') return <ellipse cx={item.width / 2} cy={item.height / 2} rx={item.width / 2} ry={item.height / 2} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
   if (item.type === 'line') return <line x1={0} y1={item.height / 2} x2={item.width} y2={item.height / 2} stroke={item.fill} strokeWidth={Math.max(2, item.strokeWidth || item.height)} transform={common.transform} opacity={common.opacity} />;
@@ -125,7 +125,7 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
     if (item.type === 'text') {
       const lines = item.text.split('\n').slice(0, 8);
       shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
-    } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="xMidYMid slice"/>';
+    } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
     else if (item.type === 'line') shape = '<line x1="0" y1="' + item.height / 2 + '" x2="' + item.width + '" y2="' + item.height / 2 + '" stroke="' + item.fill + '" stroke-width="' + Math.max(2, item.strokeWidth || item.height) + '"/>';
     else shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
@@ -663,7 +663,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   }
   function duplicateSelected() {
     if (!selectedIds.length) return;
-    const copies = page.elements.filter((item) => selectedIds.includes(item.id)).map((item) => ({ ...clone(item), id: randomId(), name: item.name + ' copy', x: item.x + 24, y: item.y + 24, groupId: undefined }));
+    const groupMap = new Map<string, string>();
+    const copies = page.elements.filter((item) => selectedIds.includes(item.id)).map((item) => {
+      const groupId = item.groupId ? (groupMap.get(item.groupId) ?? randomId()) : undefined;
+      if (item.groupId && groupId) groupMap.set(item.groupId, groupId);
+      return { ...clone(item), id: randomId(), name: item.name + ' copy', x: item.x + 24, y: item.y + 24, groupId };
+    });
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, ...copies] } : entry) }));
     setSelectedIds(copies.map((item) => item.id));
   }
@@ -704,8 +709,16 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     mutate((current) => ({ ...current, pages: [...current.pages, next], selectedPageId: next.id }));
     setSelectedIds([]);
   }
+  function clonePageWithNewIds(source: StudioPage, name: string): StudioPage {
+    const groupMap = new Map<string, string>();
+    return { ...clone(source), id: randomId(), name, elements: source.elements.map((item) => {
+      const groupId = item.groupId ? (groupMap.get(item.groupId) ?? randomId()) : undefined;
+      if (item.groupId && groupId) groupMap.set(item.groupId, groupId);
+      return { ...clone(item), id: randomId(), groupId };
+    }) };
+  }
   function duplicatePage() {
-    const next = { ...clone(page), id: randomId(), name: 'Page ' + (project.pages.length + 1), elements: page.elements.map((item) => ({ ...clone(item), id: randomId(), groupId: item.groupId ? randomId() : undefined })) };
+    const next = clonePageWithNewIds(page, 'Page ' + (project.pages.length + 1));
     mutate((current) => ({ ...current, pages: [...current.pages, next], selectedPageId: next.id }));
     setSelectedIds([]);
   }
@@ -715,11 +728,19 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     mutate((current) => ({ ...current, pages: nextPages, selectedPageId: nextPages[0].id }));
     setSelectedIds([]);
   }
+  function resizedPage(source: StudioPage, preset: SizePreset): StudioPage {
+    const scaleX = preset.width / source.width, scaleY = preset.height / source.height, fontScale = Math.min(scaleX, scaleY);
+    return { ...source, width: preset.width, height: preset.height, name: preset.label, elements: source.elements.map((item) => ({ ...item, x: item.x * scaleX, y: item.y * scaleY, width: Math.max(1, item.width * scaleX), height: Math.max(1, item.height * scaleY), fontSize: Math.max(8, Math.round(item.fontSize * fontScale)) })) };
+  }
   function applyPreset(preset: SizePreset) {
-    mutate((current) => {
-      const newPage = { ...page, width: preset.width, height: preset.height, name: preset.label };
-      return { ...current, pages: current.pages.map((item) => item.id === page.id ? newPage : item) };
-    });
+    const nextPage = resizedPage(page, preset);
+    mutate((current) => ({ ...current, pages: current.pages.map((item) => item.id === page.id ? nextPage : item) }));
+    setSelectedIds([]);
+  }
+  function createSizeVariant(preset: SizePreset) {
+    const variant = clonePageWithNewIds(resizedPage(page, preset), preset.label);
+    mutate((current) => ({ ...current, pages: [...current.pages, variant], selectedPageId: variant.id }));
+    setSelectedIds([]);
   }
   function applyCustomSize() {
     const width = Math.round(Number(customWidth)), height = Math.round(Number(customHeight));
@@ -792,7 +813,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         const blob = new Blob([makeSvg(item, urls)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const image = new Image(); image.src = url; await image.decode();
-        return { image, url, duration: Math.max(1, item.durationSeconds) };
+        return { image, url, duration: Math.max(1, item.durationSeconds), transition: item.transitionAfter ?? 'cut' };
       }));
       const canvas = document.createElement('canvas');
       canvas.width = 1080; canvas.height = 1920;
@@ -819,18 +840,38 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         recorder!.onstop = () => resolve(new Blob(parts, { type: recorder!.mimeType || 'video/webm' }));
       });
       recorder.start(250);
-      if (context && audioSource) { await context.resume(); audioSource.start(0, Math.max(0, project.audioStartSeconds)); }
+      if (context && audioSource) {
+        await context.resume();
+        const clipStart = Math.max(0, project.audioStartSeconds);
+        const clipDuration = Math.min(project.audioDurationSeconds ?? 30, Math.max(0, audioSource.buffer!.duration - clipStart));
+        if (clipDuration < MUSIC_CLIP_MIN_SECONDS) throw new Error('The selected audio range must contain at least 20 seconds.');
+        audioSource.start(0, clipStart, clipDuration);
+      }
       const total = frames.reduce((sum, item) => sum + item.duration, 0);
       const started = performance.now();
       const draw = (now: number) => {
         const elapsed = (now - started) / 1000;
         let offset = elapsed;
-        let selectedFrame = frames[frames.length - 1];
-        for (const item of frames) { if (offset <= item.duration) { selectedFrame = item; break; } offset -= item.duration; }
+        let selectedFrameIndex = frames.length - 1;
+        let selectedOffset = 0;
+        for (let index = 0; index < frames.length; index += 1) {
+          if (offset <= frames[index].duration) { selectedFrameIndex = index; selectedOffset = offset; break; }
+          offset -= frames[index].duration;
+        }
+        const selectedFrame = frames[selectedFrameIndex];
+        const drawContained = (image: HTMLImageElement, alpha = 1) => {
+          const ratio = Math.min(canvas.width / image.width, canvas.height / image.height);
+          const width = image.width * ratio, height = image.height * ratio;
+          ctx!.globalAlpha = alpha; ctx!.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); ctx!.globalAlpha = 1;
+        };
         ctx!.fillStyle = '#101c35'; ctx!.fillRect(0, 0, canvas.width, canvas.height);
-        const ratio = Math.min(canvas.width / selectedFrame.image.width, canvas.height / selectedFrame.image.height);
-        const width = selectedFrame.image.width * ratio, height = selectedFrame.image.height * ratio;
-        ctx!.drawImage(selectedFrame.image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+        drawContained(selectedFrame.image);
+        const nextFrame = frames[selectedFrameIndex + 1];
+        const transitionWindow = .5;
+        if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
+          const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
+          drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
+        }
         if (elapsed >= total) { recorder?.stop(); return; }
         frameId = requestAnimationFrame(draw);
       };
@@ -933,6 +974,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           {selectedAudioResource && urls[selectedAudioResource.id] && <audio className={styles.audioPreview} controls preload="metadata" src={urls[selectedAudioResource.id]} aria-label="Preview selected audio"/>}
           <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
           <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => changeProject({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
+          <label className={styles.panelField}>Clip length · {project.audioDurationSeconds ?? 30}s <input aria-label="Audio clip duration" type="range" min="20" max={storyTarget === 'social-reel' ? 120 : storyTarget === 'whatsapp-status' ? 90 : 60} value={Math.min(project.audioDurationSeconds ?? 30, storyTarget === 'social-reel' ? 120 : storyTarget === 'whatsapp-status' ? 90 : 60)} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
           <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
           <label className={styles.panelField}>Story destination<select aria-label="Story destination" value={storyTarget} onChange={(event) => setStoryTarget(event.target.value as StoryTarget)}><option value="whatsapp-status">WhatsApp Status · 90s</option><option value="instagram-story">Instagram Story · 60s</option><option value="facebook-story">Facebook Story · 60s</option><option value="social-reel">Instagram / Facebook Reel · 120s</option></select></label>
           <label className={styles.panelField}>Scene duration <input type="number" min="1" max="60" value={page.durationSeconds} onChange={(event) => replacePage({ ...page, durationSeconds: Math.max(1, Math.min(60, Number(event.target.value))) })}/></label>
@@ -944,11 +986,17 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         </div>)}</div>}
         {tool === 'pages' && <div className={styles.pageTools}>
           <button type="button" onClick={addPage}><Icon name="plus"/>Add page</button><button type="button" onClick={duplicatePage}><Icon name="copy"/>Duplicate page</button><button type="button" disabled={project.pages.length <= 1} onClick={deletePage}><Icon name="trash"/>Delete page</button>
-          {project.pages.map((item, index) => <button type="button" key={item.id} className={item.id === page.id ? styles.pageToolActive : styles.pageTool} onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}>{index + 1} · {item.name}</button>)}
+          {project.pages.map((item, index) => <div className={styles.pageTransitionRow} key={item.id}>
+            <button type="button" className={item.id === page.id ? styles.pageToolActive : styles.pageTool} onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}>{index + 1} · {item.name}</button>
+            <select aria-label={'Transition after page ' + (index + 1)} value={item.transitionAfter ?? 'cut'} onChange={(event) => mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === item.id ? { ...entry, transitionAfter: event.target.value as 'cut' | 'fade' } : entry) }))}><option value="cut">Cut</option><option value="fade">Fade</option></select>
+          </div>)}
         </div>}
         {tool === 'resize' && <div className={styles.resizePanel}>
-          {SIZE_PRESETS.map((preset) => <button type="button" key={preset.id} onClick={() => applyPreset(preset)}><span>{preset.platform}</span><strong>{preset.label}</strong><small>{preset.width} × {preset.height}</small></button>)}
-          <div className={styles.customDimensions}><input aria-label="Custom width" value={customWidth} onChange={(event) => setCustomWidth(event.target.value)} inputMode="numeric"/><span>×</span><input aria-label="Custom height" value={customHeight} onChange={(event) => setCustomHeight(event.target.value)} inputMode="numeric"/><button type="button" onClick={applyCustomSize}>Apply</button></div>
+          {SIZE_PRESETS.map((preset) => <div className={styles.resizePreset} key={preset.id}>
+            <button type="button" className={styles.resizePresetMain} onClick={() => applyPreset(preset)}><span>{preset.platform}</span><strong>{preset.label}</strong><small>{preset.width} × {preset.height}</small></button>
+            <button type="button" className={styles.resizeVariantButton} aria-label={'Create variant ' + preset.width + ' by ' + preset.height} onClick={() => createSizeVariant(preset)}><Icon name="copy"/> Variant</button>
+          </div>)}
+          <div className={styles.customDimensions}><input aria-label="Custom width" value={customWidth} onChange={(event) => setCustomWidth(event.target.value)} inputMode="numeric"/><span>×</span><input aria-label="Custom height" value={customHeight} onChange={(event) => setCustomHeight(event.target.value)} inputMode="numeric"/><button type="button" onClick={applyCustomSize}>Apply</button><button type="button" onClick={() => { const width = Number(customWidth), height = Number(customHeight); if (width >= 100 && height >= 100 && width <= 6000 && height <= 6000) createSizeVariant({ id: 'custom', label: 'Custom variant', platform: 'Custom', width, height, group: 'Custom' }); else onNotify('Enter dimensions between 100 and 6000 pixels.'); }}>+</button></div>
         </div>}
       </aside>}
       <main className={styles.canvasWorkspace}>
@@ -1015,6 +1063,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       {selected.length > 0 && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>{selected.length === 1 ? one?.name : selected.length + ' selected'}</strong><button type="button" aria-label="Close properties" onClick={() => setSelectedIds([])}><Icon name="close"/></button></div>
         {one?.type === 'text' && <label>Text<textarea value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
+        {one?.type === 'image' && <label>Image fit<select aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
         <label>X<input type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
         <label>Y<input type="number" value={Math.round(one?.y ?? 0)} onChange={(event) => one && updateElement(one.id, { y: Number(event.target.value) })}/></label>
         <label>Width<input type="number" min="10" value={Math.round(one?.width ?? 0)} onChange={(event) => one && updateElement(one.id, { width: Math.max(10, Number(event.target.value)) })}/></label>

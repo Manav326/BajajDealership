@@ -103,24 +103,23 @@ test('supports editable elements, contextual properties, custom sizes, pages and
 
   await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
-  await expect(page.locator('.editorFooter')).toContainText('1080 × 1440');
+  await expect(page.getByText('1080 × 1440', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Create variant 1080 by 1080' }).click();
-  await expect(page.locator('.timelinePage,.timelinePageActive')).toHaveCount(2);
-  await expect(page.locator('.editorFooter')).toContainText('1080 × 1080');
+  await expect(page.getByRole('button', { name: /2 Square feed/ })).toBeVisible();
+  await expect(page.getByText('1080 × 1080', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Pages' }).click();
-  await page.locator('.pageTools').getByRole('button', { name: 'Add page' }).click();
-  await expect(page.locator('.timelinePage,.timelinePageActive')).toHaveCount(3);
-  await expect(page.locator('.timelinePageActive')).toHaveCount(1);
-  await page.locator('.timelinePage').filter({ hasText: 'Portrait feed 3:4' }).click();
+  await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
+  await expect(page.getByRole('button', { name: /3 Page 3/ })).toBeVisible();
+  await page.getByRole('button', { name: /1 Portrait feed 3:4/ }).click();
 
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
   const project = page.getByRole('button', { name: 'Open Untitled design' });
   await expect(project).toBeVisible();
   await project.click();
-  await expect(page.getByLabel('Text')).toHaveValue('Ride into your next journey');
-  await expect(page.locator('.editorFooter')).toContainText('1080 × 1440');
+  await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Ride into your next journey');
+  await expect(page.getByText('1080 × 1440', { exact: true })).toBeVisible();
 });
 
 test('exports artwork into the independent local resource library and supports re-download', async ({ page }) => {
