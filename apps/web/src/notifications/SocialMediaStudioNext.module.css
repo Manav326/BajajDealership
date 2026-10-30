@@ -50,3 +50,6 @@
 .pageTransitionRow{display:grid;grid-template-columns:minmax(0,1fr) 74px;align-items:center;gap:5px}
 .pageTransitionRow select{min-width:0;height:29px;padding:3px 5px;border:1px solid #dce4ed;border-radius:6px;background:white;color:#627188;font-size:8px}
 .inspector select{width:100%;min-width:0;min-height:31px;padding:6px 7px;border:1px solid #dce4ed;border-radius:6px;background:white;color:#3f5068;font:inherit;font-size:10px}
+
+.resourcePreview video{width:100%;height:100%;object-fit:contain;background:#111827}
+.exportingOverlay{bottom:0}

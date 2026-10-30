@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import { apiFetch } from './apiClient';
 import { ARTWORK_TEMPLATES, STARTER_ARTWORK_ASSETS } from './artworkAssets';
-import { MUSIC_CLIP_MIN_SECONDS, STARTER_MUSIC_CATALOG } from './artworkMusic';
+import { STARTER_MUSIC_CATALOG } from './artworkMusic';
 import {
   chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources, persistHandleName,
   removeProject, removeResource, requestSavedFolderPermission, saveProject, saveResource, supportsLocalDirectoryAccess, useBrowserStorage,
@@ -43,7 +43,7 @@ const SIZE_PRESETS: SizePreset[] = [
 const STARTER_TEMPLATES = ARTWORK_TEMPLATES;
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? 'studio-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 const defaultPage = (name = 'Page 1', width = 1080, height = 1080): StudioPage => ({
-  id: randomId(), name, width, height, durationSeconds: 5, transitionAfter: 'cut', background: '#15213a', elements: [],
+  id: randomId(), name, width, height, durationSeconds: 5, transitionAfter: 'cut', transitionDurationSeconds: 0.5, background: '#15213a', elements: [],
 });
 const newProject = (): StudioProject => {
   const page = defaultPage();
@@ -134,6 +134,7 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
   const guides = includeGuides ? '<rect x="0" y="0" width="' + page.width + '" height="' + page.height + '" fill="none" stroke="#94a3b8" stroke-dasharray="12 8"/>' : '';
   return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="' + page.width + '" height="' + page.height + '" viewBox="0 0 ' + page.width + ' ' + page.height + '"><rect width="100%" height="100%" fill="' + page.background + '"/>' + content + guides + '</svg>';
 }
+function formatTime(seconds: number): string { const v = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0)); return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0'); }
 function escapeSvg(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char] ?? char)); }
 
 async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png'): Promise<Blob> {
@@ -272,16 +273,6 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   async function editProject(project: StudioProject) {
     setActiveProject(clone(project));
     setEditorOpen(true);
-  }
-  async function saveAndClose(project: StudioProject) {
-    try {
-      await saveProject(project);
-      setActiveProject(null);
-      setEditorOpen(false);
-      setHubPage('projects');
-      await refreshLibrary();
-      notify('Design saved.');
-    } catch (cause) { notify(cause instanceof Error ? cause.message : 'Design could not be saved.'); }
   }
   async function saveAndOpenResources(project: StudioProject) {
     try {
@@ -440,7 +431,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         <div className={styles.resourceFilters}><label><Icon name="search"/><input aria-label="Search resources" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search"/></label>
           <select aria-label="Resource type" value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">All</option><option value="image">Images</option><option value="audio">Audio</option><option value="video">Video</option><option value="export">Exports</option></select></div>
         <div className={styles.resourceGrid}>{filteredResources.map((resource) => <article key={resource.id} className={styles.resourceCard} data-testid="studio-resource-card">
-          <div className={styles.resourcePreview}>{resource.kind === 'image' || resource.kind === 'export' ? <img src={resourceUrls[resource.id]} alt={resource.name}/> : <Icon name={resource.kind === 'audio' ? 'audio' : 'video'}/>}</div>
+          <div className={styles.resourcePreview}>{resource.kind === 'image' || resource.kind === 'export' ? <img src={resourceUrls[resource.id]} alt={resource.name}/> : resource.kind === 'video' && resourceUrls[resource.id] ? <video src={resourceUrls[resource.id]} controls preload="metadata" aria-label={'Preview ' + resource.name}/> : <Icon name={resource.kind === 'audio' ? 'audio' : 'video'}/>}</div>
           <div className={styles.projectMeta}><strong>{resource.name}</strong><span>{resource.kind} · {formatBytes(resource.size)}</span></div>
           <div className={styles.cardActions}><button type="button" aria-label={'Download ' + resource.name} title="Download" onClick={() => downloadBlob(resource.blob, resource.name)}><Icon name="download"/></button>
             <button type="button" aria-label={'Delete ' + resource.name} title="Remove" onClick={() => void deleteResource(resource)}><Icon name="trash"/></button></div>
@@ -489,7 +480,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     </main>
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
-      onProjectChange={setActiveProject} onClose={() => void saveAndClose(activeProject)} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
+      onProjectChange={setActiveProject} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
       onNotify={notify} onOpenLibrary={() => void saveAndOpenResources(activeProject)}/>}
   </div>;
 }
@@ -497,9 +488,9 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
 type MetaStatus = { configured: boolean; publishingReady: boolean; code: string; message: string; missingConfigurationKeys: string[]; missingPublishingConfigurationKeys: string[]; destinations: Array<{ publicId: string; type: string; displayName: string; username: string | null; status: string }> };
 type PublishRequest = { publicId: string; assetPublicId: string; status: string; destinationType: string; destinationName: string; caption: string; requestedBy: string; approvedBy: string | null; requestedAt: string; scheduledAt: string | null; approvedAt: string | null; publishStatus: string; externalPostId: string | null; errorCode: string | null };
 
-function StudioEditor({ project, resources, urls, onProjectChange, onClose, onResourceAdded, onNotify, onOpenLibrary }: {
+function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdded, onNotify, onOpenLibrary }: {
   project: StudioProject; resources: StudioResource[]; urls: Record<string, string>;
-  onProjectChange: (project: StudioProject) => void; onClose: () => void;
+  onProjectChange: (project: StudioProject) => void;
   onResourceAdded: (resource: StudioResource) => Promise<unknown>; onNotify: (message: string) => void; onOpenLibrary: () => void;
 }) {
   const [tool, setTool] = useState<Tool | null>('templates');
@@ -516,13 +507,31 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const [dirty, setDirty] = useState(false);
   const [panelSearch, setPanelSearch] = useState('');
   const [saving, setSaving] = useState(false);
-  const [captionOpen, setCaptionOpen] = useState(false);
+  const [lastSavedName, setLastSavedName] = useState(project.name);
+  const [nameSaving, setNameSaving] = useState(false);
+  const [canvasFullscreen, setCanvasFullscreen] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const [renderedPhoto, setRenderedPhoto] = useState<{ blob: Blob; url: string; name: string } | null>(null);
+  const [renderedVideo, setRenderedVideo] = useState<{ blob: Blob; url: string; name: string; duration: number } | null>(null);
+  const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadTarget, setDownloadTarget] = useState<'photo' | 'video' | 'both'>('photo');
+  const [downloadPhotoFormat, setDownloadPhotoFormat] = useState<'png' | 'jpg'>('png');
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [audioTrackDuration, setAudioTrackDuration] = useState(125);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioPreviewTime, setAudioPreviewTime] = useState(0);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ mode: 'move' | 'resize' | 'rotate'; ids: string[]; start: { x: number; y: number }; items: StudioElement[]; handle?: string; center?: { x: number; y: number } } | null>(null);
   const undoRef = useRef<StudioProject[]>([]);
   const redoRef = useRef<StudioProject[]>([]);
   const saveTimer = useRef<number | null>(null);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
+  const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
+  const audioClipLength = Math.max(1, Math.min(project.audioDurationSeconds ?? 30, audioTrackDuration, Math.max(1, totalSceneDuration)));
   const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
@@ -541,10 +550,23 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   };
   const replacePage = (nextPage: StudioPage, history = true) =>
     mutate((current) => ({ ...current, pages: current.pages.map((item) => item.id === nextPage.id ? nextPage : item) }), history);
-  const updateElement = (id: string, changes: Partial<StudioElement>, history = true) =>
+  const updateElement = (id: string, changes: Partial<StudioElement>, history = true) => {
+    const current = currentElement(id);
+    const onlyVisibilityOrLock = Object.keys(changes).every((key) => key === 'visible' || key === 'locked');
+    if (current?.locked && !onlyVisibilityOrLock) return;
     replacePage({ ...page, elements: page.elements.map((item) => item.id === id ? { ...item, ...changes } : item) }, history);
+  };
   const currentElement = (id: string) => page.elements.find((item) => item.id === id);
 
+  useEffect(() => {
+    const updateFullscreen = () => setCanvasFullscreen(document.fullscreenElement === canvasViewportRef.current);
+    document.addEventListener('fullscreenchange', updateFullscreen);
+    return () => document.removeEventListener('fullscreenchange', updateFullscreen);
+  }, []);
+  useEffect(() => () => {
+    if (renderedPhoto?.url) URL.revokeObjectURL(renderedPhoto.url);
+    if (renderedVideo?.url) URL.revokeObjectURL(renderedVideo.url);
+  }, [renderedPhoto?.url, renderedVideo?.url]);
   useEffect(() => {
     if (!dirty) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
@@ -571,6 +593,51 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  async function saveProjectName() {
+    if (!project.name.trim() || project.name.trim() === lastSavedName) return;
+    setNameSaving(true);
+    try { await saveProject(project); setLastSavedName(project.name); onNotify('Design name saved.'); }
+    catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Design name could not be saved.'); }
+    finally { setNameSaving(false); }
+  }
+  function toggleCanvasFullscreen() {
+    const node = canvasViewportRef.current;
+    if (!node) return;
+    if (document.fullscreenElement === node) void document.exitFullscreen();
+    else if (node.requestFullscreen) void node.requestFullscreen().catch(() => onNotify('Canvas fullscreen is unavailable.'));
+    else onNotify('Canvas fullscreen is unavailable.');
+  }
+  function toggleAudioPlayback() {
+    const audio = audioPlayerRef.current;
+    if (!audio) return;
+    if (!audio.paused) { audio.pause(); return; }
+    audio.currentTime = Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - .1));
+    void audio.play().catch(() => onNotify('Audio preview could not start.'));
+  }
+  function updateAudioPlayback() {
+    const audio = audioPlayerRef.current;
+    if (!audio) return;
+    setAudioPreviewTime(audio.currentTime);
+    if (!audio.paused && audio.currentTime >= project.audioStartSeconds + audioClipLength) {
+      audio.pause(); audio.currentTime = project.audioStartSeconds;
+    }
+  }
+  async function downloadOutputs() {
+    if (!renderedPhoto && !renderedVideo) return;
+    setDownloadBusy(true);
+    try {
+      const photo = downloadTarget !== 'video' && renderedPhoto;
+      const video = downloadTarget !== 'photo' && renderedVideo;
+      if (photo && renderedPhoto) {
+        const blob = downloadPhotoFormat === 'jpg' ? await renderPageBlob(page, urls, 'image/jpeg') : renderedPhoto.blob;
+        downloadBlob(blob, renderedPhoto.name.replace(/\.(png|jpe?g)$/i, '') + '.' + downloadPhotoFormat);
+      }
+      if (video && renderedVideo) downloadBlob(renderedVideo.blob, renderedVideo.name);
+      setDownloadOpen(false);
+      onNotify('Selected output has been handed to your browser downloads.');
+    } catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Download preparation failed.'); }
+    finally { setDownloadBusy(false); }
+  }
   function undo() {
     const prior = undoRef.current.pop();
     if (!prior) return;
@@ -582,11 +649,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     if (!next) return;
     undoRef.current.push(clone(project));
     changeProject(next); setSelectedIds([]); setDirty(true);
-  }
-  function addObject(type: StudioElement['type']) {
-    const item = makeElement(type, page);
-    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
-    setSelectedIds([item.id]); setTool('elements');
   }
   function selectObject(event: ReactPointerEvent<SVGGElement>, id: string) {
     if (currentElement(id)?.locked) { setSelectedIds([id]); return; }
@@ -732,7 +794,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     }) };
   }
   function duplicatePage() {
-    const next = clonePageWithNewIds(page, 'Page ' + (project.pages.length + 1));
+    const baseName = page.name + ' — Copy';
+    const known = new Set(project.pages.map((item) => item.name));
+    let copyName = baseName, suffix = 2;
+    while (known.has(copyName)) { copyName = baseName + ' ' + suffix++; }
+    const next = clonePageWithNewIds(page, copyName);
     mutate((current) => ({ ...current, pages: [...current.pages, next], selectedPageId: next.id }));
     setSelectedIds([]);
   }
@@ -794,17 +860,20 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
     setSelectedIds([item.id]);
   }
-  async function exportImage(mime: 'image/png' | 'image/jpeg') {
-    setExporting(true);
+  async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
+    setExporting(true); setRenderProgress(10);
     try {
       const blob = await renderPageBlob(page, urls, mime);
+      setRenderProgress(75);
       const extension = mime === 'image/png' ? 'png' : 'jpg';
       const filename = slug(project.name) + '-' + slug(page.name) + '.' + extension;
       const resource = await saveResource(blob, filename, 'export');
       await onResourceAdded(resource);
-      downloadBlob(blob, filename);
-      onNotify('Export saved to the resource library and downloaded.');
-    } catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Image export failed.'); }
+      if (renderedPhoto?.url) URL.revokeObjectURL(renderedPhoto.url);
+      setRenderedPhoto({ blob, url: URL.createObjectURL(blob), name: filename });
+      setRenderProgress(100);
+      onNotify('Photo rendered and saved. It has not been downloaded.');
+    } catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Photo rendering failed.'); }
     finally { setExporting(false); }
   }
 
@@ -816,8 +885,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
     const audioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
-    if (audioResource && totalDuration < MUSIC_CLIP_MIN_SECONDS) {
-      onNotify('A soundtrack export must be at least ' + MUSIC_CLIP_MIN_SECONDS + ' seconds long.');
+    if (audioResource && totalDuration < 1) {
+      onNotify('Add at least one second of scene duration before rendering with audio.');
       return;
     }
     if (totalDuration > maxDuration) {
@@ -825,7 +894,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       return;
     }
 
-    setExporting(true);
+    setExporting(true); setRenderProgress(4);
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
     let audioSource: AudioBufferSourceNode | null = null;
@@ -842,12 +911,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         const image = new Image();
         image.src = url;
         await image.decode();
-        return { image, duration: Math.max(1, item.durationSeconds), transition: item.transitionAfter ?? 'cut' };
+        return { image, duration: Math.max(1, item.durationSeconds), transition: item.transitionAfter ?? 'cut', transitionDuration: Math.max(0.1, item.transitionDurationSeconds ?? 0.5), width: item.width, height: item.height };
       }));
 
       const canvas = document.createElement('canvas');
-      canvas.width = 1080;
-      canvas.height = 1920;
+      canvas.width = frames[0]?.width ?? page.width;
+      canvas.height = frames[0]?.height ?? page.height;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Video render canvas is unavailable.');
       mediaStream = canvas.captureStream(30);
@@ -872,9 +941,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           totalDuration,
           Math.max(0, decoded.duration - audioClipStart),
         );
-        if (audioClipDuration < MUSIC_CLIP_MIN_SECONDS) {
-          throw new Error('The selected audio range must contain at least 20 seconds within the video duration.');
-        }
+        if (audioClipDuration < 1) throw new Error('The selected audio range must contain at least one second within the video duration.');
       }
 
       const mime = [
@@ -915,6 +982,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       const draw = (now: number) => {
         try {
           const elapsed = (now - started) / 1000;
+          setRenderProgress(Math.min(96, Math.round(8 + elapsed / total * 86)));
           let offset = elapsed;
           let selectedFrameIndex = frames.length - 1;
           let selectedOffset = 0;
@@ -941,7 +1009,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           drawContained(selectedFrame.image);
           const nextFrame = frames[selectedFrameIndex + 1];
-          const transitionWindow = .5;
+          const transitionWindow = selectedFrame.transitionDuration;
           if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
             const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
             drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
@@ -970,9 +1038,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
 
       const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
       const filename = slug(project.name) + '-video.' + extension;
-      await saveResource(blob, filename, 'video', true);
-      downloadBlob(blob, filename);
-      onNotify('Video saved and downloaded (' + extension.toUpperCase() + ').');
+      const resource = await saveResource(blob, filename, 'video', true);
+      await onResourceAdded(resource);
+      if (renderedVideo?.url) URL.revokeObjectURL(renderedVideo.url);
+      setRenderedVideo({ blob, url: URL.createObjectURL(blob), name: filename, duration: total });
+      setRenderProgress(100); setVideoPreviewOpen(true);
+      onNotify('Video rendered and saved. Preview it here or download it when ready.');
     } catch (cause) {
       if (recorder?.state === 'recording') recorder.stop();
       onNotify(cause instanceof Error ? cause.message : 'Video export failed.');
@@ -1000,14 +1071,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     <header className={styles.editorTopbar}>
       <button type="button" title="Back to resources" aria-label="Back to resources" onClick={onOpenLibrary}><Icon name="back"/></button>
       <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => changeProject({ ...project, name: event.target.value })}/>
-      <span className={styles.saveState} title={saving ? 'Saving' : 'Saved'}><Icon name="save"/></span>
+      <button type="button" className={styles.saveNameButton} title="Save design name" aria-label="Save design name" disabled={nameSaving || !project.name.trim() || project.name.trim() === lastSavedName} onClick={() => void saveProjectName()}><Icon name="save"/></button>
+      <span className={styles.saveState}>{saving ? 'Saving edits…' : 'Edits autosaved'}</span>
       <button type="button" title="Undo" aria-label="Undo" disabled={!undoRef.current.length} onClick={undo}><Icon name="undo"/></button>
       <button type="button" title="Redo" aria-label="Redo" disabled={!redoRef.current.length} onClick={redo}><Icon name="redo"/></button>
       <span className={styles.topSpacer}/>
-      <button type="button" title="Export PNG" aria-label="Export PNG" disabled={exporting} onClick={() => void exportImage('image/png')}><Icon name="image"/></button>
-      <button type="button" title="Export JPEG" aria-label="Export JPEG" disabled={exporting} onClick={() => void exportImage('image/jpeg')}><Icon name="download"/></button>
-      <button type="button" title="Export video" aria-label="Export video" disabled={exporting} onClick={() => void exportVideo()}><Icon name="video"/></button>
-      <button type="button" className={styles.doneButton} onClick={onClose} title="Save and close" aria-label="Save and close"><Icon name="check"/></button>
+      <button type="button" className={renderedPhoto ? styles.outputReady : undefined} title="Render photo" aria-label="Render photo" disabled={exporting} aria-pressed={!!renderedPhoto} onClick={() => void exportImage('image/png')}><Icon name="image"/></button>
+      <button type="button" className={renderedVideo ? styles.outputReady : undefined} title="Render video" aria-label="Render video" disabled={exporting} aria-pressed={!!renderedVideo} onClick={() => void exportVideo()}><Icon name="video"/></button>
+      <button type="button" title="Download rendered outputs" aria-label="Download rendered outputs" disabled={exporting || (!renderedPhoto && !renderedVideo)} onClick={() => { setDownloadTarget(renderedPhoto && renderedVideo ? 'both' : renderedPhoto ? 'photo' : 'video'); setDownloadOpen(true); }}><Icon name="download"/></button>
     </header>
     <div className={styles.editorLayout}>
       <nav className={styles.toolRail} aria-label="Editor tools">
@@ -1024,13 +1095,34 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
             setSelectedIds([]);
           }}><span style={{ background: item.primary }}><b style={{ color: item.accent }}>Aa</b></span><strong>{item.name}</strong></button>)}</div>}
         {tool === 'elements' && <div className={styles.toolTiles}>
-          {(['rect','circle','line'] as const).map((type) => <button type="button" key={type} onClick={() => addObject(type)}><Icon name={type === 'rect' ? 'shapes' : type === 'circle' ? 'brand' : 'minus'}/>{type}</button>)}
+          {['Rectangle','Rounded badge','Offer badge','Pill','Outline box','Circle','Ellipse','Divider'].filter((preset) => preset.toLowerCase().includes(panelSearch.toLowerCase())).map((preset) =>
+            <button type="button" key={preset} onClick={() => {
+              const kind = preset === 'Divider' ? 'line' : ['Circle','Ellipse'].includes(preset) ? 'circle' : 'rect';
+              const next = makeElement(kind, page); next.name = preset;
+              if (preset === 'Outline box') { next.fill = 'transparent'; next.stroke = project.accentColor; next.strokeWidth = 5; }
+              if (['Offer badge','Rounded badge','Pill'].includes(preset)) { next.fill = project.accentColor; next.width = page.width * .36; next.height = page.height * .13; }
+              mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) }));
+              setSelectedIds([next.id]);
+            }}><Icon name={preset === 'Divider' ? 'minus' : ['Circle','Ellipse'].includes(preset) ? 'brand' : 'shapes'}/>{preset}</button>)}
         </div>}
         {tool === 'text' && <div className={styles.toolTiles}>
-          <button type="button" onClick={() => addObject('text')}><Icon name="text"/>Add heading</button>
-          <button type="button" onClick={() => { const next = makeElement('text', page); next.fontSize = 36; next.text = 'Subheading'; next.name = 'Subheading'; mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) })); setSelectedIds([next.id]); }}><Icon name="text"/>Add subheading</button>
-          <label className={styles.panelField}>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
-          <label className={styles.panelField}>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
+          {[
+            ['Display title','MAKE EVERY RIDE COUNT',.075,'800','#ffffff'],
+            ['Headline','Your next adventure starts here',.06,'800','#ffffff'],
+            ['Subheading','Discover something extraordinary',.038,'600','#e5edf6'],
+            ['Body text','Add your supporting message here.',.027,'400','#e5edf6'],
+            ['Price / offer','₹ 99,999',.07,'800',project.accentColor],
+            ['Call to action','BOOK YOUR TEST RIDE',.032,'800','#ffffff'],
+            ['Fine print','Terms and conditions apply.',.018,'400','#cbd5e1'],
+          ].filter(([name]) => String(name).toLowerCase().includes(panelSearch.toLowerCase())).map(([name,content,scale,weight,fill]) => <button type="button" key={String(name)} onClick={() => {
+            const next = makeElement('text', page); next.name = String(name); next.text = String(content);
+            next.fontSize = Math.max(16, Math.round(page.width * Number(scale))); next.fontWeight = weight as StudioElement['fontWeight'];
+            next.fill = String(fill); next.width = page.width * .84; next.height = page.height * .2;
+            mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) }));
+            setSelectedIds([next.id]);
+          }}><Icon name="text"/>{String(name)}</button>)}
+          <label className={styles.panelField}>Publishing caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
+          <label className={styles.panelField}>Publishing hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
         </div>}
         {tool === 'uploads' && <div className={styles.uploadPanel}>
           <label className={styles.uploadDrop}><Icon name="upload"/><span>Import media</span><input type="file" multiple accept="image/*,audio/*,video/*" onChange={(event) => {
@@ -1046,32 +1138,31 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           <label className={styles.panelField}>Primary colour<input type="color" value={project.primaryColor} onChange={(event) => changeProject({ ...project, primaryColor: event.target.value })}/></label>
           <label className={styles.panelField}>Accent colour<input type="color" value={project.accentColor} onChange={(event) => changeProject({ ...project, accentColor: event.target.value })}/></label>
           <label className={styles.panelField}>Page background<input type="color" value={page.background} onChange={(event) => replacePage({ ...page, background: event.target.value })}/></label>
-          <button type="button" onClick={() => addObject('image')}><Icon name="image"/>Add logo / image</button>
+          <button type="button" onClick={() => { setTool('uploads'); setPanelSearch(''); onNotify('Choose an existing image or import a logo, then select it to place it on the canvas.'); }}><Icon name="image"/>Choose logo / image</button>
         </div>}
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
           {resources.filter((item) => item.kind === 'audio' && item.name.toLowerCase().includes(panelSearch.toLowerCase())).map((resource) => <div className={styles.audioResourceRow} key={resource.id}>
-            <button type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}><Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}</button>
+            <button type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedIds([]); setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}><Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}</button>
             <button type="button" title={favoriteMusicIds.includes(resource.id) ? 'Remove favourite' : 'Add favourite'} aria-label={favoriteMusicIds.includes(resource.id) ? 'Remove favourite ' + resource.name : 'Favourite ' + resource.name} aria-pressed={favoriteMusicIds.includes(resource.id)} onClick={() => toggleMusicFavourite(resource.id)}>{favoriteMusicIds.includes(resource.id) ? '★' : '☆'}</button>
           </div>)}
-          {selectedAudioResource && urls[selectedAudioResource.id] && <audio className={styles.audioPreview} controls preload="metadata" src={urls[selectedAudioResource.id]} aria-label="Preview selected audio"/>}
           <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
-          <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => changeProject({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
-          <label className={styles.panelField}>Clip length · {project.audioDurationSeconds ?? 30}s <input aria-label="Audio clip duration" type="range" min="20" max={storyTarget === 'social-reel' ? 120 : storyTarget === 'whatsapp-status' ? 90 : 60} value={Math.min(project.audioDurationSeconds ?? 30, storyTarget === 'social-reel' ? 120 : storyTarget === 'whatsapp-status' ? 90 : 60)} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
-          <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
           <label className={styles.panelField}>Story destination<select aria-label="Story destination" value={storyTarget} onChange={(event) => setStoryTarget(event.target.value as StoryTarget)}><option value="whatsapp-status">WhatsApp Status · 90s</option><option value="instagram-story">Instagram Story · 60s</option><option value="facebook-story">Facebook Story · 60s</option><option value="social-reel">Instagram / Facebook Reel · 120s</option></select></label>
           <label className={styles.panelField}>Scene duration <input type="number" min="1" max="60" value={page.durationSeconds} onChange={(event) => replacePage({ ...page, durationSeconds: Math.max(1, Math.min(60, Number(event.target.value))) })}/></label>
         </div>}
-        {tool === 'layers' && <div className={styles.layerList}>{[...page.elements].reverse().map((item) => <div className={styles.layerRow} key={item.id} data-selected={selectedIds.includes(item.id)}>
+        {tool === 'layers' && <div className={styles.layerList}>{[...page.elements].filter((item) => (item.name + ' ' + item.type + ' ' + (item.type === 'text' ? item.text : '')).toLowerCase().includes(panelSearch.toLowerCase())).reverse().map((item) => <div className={styles.layerRow} key={item.id} data-selected={selectedIds.includes(item.id)}>
           <button type="button" onClick={() => setSelectedIds([item.id])}><span>{item.type === 'text' ? 'T' : item.type === 'image' ? '▧' : '◇'}</span>{item.name}</button>
-          <button type="button" title={item.visible ? 'Hide layer' : 'Show layer'} aria-label={item.visible ? 'Hide layer' : 'Show layer'} onClick={() => updateElement(item.id, { visible: !item.visible })}><Icon name="eye"/></button>
-          <button type="button" title={item.locked ? 'Unlock' : 'Lock'} aria-label={item.locked ? 'Unlock' : 'Lock'} onClick={() => updateElement(item.id, { locked: !item.locked })}><Icon name="lock"/></button>
+          <button type="button" title={item.visible ? 'Hide layer' : 'Show layer'} aria-label={item.visible ? 'Hide layer' : 'Show layer'} aria-pressed={!item.visible} onClick={() => updateElement(item.id, { visible: !item.visible })}><Icon name={item.visible ? 'eye' : 'eye-off'}/></button>
+          <button type="button" title={item.locked ? 'Unlock layer' : 'Lock layer'} aria-label={item.locked ? 'Unlock layer' : 'Lock layer'} aria-pressed={item.locked} onClick={() => updateElement(item.id, { locked: !item.locked })}><Icon name={item.locked ? 'lock' : 'unlock'}/></button>
         </div>)}</div>}
         {tool === 'pages' && <div className={styles.pageTools}>
           <button type="button" onClick={addPage}><Icon name="plus"/>Add page</button><button type="button" onClick={duplicatePage}><Icon name="copy"/>Duplicate page</button><button type="button" disabled={project.pages.length <= 1} onClick={deletePage}><Icon name="trash"/>Delete page</button>
           {project.pages.map((item, index) => <div className={styles.pageTransitionRow} key={item.id}>
-            <button type="button" className={item.id === page.id ? styles.pageToolActive : styles.pageTool} onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}>{index + 1} · {item.name}</button>
+            <div className={styles.pageTitleControl}><button type="button" className={item.id === page.id ? styles.pageToolActive : styles.pageTool} onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}>{index + 1}</button>
+              <input aria-label={'Page ' + (index + 1) + ' name'} value={item.name} onChange={(event) => mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value } : entry) }), false)}/>
+            </div>
             <select aria-label={'Transition after page ' + (index + 1)} value={item.transitionAfter ?? 'cut'} onChange={(event) => mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === item.id ? { ...entry, transitionAfter: event.target.value as 'cut' | 'fade' } : entry) }))}><option value="cut">Cut</option><option value="fade">Fade</option></select>
+            {item.transitionAfter === 'fade' && <label className={styles.transitionDuration}>Fade (s)<input aria-label={'Fade duration after page ' + (index + 1)} type="number" min="0.1" max="5" step="0.1" value={item.transitionDurationSeconds ?? 0.5} onChange={(event) => mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === item.id ? { ...entry, transitionDurationSeconds: Math.max(0.1, Math.min(5, Number(event.target.value))) } : entry) }))}/></label>}
           </div>)}
         </div>}
         {tool === 'resize' && <div className={styles.resizePanel}>
@@ -1085,22 +1176,23 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       <main className={styles.canvasWorkspace}>
         <div className={styles.contextToolbar}>
           <button type="button" title="Fit page" aria-label="Fit page" onClick={() => setZoom(80)}><Icon name="resize"/></button>
+          <button type="button" title={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-label={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-pressed={canvasFullscreen} onClick={toggleCanvasFullscreen}><Icon name="expand"/></button>
           <button type="button" title="Show / hide guides" aria-label="Show / hide guides" aria-pressed={showGuides} onClick={() => setShowGuides((value) => !value)}><Icon name="align"/></button>
           <span className={styles.toolbarDivider}/>
           {one && <>
-            <input aria-label="Element fill" type="color" value={one.fill} onChange={(event) => updateElement(one.id, { fill: event.target.value })}/>
+            <label className={styles.colourControl}><span>{one.type === 'text' ? 'Text colour' : 'Fill'}</span><input aria-label={one.type === 'text' ? 'Text colour' : 'Element fill'} disabled={one.locked} type="color" value={one.fill} onChange={(event) => updateElement(one.id, { fill: event.target.value })}/></label>
             {one.type === 'text' && <>
-              <select aria-label="Font family" value={one.fontFamily} onChange={(event) => updateElement(one.id, { fontFamily: event.target.value })}><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Impact</option><option>Courier New</option></select>
-              <input aria-label="Font size" type="number" min="8" max="500" value={one.fontSize} onChange={(event) => updateElement(one.id, { fontSize: Number(event.target.value) })}/>
-              <select aria-label="Text alignment" value={one.align} onChange={(event) => updateElement(one.id, { align: event.target.value as StudioElement['align'] })}><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select>
-              <button type="button" title="Bold" aria-label="Bold" aria-pressed={one.fontWeight === '800'} onClick={() => updateElement(one.id, { fontWeight: one.fontWeight === '800' ? '400' : '800' })}><b>B</b></button>
-              <button type="button" title="Italic" aria-label="Italic" aria-pressed={one.italic} onClick={() => updateElement(one.id, { italic: !one.italic })}><i>I</i></button>
+              <select disabled={one.locked} aria-label="Font family" value={one.fontFamily} onChange={(event) => updateElement(one.id, { fontFamily: event.target.value })}><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Impact</option><option>Courier New</option></select>
+              <input disabled={one.locked} aria-label="Font size" type="number" min="8" max="500" value={one.fontSize} onChange={(event) => updateElement(one.id, { fontSize: Number(event.target.value) })}/>
+              <select disabled={one.locked} aria-label="Text alignment" value={one.align} onChange={(event) => updateElement(one.id, { align: event.target.value as StudioElement['align'] })}><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select>
+              <button type="button" title="Bold" aria-label="Bold" disabled={one.locked} aria-pressed={one.fontWeight === '800'} onClick={() => updateElement(one.id, { fontWeight: one.fontWeight === '800' ? '400' : '800' })}><b>B</b></button>
+              <button type="button" title="Italic" aria-label="Italic" disabled={one.locked} aria-pressed={one.italic} onClick={() => updateElement(one.id, { italic: !one.italic })}><i>I</i></button>
             </>}
             <input aria-label="Opacity" type="range" min="0" max="100" value={Math.round(one.opacity * 100)} onChange={(event) => updateElement(one.id, { opacity: Number(event.target.value) / 100 })}/>
-            <button type="button" title="Duplicate" aria-label="Duplicate" onClick={duplicateSelected}><Icon name="copy"/></button>
-            <button type="button" title="Group selected" aria-label="Group selected" disabled={selectedIds.length < 2} onClick={groupSelected}><Icon name="group"/></button>
-            <button type="button" title="Ungroup" aria-label="Ungroup" onClick={ungroupSelected}><Icon name="layers"/></button>
-            <button type="button" title="Delete" aria-label="Delete selected" onClick={deleteSelected}><Icon name="trash"/></button>
+            <button type="button" title="Duplicate" aria-label="Duplicate" disabled={!!one?.locked} onClick={duplicateSelected}><Icon name="copy"/></button>
+            <button type="button" title="Group selected" aria-label="Group selected" disabled={selectedIds.length < 2 || !!one?.locked} onClick={groupSelected}><Icon name="group"/></button>
+            <button type="button" title="Ungroup" aria-label="Ungroup" disabled={!!one?.locked} onClick={ungroupSelected}><Icon name="layers"/></button>
+            <button type="button" title="Delete" aria-label="Delete selected" disabled={!!one?.locked} onClick={deleteSelected}><Icon name="trash"/></button>
           </>}
           {selected.length > 1 && <div className={styles.alignControls}>
             {(['left','center','right','top','middle','bottom'] as const).map((value) => <button type="button" key={value} title={'Align ' + value} aria-label={'Align ' + value} onClick={() => alignSelected(value)}><Icon name="align"/></button>)}
@@ -1109,17 +1201,17 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => setZoom((v) => Math.max(20, v - 10))}><Icon name="minus"/></button>
           <span className={styles.zoomValue}>{zoom}%</span>
           <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom((v) => Math.min(200, v + 10))}><Icon name="plus"/></button>
-          <button type="button" title="Open resource library" aria-label="Open resource library" onClick={onOpenLibrary}><Icon name="folder"/></button>
+          
         </div>
-        <div className={styles.canvasViewport} onPointerUp={endPointer} onPointerCancel={endPointer}>
+        <div ref={canvasViewportRef} className={styles.canvasViewport} onPointerUp={endPointer} onPointerCancel={endPointer}>
           <svg ref={svgRef} className={styles.designCanvas} viewBox={`${page.width * (1 - 100 / zoom) / 2} ${page.height * (1 - 100 / zoom) / 2} ${page.width * 100 / zoom} ${page.height * 100 / zoom}`}
             role="img" aria-label="Editable design canvas" onPointerMove={movePointer} onPointerUp={endPointer}>
             <rect x="0" y="0" width={page.width} height={page.height} fill={page.background}/>
-            {page.elements.filter((item) => item.visible).map((item) => <g key={item.id} transform={`translate(${item.x} ${item.y})`} opacity={item.opacity}
+            {page.elements.filter((item) => item.visible).map((item) => <g key={item.id} transform={`translate(${item.x} ${item.y})`} opacity={item.opacity} tabIndex={0} role="button" aria-label={'Select ' + item.name + (item.locked ? ', locked' : '')} onFocus={() => setSelectedIds([item.id])}
               onPointerDown={(event) => { event.stopPropagation(); selectObject(event, item.id); }}>
               {elementSvg(item, item.resourceId ? urls[item.resourceId] : undefined)}
             </g>)}
-            {selected.map((item) => <g key={'select-' + item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation} ${item.width / 2} ${item.height / 2})`} pointerEvents="none">
+            {selected.filter((item) => !item.locked).map((item) => <g key={'select-' + item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation} ${item.width / 2} ${item.height / 2})`} pointerEvents="none">
               <rect x="-2" y="-2" width={item.width + 4} height={item.height + 4} fill="none" stroke="#1685ff" strokeWidth={3} strokeDasharray="9 5" vectorEffect="non-scaling-stroke"/>
               <g pointerEvents="auto">{(['nw','n','ne','e','se','s','sw','w'] as const).map((handle) => {
                 const x = handle.includes('w') ? 0 : handle.includes('e') ? item.width : item.width / 2;
@@ -1139,27 +1231,69 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           <div className={styles.timelinePages}>{project.pages.map((item, index) => <button type="button" key={item.id} className={item.id === page.id ? styles.timelinePageActive : styles.timelinePage}
             onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}><span>{index + 1}</span><small>{item.name}</small></button>)}
             <button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
-          <div className={styles.timelineTrack}><span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudio ? resources.find((item) => item.id === selectedAudio)?.name : 'No audio selected'} <small>{project.pages.reduce((sum, item) => sum + item.durationSeconds, 0)}s</small></div>
-            <button type="button" title="Video export" aria-label="Video export" disabled={exporting} onClick={() => void exportVideo()}><Icon name="play"/></button></div>
+          <div className={styles.timelineTrack}>
+            <span><Icon name="audio"/></span>
+            <div className={styles.audioLane}>{selectedAudioResource ? selectedAudioResource.name : 'No soundtrack selected'}<small>{selectedAudioResource ? formatTime(audioPreviewTime) + ' / ' + formatTime(audioTrackDuration) : formatTime(totalSceneDuration) + ' total'}</small></div>
+            {selectedAudioResource && <button type="button" title={audioPlaying ? 'Pause audio preview' : 'Play audio preview'} aria-label={audioPlaying ? 'Pause audio preview' : 'Play audio preview'} onClick={toggleAudioPlayback}><Icon name={audioPlaying ? 'minus' : 'play'}/></button>}
+            {renderedPhoto && <button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={() => setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
+            {renderedVideo && <button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={() => setVideoPreviewOpen(true)}><Icon name="video"/></button>}
+            {selectedAudioResource && <audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={(event) => {
+              const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 125;
+              setAudioTrackDuration(duration); setAudioPreviewTime(project.audioStartSeconds);
+              event.currentTarget.currentTime = Math.min(project.audioStartSeconds, duration);
+            }} onTimeUpdate={updateAudioPlayback} onPlay={() => setAudioPlaying(true)} onPause={() => setAudioPlaying(false)}/>}
+          </div>
+          {selectedAudioResource && <div className={styles.audioTimelineControls}>
+            <label>Start <input aria-label="Timeline audio start" type="range" min="0" max={Math.max(0, audioTrackDuration - audioClipLength)} step="0.1" value={Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - audioClipLength))} onChange={(event) => changeProject({ ...project, audioStartSeconds: Number(event.target.value) })}/></label>
+            <label>Clip length <input aria-label="Timeline audio duration" type="range" min="1" max={Math.max(1, Math.min(audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} value={Math.max(1, Math.min(project.audioDurationSeconds ?? 30, audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
+            <span>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds + audioClipLength)}</span>
+          </div>}
         </div>
       </main>
+      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
+        <div className={styles.toolPanelHeading}><strong>Audio properties</strong></div>
+        <div className={styles.audioInspectorTrack}><Icon name="audio"/><span>{selectedAudioResource.name}</span></div>
+        <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="range" min="0" max={Math.max(0, audioTrackDuration - audioClipLength)} step="0.1" value={Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - audioClipLength))} onChange={(event) => changeProject({ ...project, audioStartSeconds: Number(event.target.value) })}/></label>
+        <label>Clip length · {audioClipLength}s<input aria-label="Audio clip length" type="range" min="1" max={Math.max(1, Math.min(audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} value={audioClipLength} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
+        <label>Volume · {project.audioVolume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
+        <div className={styles.audioRangeSummary}>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds + audioClipLength)} selected</div>
+      </aside>}
       {selected.length > 0 && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>{selected.length === 1 ? one?.name : selected.length + ' selected'}</strong><button type="button" aria-label="Close properties" onClick={() => setSelectedIds([])}><Icon name="close"/></button></div>
-        {one?.type === 'text' && <label>Text<textarea value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
-        {one?.type === 'image' && <label>Image fit<select aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
-        <label>X<input type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
-        <label>Y<input type="number" value={Math.round(one?.y ?? 0)} onChange={(event) => one && updateElement(one.id, { y: Number(event.target.value) })}/></label>
-        <label>Width<input type="number" min="10" value={Math.round(one?.width ?? 0)} onChange={(event) => one && updateElement(one.id, { width: Math.max(10, Number(event.target.value)) })}/></label>
-        <label>Height<input type="number" min="10" value={Math.round(one?.height ?? 0)} onChange={(event) => one && updateElement(one.id, { height: Math.max(10, Number(event.target.value)) })}/></label>
-        <label>Rotation<input type="number" value={Math.round(one?.rotation ?? 0)} onChange={(event) => one && updateElement(one.id, { rotation: Number(event.target.value) })}/></label>
-        <label>Opacity<input type="range" min="0" max="100" value={Math.round((one?.opacity ?? 1) * 100)} onChange={(event) => one && updateElement(one.id, { opacity: Number(event.target.value) / 100 })}/></label>
+        {one?.locked && <div className={styles.lockNotice}>This layer is locked. Unlock it in Layers to edit.</div>}
+        {one?.type === 'text' && <label>Text<textarea disabled={one.locked} value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
+        {one?.type === 'image' && <label>Image fit<select disabled={one.locked} aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
+        <label>X<input disabled={one?.locked} type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
+        <label>Y<input disabled={one?.locked} type="number" value={Math.round(one?.y ?? 0)} onChange={(event) => one && updateElement(one.id, { y: Number(event.target.value) })}/></label>
+        <label>Width<input disabled={one?.locked} type="number" min="10" value={Math.round(one?.width ?? 0)} onChange={(event) => one && updateElement(one.id, { width: Math.max(10, Number(event.target.value)) })}/></label>
+        <label>Height<input disabled={one?.locked} type="number" min="10" value={Math.round(one?.height ?? 0)} onChange={(event) => one && updateElement(one.id, { height: Math.max(10, Number(event.target.value)) })}/></label>
+        <label>Rotation<input disabled={one?.locked} type="number" value={Math.round(one?.rotation ?? 0)} onChange={(event) => one && updateElement(one.id, { rotation: Number(event.target.value) })}/></label>
+        <label>Opacity<input disabled={one?.locked} type="range" min="0" max="100" value={Math.round((one?.opacity ?? 1) * 100)} onChange={(event) => one && updateElement(one.id, { opacity: Number(event.target.value) / 100 })}/></label>
         <div className={styles.inspectorActions}><button type="button" onClick={() => reorderSelected(-1)}>Backward</button><button type="button" onClick={() => reorderSelected(1)}>Forward</button></div>
       </aside>}
     </div>
-    <div className={styles.editorFooter}><button type="button" onClick={() => setCaptionOpen((value) => !value)} aria-expanded={captionOpen}>Caption / hashtags</button>
-      <span data-testid="active-page-size">{page.width} × {page.height}</span><span>{saving ? 'Saving…' : ' '}</span><button type="button" onClick={onClose}><Icon name="check"/> Done</button></div>
-    {captionOpen && <div className={styles.captionPopover}><label>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label><label>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label></div>}
-    {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> Rendering…</div></div>}
+    <span className={styles.canvasSizeStatus} data-testid="active-page-size">{page.width} × {page.height}</span>
+    {videoPreviewOpen && renderedVideo && <div className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Rendered video preview"><div className={styles.previewModalCard}>
+      <div className={styles.previewModalHeading}><strong>Rendered video preview</strong><button type="button" aria-label="Close video preview" onClick={() => setVideoPreviewOpen(false)}><Icon name="close"/></button></div>
+      <video className={styles.outputVideo} src={renderedVideo.url} controls playsInline onLoadedMetadata={(event) => { const d=event.currentTarget.duration; if(Number.isFinite(d)) setRenderedVideo((v)=>v?{...v,duration:d}:v); }}/>
+      <div className={styles.previewMeta}><span>{renderedVideo.name}</span><strong>{formatTime(renderedVideo.duration)}</strong></div>
+      <button type="button" className={styles.primaryDownloadButton} onClick={() => { setVideoPreviewOpen(false); setDownloadTarget(renderedPhoto?'both':'video'); setDownloadOpen(true); }}>Download output</button>
+    </div></div>}
+    {photoPreviewOpen && renderedPhoto && <div className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Rendered photo preview"><div className={styles.previewModalCard}>
+      <div className={styles.previewModalHeading}><strong>Rendered photo preview</strong><button type="button" aria-label="Close photo preview" onClick={() => setPhotoPreviewOpen(false)}><Icon name="close"/></button></div>
+      <img className={styles.outputPhoto} src={renderedPhoto.url} alt="Rendered photo output"/><div className={styles.previewMeta}><span>{renderedPhoto.name}</span><strong>Ready</strong></div>
+    </div></div>}
+    {downloadOpen && <div className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Download rendered outputs"><div className={styles.downloadCard}>
+      <div className={styles.previewModalHeading}><strong>Download outputs</strong><button type="button" aria-label="Close download dialog" onClick={() => setDownloadOpen(false)}><Icon name="close"/></button></div>
+      <label>What would you like to download?<select aria-label="Output selection" value={downloadTarget} onChange={(event) => setDownloadTarget(event.target.value as 'photo'|'video'|'both')}>
+        {renderedPhoto && <option value="photo">Photo only</option>}{renderedVideo && <option value="video">Video only</option>}{renderedPhoto && renderedVideo && <option value="both">Photo and video</option>}
+      </select></label>
+      {(downloadTarget==='photo'||downloadTarget==='both') && renderedPhoto && <label>Photo format<select aria-label="Photo format" value={downloadPhotoFormat} onChange={(event) => setDownloadPhotoFormat(event.target.value as 'png'|'jpg')}><option value="png">PNG</option><option value="jpg">JPEG</option></select></label>}
+      {(downloadTarget==='video'||downloadTarget==='both') && renderedVideo && <label>Video format<select aria-label="Video format" disabled><option>{renderedVideo.name.split('.').pop()?.toUpperCase()} · Original</option></select></label>}
+      <button type="button" className={styles.primaryDownloadButton} disabled={downloadBusy} onClick={() => void downloadOutputs()}><Icon name="download"/> Download selected</button>
+      <p>The editor stays open. Your browser manages the final file transfer.</p>
+    </div></div>}
+    {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> Rendering · {renderProgress}%<div className={styles.renderProgress}><div style={{width:renderProgress+'%'}}/></div></div></div>}
   </div>;
 }
 

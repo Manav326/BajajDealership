@@ -96,9 +96,9 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
-  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('button', { name: 'Headline' }).click();
   const text = page.getByRole('textbox', { name: 'Text' });
-  await expect(text).toHaveValue('Your text here');
+  await expect(text).toHaveValue('Your next adventure starts here');
   await text.fill('Ride into your next journey');
 
   await page.getByRole('button', { name: 'Resize' }).click();
@@ -113,7 +113,9 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await expect(page.getByRole('button', { name: /3 Page 3/ })).toBeVisible();
   await page.getByRole('button', { name: /1 Portrait feed 3:4/ }).click();
 
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
   const project = page.getByRole('button', { name: 'Open Untitled design' });
   await expect(project).toBeVisible();
@@ -122,28 +124,33 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
 });
 
-test('exports a short promotional video without requiring a soundtrack', async ({ page }) => {
+test('renders a short promotional video, previews it in the editor and does not auto-download', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export video' }).click();
-  const download = await downloadPromise;
-  expect(['mp4', 'webm']).toContain(download.suggestedFilename().split('.').pop()?.toLowerCase());
-  await expect(page.getByRole('status').filter({ hasText: 'Video saved and downloaded' })).toBeVisible();
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible();
+  await expect(preview.locator('video')).toHaveAttribute('controls', '');
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+  await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
 });
 
-test('exports artwork into the independent local resource library and supports re-download', async ({ page }) => {
+test('renders a photo first, then downloads it only after an explicit choice', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
-  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('button', { name: 'Headline' }).click();
   await page.getByRole('textbox', { name: 'Text' }).fill('Lucky Bajaj creative export');
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Photo rendered and saved' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export PNG' }).click();
+  await page.getByRole('button', { name: 'Download selected' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.png$/);
-  await expect(page.getByRole('status').filter({ hasText: 'Export saved to the resource library' })).toBeVisible();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
   await page.getByRole('button', { name: 'Resources', exact: true }).click();
   await expect(page.locator('[data-testid="studio-resource-card"]')).toHaveCount(1);
   await page.getByRole('button', { name: /Download .*\.png/ }).click();
@@ -164,6 +171,34 @@ test('resource import, filter and delete remain in the resource library', async 
   await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
   // Confirm the resource is removed after the explicit confirmation.
   await expect(page.getByText('local-campaign-photo.png')).toHaveCount(0);
+});
+
+
+test('project-name save button is enabled only after a name change', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const saveName = page.getByRole('button', { name: 'Save design name' });
+  await expect(saveName).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Design name' }).fill('Summer campaign');
+  await expect(saveName).toBeEnabled();
+  await saveName.click();
+  await expect(saveName).toBeDisabled();
+});
+
+test('element search filters presets and layer search filters the actual layer list', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Elements' }).click();
+  await page.getByRole('textbox', { name: 'Search tool resources' }).fill('badge');
+  await expect(page.getByRole('button', { name: 'Offer badge' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Circle' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Offer badge' }).click();
+  await page.getByRole('button', { name: 'Layers' }).click();
+  await page.getByRole('textbox', { name: 'Search tool resources' }).fill('offer');
+  await expect(page.getByRole('button', { name: 'Offer badge' })).toBeVisible();
+  await page.getByRole('button', { name: 'Lock layer' }).click();
+  await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
 });
 
 for (const width of [390, 768, 1280]) {

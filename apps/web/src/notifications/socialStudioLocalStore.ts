@@ -46,6 +46,7 @@ export type StudioPage = {
   height: number;
   durationSeconds: number;
   transitionAfter?: 'cut' | 'fade';
+  transitionDurationSeconds?: number;
   background: string;
   elements: StudioElement[];
 };
