@@ -401,6 +401,16 @@ test('uploaded video media becomes a timed, selectable timeline clip', async ({ 
   await page.mouse.move(trimBox.x - 30, trimBox.y + trimBox.height/2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Number(await clipDuration.inputValue())).toBeLessThan(initialDuration);
+  const sourceInPoint = page.getByRole('spinbutton', { name: 'Video source in point' });
+  const originalSourceInPoint = Number(await sourceInPoint.inputValue());
+  const trimStartHandle = page.getByRole('button', { name: 'Trim start of scene-video.webm' });
+  const startBox = await trimStartHandle.boundingBox();
+  if (!startBox) throw new Error('Video clip start handle was not visible.');
+  await page.mouse.move(startBox.x + startBox.width/2, startBox.y + startBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(startBox.x + startBox.width + 25, startBox.y + startBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await sourceInPoint.inputValue())).toBeGreaterThan(originalSourceInPoint);
   const initialStart = Number(await page.getByRole('spinbutton', { name: 'Video clip start' }).inputValue());
   const clipBody = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
   const bodyBox = await clipBody.boundingBox();

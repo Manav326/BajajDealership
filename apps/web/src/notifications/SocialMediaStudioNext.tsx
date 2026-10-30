@@ -617,7 +617,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
   const timelineTimeRef = useRef(0);
   const timelineClipTrackRef = useRef<HTMLDivElement | null>(null);
-  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;sceneDuration:number;mode:'move'|'start'|'end';changed:boolean}|null>(null);
+  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mode:'move'|'start'|'end';changed:boolean}|null>(null);
   const [timelineClipPreview,setTimelineClipPreview] = useState<{clipId:string;startSeconds:number;durationSeconds:number}|null>(null);
   const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
   const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
@@ -783,7 +783,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const rect=track.getBoundingClientRect();if(!rect.width)return;
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
-    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,sceneDuration:scene.durationSeconds,mode,changed:false};
+    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.sourceStartSeconds??0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mode,changed:false};
     selectTimelineVideoClip(scene,clip);
   }
   function moveTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
@@ -793,7 +793,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(drag.mode==='move')startSeconds=Math.max(0,Math.min(drag.sceneDuration-durationSeconds,drag.startSeconds+delta));
     else if(drag.mode==='start'){const end=drag.startSeconds+drag.durationSeconds;startSeconds=Math.max(0,Math.min(end-1,drag.startSeconds+delta));durationSeconds=end-startSeconds;}
     else durationSeconds=Math.max(1,Math.min(drag.sceneDuration-drag.startSeconds,drag.durationSeconds+delta));
-    drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;
+    const sourceStartSeconds=drag.mode==='start'?Math.max(0,drag.sourceStartSeconds+(startSeconds-drag.startSeconds)):drag.sourceStartSeconds;
+    drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;drag.previewSourceStartSeconds=sourceStartSeconds;
     drag.changed=Math.abs(startSeconds-drag.startSeconds)>.04||Math.abs(durationSeconds-drag.durationSeconds)>.04;
     setTimelineClipPreview({clipId:drag.clipId,startSeconds,durationSeconds});
   }
@@ -801,8 +802,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const drag=timelineClipDragRef.current;if(!drag||drag.pointerId!==event.pointerId)return;
     const track=timelineClipTrackRef.current;
     if(drag.changed){
-      const nextStart=drag.previewStartSeconds,nextDuration=drag.previewDurationSeconds;
-      mutate(current=>({...current,selectedPageId:drag.pageId,pages:current.pages.map(scene=>scene.id===drag.pageId?{...scene,elements:scene.elements.map(clip=>clip.id===drag.clipId?{...clip,startSeconds:nextStart,durationSeconds:nextDuration}:clip)}:scene)}));
+      const nextStart=drag.previewStartSeconds,nextDuration=drag.previewDurationSeconds,nextSourceStart=drag.previewSourceStartSeconds;
+      mutate(current=>({...current,selectedPageId:drag.pageId,pages:current.pages.map(scene=>scene.id===drag.pageId?{...scene,elements:scene.elements.map(clip=>clip.id===drag.clipId?{...clip,startSeconds:nextStart,durationSeconds:nextDuration,sourceStartSeconds:nextSourceStart}:clip)}:scene)}));
       setSelectedIds([drag.clipId]);setTool('layers');
     }
     if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);
