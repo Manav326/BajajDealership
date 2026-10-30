@@ -959,7 +959,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   }
   function beginTimelineClipDrag(event:ReactPointerEvent<HTMLElement>,scene:StudioPage,clip:StudioElement,mode:'move'|'start'|'end') {
     if(clip.locked){onNotify('Unlock this video clip before changing its timeline position or trim.');return;}
-    const track=event.currentTarget.closest('.videoClipTrack') as HTMLDivElement|null;if(!track)return;timelineClipTrackRef.current=track;event.preventDefault();event.stopPropagation();
+    const track=event.currentTarget.closest('[data-video-clip-track]') as HTMLDivElement|null;if(!track)return;timelineClipTrackRef.current=track;event.preventDefault();event.stopPropagation();
     const rect=track.getBoundingClientRect();if(!rect.width)return;
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(.1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
@@ -1726,7 +1726,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
                 const trackLabel=(isImage?'Image track ':'Video track ')+(isImage?imageTrackNumber:videoTrackNumber);
                 return <div key={clip.id} className={styles.mediaTrackRow} role="group" aria-label={trackLabel+': '+clip.name}>
                   <span className={styles.mediaTrackLabel} title={trackLabel+': '+clip.name}><Icon name={isImage?'image':'video'}/><span>{isImage?'I'+imageTrackNumber:'V'+videoTrackNumber}</span></span>
-                  <div className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
+                  <div data-video-clip-track="true" className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
                     <div role="group" aria-label={'Timeline clip '+clip.name} className={styles.videoClipItem}
                       style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
                       <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
