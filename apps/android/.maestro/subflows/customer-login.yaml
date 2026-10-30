@@ -1,0 +1,18 @@
+# Shared sign-in routine for a dedicated, non-production Maestro customer.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Find the ride that feels like you."
+    timeout: 30000
+- tapOn: "Sign in / activate account"
+- assertVisible: "Your customer space, in your pocket."
+- tapOn: "Dealership code"
+- inputText: ${MAESTRO_DEALERSHIP_CODE}
+- tapOn: "Customer code"
+- inputText: ${MAESTRO_CUSTOMER_CODE}
+- tapOn: "Password"
+- inputText: ${MAESTRO_CUSTOMER_PASSWORD}
+- tapOn: "Sign in securely"
+- extendedWaitUntil:
+    visible: "Your motorcycles, service visits, requests and dealership updates—all in one place."
+    timeout: 30000
