@@ -3,6 +3,9 @@ package com.quantaedge.bajaj.system;
 import com.quantaedge.bajaj.security.LicenseAccessException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.UUID;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -23,7 +26,9 @@ public class DealershipLicenseService {
   private static final String LICENSE_QUERY = """
       select d.id as dealership_id, d.code as dealership_code, d.name as dealership_name,
              dl.plan_code, dl.status as license_status, dl.starts_at, dl.expires_at,
-             dl.grace_period_days, dl.max_staff_seats,
+             dl.grace_period_days, dl.max_staff_seats, dl.max_desktop_devices,
+             (select count(*) from dealership_license_device dev
+               where dev.dealership_id = d.id and dev.status = 'ACTIVE') as active_desktop_devices,
              (select count(*) from staff_user su
                where su.dealership_id = d.id and su.status in ('ACTIVE', 'INVITED')) as occupied_staff_seats,
              now() as server_now
@@ -94,6 +99,10 @@ public class DealershipLicenseService {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "Staff-seat limit must be between 1 and 1000.");
     }
+    if (update.maxDesktopDevices() < 1 || update.maxDesktopDevices() > 100) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Desktop device limit must be between 1 and 100.");
+    }
     String reason = update.reason() == null ? "" : update.reason().trim();
     if (reason.length() < 4 || reason.length() > 500) {
       throw new ResponseStatusException(
@@ -114,8 +123,8 @@ public class DealershipLicenseService {
     jdbc.update("""
         insert into dealership_license(
           dealership_id, plan_code, status, starts_at, expires_at,
-          grace_period_days, max_staff_seats, last_changed_reason, created_at, updated_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?, now(), now())
+          grace_period_days, max_staff_seats, max_desktop_devices, last_changed_reason, created_at, updated_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, now(), now())
         on conflict (dealership_id) do update set
           plan_code = excluded.plan_code,
           status = excluded.status,
@@ -123,11 +132,12 @@ public class DealershipLicenseService {
           expires_at = excluded.expires_at,
           grace_period_days = excluded.grace_period_days,
           max_staff_seats = excluded.max_staff_seats,
+          max_desktop_devices = excluded.max_desktop_devices,
           last_changed_reason = excluded.last_changed_reason,
           updated_at = now()
         """,
         dealershipId, planCode, status, startsAt, expiresAt,
-        update.gracePeriodDays(), update.maxStaffSeats(), reason);
+        update.gracePeriodDays(), update.maxStaffSeats(), update.maxDesktopDevices(), reason);
 
     jdbc.update("""
         insert into audit_event(
@@ -135,10 +145,10 @@ public class DealershipLicenseService {
         values (?, 'SYSTEM', 'DEALERSHIP_LICENSE_UPDATED', 'DEALERSHIP_LICENSE', ?, ?,
           jsonb_build_object(
             'planCode', ?, 'status', ?, 'startsAt', ?::timestamptz, 'expiresAt', ?::timestamptz,
-            'gracePeriodDays', ?, 'maxStaffSeats', ?))
+            'gracePeriodDays', ?, 'maxStaffSeats', ?, 'maxDesktopDevices', ?))
         """,
         dealershipId, code, reason, planCode, status, startsAt, expiresAt,
-        update.gracePeriodDays(), update.maxStaffSeats());
+        update.gracePeriodDays(), update.maxStaffSeats(), update.maxDesktopDevices());
 
     return statusFor(dealershipId);
   }
@@ -210,6 +220,178 @@ public class DealershipLicenseService {
         || normalizedPath.contains("/api/v1/system/license/admin/");
   }
 
+  @Transactional
+  public String activateDesktopDevice(long dealershipId, String rawInstallationId, String appVersion) {
+    String installationId = canonicalInstallationId(rawInstallationId);
+    String installationHash = sha256(installationId);
+    var limits = jdbc.query(
+        "select max_desktop_devices from dealership_license where dealership_id = ? for update",
+        (rs, rowNum) -> rs.getInt(1), dealershipId);
+    if (limits.isEmpty()) {
+      throw new LicenseAccessException(HttpStatus.PAYMENT_REQUIRED, "LICENSE_UNAVAILABLE",
+          "This dealership does not have a configured software license. Contact licensing support.");
+    }
+    LicenseStatus license = statusFor(dealershipId);
+    if (List.of("SUSPENDED", "REVOKED", "NOT_YET_ACTIVE", "UNLICENSED").contains(license.state())) {
+      throw new LicenseAccessException(HttpStatus.LOCKED, codeFor(license.state()), messageFor(license.state()));
+    }
+    var existing = jdbc.query("""
+        select status from dealership_license_device
+        where dealership_id = ? and installation_hash = ? for update
+        """, (rs, rowNum) -> rs.getString(1), dealershipId, installationHash);
+    if (!existing.isEmpty()) {
+      if (!"ACTIVE".equals(existing.getFirst())) {
+        throw new LicenseAccessException(HttpStatus.LOCKED, "LICENSE_DEVICE_REVOKED",
+            "This desktop installation has been deactivated. Contact the licensing administrator.");
+      }
+      jdbc.update("""
+          update dealership_license_device
+          set last_seen_at = now(), app_version = coalesce(nullif(?, ''), app_version), updated_at = now()
+          where dealership_id = ? and installation_hash = ? and status = 'ACTIVE'
+          """, cleanVersion(appVersion), dealershipId, installationHash);
+      return installationHash;
+    }
+    if ("READ_ONLY".equals(license.state())) {
+      throw new LicenseAccessException(HttpStatus.PAYMENT_REQUIRED, "LICENSE_DEVICE_ACTIVATION_READ_ONLY",
+          "The license has expired. Existing registered computers remain available in read-only mode, but new computers cannot be activated.");
+    }
+    Integer activeCount = jdbc.queryForObject("""
+        select count(*) from dealership_license_device
+        where dealership_id = ? and status = 'ACTIVE'
+        """, Integer.class, dealershipId);
+    if ((activeCount == null ? 0 : activeCount) >= limits.getFirst()) {
+      throw new LicenseAccessException(HttpStatus.PAYMENT_REQUIRED, "LICENSE_DEVICE_LIMIT",
+          "The licensed desktop device limit has been reached. Deactivate an unused computer or increase the license limit.");
+    }
+    jdbc.update("""
+        insert into dealership_license_device(
+          dealership_id, installation_hash, display_name, app_version, status,
+          first_activated_at, last_seen_at, created_at, updated_at)
+        values (?, ?, 'Lucky Bajaj Desktop', ?, 'ACTIVE', now(), now(), now(), now())
+        """, dealershipId, installationHash, cleanVersion(appVersion));
+    jdbc.update("""
+        insert into audit_event(
+          dealership_id, actor_kind, action, entity_type, entity_id, reason, details)
+        values (?, 'SYSTEM', 'DEALERSHIP_LICENSE_DEVICE_ACTIVATED',
+          'DEALERSHIP_LICENSE_DEVICE', ?, 'Desktop installation registered',
+          jsonb_build_object('appVersion', ?))
+        """, dealershipId, installationId, cleanVersion(appVersion));
+    return installationHash;
+  }
+
+  public List<DeviceSummary> listDesktopDevices(String rawDealershipCode) {
+    long dealershipId = dealershipIdByCode(rawDealershipCode);
+    return jdbc.query("""
+        select public_id::text, display_name, app_version, status,
+               first_activated_at, last_seen_at, revoked_at, last_changed_reason
+        from dealership_license_device
+        where dealership_id = ?
+        order by case when status = 'ACTIVE' then 0 else 1 end, last_seen_at desc
+        """, (rs, rowNum) -> new DeviceSummary(
+            rs.getString("public_id"), rs.getString("display_name"), rs.getString("app_version"),
+            rs.getString("status"), rs.getTimestamp("first_activated_at").toInstant(),
+            rs.getTimestamp("last_seen_at").toInstant(),
+            rs.getTimestamp("revoked_at") == null ? null : rs.getTimestamp("revoked_at").toInstant(),
+            rs.getString("last_changed_reason")), dealershipId);
+  }
+
+  @Transactional
+  public List<DeviceSummary> updateDesktopDevice(
+      String rawDealershipCode, String rawDevicePublicId, String rawStatus, String rawReason) {
+    long dealershipId = dealershipIdByCode(rawDealershipCode);
+    UUID publicId;
+    try {
+      publicId = UUID.fromString(rawDevicePublicId);
+    } catch (IllegalArgumentException | NullPointerException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid device ID is required.");
+    }
+    String status = rawStatus == null ? "" : rawStatus.trim().toUpperCase(Locale.ROOT);
+    if (!List.of("ACTIVE", "REVOKED").contains(status)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Device status must be ACTIVE or REVOKED.");
+    }
+    String reason = rawReason == null ? "" : rawReason.trim();
+    if (reason.length() < 4 || reason.length() > 500) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provide a reason between 4 and 500 characters.");
+    }
+    var current = jdbc.query("""
+        select status from dealership_license_device
+        where dealership_id = ? and public_id = ?::uuid for update
+        """, (rs, rowNum) -> rs.getString(1), dealershipId, publicId.toString());
+    if (current.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Desktop device was not found.");
+    }
+    String priorStatus = current.getFirst();
+    if ("ACTIVE".equals(status) && !"ACTIVE".equals(priorStatus)) {
+      var limits = jdbc.query(
+          "select max_desktop_devices from dealership_license where dealership_id = ? for update",
+          (rs, rowNum) -> rs.getInt(1), dealershipId);
+      if (limits.isEmpty()) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "The dealership has no software license.");
+      }
+      Integer activeCount = jdbc.queryForObject("""
+          select count(*) from dealership_license_device
+          where dealership_id = ? and status = 'ACTIVE'
+          """, Integer.class, dealershipId);
+      if ((activeCount == null ? 0 : activeCount) >= limits.getFirst()) {
+        throw new LicenseAccessException(HttpStatus.PAYMENT_REQUIRED, "LICENSE_DEVICE_LIMIT",
+            "The licensed desktop device limit has been reached. Increase the limit before reactivating this device.");
+      }
+    }
+    jdbc.update("""
+        update dealership_license_device
+        set status = ?, revoked_at = case when ? = 'REVOKED' then now() else null end,
+            last_changed_reason = ?, updated_at = now()
+        where dealership_id = ? and public_id = ?::uuid
+        """, status, status, reason, dealershipId, publicId.toString());
+    jdbc.update("""
+        insert into audit_event(
+          dealership_id, actor_kind, action, entity_type, entity_id, reason, details)
+        values (?, 'SYSTEM', 'DEALERSHIP_LICENSE_DEVICE_STATUS_CHANGED',
+          'DEALERSHIP_LICENSE_DEVICE', ?, ?,
+          jsonb_build_object('priorStatus', ?, 'status', ?))
+        """, dealershipId, publicId.toString(), reason, priorStatus, status);
+    return listDesktopDevices(rawDealershipCode);
+  }
+
+  private long dealershipIdByCode(String rawCode) {
+    String code = cleanCode(rawCode);
+    var ids = jdbc.query("select id from dealership where upper(code) = ?",
+        (rs, rowNum) -> rs.getLong(1), code);
+    if (ids.size() != 1) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Dealership was not found.");
+    }
+    return ids.getFirst();
+  }
+
+  private static String canonicalInstallationId(String rawId) {
+    if (rawId == null || rawId.isBlank() || rawId.trim().length() > 64) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A valid desktop installation ID is required.");
+    }
+    try {
+      UUID parsed = UUID.fromString(rawId.trim());
+      String canonical = parsed.toString();
+      if (!canonical.equalsIgnoreCase(rawId.trim())) throw new IllegalArgumentException("Non-canonical UUID");
+      return canonical;
+    } catch (IllegalArgumentException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The desktop installation ID is invalid.");
+    }
+  }
+
+  private static String sha256(String value) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+          .digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 is required by the Java runtime.", exception);
+    }
+  }
+
+  private static String cleanVersion(String version) {
+    if (version == null) return "";
+    String clean = version.trim();
+    return clean.length() <= 40 ? clean : clean.substring(0, 40);
+  }
+
   private LicenseStatus mapStatus(ResultSet rs, int rowNum) throws SQLException {
     String code = rs.getString("dealership_code");
     String name = rs.getString("dealership_name");
@@ -221,6 +403,8 @@ public class DealershipLicenseService {
     Instant now = rs.getTimestamp("server_now").toInstant();
     int graceDays = rs.getInt("grace_period_days");
     int maxSeats = rs.getInt("max_staff_seats");
+    int maxDevices = rs.getInt("max_desktop_devices");
+    int activeDevices = rs.getInt("active_desktop_devices");
     int occupiedSeats = rs.getInt("occupied_staff_seats");
     Instant graceEndsAt = expiresAt.plus(Duration.ofDays(graceDays));
 
@@ -234,13 +418,13 @@ public class DealershipLicenseService {
 
     return new LicenseStatus(
         code, name, rs.getString("plan_code"), rawStatus, state,
-        startsAt, expiresAt, graceEndsAt, graceDays, maxSeats, occupiedSeats,
+        startsAt, expiresAt, graceEndsAt, graceDays, maxSeats, occupiedSeats, maxDevices, activeDevices,
         Duration.between(now, expiresAt).toDays(), messageFor(state));
   }
 
   private static LicenseStatus unlicensedStatus(String code, String name) {
     return new LicenseStatus(code, name, null, "UNLICENSED", "UNLICENSED",
-        null, null, null, 0, 0, 0, 0,
+        null, null, null, 0, 0, 0, 0, 0, 0,
         "No software license is configured for this dealership. Contact licensing support.");
   }
 
@@ -275,11 +459,15 @@ public class DealershipLicenseService {
   public record LicenseStatus(
       String dealershipCode, String dealershipName, String planCode, String licenseStatus, String state,
       Instant startsAt, Instant expiresAt, Instant gracePeriodEndsAt, int gracePeriodDays,
-      int maxStaffSeats, int occupiedStaffSeats, long daysUntilExpiry, String message) {}
+      int maxStaffSeats, int occupiedStaffSeats, int maxDesktopDevices, int activeDesktopDevices,
+      long daysUntilExpiry, String message) {}
 
   public record LicenseUpdate(
       String planCode, String status, Instant startsAt, Instant expiresAt,
-      int gracePeriodDays, int maxStaffSeats, String reason) {}
+      int gracePeriodDays, int maxStaffSeats, int maxDesktopDevices, String reason) {}
 
   public record LicenseRestriction(int httpStatus, String code, String state, String message) {}
+
+  public record DeviceSummary(String publicId, String displayName, String appVersion, String status,
+      Instant firstActivatedAt, Instant lastSeenAt, Instant revokedAt, String lastChangedReason) {}
 }
