@@ -111,49 +111,44 @@ function Get-AndroidSdk {
 
 function Assert-Java17 {
     if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
-        $configuredJava = Join-Path $env:JAVA_HOME 'bin/java.exe'
-        if (-not (Test-Path $configuredJava)) {
-            throw "JAVA_HOME points to '$env:JAVA_HOME', which does not contain bin/java.exe. Correct JAVA_HOME or clear it and rerun."
+        $javaHome = $env:JAVA_HOME
+        if (-not (Test-Path (Join-Path $javaHome 'bin/java.exe'))) {
+            throw "JAVA_HOME points to '$javaHome', which does not contain bin/java.exe. Correct JAVA_HOME or clear it and rerun."
         }
-        $env:PATH = "$(Join-Path $env:JAVA_HOME 'bin');$env:PATH"
     }
-
-    $java = Get-Command java -ErrorAction SilentlyContinue
-    if (-not $java) {
+    else {
         $jdkCandidates = @(
             (Join-Path $env:ProgramFiles 'Android/Android Studio/jbr'),
-            (Join-Path $env:ProgramFiles 'Eclipse Adoptium/jdk-21'),
+            (Join-Path $env:LOCALAPPDATA 'Programs/Android Studio/jbr'),
             (Join-Path $env:ProgramFiles 'Java/jdk-21'),
-            (Join-Path $env:LOCALAPPDATA 'Programs/Eclipse Adoptium/jdk-21')
+            (Join-Path $env:ProgramFiles 'Eclipse Adoptium/jdk-21')
         ) | Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin/java.exe')) }
+
         if ($jdkCandidates.Count -gt 0) {
-            $env:JAVA_HOME = $jdkCandidates[0]
-            $env:PATH = "$(Join-Path $env:JAVA_HOME 'bin');$env:PATH"
-            $java = Get-Command java -ErrorAction SilentlyContinue
-        }
-    }
-    if (-not $java) {
-        throw 'Java 17+ is required by Android builds and Maestro. Install JDK 17 or 21, set JAVA_HOME, reopen PowerShell, and retry.'
-    }
-
-    $versionText = (& java -version 2>&1 | Out-String)
-    $match = [regex]::Match($versionText, 'version "?(?<major>\d+)')
-    if (-not $match.Success -or [int]$match.Groups['major'].Value -lt 17) {
-        throw "Java 17+ is required. Detected: $($versionText.Trim())"
-    }
-
-    if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
-        $javaPath = $java.Source
-        $candidate = Split-Path -Parent (Split-Path -Parent $javaPath)
-        if (Test-Path (Join-Path $candidate 'bin/java.exe')) {
-            $env:JAVA_HOME = $candidate
+            $javaHome = $jdkCandidates[0]
         }
         else {
-            throw 'Java 17+ was found, but JAVA_HOME is not set to its JDK folder. Set JAVA_HOME, reopen PowerShell, and retry.'
+            $javaCommand = Get-Command java -ErrorAction SilentlyContinue
+            if (-not $javaCommand) {
+                throw 'Java 17+ is required by Android builds and Maestro. Install JDK 17 or 21, set JAVA_HOME, reopen PowerShell, and retry.'
+            }
+            $javaPath = $javaCommand.Source
+            $javaHome = Split-Path -Parent (Split-Path -Parent $javaPath)
+            if (-not (Test-Path (Join-Path $javaHome 'bin/java.exe'))) {
+                throw 'Java was found, but its JDK folder could not be identified. Set JAVA_HOME to the JDK 17+ install folder and retry.'
+            }
         }
+        $env:JAVA_HOME = $javaHome
+    }
+
+    $env:PATH = "$(Join-Path $env:JAVA_HOME 'bin');$env:PATH"
+    $javaExe = Join-Path $env:JAVA_HOME 'bin/java.exe'
+    $versionText = (& $javaExe -version 2>&1 | Out-String)
+    $match = [regex]::Match($versionText, 'version "?(?<major>\d+)')
+    if (-not $match.Success -or [int]$match.Groups['major'].Value -lt 17) {
+        throw "Java 17+ is required. JAVA_HOME currently points to '$env:JAVA_HOME'. Detected: $($versionText.Trim())"
     }
 }
-
 function Ensure-Maestro {
     $minimumVersion = [version]'1.40.0'
     $existingMaestro = Get-Command maestro -ErrorAction SilentlyContinue
