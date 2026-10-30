@@ -1318,6 +1318,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       mediaStream?.getTracks().forEach((track) => track.stop());
       frameUrls.forEach((url) => URL.revokeObjectURL(url));
       await context?.close().catch(() => undefined);
+      Object.values(videoElementsRef.current).forEach(video=>video.pause());
       cancelRenderRef.current=null;setCanCancelRender(false);
       setExporting(false);
     }
@@ -1401,7 +1402,23 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {tool === 'uploads' && <div className={styles.uploadPanel}>
           <label className={styles.uploadDrop}><Icon name="upload"/><span>Import media</span><input type="file" multiple accept="image/*,audio/*,video/*" onChange={(event) => {
             const files = Array.from(event.target.files ?? []); event.target.value = '';
-            void (async () => { for (const file of files) { const kind: StudioResourceKind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'export'; const resource = await saveResource(file, file.name, kind); await onResourceAdded(resource); } onNotify('Media imported.'); })();
+            if (!files.length) return;
+            void (async () => {
+              let imported = 0;
+              try {
+                for (const file of files) {
+                  const kind: StudioResourceKind | null = file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : null;
+                  if (!kind) throw new Error('Unsupported media type for "' + file.name + '". Import an image, audio or video file.');
+                  const resource = await saveResource(file, file.name, kind);
+                  await onResourceAdded(resource);
+                  imported += 1;
+                }
+                onNotify(imported + ' media item' + (imported === 1 ? '' : 's') + ' imported.');
+              } catch (cause) {
+                const message = cause instanceof Error ? cause.message : 'Media import failed.';
+                onNotify(imported ? imported + ' of ' + files.length + ' media items imported. ' + message : message);
+              }
+            })();
           }}/></label>
           {resources.filter((item) => item.kind === 'image' && (item.name).toLowerCase().includes(panelSearch.toLowerCase())).map((resource) => <button type="button" key={resource.id} className={styles.libraryAsset} onClick={() => void addLibraryImage(resource)}>
             {urls[resource.id] ? <img src={urls[resource.id]} alt=""/> : <Icon name="image"/>}<span>{resource.name}</span>
