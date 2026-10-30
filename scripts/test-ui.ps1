@@ -97,31 +97,51 @@ function Run-WebTesting {
 }
 
 function Get-AndroidSdk {
-    $sdk = $env:ANDROID_HOME
-    if ([string]::IsNullOrWhiteSpace($sdk)) { $sdk = $env:ANDROID_SDK_ROOT }
-    if ([string]::IsNullOrWhiteSpace($sdk)) { $sdk = Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
+    $sdkCandidates = @(
+        $env:ANDROID_HOME,
+        $env:ANDROID_SDK_ROOT,
+        (Join-Path $env:LOCALAPPDATA 'Android/Sdk')
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 
-    $adbPath = Join-Path $sdk 'platform-tools/adb.exe'
-    if (-not (Test-Path $adbPath)) {
-        throw "Android SDK platform-tools were not found at '$sdk'. Install Android Studio and its Android SDK/platform-tools, then rerun this command."
+    $checked = @()
+    foreach ($candidate in $sdkCandidates) {
+        $sdk = [System.IO.Path]::GetFullPath($candidate.Trim())
+        $adbPath = Join-Path $sdk 'platform-tools/adb.exe'
+        $requiredSdkPackages = @{
+            'Android SDK Platform 36' = (Join-Path $sdk 'platforms/android-36')
+            'Android SDK Build Tools 36.0.0' = (Join-Path $sdk 'build-tools/36.0.0')
+            'Android NDK 27.1.12297006' = (Join-Path $sdk 'ndk/27.1.12297006')
+        }
+        $missingPackages = @($requiredSdkPackages.GetEnumerator() |
+            Where-Object { -not (Test-Path $_.Value) } |
+            ForEach-Object { $_.Key })
+
+        $checked += [pscustomobject]@{
+            Root = $sdk
+            Adb = $adbPath
+            HasAdb = Test-Path $adbPath
+            MissingPackages = $missingPackages
+        }
+
+        if ((Test-Path $adbPath) -and $missingPackages.Count -eq 0) {
+            $env:ANDROID_HOME = $sdk
+            $env:ANDROID_SDK_ROOT = $sdk
+            $env:PATH = "$(Join-Path $sdk 'platform-tools');$(Join-Path $sdk 'emulator');$env:PATH"
+            return @{ Root = $sdk; Adb = $adbPath }
+        }
     }
 
-    $requiredSdkPackages = @{
-        'Android SDK Platform 36' = (Join-Path $sdk 'platforms/android-36')
-        'Android SDK Build Tools 36.0.0' = (Join-Path $sdk 'build-tools/36.0.0')
-        'Android NDK 27.1.12297006' = (Join-Path $sdk 'ndk/27.1.12297006')
-    }
-    $missingPackages = @($requiredSdkPackages.GetEnumerator() | Where-Object { -not (Test-Path $_.Value) } | ForEach-Object { $_.Key })
-    if ($missingPackages.Count -gt 0) {
-        throw "Android SDK is missing: $($missingPackages -join ', '). Open Android Studio > Tools > SDK Manager and install these exact packages, then rerun this command."
+    $withAdb = @($checked | Where-Object { $_.HasAdb })
+    if ($withAdb.Count -gt 0) {
+        $details = $withAdb | ForEach-Object {
+            "$($_.Root): $($_.MissingPackages -join ', ')"
+        }
+        throw ("An Android SDK was found, but required packages are missing:" + [Environment]::NewLine + ($details -join [Environment]::NewLine) + ". Open Android Studio > Tools > SDK Manager and install Platform 36, Build Tools 36.0.0, and NDK 27.1.12297006.")
     }
 
-    $env:ANDROID_HOME = $sdk
-    $env:ANDROID_SDK_ROOT = $sdk
-    $env:PATH = "$(Join-Path $sdk 'platform-tools');$(Join-Path $sdk 'emulator');$env:PATH"
-    return @{ Root = $sdk; Adb = $adbPath }
+    $locations = if ($checked.Count -gt 0) { ($checked.Root -join '; ') } else { '(no SDK path configured)' }
+    throw "Android SDK platform-tools (adb.exe) were not found. Checked: $locations. Install Android Studio and its Android SDK/platform-tools, then rerun this command."
 }
-
 function Assert-Java17 {
     if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
         $javaHome = $env:JAVA_HOME
