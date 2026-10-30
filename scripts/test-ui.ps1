@@ -306,10 +306,7 @@ function Run-AndroidTesting {
     $sdkInfo = Get-AndroidSdk
     Ensure-Maestro
 
-    Write-Step 'Validating the Maestro flow YAML'
-    & maestro check-syntax $maestroFlow
-    Assert-LastExit 'Maestro flow syntax validation'
-
+    # Maestro validates the YAML as part of 'test'; the CLI has no standalone check-syntax subcommand.
     $device = Get-ReadyAndroidDevice $sdkInfo
     Ensure-NpmDependencies $androidDir 'Android app / Expo'
 
