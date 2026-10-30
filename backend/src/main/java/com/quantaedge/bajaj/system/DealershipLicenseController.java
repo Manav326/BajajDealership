@@ -50,8 +50,30 @@ public class DealershipLicenseController {
     licenses.requireAdminToken(adminToken);
     return licenses.updateLicense(dealershipCode, new DealershipLicenseService.LicenseUpdate(
         request.planCode(), request.status(), request.startsAt(), request.expiresAt(),
-        request.gracePeriodDays(), request.maxStaffSeats(), request.reason()));
+        request.gracePeriodDays(), request.maxStaffSeats(), request.maxDesktopDevices(), request.reason()));
   }
+
+  @GetMapping("/admin/licenses/{dealershipCode}/devices")
+  public List<DealershipLicenseService.DeviceSummary> listDevices(
+      @RequestHeader(value = ADMIN_TOKEN_HEADER, required = false) String adminToken,
+      @PathVariable String dealershipCode) {
+    licenses.requireAdminToken(adminToken);
+    return licenses.listDesktopDevices(dealershipCode);
+  }
+
+  @PutMapping("/admin/licenses/{dealershipCode}/devices/{devicePublicId}")
+  public List<DealershipLicenseService.DeviceSummary> updateDevice(
+      @RequestHeader(value = ADMIN_TOKEN_HEADER, required = false) String adminToken,
+      @PathVariable String dealershipCode,
+      @PathVariable String devicePublicId,
+      @Valid @RequestBody DeviceStatusUpdateRequest request) {
+    licenses.requireAdminToken(adminToken);
+    return licenses.updateDesktopDevice(dealershipCode, devicePublicId, request.status(), request.reason());
+  }
+
+  public record DeviceStatusUpdateRequest(
+      @NotBlank @Pattern(regexp = "ACTIVE|REVOKED") String status,
+      @NotBlank @Size(min = 4, max = 500) String reason) {}
 
   public record LicenseUpdateRequest(
       @NotBlank @Size(min = 2, max = 80) @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9_-]{1,79}") String planCode,
@@ -60,5 +82,6 @@ public class DealershipLicenseController {
       @NotNull Instant expiresAt,
       @Min(0) @Max(90) int gracePeriodDays,
       @Min(1) @Max(1000) int maxStaffSeats,
+      @Min(1) @Max(100) int maxDesktopDevices,
       @NotBlank @Size(min = 4, max = 500) String reason) {}
 }
