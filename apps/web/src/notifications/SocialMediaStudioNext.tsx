@@ -625,7 +625,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
   const cancelRenderRef = useRef<(()=>void)|null>(null);
   const projectRef = useRef(project);
-  projectRef.current = project;
+  useEffect(() => { projectRef.current = project; }, [project]);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
