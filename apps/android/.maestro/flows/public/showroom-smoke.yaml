@@ -1,0 +1,17 @@
+appId: com.quantaedge.luckybajaj
+name: Public showroom smoke test
+tags:
+  - smoke
+  - public
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Find the ride that feels like you."
+    timeout: 30000
+- assertVisible: "LUCKY BAJAJ"
+- assertVisible: "Explore Bajaj motorcycles"
+- tapOn: "Search motorcycles"
+- inputText: "Pulsar"
+- assertVisible: "Explore Bajaj motorcycles"
+- assertVisible: "Sign in / activate account"
