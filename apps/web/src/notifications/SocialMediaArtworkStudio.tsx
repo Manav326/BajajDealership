@@ -121,6 +121,10 @@ type CanvasObject = {
   fill: string;
   fontSize: number;
   bold: boolean;
+  italic: boolean;
+  fontFamily: string;
+  align: 'left' | 'center' | 'right';
+  rotation: number;
   opacity: number;
 };
 
@@ -608,20 +612,25 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         const objectWidth = width * item.width / 100;
         const objectHeight = height * item.height / 100;
         ctx.save();
+        ctx.translate(x + objectWidth / 2, y + objectHeight / 2);
+        ctx.rotate((item.rotation * Math.PI) / 180);
         ctx.globalAlpha = Math.max(0, Math.min(100, item.opacity)) / 100;
         ctx.fillStyle = item.fill;
         if (item.kind === 'rectangle') {
-          roundedRect(ctx, x, y, objectWidth, objectHeight, Math.min(18 * scale, objectHeight * .18));
+          roundedRect(ctx, -objectWidth / 2, -objectHeight / 2, objectWidth, objectHeight, Math.min(18 * scale, objectHeight * .18));
           ctx.fill();
         } else if (item.kind === 'circle') {
           ctx.beginPath();
-          ctx.ellipse(x + objectWidth / 2, y + objectHeight / 2, objectWidth / 2, objectHeight / 2, 0, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, objectWidth / 2, objectHeight / 2, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          ctx.font = (item.bold ? '800 ' : '500 ') + Math.max(14, Math.round(item.fontSize * scale)) + 'px Arial, sans-serif';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'top';
-          item.text.split(/\r?\n/).slice(0, 5).forEach((line, index) => ctx.fillText(line, x, y + index * Math.max(18, item.fontSize * scale * 1.2), objectWidth));
+          ctx.font = (item.italic ? 'italic ' : '') + (item.bold ? '800 ' : '500 ') + Math.max(14, Math.round(item.fontSize * scale)) + 'px ' + item.fontFamily + ', sans-serif';
+          ctx.textAlign = item.align;
+          ctx.textBaseline = 'middle';
+          const textX = item.align === 'left' ? -objectWidth / 2 : item.align === 'right' ? objectWidth / 2 : 0;
+          const rows = item.text.split(/\r?\n/).slice(0, 5);
+          const lineHeight = Math.max(18, item.fontSize * scale * 1.2);
+          rows.forEach((line, index) => ctx.fillText(line, textX, (index - (rows.length - 1) / 2) * lineHeight, objectWidth));
         }
         ctx.restore();
       });
@@ -1156,7 +1165,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setActiveDraftId(draft.id);
       setDraftName(draft.name);
       await refreshSavedDrafts();
-      setNotice('Draft saved on this browser. It is not yet synced to other staff devices.');
+      setNotice('Draft saved in this browser. Existing browser drafts remain available on this device; they are not synced to other staff devices.');
     } catch (cause) {
       const storageError = cause instanceof DOMException && cause.name === 'QuotaExceededError';
       setError(storageError
@@ -1509,7 +1518,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   async function togglePickerMusicPreview(track: ArtworkMusicAsset) {
     if (!track.fileData) {
-      setNotice('This catalogue track links to its source page. Download the MP3 and attach it to this track before previewing.');
+      window.open(track.sourcePage, '_blank', 'noopener,noreferrer');
+      setNotice('Opened the creator source page for ' + track.name + '. Listen there, then download and attach the MP3 to preview it inside the editor.');
       return;
     }
     const audio = pickerAudioRef.current;
@@ -1545,7 +1555,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     const next: CanvasObject = {
       id: newDraftId(), kind, text: kind === 'text' ? 'Your message here' : '',
       x: 28, y: 43, width: kind === 'text' ? 48 : 24, height: kind === 'text' ? 9 : 18,
-      fill: kind === 'text' ? '#ffffff' : accent, fontSize: 44, bold: true, opacity: 100,
+      fill: kind === 'text' ? '#ffffff' : accent, fontSize: 44, bold: true, italic: false, fontFamily: 'Arial', align: 'left', rotation: 0, opacity: 100,
     };
     setCanvasObjects((current) => [...current, next]);
     setSelectedCanvasObjectId(next.id);
@@ -1554,6 +1564,17 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   function updateCanvasObject(id: string, changes: Partial<CanvasObject>) {
     pushCanvasObjectHistory();
     setCanvasObjects((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
+  }
+
+
+  function reorderCanvasObject(id: string, direction: -1 | 1) {
+    const index = canvasObjects.findIndex((item) => item.id === id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= canvasObjects.length) return;
+    pushCanvasObjectHistory();
+    const next = [...canvasObjects];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    setCanvasObjects(next);
   }
 
   function duplicateCanvasObject() {
@@ -1851,7 +1872,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                         disabled={videoExporting} />
                     </label>
                     <div className={styles.musicActions}>
-                      <button type="button" className={styles.secondary} onClick={() => void togglePickerMusicPreview(track)} disabled={!track.fileData || videoExporting}>{previewingMusicId === track.id ? 'Pause preview' : 'Preview'}</button>
+                      <button type="button" className={styles.secondary} onClick={() => void togglePickerMusicPreview(track)} disabled={videoExporting}>{previewingMusicId === track.id ? 'Pause preview' : track.fileData ? 'Preview' : 'Preview source'}</button>
                       <button type="button" className={styles.textButton} onClick={() => toggleMusicFavourite(track.id)} aria-pressed={favoriteMusicIds.includes(track.id)}>{favoriteMusicIds.includes(track.id) ? '★ Saved' : '☆ Favourite'}</button>
                       <button type="button" className={styles.secondary} onClick={() => void selectMusicTrack(track)} disabled={!track.fileData || videoExporting}>
                         {selectedMusicId === track.id ? 'Selected track' : 'Use track'}
@@ -1959,9 +1980,18 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 return <div className={styles.objectInspector}>
                   {selected.kind === 'text' && <label>Text<input value={selected.text} maxLength={180} onChange={(event) => updateCanvasObject(selected.id, { text: event.target.value })} /></label>}
                   <label>Colour<input type="color" value={selected.fill} onChange={(event) => updateCanvasObject(selected.id, { fill: event.target.value })} /></label>
-                  {selected.kind === 'text' && <label>Font size<input type="range" min={18} max={120} value={selected.fontSize} onChange={(event) => updateCanvasObject(selected.id, { fontSize: Number(event.target.value) })} /></label>}
+                  {selected.kind === 'text' && <>
+                    <label>Font family<select value={selected.fontFamily} onChange={(event) => updateCanvasObject(selected.id, { fontFamily: event.target.value })}><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Impact</option><option>Courier New</option></select></label>
+                    <label>Font size<input type="range" min={18} max={120} value={selected.fontSize} onChange={(event) => updateCanvasObject(selected.id, { fontSize: Number(event.target.value) })} /></label>
+                    <label>Alignment<select value={selected.align} onChange={(event) => updateCanvasObject(selected.id, { align: event.target.value as CanvasObject['align'] })}><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select></label>
+                    <label className={styles.objectCheck}><input type="checkbox" checked={selected.bold} onChange={(event) => updateCanvasObject(selected.id, { bold: event.target.checked })} /> Bold</label>
+                    <label className={styles.objectCheck}><input type="checkbox" checked={selected.italic} onChange={(event) => updateCanvasObject(selected.id, { italic: event.target.checked })} /> Italic</label>
+                  </>}
+                  <label>Width <strong>{Math.round(selected.width)}%</strong><input type="range" min={5} max={90} value={selected.width} onChange={(event) => updateCanvasObject(selected.id, { width: Number(event.target.value) })} /></label>
+                  <label>Height <strong>{Math.round(selected.height)}%</strong><input type="range" min={3} max={80} value={selected.height} onChange={(event) => updateCanvasObject(selected.id, { height: Number(event.target.value) })} /></label>
+                  <label>Rotation <strong>{selected.rotation}°</strong><input type="range" min={-180} max={180} value={selected.rotation} onChange={(event) => updateCanvasObject(selected.id, { rotation: Number(event.target.value) })} /></label>
                   <label>Opacity<input type="range" min={10} max={100} value={selected.opacity} onChange={(event) => updateCanvasObject(selected.id, { opacity: Number(event.target.value) })} /></label>
-                  <div className={styles.assetActions}><button type="button" className={styles.secondary} onClick={duplicateCanvasObject}>Duplicate</button><button type="button" className={styles.textButton} onClick={deleteCanvasObject}>Delete object</button></div>
+                  <div className={styles.assetActions}><button type="button" className={styles.secondary} onClick={() => reorderCanvasObject(selected.id, 1)}>Bring forward</button><button type="button" className={styles.secondary} onClick={() => reorderCanvasObject(selected.id, -1)}>Send backward</button><button type="button" className={styles.secondary} onClick={duplicateCanvasObject}>Duplicate</button><button type="button" className={styles.textButton} onClick={deleteCanvasObject}>Delete object</button></div>
                 </div>;
               })() : <p className={styles.panelFootnote}>Add text or shapes from the canvas toolbar. Existing dealership artwork layers remain editable below.</p>}
               {canvasObjects.length > 0 && <div className={styles.objectLayerList} aria-label="Object layers">{[...canvasObjects].reverse().map((item) => <button key={item.id} type="button" className={selectedCanvasObjectId === item.id ? styles.objectLayerActive : styles.objectLayer} onClick={() => setSelectedCanvasObjectId(item.id)}>{item.kind === 'text' ? 'T' : item.kind === 'circle' ? '○' : '▭'} {item.kind === 'text' ? item.text.slice(0, 24) : item.kind}</button>)}</div>}
@@ -1998,6 +2028,17 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <div className={styles.previewFrame} style={{ aspectRatio: selectedFormat.width + ' / ' + selectedFormat.height }}>
               <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={'Editable canvas for ' + headline} onPointerDown={handleCanvasPointerDown} onPointerMove={handleCanvasPointerMove} onPointerUp={handleCanvasPointerUp} onPointerCancel={handleCanvasPointerUp} />
             </div>
+            <section className={styles.timelinePanel} aria-label="Story composition timeline">
+              <div className={styles.timelineHeading}><div><strong>Story timeline</strong><small>Single artwork scene with a soundtrack · clip length {musicClipDuration}s</small></div><span>{selectedMusicTrack?.name ?? 'No music selected'}</span></div>
+              <div className={styles.timelineRuler}><span>00:00</span><span>{Math.round(storyDurationLimit / 4)}s</span><span>{Math.round(storyDurationLimit / 2)}s</span><span>{Math.round(storyDurationLimit * .75)}s</span><span>{storyDurationLimit}s</span></div>
+              <div className={styles.timelineTrack}><strong>Scene 01 · Artwork</strong><div className={styles.timelineTrackRail}><span className={styles.timelineSceneBlock}>Current canvas</span></div></div>
+              <div className={styles.timelineTrack}><strong>♫ Audio</strong><div className={styles.timelineTrackRail}><span className={styles.timelineAudioBlock} style={{ left: (musicClipStart / Math.max(1, selectedMusicTrack?.durationSeconds ?? storyDurationLimit)) * 100 + '%', width: Math.min(100, (musicClipDuration / Math.max(1, selectedMusicTrack?.durationSeconds ?? storyDurationLimit)) * 100) + '%' }}>{selectedMusicTrack?.name ?? 'Choose music'}</span></div></div>
+              <div className={styles.timelineControls}>
+                <label>Clip start · {musicClipStart.toFixed(1)}s<input type="range" min={0} max={musicStartLimit} step={0.5} value={Math.min(musicClipStart, musicStartLimit)} onChange={(event) => setMusicClipStart(Number(event.target.value))} disabled={!selectedMusicReady || videoExporting || musicStartLimit <= 0} /></label>
+                <label>Clip length · {musicClipDuration}s<input type="range" min={20} max={Math.max(20, Math.min(storyDurationLimit, selectedMusicTrack?.durationSeconds ?? storyDurationLimit))} step={1} value={musicClipDuration} onChange={(event) => setMusicClipDuration(Number(event.target.value))} disabled={!selectedMusicReady || videoExporting} /></label>
+              </div>
+              <p className={styles.panelFootnote}>The current artwork is rendered for the chosen duration and combined with this audio range when you create the Story video. Direct Story/Status publishing and native music stickers remain in the social apps.</p>
+            </section>
             <label className={styles.captionPreview}>Caption preview<textarea readOnly rows={4} value={fullCaption} /></label>
 
             {error && <div className={styles.error} role="alert">{error}</div>}

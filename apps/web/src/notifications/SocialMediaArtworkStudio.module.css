@@ -466,3 +466,82 @@
 @media (prefers-reduced-motion:reduce) {
   .studio,.studioTabs,.pickerDialog,.pickerLaunchButton { transition:none !important; }
 }
+
+
+/* Functional canvas-object typography, transform and single-scene audio timeline. */
+.objectCheck { display:flex !important; align-items:center; gap:8px !important; }
+.objectCheck input { width:14px !important; height:14px; accent-color:#ea6b19; }
+.objectInspector select {
+  width:100%;
+  box-sizing:border-box;
+  padding:9px 10px;
+  border:1px solid #d5deea;
+  border-radius:8px;
+  background:#fff;
+  color:#26364f;
+  font:inherit;
+  font-size:11px;
+}
+.objectInspector input[type="range"] { accent-color:#ea6b19; }
+.timelinePanel {
+  display:grid;
+  gap:12px;
+  min-width:0;
+  padding:15px;
+  border:1px solid #dce4ef;
+  border-radius:14px;
+  background:rgba(255,255,255,.88);
+  box-shadow:0 5px 18px rgba(30,48,75,.04);
+}
+.timelineHeading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.timelineHeading > div { display:grid; gap:4px; }
+.timelineHeading strong { color:#253650; font-size:12px; font-weight:850; }
+.timelineHeading small,.timelineHeading > span { color:#7c899e; font-size:9px; line-height:1.5; }
+.timelineHeading > span { max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.timelineRuler { display:flex; justify-content:space-between; padding-left:112px; color:#91a0b3; font-size:8px; font-variant-numeric:tabular-nums; }
+.timelineTrack { display:grid; grid-template-columns:102px minmax(0,1fr); align-items:center; gap:10px; }
+.timelineTrack > strong { color:#586980; font-size:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.timelineTrackRail { position:relative; display:flex; align-items:center; min-width:0; height:30px; overflow:hidden; border:1px solid #e2e8f0; border-radius:7px; background:repeating-linear-gradient(90deg,#f5f7fa 0,#f5f7fa calc(25% - 1px),#e5eaf1 calc(25% - 1px),#e5eaf1 25%); }
+.timelineSceneBlock {
+  display:flex;
+  align-items:center;
+  height:100%;
+  width:100%;
+  padding:0 9px;
+  border:1px solid #e8a06b;
+  border-radius:6px;
+  background:linear-gradient(90deg,#ffe9d7,#fff5eb);
+  color:#a44d18;
+  font-size:9px;
+  font-weight:800;
+}
+.timelineAudioBlock {
+  position:absolute;
+  top:3px;
+  bottom:3px;
+  display:flex;
+  align-items:center;
+  overflow:hidden;
+  min-width:5%;
+  padding:0 8px;
+  border:1px solid #a8a6eb;
+  border-radius:5px;
+  background:linear-gradient(90deg,#e8e7ff,#f1f0ff);
+  color:#5353a2;
+  font-size:8px;
+  font-weight:800;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.timelineControls { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.timelineControls label { display:grid; gap:7px; color:#51627b; font-size:9px; font-weight:750; }
+.timelineControls input[type="range"] { width:100%; accent-color:#ea6b19; }
+.timelineControls input:disabled { opacity:.45; cursor:not-allowed; }
+@media (max-width:640px) {
+  .timelinePanel { padding:11px; }
+  .timelineHeading { flex-direction:column; }
+  .timelineHeading > span { max-width:100%; }
+  .timelineRuler { padding-left:0; }
+  .timelineTrack { grid-template-columns:74px minmax(0,1fr); gap:7px; }
+  .timelineControls { grid-template-columns:1fr; }
+}

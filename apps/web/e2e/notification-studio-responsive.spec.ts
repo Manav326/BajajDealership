@@ -681,7 +681,7 @@ function silentWav(seconds = 35, sampleRate = 8_000): Buffer {
   return buffer;
 }
 
-test('Social Media Artwork Studio offers festival templates, bounded image/music libraries, and Story video export', async ({ page }) => {
+test('Social Media Studio retains templates, image/music libraries, and real Story video export in the full-page workspace', async ({ page }) => {
   test.setTimeout(120_000);
   const browserDiagnostics: string[] = [];
   page.on('pageerror', (cause) => browserDiagnostics.push('pageerror: ' + (cause.stack || cause.message)));
@@ -696,18 +696,18 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
   await expect(page.locator('.app-shell')).toBeVisible();
   await page.getByRole('button', { name: 'Social Media Studio', exact: true }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Social Media Artwork Studio' });
+  const studioHeading = page.getByRole('heading', { name: 'LuckyBajaj Creative Studio' });
   try {
-    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    await expect(studioHeading).toBeVisible({ timeout: 10_000 });
   } catch (cause) {
     throw new Error(String(cause) + '\\nBrowser diagnostics:\\n' + (browserDiagnostics.join('\\n') || 'No browser console/page errors captured.'));
   }
-  await expect(dialog.getByRole('button', { name: 'Use Shubh Deepawali template' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Use Chhath Puja · Sunrise template' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Use Eid Mubarak · Elegant template' })).toBeVisible();
-  await expect(dialog.getByText(/12 \/ 50 images · JPEG or PNG/)).toBeVisible();
-  await expect(dialog.getByRole('slider', { name: /Position X/ })).toBeVisible();
-  await expect(dialog.getByLabel('Headline colour')).toBeVisible();
+  const templates = page.getByRole('region', { name: 'Ready-made campaign templates' });
+  await expect(templates.getByRole('button', { name: 'Use Shubh Deepawali template' })).toBeVisible();
+  await expect(templates.getByRole('button', { name: 'Use Chhath Puja · Sunrise template' })).toBeVisible();
+  await expect(templates.getByRole('button', { name: 'Use Eid Mubarak · Elegant template' })).toBeVisible();
+  await expect(page.getByRole('slider', { name: /Position X/ })).toBeVisible();
+  await expect(page.getByLabel('Headline colour')).toBeVisible();
 
   // Keep image selection deterministic and offline in CI; the real asset flow still validates
   // JPEG/PNG signatures, dimensions, size and IndexedDB persistence.
@@ -718,53 +718,62 @@ test('Social Media Artwork Studio offers festival templates, bounded image/music
       body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
     });
   });
-  await dialog.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
-  await expect(dialog.getByRole('textbox', { name: 'Headline', exact: true })).toHaveValue('शुभ दीपावली');
-  await expect(dialog.getByText(/template loaded/)).toBeVisible();
+  await templates.getByRole('button', { name: 'Use Shubh Deepawali template' }).click();
+  await expect(page.getByRole('textbox', { name: 'Headline', exact: true })).toHaveValue('शुभ दीपावली');
+  await expect(page.getByText(/template loaded/i)).toBeVisible();
 
-  await dialog.getByTestId('artwork-image-upload').setInputFiles({
+  // The image catalogue is now a proper picker rather than an inline expandable section.
+  await page.getByRole('button', { name: /Photos & assets/ }).click();
+  const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
+  await expect(imagePicker).toBeVisible();
+  await imagePicker.getByTestId('artwork-image-upload').setInputFiles({
     name: 'dealer-logo.png',
     mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
   });
-  await expect(dialog.getByText(/13 \/ 50 images · JPEG or PNG/)).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Use as logo' }).first()).toBeVisible();
+  await expect(imagePicker.getByText(/13 \/ 50 images · JPEG or PNG/)).toBeVisible();
+  await expect(imagePicker.getByRole('button', { name: 'Use as logo' }).first()).toBeVisible();
+  await imagePicker.getByRole('button', { name: 'Hide library' }).click();
 
-  const musicLibrary = dialog.getByRole('region', { name: 'Music asset library' });
+  // The music picker uses its real browser-local library. The generated WAV lets this
+  // test exercise decode, trim, MediaRecorder export, and download without provider APIs.
+  await page.getByRole('button', { name: /Music & sound/ }).click();
+  const musicPicker = page.getByRole('dialog', { name: 'Choose background music' });
+  const musicLibrary = musicPicker.getByRole('region', { name: 'Music asset library' });
   await expect(musicLibrary).toBeVisible();
   await expect(musicLibrary.getByText(/10 \/ 50 tracks/)).toBeVisible();
   await expect(musicLibrary.getByText('Chhath · Hindu Festive Music')).toBeVisible();
-  await expect(dialog.getByRole('region', { name: 'Story video creator' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeDisabled();
-
-  // Use a generated audio file for deterministic coverage; actual curated tracks are imported from their source pages.
-  await dialog.locator('[data-testid="artwork-music-upload"]').setInputFiles({
+  await musicLibrary.locator('[data-testid="artwork-music-upload"]').setInputFiles({
     name: 'festive-instrumental.wav',
     mimeType: 'audio/wav',
     buffer: silentWav(125),
   });
-  await expect(dialog.getByText(/11 \/ 50 tracks/)).toBeVisible();
+  await expect(musicLibrary.getByText(/11 \/ 50 tracks/)).toBeVisible();
   await expect(musicLibrary.getByRole('article').filter({ hasText: 'festive-instrumental' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Use 9:16 Story format' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Use 9:16 Story format' }).click();
-  await expect(dialog.getByRole('button', { name: 'Create story video' })).toBeEnabled();
-  await expect(dialog.getByRole('slider', { name: 'Music snippet start' })).toBeEnabled();
-  await expect(dialog.getByRole('slider', { name: 'Music volume' })).toBeEnabled();
+  await musicPicker.getByRole('button', { name: 'Hide music' }).click();
 
-  const videoDestination = dialog.getByLabel('Story video destination');
+  const storyPanel = page.getByRole('region', { name: 'Story video creator' });
+  await expect(storyPanel).toBeVisible();
+  await expect(storyPanel.getByRole('button', { name: 'Use 9:16 Story format' })).toBeVisible();
+  await storyPanel.getByRole('button', { name: 'Use 9:16 Story format' }).click();
+  await expect(storyPanel.getByRole('button', { name: 'Create story video' })).toBeEnabled();
+  await expect(storyPanel.getByRole('slider', { name: 'Music snippet start' })).toBeEnabled();
+  await expect(storyPanel.getByRole('slider', { name: 'Music volume' })).toBeEnabled();
+
+  const videoDestination = storyPanel.getByLabel('Story video destination');
   await expect(videoDestination).toHaveValue('whatsapp-status');
-  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await expect(storyPanel.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
   await videoDestination.selectOption('instagram-story');
-  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
+  await expect(storyPanel.getByRole('button', { name: '120s', exact: true })).toBeDisabled();
   await videoDestination.selectOption('social-reel');
-  await expect(dialog.getByRole('button', { name: '120s', exact: true })).toBeEnabled();
+  await expect(storyPanel.getByRole('button', { name: '120s', exact: true })).toBeEnabled();
 
-  // Exercise the real canvas/audio MediaRecorder path with a generated local WAV.
-  await dialog.getByRole('button', { name: '20s', exact: true }).click();
+  // Exercise the real canvas/audio MediaRecorder path with the generated local WAV.
+  await storyPanel.getByRole('button', { name: '20s', exact: true }).click();
   const downloadPromise = page.waitForEvent('download', { timeout: 60_000 });
-  await dialog.getByRole('button', { name: 'Create story video' }).click();
-  await expect(dialog.getByRole('button', { name: 'Rendering story video…' })).toBeDisabled();
+  await storyPanel.getByRole('button', { name: 'Create story video' }).click();
+  await expect(storyPanel.getByRole('button', { name: 'Rendering story video…' })).toBeDisabled();
   const videoDownload = await downloadPromise;
   expect(videoDownload.suggestedFilename()).toMatch(/^lucky-bajaj-story-20s\.(mp4|webm)$/);
-  await expect(dialog.getByRole('status').filter({ hasText: /Vertical video exported for Instagram \/ Facebook Reel \(20 seconds/ })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /Vertical video exported for Instagram \/ Facebook Reel \(20 seconds/ })).toBeVisible();
 });

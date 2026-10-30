@@ -78,6 +78,17 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'LuckyBajaj Creative Studio' })).toBeVisible();
 });
 
+test('desktop navigation collapses to icon-only mode and can expand again', async ({ page }) => {
+  const sidebar = page.locator('#primary-navigation');
+  const collapse = page.getByRole('button', { name: 'Collapse navigation' });
+  await expect(sidebar).not.toHaveClass(/collapsed/);
+  await collapse.click();
+  await expect(sidebar).toHaveClass(/collapsed/);
+  await expect(page.getByRole('button', { name: 'Expand navigation' })).toHaveAttribute('aria-expanded', 'false');
+  await page.getByRole('button', { name: 'Expand navigation' }).click();
+  await expect(sidebar).not.toHaveClass(/collapsed/);
+});
+
 test('opens as a regular editor-first page, not a modal', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Social Media Artwork Studio' })).toHaveCount(0);
   await expect(page.locator('canvas[aria-label^="Preview of"], canvas[aria-label^="Editable canvas"]')).toBeVisible();
@@ -88,7 +99,9 @@ test('image and music catalogues open as independent pickers and can be searched
   await page.getByRole('button', { name: /Photos & assets/ }).click();
   const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
   await expect(imagePicker).toBeVisible();
-  await expect(imagePicker.getByText('Diwali · Diyas & warm lights')).toBeVisible();
+  await expect(imagePicker.getByText('Diwali · Diyas & warm lights').first()).toBeVisible();
+  await imagePicker.getByText('Diwali · Diyas & warm lights').hover();
+  await expect(imagePicker.getByRole('img', { name: 'Diwali · Diyas & warm lights' })).toBeVisible();
   await imagePicker.getByRole('searchbox', { name: 'Search image assets' }).fill('Chhath');
   await expect(imagePicker.getByText('Chhath Puja · Arghya at sunrise')).toBeVisible();
   await imagePicker.getByRole('button', { name: 'Hide library' }).click();
@@ -98,7 +111,7 @@ test('image and music catalogues open as independent pickers and can be searched
   const musicPicker = page.getByRole('dialog', { name: 'Choose background music' });
   await expect(musicPicker).toBeVisible();
   await expect(musicPicker.getByText('Chhath · Hindu Festive Music')).toBeVisible();
-  await expect(musicPicker.getByRole('button', { name: 'Preview' }).first()).toBeDisabled();
+  await expect(musicPicker.getByRole('button', { name: 'Preview source' }).first()).toBeEnabled();
   await musicPicker.getByRole('searchbox', { name: 'Search music tracks' }).fill('Bhojpuri');
   await expect(musicPicker.getByText('Bhojpuri · Regional festive feel')).toBeVisible();
   await expect(musicPicker.getByText('Chhath · Hindu Festive Music')).toHaveCount(0);
@@ -110,10 +123,22 @@ test('canvas tools create and persist editable text and shape objects in a saved
   const textField = page.getByLabel('Text');
   await expect(textField).toHaveValue('Your message here');
   await textField.fill('Ride into your next adventure');
+  await page.getByLabel('Font family').selectOption('Georgia');
+  await page.getByLabel('Alignment').selectOption('center');
+  await expect(page.getByLabel('Rotation')).toBeVisible();
+  await page.getByLabel('Rotation').focus();
+  await expect(page.getByRole('region', { name: 'Story composition timeline' })).toBeVisible();
   await page.getByRole('button', { name: '＋ Rectangle' }).click();
   await expect(page.getByText(/2 editable object/)).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByText(/1 editable object/)).toBeVisible();
+  await page.getByRole('button', { name: 'Redo' }).click();
+  await expect(page.getByText(/2 editable object/)).toBeVisible();
+  await page.getByLabel('Draft name').fill('Browser studio object round-trip');
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved in this browser' })).toBeVisible();
+  await page.getByLabel('Open saved draft').selectOption({ label: /Browser studio object round-trip/ });
+  await expect(page.getByText(/2 editable object/)).toBeVisible();
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await expect(page.getByText(/0 editable object/)).toBeVisible();
 });
