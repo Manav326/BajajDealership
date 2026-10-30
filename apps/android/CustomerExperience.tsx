@@ -1039,6 +1039,9 @@ export default function CustomerExperience() {
   const authScreen = !token && ['signin','signup'].includes(screen);
   return <SafeAreaView style={S.safe}><EditionBackdrop style={S.backdrop}>
     <StatusBar barStyle="dark-content" backgroundColor={C.canvas}/>
+    <View style={S.topBar}><View style={S.brandMarkSmall}><Text style={S.brandMarkText}>LB</Text></View><View style={S.flex}><Text style={S.brandName}>LUCKY BAJAJ</Text><Text style={S.brandCaption}>{customer?.dealershipName || 'A QuantaEdge customer experience'}</Text></View>
+      {token ? <Pressable onPress={() => setScreen('more')} style={S.headerButton}><Text style={S.headerButtonText}>{(customer?.fullName || 'You').split(' ')[0]}</Text></Pressable> : <Pressable onPress={() => setScreen('signin')} style={S.headerButton}><Text style={S.headerButtonText}>Sign in</Text></Pressable>}
+    </View>
     <EditionContentTarget style={S.contentTarget}>
       <View style={S.glassContentInset}>
     {error ? <Notice message={error}/> : null}{success ? <Notice message={success} good/> : null}
@@ -1049,10 +1052,10 @@ export default function CustomerExperience() {
     </ScrollView>
       </View>
     </EditionContentTarget>
-    <View style={S.topBar}><GlassOverlay intensity={46}/><View style={S.brandMarkSmall}><Text style={S.brandMarkText}>LB</Text></View><View style={S.flex}><Text style={S.brandName}>LUCKY BAJAJ</Text><Text style={S.brandCaption}>{customer?.dealershipName || 'A QuantaEdge customer experience'}</Text></View>
-      {token ? <Pressable onPress={() => setScreen('more')} style={S.headerButton}><Text style={S.headerButtonText}>{(customer?.fullName || 'You').split(' ')[0]}</Text></Pressable> : <Pressable onPress={() => setScreen('signin')} style={S.headerButton}><Text style={S.headerButtonText}>Sign in</Text></Pressable>}
-    </View>
-    {authScreen ? <View style={S.authBottom}><GlassOverlay intensity={54}/><Button label="Return to showroom" secondary onPress={() => { setScreen('showroom'); setError(''); setSuccess(''); }}/></View> : <View style={S.bottomNav}><GlassOverlay intensity={58}/>{(token ? NAV : [{key:'showroom' as Screen,label:'Bikes',icon:'◈'},{key:'signin' as Screen,label:'Sign in',icon:'↗'},{key:'privacy' as Screen,label:'Privacy',icon:'⌑'}]).map(item => <Pressable key={item.key} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{selected:screen === item.key}} onPress={() => { setError(''); setSuccess(''); setScreen(item.key); }} style={[S.navItem, screen === item.key && S.navActive]}><Text style={[S.navIcon, screen === item.key && S.navTextActive]}>{item.icon}</Text><Text numberOfLines={1} style={[S.navLabel, screen === item.key && S.navTextActive]}>{item.label}</Text>{item.key === 'updates' && notifications.unreadCount > 0 ? <View style={S.dot}/> : null}{item.key === 'parts' && cartCount > 0 ? <View style={S.dot}/> : null}</Pressable>)}</View>}
+    <GlassOverlay intensity={46} placement="top"/>
+    <GlassOverlay intensity={58} placement="bottom"/>
+
+    {authScreen ? <View style={S.authBottom}><Button label="Return to showroom" secondary onPress={() => { setScreen('showroom'); setError(''); setSuccess(''); }}/></View> : <View style={S.bottomNav}>{(token ? NAV : [{key:'showroom' as Screen,label:'Bikes',icon:'◈'},{key:'signin' as Screen,label:'Sign in',icon:'↗'},{key:'privacy' as Screen,label:'Privacy',icon:'⌑'}]).map(item => <Pressable key={item.key} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{selected:screen === item.key}} onPress={() => { setError(''); setSuccess(''); setScreen(item.key); }} style={[S.navItem, screen === item.key && S.navActive]}><Text style={[S.navIcon, screen === item.key && S.navTextActive]}>{item.icon}</Text><Text numberOfLines={1} style={[S.navLabel, screen === item.key && S.navTextActive]}>{item.label}</Text>{item.key === 'updates' && notifications.unreadCount > 0 ? <View style={S.dot}/> : null}{item.key === 'parts' && cartCount > 0 ? <View style={S.dot}/> : null}</Pressable>)}</View>}
   </EditionBackdrop></SafeAreaView>;
 }
 

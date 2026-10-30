@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, type ReactNode, type RefObject } fro
 import { BlurView, BlurTargetView } from 'expo-blur';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 type EditionBackdropProps={children:ReactNode;style?:StyleProp<ViewStyle>};
+type GlassOverlayProps={intensity?:number;placement:'top'|'bottom'};
 const BlurTargetContext=createContext<RefObject<View|null>|null>(null);
 export function EditionBackdrop({children,style}:EditionBackdropProps){
  const targetRef=useRef<View|null>(null);
@@ -15,12 +16,14 @@ export function EditionContentTarget({children,style}:EditionBackdropProps){
  if(!targetRef)return <View style={[{flex:1},style]}>{children}</View>;
  return <BlurTargetView ref={targetRef} style={style}>{children}</BlurTargetView>;
 }
-export function GlassOverlay({intensity=52}:{intensity?:number}){
+export function GlassOverlay({intensity=52,placement}:GlassOverlayProps){
  const targetRef=useContext(BlurTargetContext); if(!targetRef)return null;
- return <BlurView pointerEvents="none" blurTarget={targetRef} intensity={intensity} tint="light" blurMethod="dimezisBlurViewSdk31Plus" style={StyleSheet.absoluteFill}/>;
+ return <BlurView pointerEvents="none" blurTarget={targetRef} intensity={intensity} tint="light" blurMethod="dimezisBlurViewSdk31Plus" style={placement==='top'?styles.topGlass:styles.bottomGlass}/>;
 }
 const styles=StyleSheet.create({
  backdrop:{flex:1,backgroundColor:'#EAF0FA',overflow:'hidden'},
  warmGlow:{position:'absolute',top:-118,right:-86,width:300,height:300,borderRadius:150,backgroundColor:'rgba(244,145,103,0.18)'},
- coolGlow:{position:'absolute',left:-128,bottom:74,width:330,height:330,borderRadius:165,backgroundColor:'rgba(112,157,214,0.16)'}
+ coolGlow:{position:'absolute',left:-128,bottom:74,width:330,height:330,borderRadius:165,backgroundColor:'rgba(112,157,214,0.16)'},
+ topGlass:{position:'absolute',top:0,left:0,right:0,height:68,zIndex:10},
+ bottomGlass:{position:'absolute',left:0,right:0,bottom:0,height:88,zIndex:10}
 });
