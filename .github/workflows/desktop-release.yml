@@ -1,0 +1,71 @@
+name: Windows desktop release candidate
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release-candidate:
+    name: Build Windows installers and open a draft release
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      VITE_APP_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+      - name: Derive semantic version from release tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^desktop-v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
+            throw "Expected a tag such as desktop-v0.1.0"
+          }
+          $configPath = "apps/web/src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.version = $version
+          $config | ConvertTo-Json -Depth 20 | Set-Content -Path $configPath -Encoding utf8
+          "VITE_APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install staff portal dependencies
+        working-directory: apps/web
+        run: npm install
+      - name: Build NSIS and MSI installers
+        working-directory: apps/web
+        run: npm run tauri:build
+      - name: Stage named installer assets
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "apps/web/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
+          $msi = Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
+          if (-not $exe -or -not $msi) { throw "Both NSIS .exe and MSI installers are required." }
+          New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
+          Copy-Item $exe.FullName "release-assets/LuckyBajajDesktopSetup.exe"
+          Copy-Item $msi.FullName "release-assets/LuckyBajajDesktop.msi"
+          Get-FileHash "release-assets/LuckyBajajDesktopSetup.exe" -Algorithm SHA256 | Format-Table
+          Get-FileHash "release-assets/LuckyBajajDesktop.msi" -Algorithm SHA256 | Format-Table
+      - name: Open draft release for signing and review
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Lucky Bajaj Desktop ${{ github.ref_name }} (draft)"
+          draft: true
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            This release is a draft candidate and has not been approved for public distribution.
+            Verify installer signatures, publisher details, upgrade/uninstall behavior and API compatibility before publishing.
+          files: |
+            release-assets/LuckyBajajDesktopSetup.exe
+            release-assets/LuckyBajajDesktop.msi

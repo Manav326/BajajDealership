@@ -417,3 +417,12 @@ Per-installation device activation and limits will be connected when the Windows
 ### Desktop installation activation
 
 The Windows build registers an installation UUID on staff login. The API stores only a SHA-256 digest of that UUID, ties the resulting staff session to that installation and checks the registered-device state on each request. The identity is an installation identifier, not hardware attestation; it improves licensing/accountability but should not be described as impossible to tamper with. Existing registered desktop installations can retain read-only access after license expiry; new device activations are rejected after expiry+grace. A device administrator can revoke/re-activate installations in the license console.
+
+
+## Windows desktop client
+
+The staff web build is also packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and publishes them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`, which points to the official release assets once a reviewed release is published.
+
+To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with `LuckyBajajDesktopSetup.exe` and `LuckyBajajDesktop.msi` so a maintainer can verify and sign installers before making them public. No public release should be published until code signing is configured and the installers are verified on a clean Windows machine.
+
+The Tauri app registers a persistent random installation UUID at sign-in. The server stores the UUID's digest and binds the session to that device registration. This is an installation identity and device cap, not hardware attestation; device IDs can be copied by a determined user. Active registrations can be reviewed or revoked from the license console. Expired dealerships retain read-only access and allowed exports from existing registered devices; new desktop activation is blocked after grace expires.

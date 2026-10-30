@@ -37,6 +37,7 @@ class DealershipLicenseIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private ObjectMapper mapper;
+  @Autowired private DealershipLicenseService licenses;
 
   private long dealershipId;
   private String dealershipCode;
@@ -74,6 +75,45 @@ class DealershipLicenseIntegrationTest {
         "select count(*) from dealership_license where dealership_id = ?",
         Integer.class, dealershipId);
     assertThat(licenses).isEqualTo(1);
+  }
+
+  @Test
+  void desktopDeviceActivationHonorsLimitAndExistingDeviceSurvivesReadOnlyExpiry() throws Exception {
+    String registeredId = UUID.randomUUID().toString();
+    String hash = licenses.activateDesktopDevice(dealershipId, registeredId, "0.1.0");
+    assertThat(hash).hasSize(64);
+    assertThat(jdbc.queryForObject("""
+        select count(*) from dealership_license_device
+        where dealership_id = ? and installation_hash = ? and status = 'ACTIVE'
+        """, Integer.class, dealershipId, hash)).isEqualTo(1);
+
+    jdbc.update("""
+        update dealership_license
+        set starts_at = now() - interval '38 days',
+            expires_at = now() - interval '8 days', grace_period_days = 7,
+            max_desktop_devices = 1
+        where dealership_id = ?
+        """, dealershipId);
+
+    // An already registered installation can still log in during read-only mode.
+    assertThat(licenses.activateDesktopDevice(dealershipId, registeredId, "0.1.0")).isEqualTo(hash);
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+        () -> licenses.activateDesktopDevice(dealershipId, UUID.randomUUID().toString(), "0.1.0"))
+        .isInstanceOf(com.quantaedge.bajaj.security.LicenseAccessException.class)
+        .hasMessageContaining("Existing registered computers remain available");
+  }
+
+  @Test
+  void revokedDesktopDeviceCannotBeReactivatedWithoutDeviceCapacity() throws Exception {
+    String firstDevice = UUID.randomUUID().toString();
+    String firstHash = licenses.activateDesktopDevice(dealershipId, firstDevice, "0.1.0");
+    jdbc.update("update dealership_license set max_desktop_devices = 1 where dealership_id = ?", dealershipId);
+    String secondDevice = UUID.randomUUID().toString();
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+        () -> licenses.activateDesktopDevice(dealershipId, secondDevice, "0.1.0"))
+        .isInstanceOf(com.quantaedge.bajaj.security.LicenseAccessException.class)
+        .hasMessageContaining("device limit has been reached");
+    assertThat(firstHash).hasSize(64);
   }
 
   @Test
