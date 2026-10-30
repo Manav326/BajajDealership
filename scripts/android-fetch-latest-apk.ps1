@@ -210,8 +210,20 @@ try {
         $null = New-Item -ItemType Directory -Path $runDir -Force
         Write-Status ("Checking CI run {0}, commit {1}, created {2}..." -f $run.databaseId, $run.headSha, $run.createdAt) "Cyan"
 
-        $downloadOutput = @(& gh run download ([string]$run.databaseId) --repo $Repository --pattern $ArtifactPattern --dir $runDir 2>&1)
-        $downloadExit = $LASTEXITCODE
+        # A successful CI run may not have built Android (the Android job is
+        # conditional on Android source/workflow changes). GitHub CLI writes its
+        # "no artifact matches" message to stderr; with PowerShell's Stop policy
+        # that can become a terminating NativeCommandError. Catch it per-run so
+        # the search continues to older successful runs that actually have an APK.
+        $downloadOutput = @()
+        $downloadExit = 1
+        try {
+            $downloadOutput = @(& gh run download ([string]$run.databaseId) --repo $Repository --pattern $ArtifactPattern --dir $runDir 2>&1)
+            $downloadExit = $LASTEXITCODE
+        } catch {
+            $downloadOutput += $_.Exception.Message
+            $downloadExit = 1
+        }
         if ($downloadExit -eq 0) {
             $apkFiles = @(Get-ChildItem -LiteralPath $runDir -Filter "app-debug.apk" -File -Recurse -ErrorAction SilentlyContinue |
                 Where-Object { $_.Length -gt 1MB } |
@@ -224,7 +236,12 @@ try {
             }
             Write-Status ("Run {0} did not contain exactly one plausible app-debug.apk; checking an older successful run." -f $run.databaseId) "Yellow"
         } else {
-            Write-Status ("No matching, downloadable APK artifact in run {0}; checking an older successful run." -f $run.databaseId) "Yellow"
+            $reason = ($downloadOutput | ForEach-Object { [string]$_ } | Where-Object { $_.Trim() }) -join " "
+            if ($reason) {
+                Write-Status ("No matching APK artifact in run {0}; checking an older successful run. GitHub CLI: {1}" -f $run.databaseId, $reason) "Yellow"
+            } else {
+                Write-Status ("No matching APK artifact in run {0}; checking an older successful run." -f $run.databaseId) "Yellow"
+            }
         }
     }
 
