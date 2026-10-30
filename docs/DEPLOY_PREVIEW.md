@@ -50,7 +50,7 @@ Use a unique password of 12–72 UTF-8 bytes. Supply an owner email or phone (bo
 
 ## Build Android against the hosted API
 
-The Android app config and CI workflow now default to `https://lucky-bajaj-api.onrender.com/`. The build summary prints the API base compiled into the APK. Set `BAJAJ_API_BASE_URL` only when intentionally creating a local LAN, emulator or staging build. A physical phone's private LAN URL is not publicly reachable.
+The Android app config and CI workflow now default to `https://lucky-bajaj-api.onrender.com/`. The build summary prints the API base compiled into the APK. Set `BAJAJ_API_BASE_URL` only when intentionally creating a local LAN, emulator or staging build. A physical phone's private LAN URL is not publicly reachable. The API's Render environment also has a separate manual `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID` setting for the `com.quantaedge.luckybajajlg` app; configure the matching Android OAuth client and signing-certificate SHA-1 before enabling Google sign-in in that edition. Standard retains `GOOGLE_ANDROID_CLIENT_ID`.
 
 To intentionally build against a different environment:
 
