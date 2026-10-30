@@ -516,7 +516,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           <select aria-label="Resource type" value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">All</option><option value="image">Images</option><option value="audio">Audio</option><option value="video">Video</option><option value="export">Exports</option></select></div>
         <div className={styles.resourceGrid}>{filteredResources.map((resource) => <article key={resource.id} className={styles.resourceCard} data-testid="studio-resource-card">
           <div className={styles.resourcePreview}>{resource.kind === 'image' || resource.kind === 'export' ? <img src={resourceUrls[resource.id]} alt={resource.name}/> : resource.kind === 'video' && resourceUrls[resource.id] ? <video src={resourceUrls[resource.id]} controls preload="metadata" aria-label={'Preview ' + resource.name} onLoadedMetadata={event=>{const duration=event.currentTarget.duration;if(Number.isFinite(duration)&&duration>0)setResourceDurations(current=>({...current,[resource.id]:duration}));}}/> : <Icon name={resource.kind === 'audio' ? 'audio' : 'video'}/>}</div>
-          <div className={styles.projectMeta}><strong>{resource.name}</strong><span>{resource.kind} · {formatBytes(resource.size)}{resource.kind==='video'?(resourceDurations[resource.id]?' · '+formatTime(Math.round(resourceDurations[resource.id])):' · Reading duration…'):''}</span></div>
+          <div className={styles.projectMeta}><strong>{resource.name}</strong><span>{resource.kind} · {formatBytes(resource.size)}{resource.kind==='video'?(resourceDurations[resource.id]?' · '+formatTime(Math.max(1,Math.round(resourceDurations[resource.id]))):' · Reading duration…'):''}</span></div>
           <div className={styles.cardActions}><button type="button" aria-label={'Download ' + resource.name} title="Download" onClick={() => downloadBlob(resource.blob, resource.name)}><Icon name="download"/></button>
             <button type="button" aria-label={'Delete ' + resource.name} title="Remove" onClick={() => void deleteResource(resource)}><Icon name="trash"/></button></div>
         </article>)}</div>
@@ -1484,6 +1484,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         </div>}
       </aside>}
       <main ref={canvasViewportRef} className={styles.canvasWorkspace}>
+        {canvasFullscreen && document.fullscreenElement === canvasViewportRef.current && <button type="button" className={styles.canvasFullscreenExit} aria-label="Exit fullscreen canvas" title="Exit fullscreen canvas" aria-pressed="true" onClick={() => { void document.exitFullscreen().catch(() => setCanvasFullscreen(false)); }}><Icon name="close"/></button>}
         <div className={styles.contextToolbar}>
           <button type="button" title="Fit page" aria-label="Fit page" onClick={() => setZoom(80)}><Icon name="resize"/></button>
           <button type="button" title={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-label={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-pressed={canvasFullscreen} onClick={toggleCanvasFullscreen}><Icon name="expand"/></button>

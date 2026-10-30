@@ -112,3 +112,6 @@
 .editorCanvasFullscreenFallback>.editorLayout>.canvasWorkspace{grid-column:1!important;grid-template-rows:44px minmax(0,1fr) 110px!important}
 .editorCanvasFullscreenFallback>.canvasSizeStatus{display:none!important}
 .editorCanvasFullscreenFallback .canvasViewport{padding:12px}
+
+.canvasFullscreenExit{position:absolute;top:12px;right:12px;z-index:40;display:grid;place-items:center;width:42px;height:42px;border:1px solid #cbd5e1;border-radius:10px;background:#142238;color:#fff;box-shadow:0 3px 12px #0f172a55;cursor:pointer}
+.canvasFullscreenExit:hover{background:#263b58}
