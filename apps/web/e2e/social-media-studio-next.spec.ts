@@ -832,6 +832,7 @@ test('mixed-size scenes use the selected page as the deliberate video output fra
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(566);
   await page.getByRole('button', { name: 'Close video preview' }).click();
 
+  await page.getByRole('button', { name: 'Pages' }).click();
   await page.getByRole('button', { name: /1 Page 1/ }).click();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1080');
   await page.getByRole('button', { name: 'Render video' }).click();
