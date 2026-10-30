@@ -17,6 +17,7 @@ $apkPath = Join-Path $appRoot "android/app/build/outputs/apk/debug/app-debug.apk
 $reportRoot = Join-Path $appRoot "maestro-results"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runRoot = Join-Path $reportRoot $timestamp
+$script:AdbPath = $null
 
 function Fail([string]$Message) {
   throw $Message
@@ -41,13 +42,36 @@ function Import-MaestroLocalEnvironment {
   }
 }
 
+function Resolve-AdbExecutable {
+  # Match the Android SDK installation already used on this Windows machine.
+  # Do not require platform-tools to be added to the user's PATH.
+  $candidates = @()
+  if ($env:LOCALAPPDATA) {
+    $candidates += (Join-Path $env:LOCALAPPDATA "Android/Sdk/platform-tools/adb.exe")
+  }
+  foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+    if ($sdkRoot) { $candidates += (Join-Path $sdkRoot "platform-tools/adb.exe") }
+  }
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+
+  $pathCommand = Get-Command adb -ErrorAction SilentlyContinue
+  if ($pathCommand -and $pathCommand.Source) { return $pathCommand.Source }
+
+  Fail ("ADB was not found. Checked the existing Android SDK location '{0}', ANDROID_SDK_ROOT/ANDROID_HOME, and PATH. Install Android SDK platform-tools if missing." -f (Join-Path $env:LOCALAPPDATA "Android/Sdk/platform-tools/adb.exe"))
+}
+
 function Get-PhysicalAndroidDevice {
-  $lines = & adb devices
-  if ($LASTEXITCODE -ne 0) { Fail "ADB could not enumerate devices. Check Android SDK platform-tools and PATH." }
+  $lines = & $script:AdbPath devices
+  if ($LASTEXITCODE -ne 0) { Fail "ADB could not enumerate devices. Check Android SDK platform-tools." }
   $connected = @($lines | Where-Object { $_ -match "^\S+\s+device(?:\s|$)" } | ForEach-Object { ($_ -split "\s+")[0] })
   if ($DeviceId) {
     if ($connected -notcontains $DeviceId) {
-      Fail "ADB device '$DeviceId' is not in the device state 'device'. Run 'adb devices -l' and authorize USB debugging."
+      Fail "ADB device '$DeviceId' is not in the device state 'device'. Run '& $script:AdbPath devices -l' and authorize USB debugging."
     }
     $selected = $DeviceId
   } else {
@@ -60,7 +84,7 @@ function Get-PhysicalAndroidDevice {
     $selected = $connected[0]
   }
 
-  $isEmulator = (& adb -s $selected shell getprop ro.kernel.qemu).Trim()
+  $isEmulator = (& $script:AdbPath -s $selected shell getprop ro.kernel.qemu).Trim()
   if ($LASTEXITCODE -ne 0) { Fail "Could not inspect Android device '$selected'." }
   if ($isEmulator -eq "1") {
     Fail "Device '$selected' is an emulator. This workflow is configured for your physical Android phone."
@@ -88,9 +112,8 @@ $apiBaseUrl = "http://{0}:8080/" -f $LanIp
 $env:EXPO_PUBLIC_API_BASE_URL = $apiBaseUrl
 $env:EXPO_PUBLIC_CUSTOMER_WEB_URL = "http://{0}:3000" -f $LanIp
 
-if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
-  Fail "ADB is not installed or not on PATH. Install Android SDK platform-tools and restart PowerShell."
-}
+$script:AdbPath = Resolve-AdbExecutable
+Write-Host ("Using ADB: {0}" -f $script:AdbPath)
 if (-not (Get-Command maestro -ErrorAction SilentlyContinue)) {
   Fail "Maestro CLI is not installed or not on PATH. On Windows, download the CLI ZIP from https://github.com/mobile-dev-inc/Maestro/releases/latest, add its bin directory to PATH, and restart PowerShell."
 }
@@ -150,7 +173,7 @@ if (-not $SkipBuild) {
 
 if (-not (Test-Path $apkPath)) { Fail "Android APK was not produced: $apkPath" }
 Write-Host ([Environment]::NewLine + "Installing APK on the selected physical phone...")
-& adb -s $selectedDevice install -r $apkPath
+& $script:AdbPath -s $selectedDevice install -r $apkPath
 if ($LASTEXITCODE -ne 0) { Fail "APK installation failed. Check the phone for an existing incompatible or differently signed installation." }
 
 $suites = switch ($Suite) {
