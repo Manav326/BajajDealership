@@ -17,7 +17,8 @@ $maestroRoot = Join-Path $appRoot ".maestro"
 $localEnvFile = Join-Path $maestroRoot "local.env"
 $localBuildApkPath = Join-Path $appRoot "android/app/build/outputs/apk/debug/app-debug.apk"
 $ciApkPath = Join-Path $projectRoot "artifacts/lucky-bajaj-latest.apk"
-$apkPath = if ($BuildLocalApk) { $localBuildApkPath } else { $ciApkPath }
+$useExistingLocalApk = $SkipBuild -and (Test-Path -LiteralPath $localBuildApkPath -PathType Leaf) -and -not $BuildLocalApk
+$apkPath = if ($BuildLocalApk -or $useExistingLocalApk) { $localBuildApkPath } else { $ciApkPath }
 $apkMetadataPath = "$apkPath.json"
 $reportRoot = Join-Path $appRoot "maestro-results"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -73,7 +74,15 @@ function Resolve-AdbExecutable {
   }
 
   $pathCommand = Get-Command adb -ErrorAction SilentlyContinue
-  if ($pathCommand -and $pathCommand.Source) { return $pathCommand.Source }
+  if ($pathCommand -and $pathCommand.Source) {
+    $resolvedAdb = (Resolve-Path -LiteralPath $pathCommand.Source).Path
+    $resolvedSdkRoot = Split-Path -Parent (Split-Path -Parent $resolvedAdb)
+    if (Test-Path -LiteralPath (Join-Path $resolvedSdkRoot "platform-tools/adb.exe") -PathType Leaf) {
+      $env:ANDROID_HOME = $resolvedSdkRoot
+      $env:ANDROID_SDK_ROOT = $resolvedSdkRoot
+    }
+    return $resolvedAdb
+  }
 
   Fail ("ADB was not found. Checked the existing Android SDK location '{0}', ANDROID_SDK_ROOT/ANDROID_HOME, and PATH. Install Android SDK platform-tools if missing." -f (Join-Path $env:LOCALAPPDATA "Android/Sdk/platform-tools/adb.exe"))
 }
@@ -209,8 +218,10 @@ $localApiBaseUrl = "http://{0}:8080/" -f $LanIp
 $script:AdbPath = Resolve-AdbExecutable
 Write-Host ("Using ADB: {0}" -f $script:AdbPath)
 if (-not (Get-Command java -ErrorAction SilentlyContinue)) {
-  Fail "Java 17 or newer is required by Maestro and the Android Gradle build."
+  Fail "Java 17 or newer is required by Maestro CLI."
 }
+$env:MAESTRO_CLI_NO_ANALYTICS = "1"
+$env:MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED = "true"
 
 $script:MaestroPath = Resolve-MaestroExecutable
 Write-Host ("Using Maestro CLI: {0}" -f $script:MaestroPath)
@@ -232,29 +243,36 @@ if ($BuildLocalApk) {
   Write-Host ("Building a local APK with API URL: {0}" -f $apiBaseUrl)
   Write-Host "HTTP is intentional for same-LAN local testing; this private address must not be used for a public release build."
 } else {
-  Write-Host ([Environment]::NewLine + "Downloading the latest successful main-branch Android APK from GitHub Actions...")
-  $downloadScript = Join-Path $projectRoot "scripts/android-fetch-latest-apk.ps1"
-  if (-not (Test-Path -LiteralPath $downloadScript -PathType Leaf)) {
-    Fail "The GitHub APK downloader is missing: $downloadScript. Pull the latest main branch and retry."
+  if (-not $useExistingLocalApk) {
+    Write-Host ([Environment]::NewLine + "Downloading the latest successful main-branch Android APK from GitHub Actions...")
+    $downloadScript = Join-Path $projectRoot "scripts/android-fetch-latest-apk.ps1"
+    if (-not (Test-Path -LiteralPath $downloadScript -PathType Leaf)) {
+      Fail "The GitHub APK downloader is missing: $downloadScript. Pull the latest main branch and retry."
+    }
+    & $downloadScript -DownloadOnly
+    if (-not $?) { Fail "GitHub APK download failed. Confirm GitHub CLI is installed and authenticated with 'gh auth login'." }
+  } else {
+    Write-Warning "Using the existing local Gradle APK because -SkipBuild was requested. Prefer the GitHub CI artifact for repeatable tests."
   }
-  & $downloadScript -DownloadOnly
-  if (-not $?) { Fail "GitHub APK download failed. Confirm GitHub CLI is installed and authenticated with 'gh auth login'." }
   if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) {
-    Fail "The CI APK was not downloaded to $apkPath."
+    Fail "The APK was not found at $apkPath."
   }
 
-  if (-not (Test-Path -LiteralPath $apkMetadataPath -PathType Leaf)) {
-    Fail "The downloaded APK has no build metadata. Pull an APK artifact from a successful CI run created after the Android build-metadata change; the runner will not guess which API the APK targets."
+  if (Test-Path -LiteralPath $apkMetadataPath -PathType Leaf) {
+    try {
+      $apkMetadata = Get-Content -LiteralPath $apkMetadataPath -Raw | ConvertFrom-Json
+    } catch {
+      Fail ("Could not read APK build metadata at {0}: {1}" -f $apkMetadataPath, $_.Exception.Message)
+    }
+    $apiBaseUrl = [string]$apkMetadata.apiBaseUrl
+  } elseif ($useExistingLocalApk) {
+    $apiBaseUrl = $localApiBaseUrl
+    Write-Warning "This older local APK has no API metadata; the runner is assuming it was built with the current -LanIp value."
+  } else {
+    Fail "The downloaded APK has no build metadata. Pull an artifact from a successful CI run created after the Android build-metadata change; the runner will not guess which API the APK targets."
   }
-
-  try {
-    $apkMetadata = Get-Content -LiteralPath $apkMetadataPath -Raw | ConvertFrom-Json
-  } catch {
-    Fail ("Could not read APK build metadata at {0}: {1}" -f $apkMetadataPath, $_.Exception.Message)
-  }
-  $apiBaseUrl = [string]$apkMetadata.apiBaseUrl
   if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
-    Fail "The downloaded APK metadata does not record apiBaseUrl. Re-run after a successful CI Android build."
+    Fail "The APK metadata does not record apiBaseUrl. Re-run after a successful CI Android build."
   }
   if ($apkMetadata.packageName -and $apkMetadata.packageName -ne "com.quantaedge.luckybajaj") {
     Fail ("The downloaded APK metadata describes package '{0}', not the Standard Edition package 'com.quantaedge.luckybajaj'." -f $apkMetadata.packageName)
