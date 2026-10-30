@@ -182,3 +182,38 @@ test('Meta, WhatsApp and publishing workflows stay on dedicated tabs', async ({ 
   await expect(page.getByText('Approval and schedule queue')).toBeVisible();
   await expect(page.getByText(/not configured/i).first()).toBeVisible();
 });
+
+test('WhatsApp composer keeps unsent form state when switching studio tabs', async ({ page }) => {
+  await page.getByRole('button', { name: /Connections/ }).click();
+  const preferenceSource = page.getByRole('textbox', { name: 'Preference source' });
+  await expect(preferenceSource).toBeVisible();
+  await preferenceSource.fill('Verified customer-requested opt-in · keep this draft');
+  await page.getByRole('button', { name: /Create & edit/ }).click();
+  await page.getByRole('button', { name: /Connections/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Preference source' }))
+    .toHaveValue('Verified customer-requested opt-in · keep this draft');
+});
+
+test('prevents deleting an image asset referenced by a saved canvas draft', async ({ page }) => {
+  await page.getByRole('button', { name: /Photos & assets/ }).click();
+  const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
+  await imagePicker.getByTestId('artwork-image-upload').setInputFiles({
+    name: 'saved-campaign-layer.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64'),
+  });
+  const uploadedAsset = imagePicker.getByRole('article').filter({ hasText: 'saved-campaign-layer' });
+  await expect(uploadedAsset).toBeVisible();
+  await uploadedAsset.getByRole('button', { name: 'Add to canvas' }).click();
+  await expect(imagePicker).toHaveCount(0);
+  await page.getByLabel('Draft name').fill('Draft that depends on image asset');
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved in this browser' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Photos & assets/ }).click();
+  const reopenedPicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
+  const referencedAsset = reopenedPicker.getByRole('article').filter({ hasText: 'saved-campaign-layer' });
+  await referencedAsset.getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByRole('alert')).toContainText('Draft that depends on image asset');
+  await expect(referencedAsset).toBeVisible();
+});
