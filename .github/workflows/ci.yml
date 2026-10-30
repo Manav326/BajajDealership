@@ -41,6 +41,9 @@ jobs:
               - '.github/workflows/ci.yml'
             liquid_glass:
               - 'apps/android-liquid-glass/**'
+              - 'scripts/test-android-liquid-glass-maestro.ps1'
+              - 'scripts/android-lg-fetch-latest-apk.ps1'
+              - '.github/workflows/ci.yml'
 
   backend:
     name: Backend tests and PostgreSQL migrations
@@ -539,12 +542,17 @@ jobs:
       - name: Build debug APK
         working-directory: apps/android-liquid-glass/android
         run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
+      - name: Record Android APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = { edition: 'liquid-glass', packageName: 'com.quantaedge.luckybajajlg', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
       - name: Upload installable debug APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
         with:
           name: lucky-bajaj-android-liquid-glass-debug-apk-${{ github.sha }}
-          path: apps/android-liquid-glass/android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            apps/android-liquid-glass/android/app/build/outputs/apk/debug/app-debug.apk
+            apps/android-liquid-glass/android/app/build/outputs/apk/debug/build-metadata.json
           if-no-files-found: error
           retention-days: 14
 
