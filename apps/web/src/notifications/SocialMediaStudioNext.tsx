@@ -10,7 +10,7 @@ import {
 } from './socialStudioLocalStore';
 import styles from './SocialMediaStudioNext.module.css';
 
-type Tool = 'templates' | 'elements' | 'text' | 'uploads' | 'brand' | 'audio' | 'layers' | 'pages' | 'resize';
+type Tool = 'templates' | 'elements' | 'text' | 'publishing' | 'uploads' | 'brand' | 'audio' | 'layers' | 'pages' | 'resize';
 type HubPage = 'projects' | 'resources' | 'publish' | 'whatsapp' | 'connections';
 type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
 type SizePreset = { id: string; label: string; platform: string; width: number; height: number; group: string };
@@ -590,7 +590,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [dirty, setDirty] = useState(false);
   const [panelSearch, setPanelSearch] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
   const [lastSavedName, setLastSavedName] = useState(project.name);
   const [nameSaving, setNameSaving] = useState(false);
   const [canvasFullscreen, setCanvasFullscreen] = useState(false);
@@ -627,6 +627,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const redoRef = useRef<StudioProject[]>([]);
   const saveTimer = useRef<number | null>(null);
   const editVersionRef = useRef(0);
+  const saveInFlightRef = useRef(0);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
   const audioClipLength = Math.max(1,Math.min(project.audioDurationSeconds??30,Math.max(1,audioTrackDuration-project.audioStartSeconds),Math.max(1,totalSceneDuration)));
@@ -636,8 +637,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
     setRenderedPhoto(null);setRenderedVideo(null);setPhotoPreviewOpen(false);setVideoPreviewOpen(false);setDownloadOpen(false);setRenderStage('idle');setRenderProgress(0);
     editVersionRef.current += 1;
+    setSaveStatus('unsaved');
     onProjectChange(next);setDirty(true);
   };
+  function beginSave() { saveInFlightRef.current += 1; setSaving(true); setSaveStatus('saving'); }
+  function endSave() { saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1); setSaving(saveInFlightRef.current > 0); }
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
   const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
@@ -680,11 +684,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     const saveVersion = editVersionRef.current;
     saveTimer.current = window.setTimeout(() => {
-      setSaving(true); setSaveStatus('saving');
+      beginSave();
       void saveProject(project).then(() => {
-        setSaving(false); setSaveStatus('saved');
-        if (editVersionRef.current === saveVersion) setDirty(false);
-      }).catch((cause) => { setSaving(false); setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Autosave failed.'); });
+        if (editVersionRef.current === saveVersion) { setDirty(false); setSaveStatus('saved'); }
+        else setSaveStatus('unsaved');
+      }).catch((cause) => {
+        setSaveStatus(editVersionRef.current === saveVersion ? 'error' : 'unsaved');
+        onNotify(cause instanceof Error ? cause.message : 'Autosave failed.');
+      }).finally(endSave);
     }, 900);
     return () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); };
   }, [project, dirty, onNotify]);
@@ -707,29 +714,37 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   async function leaveEditor() {
     if (saveTimer.current) { window.clearTimeout(saveTimer.current); saveTimer.current = null; }
     const saveVersion = editVersionRef.current;
-    setSaving(true); setSaveStatus('saving');
+    beginSave();
     try {
       await saveProject(project);
-      setSaving(false);
       if (editVersionRef.current !== saveVersion) {
-        setSaveStatus('saving');
+        setSaveStatus('unsaved');
         onNotify('A new edit was made while saving. Save it before leaving the editor.');
         return;
       }
       setDirty(false); setSaveStatus('saved');
     } catch (cause) {
-      setSaving(false); setSaveStatus('error');
+      setSaveStatus('error');
       onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
       if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
-    }
+    } finally { endSave(); }
     onOpenLibrary();
   }
   async function saveProjectName() {
     if (!project.name.trim() || project.name.trim() === lastSavedName) return;
-    setNameSaving(true); setSaveStatus('saving');
-    try { await saveProject(project); setLastSavedName(project.name); setSaveStatus('saved'); onNotify('Design name saved.'); }
-    catch (cause) { setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Design name could not be saved.'); }
-    finally { setNameSaving(false); }
+    const saveVersion = editVersionRef.current;
+    const savedName = project.name;
+    setNameSaving(true); beginSave();
+    try {
+      await saveProject(project);
+      setLastSavedName(savedName);
+      if (editVersionRef.current === saveVersion) { setDirty(false); setSaveStatus('saved'); }
+      else setSaveStatus('unsaved');
+      onNotify('Design name saved.');
+    } catch (cause) {
+      setSaveStatus('error');
+      onNotify(cause instanceof Error ? cause.message : 'Design name could not be saved.');
+    } finally { setNameSaving(false); endSave(); }
   }
   function toggleCanvasFullscreen() {
     const node = canvasViewportRef.current;
@@ -1221,11 +1236,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     }
   }
   const panelTitle: Record<Tool, string> = {
-    templates: 'Templates', elements: 'Elements', text: 'Text', uploads: 'Uploads', brand: 'Brand',
+    templates: 'Templates', elements: 'Elements', text: 'Text', publishing: 'Publishing', uploads: 'Uploads', brand: 'Brand',
     audio: 'Audio', layers: 'Layers', pages: 'Pages', resize: 'Resize',
   };
   const selectedTools: Array<[Tool, string, string]> = [
-    ['templates','template','Templates'], ['elements','shapes','Elements'], ['text','text','Text'],
+    ['templates','template','Templates'], ['elements','shapes','Elements'], ['text','text','Text'], ['publishing','publish','Publishing'],
     ['uploads','image','Uploads'], ['brand','brand','Brand'], ['audio','audio','Audio'],
     ['layers','layers','Layers'], ['pages','pages','Pages'], ['resize','resize','Resize'],
   ];
@@ -1235,7 +1250,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       <button type="button" title="Back to resources" aria-label="Back to resources" onClick={() => void leaveEditor()}><Icon name="back"/></button>
       <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => changeProject({ ...project, name: event.target.value })}/>
       <button type="button" className={styles.saveNameButton} title="Save design name" aria-label="Save design name" disabled={nameSaving || !project.name.trim() || project.name.trim() === lastSavedName} onClick={() => void saveProjectName()}><Icon name="save"/></button>
-      <span className={styles.saveState} role="status" aria-live="polite">{saveStatus === 'saving' ? 'Saving edits…' : saveStatus === 'error' ? 'Save failed · edit to retry' : 'All edits saved'}</span>
+      <span className={styles.saveState} role="status" aria-live="polite">{saveStatus === 'saving' ? 'Saving edits…' : saveStatus === 'unsaved' ? 'Unsaved changes' : saveStatus === 'error' ? 'Save failed · edit to retry' : 'All edits saved'}</span>
       <button type="button" title="Undo" aria-label="Undo" disabled={!undoRef.current.length} onClick={undo}><Icon name="undo"/></button>
       <button type="button" title="Redo" aria-label="Redo" disabled={!redoRef.current.length} onClick={redo}><Icon name="redo"/></button>
       <span className={styles.topSpacer}/>
@@ -1289,10 +1304,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) }));
             setSelectedIds([next.id]);
           }}><Icon name="text"/>{String(name)}</button>)}
-          <label className={styles.panelField}>Publishing caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
-          <label className={styles.panelField}>Publishing hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
+
         </div>}
-        {tool === 'uploads' && <div className={styles.uploadPanel}>
+        {tool === 'uploads' && <div className={styles.uploadPanel}>        {tool === 'publishing' && <div className={styles.toolTiles}>
+          <div className={styles.toolPanelHeading}><strong>Publishing settings</strong><span>These details are included with approval requests, not drawn on the artwork.</span></div>
+          <label className={styles.panelField}>Publishing caption<textarea aria-label="Publishing caption" rows={5} value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
+          <label className={styles.panelField}>Publishing hashtags<input aria-label="Publishing hashtags" value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
+        </div>}
+
           <label className={styles.uploadDrop}><Icon name="upload"/><span>Import media</span><input type="file" multiple accept="image/*,audio/*,video/*" onChange={(event) => {
             const files = Array.from(event.target.files ?? []); event.target.value = '';
             void (async () => { for (const file of files) { const kind: StudioResourceKind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'export'; const resource = await saveResource(file, file.name, kind); await onResourceAdded(resource); } onNotify('Media imported.'); })();

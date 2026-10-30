@@ -253,6 +253,18 @@ test('Back saves a new blank design before returning to the resource library', a
   await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
 });
 
+test('publishing caption and hashtags live in the dedicated Publishing tool', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Publishing' }).click();
+  await page.getByLabel('Publishing caption').fill('Launch day at Lucky Bajaj.');
+  await page.getByLabel('Publishing hashtags').fill('#LuckyBajaj #RideOn');
+  await expect(page.getByLabel('Publishing caption')).toHaveValue('Launch day at Lucky Bajaj.');
+  await expect(page.getByLabel('Publishing hashtags')).toHaveValue('#LuckyBajaj #RideOn');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });

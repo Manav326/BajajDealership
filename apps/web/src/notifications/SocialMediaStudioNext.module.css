@@ -84,3 +84,5 @@
 .typographyControl{display:flex;align-items:center;gap:4px;flex:none;color:#65748a;font-size:9px}
 .typographyControl input{width:54px;min-width:0;height:29px;padding:4px 5px;border:1px solid #dce3eb;border-radius:6px;background:white;color:#46566d;font-size:9px}
 .saveState[role="status"]{min-width:84px}
+
+.panelHint{margin:0;color:#8794a7;font-size:9px;line-height:1.5}
