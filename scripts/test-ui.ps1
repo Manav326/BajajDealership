@@ -92,6 +92,17 @@ function Get-AndroidSdk {
     if (-not (Test-Path $adbPath)) {
         throw "Android SDK platform-tools were not found at '$sdk'. Install Android Studio and its Android SDK/platform-tools, then rerun this command."
     }
+
+    $requiredSdkPackages = @{
+        'Android SDK Platform 36' = (Join-Path $sdk 'platforms/android-36')
+        'Android SDK Build Tools 36.0.0' = (Join-Path $sdk 'build-tools/36.0.0')
+        'Android NDK 27.1.12297006' = (Join-Path $sdk 'ndk/27.1.12297006')
+    }
+    $missingPackages = @($requiredSdkPackages.GetEnumerator() | Where-Object { -not (Test-Path $_.Value) } | ForEach-Object { $_.Key })
+    if ($missingPackages.Count -gt 0) {
+        throw "Android SDK is missing: $($missingPackages -join ', '). Open Android Studio > Tools > SDK Manager and install these exact packages, then rerun this command."
+    }
+
     $env:ANDROID_HOME = $sdk
     $env:ANDROID_SDK_ROOT = $sdk
     $env:PATH = "$(Join-Path $sdk 'platform-tools');$(Join-Path $sdk 'emulator');$env:PATH"
@@ -99,6 +110,14 @@ function Get-AndroidSdk {
 }
 
 function Assert-Java17 {
+    if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+        $configuredJava = Join-Path $env:JAVA_HOME 'bin/java.exe'
+        if (-not (Test-Path $configuredJava)) {
+            throw "JAVA_HOME points to '$env:JAVA_HOME', which does not contain bin/java.exe. Correct JAVA_HOME or clear it and rerun."
+        }
+        $env:PATH = "$(Join-Path $env:JAVA_HOME 'bin');$env:PATH"
+    }
+
     $java = Get-Command java -ErrorAction SilentlyContinue
     if (-not $java) {
         $jdkCandidates = @(
@@ -116,11 +135,13 @@ function Assert-Java17 {
     if (-not $java) {
         throw 'Java 17+ is required by Android builds and Maestro. Install JDK 17 or 21, set JAVA_HOME, reopen PowerShell, and retry.'
     }
+
     $versionText = (& java -version 2>&1 | Out-String)
     $match = [regex]::Match($versionText, 'version "?(?<major>\d+)')
     if (-not $match.Success -or [int]$match.Groups['major'].Value -lt 17) {
         throw "Java 17+ is required. Detected: $($versionText.Trim())"
     }
+
     if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
         $javaPath = $java.Source
         $candidate = Split-Path -Parent (Split-Path -Parent $javaPath)
