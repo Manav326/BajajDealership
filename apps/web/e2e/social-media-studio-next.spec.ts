@@ -530,6 +530,28 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await expect.poll(async () => Number(await start.inputValue())).toBe(35);
   await expect.poll(async () => Number(await end.inputValue())).toBe(95);
   await expect(page.getByText('Duration · 60.0 seconds')).toBeVisible();
+
+  const startHandle = page.getByRole('button', { name: 'Audio trim start' });
+  const startBox = await startHandle.boundingBox();
+  if (!startBox) throw new Error('Audio start trim handle was not visible.');
+  await page.mouse.move(startBox.x + startBox.width/2, startBox.y + startBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(startBox.x + startBox.width/2 + 10, startBox.y + startBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await start.inputValue())).toBeGreaterThan(35);
+  await expect.poll(async () => Number(await end.inputValue())).toBeCloseTo(95, 0);
+
+  const startAfterTrim = Number(await start.inputValue());
+  const endHandle = page.getByRole('button', { name: 'Audio trim end' });
+  const endBox = await endHandle.boundingBox();
+  if (!endBox) throw new Error('Audio end trim handle was not visible.');
+  await page.mouse.move(endBox.x + endBox.width/2, endBox.y + endBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(endBox.x + endBox.width/2 - 10, endBox.y + endBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(startAfterTrim, 0);
+  await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
+
   const selectedRange = page.getByRole('group', { name: 'Audio trim range' }).locator('span').nth(1);
   const rangeBox = await selectedRange.boundingBox();
   if (!rangeBox) throw new Error('Audio selected-range body was not visible.');
