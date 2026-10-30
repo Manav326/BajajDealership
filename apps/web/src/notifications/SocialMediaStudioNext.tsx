@@ -134,14 +134,14 @@ function elementSvg(item: StudioElement, url?: string) {
   return <rect x={0} y={0} width={item.width} height={item.height} rx={12} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
 }
 
-function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false, includeVideoPlaceholders = true): string {
+function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false, includeVideoPlaceholders = true, includeTimedImages = true): string {
   const content = page.elements.filter((item) => item.visible).map((item) => {
     const url = item.resourceId ? resourceUrls[item.resourceId] : undefined;
     let shape = '';
     if (item.type === 'text') {
       const lines = item.text.split('\n').slice(0, 8);
       shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" letter-spacing="' + (item.letterSpacing ?? 0) + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
-    } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
+    } else if (item.type === 'image' && url && (includeTimedImages || !hasTimedImageRange(item))) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
     else if (item.type === 'video' && includeVideoPlaceholders) shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
     else if (item.shapeKind) shape = '<polygon points="' + shapePoints(item.shapeKind,item.width,item.height) + '" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
@@ -153,6 +153,36 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
   return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="' + page.width + '" height="' + page.height + '" viewBox="0 0 ' + page.width + ' ' + page.height + '"><rect width="100%" height="100%" fill="' + page.background + '"/>' + content + guides + '</svg>';
 }
 function formatTime(seconds: number): string { const v = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0)); return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0'); }
+function hasTimedImageRange(item: StudioElement): boolean {
+  return item.type === 'image' && (item.startSeconds !== undefined || item.durationSeconds !== undefined);
+}
+
+function drawTimedImageClip(context: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, scene: StudioPage, clip: StudioElement, image: HTMLImageElement, transitionAlpha = 1): void {
+  const scale = Math.min(canvasWidth / scene.width, canvasHeight / scene.height);
+  const offsetX = (canvasWidth - scene.width * scale) / 2;
+  const offsetY = (canvasHeight - scene.height * scale) / 2;
+  const boxWidth = Math.max(1, clip.width * scale);
+  const boxHeight = Math.max(1, clip.height * scale);
+  context.save();
+  context.translate(offsetX + (clip.x + clip.width / 2) * scale, offsetY + (clip.y + clip.height / 2) * scale);
+  context.rotate(clip.rotation * Math.PI / 180);
+  context.globalAlpha = Math.max(0, Math.min(1, clip.opacity * transitionAlpha));
+  if (clip.imageFit === 'contain') {
+    const factor = Math.min(boxWidth / image.naturalWidth, boxHeight / image.naturalHeight);
+    const width = image.naturalWidth * factor;
+    const height = image.naturalHeight * factor;
+    context.drawImage(image, -width / 2, -height / 2, width, height);
+  } else {
+    const factor = Math.max(boxWidth / image.naturalWidth, boxHeight / image.naturalHeight);
+    const sourceWidth = boxWidth / factor;
+    const sourceHeight = boxHeight / factor;
+    const sourceX = (image.naturalWidth - sourceWidth) / 2;
+    const sourceY = (image.naturalHeight - sourceHeight) / 2;
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+  }
+  context.restore();
+}
+
 function escapeSvg(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char] ?? char)); }
 function shapePoints(kind: NonNullable<StudioElement['shapeKind']>, width: number, height: number): string {
   if (kind === 'triangle') return `${width/2},0 ${width},${height} 0,${height}`;
@@ -224,7 +254,7 @@ async function decodeVideoFrame(sourceUrl: string, requestedTime: number): Promi
 }
 
 async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png', sceneTime = 0): Promise<Blob> {
-  const svg = new Blob([makeSvg(page, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
+  const svg = new Blob([makeSvg(page, urls, false, false, false)], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svg);
   const decodedVideos: HTMLVideoElement[] = [];
   try {
@@ -240,12 +270,20 @@ async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mi
     context.fillStyle = page.background;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    for (const clip of page.elements.filter(item => item.type === 'video' && item.visible)) {
+    for (const clip of page.elements.filter(item => item.visible && (item.type === 'video' || hasTimedImageRange(item)))) {
       const clipStart = clip.startSeconds ?? 0;
       const clipDuration = clip.durationSeconds ?? page.durationSeconds;
       if (sceneTime < clipStart || sceneTime >= clipStart + clipDuration) continue;
       const sourceUrl = clip.resourceId ? urls[clip.resourceId] : undefined;
-      if (!sourceUrl) throw new Error('The video media for "' + clip.name + '" is not available in the resource library.');
+      if (!sourceUrl) throw new Error('The media for "' + clip.name + '" is not available in the resource library.');
+      if (clip.type === 'image') {
+        const image = new Image();
+        image.src = sourceUrl;
+        await image.decode();
+        drawTimedImageClip(context, canvas.width, canvas.height, page, clip, image);
+        continue;
+      }
+      if (clip.type !== 'video') continue;
       const sourceTime = Math.max(0, (clip.sourceStartSeconds ?? 0) + sceneTime - clipStart);
       const video = await decodeVideoFrame(sourceUrl, sourceTime);
       decodedVideos.push(video);
@@ -706,9 +744,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineFramesRef = useRef<Record<string, HTMLImageElement>>({});
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
+  const timelineImageElementsRef = useRef<Record<string, HTMLImageElement>>({});
   const timelineTimeRef = useRef(0);
   const timelineClipTrackRef = useRef<HTMLDivElement | null>(null);
-  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mode:'move'|'start'|'end';changed:boolean}|null>(null);
+  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mediaType:'image'|'video';mode:'move'|'start'|'end';changed:boolean}|null>(null);
   const [timelineClipPreview,setTimelineClipPreview] = useState<{clipId:string;startSeconds:number;durationSeconds:number}|null>(null);
   const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
   const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
@@ -727,7 +766,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
   const audioClipLength = Math.max(.1,Math.min(project.audioDurationSeconds??30,Math.max(.1,audioTrackDuration-project.audioStartSeconds),Math.max(.1,totalSceneDuration)));
-  const timelineVideoClips = project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>({scene,sceneIndex,clip})));
+  const timelineMediaClips = project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video'||element.type==='image').map(clip=>({scene,sceneIndex,clip})));
   const changeProject = (next:StudioProject) => {
     projectRef.current = next;
     if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
@@ -744,7 +783,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const one = selected.length === 1 ? selected[0] : null;
   const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
-  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
+  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));const imageEntries=await Promise.all(project.pages.flatMap(scene=>scene.elements.filter(element=>hasTimedImageRange(element)&&element.resourceId&&urls[element.resourceId])).map(async element=>{const image=new Image();image.src=urls[element.resourceId!];try{await image.decode();return [element.id,image] as [string,HTMLImageElement];}catch{return null;}}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
       if(!Number.isFinite(video.duration)||video.duration<=0)return;
       const currentProject=projectRef.current;
       const owner=currentProject.pages.find(candidate=>candidate.elements.some(candidateClip=>candidateClip.id===element.id));
@@ -755,7 +794,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const safeDuration=Math.max(.1,Math.min(sourceClip.durationSeconds??owner.durationSeconds,owner.durationSeconds-clipStart,video.duration-sourceStart));
       if(Math.abs(clipStart-(sourceClip.startSeconds??0))<.01&&Math.abs(sourceStart-(sourceClip.sourceStartSeconds??0))<.01&&Math.abs(safeDuration-(sourceClip.durationSeconds??owner.durationSeconds))<.01)return;
       changeProject({...currentProject,pages:currentProject.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
-    });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
+    });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);timelineImageElementsRef.current=Object.fromEntries(imageEntries.filter((entry):entry is [string,HTMLImageElement]=>entry!==null));videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
   useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
@@ -874,25 +913,34 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const current=project.pages[index],image=timelineFramesRef.current[current.id];if(!image)return;
     const draw=(img:HTMLImageElement,alpha=1)=>{const scale=Math.min(canvas.width/img.width,canvas.height/img.height),w=img.width*scale,h=img.height*scale;ctx.globalAlpha=alpha;ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);ctx.globalAlpha=1;};
     const activeVideoIds=new Set<string>();
-    const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
-      const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
-      scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
-        const video=videoElementsRef.current[clip.id],start=clip.startSeconds??0,duration=clip.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
-        if(!video)return;if(!active){video.pause();return;}activeVideoIds.add(clip.id);
-        const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-start);
+    const drawSceneMedia=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+      scene.elements.filter(item=>item.visible&&(item.type==='video'||hasTimedImageRange(item))).forEach(item=>{
+        const start=item.startSeconds??0,duration=item.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
+        if(item.type==='image'){
+          if(!active)return;
+          const imageElement=timelineImageElementsRef.current[item.id];
+          if(imageElement)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,imageElement,alpha);
+          return;
+        }
+        if(item.type!=='video')return;
+        const video=videoElementsRef.current[item.id];if(!video)return;
+        if(!active){video.pause();return;}
+        activeVideoIds.add(item.id);
+        const sourceTime=Math.max(0,(item.sourceStartSeconds??0)+sceneTime-start);
         if(Number.isFinite(video.duration)&&sourceTime>=video.duration){video.pause();return;}
         if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
         if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Decoder is still loading. */}}
         if(timelinePlaying&&video.paused)void video.play().catch(()=>undefined);else if(!timelinePlaying)video.pause();
-        ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
-        ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+        const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+        ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha;
+        ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
       });
     };
-    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);drawSceneVideos(current,remaining,1);
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);drawSceneMedia(current,remaining,1);
     const next=project.pages[index+1],fade=Math.min(current.durationSeconds,current.transitionDurationSeconds??.5);
     if(next&&current.transitionAfter==='fade'&&fade>0&&current.durationSeconds-remaining<fade){
       const progress=Math.max(0,Math.min(1,1-(current.durationSeconds-remaining)/fade)),nextImage=timelineFramesRef.current[next.id];
-      if(nextImage){draw(nextImage,progress);drawSceneVideos(next,Math.min(next.durationSeconds,progress*fade),progress);}
+      if(nextImage){draw(nextImage,progress);drawSceneMedia(next,Math.min(next.durationSeconds,progress*fade),progress);}
     }
     Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
   }
@@ -901,7 +949,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   function setAudioRange(start:number,duration:number){const s=Math.max(0,Math.min(audioTrackDuration-.1,start)),max=Math.max(.1,Math.min(audioTrackDuration-s,totalSceneDuration));changeProject({...project,audioStartSeconds:s,audioDurationSeconds:Math.max(.1,Math.min(max,duration))});}
   function beginAudioRangeDrag(event:ReactPointerEvent<HTMLElement>,request:'auto'|'start'|'end'|'move'){const track=audioRangeTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();const rect=track.getBoundingClientRect(),pos=rect.width?(event.clientX-rect.left)/rect.width*audioTrackDuration:0;let mode=request;const start=project.audioStartSeconds,end=start+audioClipLength;if(mode==='auto')mode=pos>=start&&pos<=end?'move':Math.abs(pos-start)<=Math.abs(pos-end)?'start':'end';track.setPointerCapture(event.pointerId);audioRangeDragRef.current={mode,pointerX:event.clientX,start,duration:audioClipLength};}
   function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){const drag=audioRangeDragRef.current,track=audioRangeTrackRef.current;if(!drag||!track)return;const rect=track.getBoundingClientRect();if(!rect.width)return;const delta=(event.clientX-drag.pointerX)/rect.width*audioTrackDuration;if(drag.mode==='move'){const max=Math.max(0,Math.min(audioTrackDuration-drag.duration,totalSceneDuration-drag.duration));setAudioRange(Math.max(0,Math.min(max,drag.start+delta)),drag.duration);}else if(drag.mode==='start'){const end=drag.start+drag.duration,next=Math.max(0,Math.min(end-.1,drag.start+delta));setAudioRange(next,end-next);}else{const max=Math.max(.1,Math.min(audioTrackDuration-drag.start,totalSceneDuration));setAudioRange(drag.start,Math.max(.1,Math.min(max,drag.duration+delta)));}}
-  function selectTimelineVideoClip(scene:StudioPage,clip:StudioElement) {
+  function selectTimelineMediaClip(scene:StudioPage,clip:StudioElement) {
     setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(project.selectedPageId!==scene.id)mutate(current=>({...current,selectedPageId:scene.id}),false);
     setSelectedIds([clip.id]);setTool('layers');
@@ -912,7 +960,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const rect=track.getBoundingClientRect();if(!rect.width)return;
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(.1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
-    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.sourceStartSeconds??0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mode,changed:false};
+    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.type==='video'?(clip.sourceStartSeconds??0):0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mediaType:clip.type==='image'?'image':'video',mode,changed:false};
     selectTimelineVideoClip(scene,clip);
   }
   function moveTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
@@ -922,8 +970,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(drag.mode==='move')startSeconds=Math.max(0,Math.min(drag.sceneDuration-durationSeconds,drag.startSeconds+delta));
     else if(drag.mode==='start'){const end=drag.startSeconds+drag.durationSeconds;startSeconds=Math.max(0,Math.min(end-.1,drag.startSeconds+delta));durationSeconds=end-startSeconds;}
     else durationSeconds=Math.max(.1,Math.min(drag.sceneDuration-drag.startSeconds,drag.durationSeconds+delta));
-    const sourceDuration=videoElementsRef.current[drag.clipId]?.duration;
-    const sourceStartSeconds=drag.mode==='start'?Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds));
+    const sourceDuration=drag.mediaType==='video'?videoElementsRef.current[drag.clipId]?.duration:undefined;
+    const sourceStartSeconds=drag.mediaType==='video'&&drag.mode==='start'?Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):drag.sourceStartSeconds;
     drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;drag.previewSourceStartSeconds=sourceStartSeconds;
     drag.changed=Math.abs(startSeconds-drag.startSeconds)>.04||Math.abs(durationSeconds-drag.durationSeconds)>.04;
     setTimelineClipPreview({clipId:drag.clipId,startSeconds,durationSeconds});
@@ -1176,7 +1224,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const resource = await saveResource(blob, asset.name + '.jpg', 'image');
       await onResourceAdded(resource);
       const item = makeElement('image', page);
-      item.name = asset.name; item.resourceId = resource.id;
+      item.name = asset.name; item.resourceId = resource.id; item.startSeconds = 0; item.durationSeconds = page.durationSeconds;
       replacePage({ ...page, elements: [...page.elements, item] });
       setSelectedIds([item.id]);
       onNotify('Image added to the design.');
@@ -1184,7 +1232,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   }
   async function addLibraryImage(resource: StudioResource) {
     const item = makeElement('image', page);
-    item.name = resource.name; item.resourceId = resource.id;
+    item.name = resource.name; item.resourceId = resource.id; item.startSeconds = 0; item.durationSeconds = page.durationSeconds;
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
     setSelectedIds([item.id]);
   }
@@ -1251,7 +1299,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     try {
       Object.values(videoElementsRef.current).forEach(video=>video.pause());
       const frames = await Promise.all(project.pages.map(async (item) => {
-        const blob = new Blob([makeSvg(item, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
+        const blob = new Blob([makeSvg(item, urls, false, false, false)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         frameUrls.push(url);
         const image = new Image();
@@ -1267,6 +1315,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           video.addEventListener('loadeddata', () => { window.clearTimeout(timeout); resolve(); }, { once: true });
           video.addEventListener('error', () => { window.clearTimeout(timeout); reject(new Error('A video clip could not be decoded. Use a browser-supported MP4 or WebM file.')); }, { once: true });
         });
+      }));
+      await Promise.all(project.pages.flatMap(scene=>scene.elements.filter(element=>hasTimedImageRange(element)&&element.resourceId&&urls[element.resourceId])).map(async element=>{
+        if(timelineImageElementsRef.current[element.id])return;
+        const image=new Image();image.src=urls[element.resourceId!];await image.decode();timelineImageElementsRef.current[element.id]=image;
       }));
       const canvas = document.createElement('canvas');
       // Render every scene letterboxed at the selected page's exact dimensions.
@@ -1357,29 +1409,38 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           ctx.fillStyle = '#101c35';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           const activeVideoIds=new Set<string>();
-          const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
-            const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
-            scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
-              const video=videoElementsRef.current[clip.id],clipStart=clip.startSeconds??0,clipDuration=clip.durationSeconds??scene.durationSeconds;
-              if(!video)return;if(sceneTime<clipStart||sceneTime>=clipStart+clipDuration){video.pause();return;}activeVideoIds.add(clip.id);
-              const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-clipStart);
+          const drawSceneMedia=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+            scene.elements.filter(item=>item.visible&&(item.type==='video'||hasTimedImageRange(item))).forEach(item=>{
+              const clipStart=item.startSeconds??0,clipDuration=item.durationSeconds??scene.durationSeconds,active=sceneTime>=clipStart&&sceneTime<clipStart+clipDuration;
+              if(item.type==='image'){
+                if(!active)return;
+                const image=timelineImageElementsRef.current[item.id];
+                if(image)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,image,alpha);
+                return;
+              }
+              if(item.type!=='video')return;
+              const video=videoElementsRef.current[item.id];if(!video)return;
+              if(!active){video.pause();return;}
+              activeVideoIds.add(item.id);
+              const sourceTime=Math.max(0,(item.sourceStartSeconds??0)+sceneTime-clipStart);
               if(Number.isFinite(video.duration)&&sourceTime>=video.duration)return;
               if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
               if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Wait for decoded frame. */}}
               if(video.paused)void video.play().catch(()=>undefined);
-              ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);
-              ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
-              ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+              const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+              ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);
+              ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha;
+              ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
             });
           };
           drawContained(selectedFrame.image);
-          drawSceneVideos(selectedFrame.page,selectedOffset,1);
+          drawSceneMedia(selectedFrame.page,selectedOffset,1);
           const nextFrame = frames[selectedFrameIndex + 1];
           const transitionWindow = Math.min(selectedFrame.duration, selectedFrame.transitionDuration);
           if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
             const progress = Math.max(0,Math.min(1,1-(selectedFrame.duration-selectedOffset)/transitionWindow));
             drawContained(nextFrame.image,progress);
-            drawSceneVideos(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
+            drawSceneMedia(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
           }
           Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
 
@@ -1646,33 +1707,37 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
           </div>
           <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
-          <div className={styles.videoTracks} aria-label="Video tracks">
-            {timelineVideoClips.length===0
-              ? <div className={styles.videoTracksEmpty}><Icon name="video"/> Add video clips from Uploads</div>
-              : timelineVideoClips.map(({scene,sceneIndex,clip},trackIndex)=>{
+          <div className={styles.mediaTracks} aria-label="Image and video tracks">
+            {timelineMediaClips.length===0
+              ? <div className={styles.mediaTracksEmpty}><Icon name="image"/> Add image or video clips from Uploads</div>
+              : timelineMediaClips.map(({scene,sceneIndex,clip},trackIndex)=>{
                 const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
                 const effectiveStart=timelineClipPreview?.clipId===clip.id?timelineClipPreview.startSeconds:(clip.startSeconds??0);
                 const effectiveDuration=timelineClipPreview?.clipId===clip.id?timelineClipPreview.durationSeconds:(clip.durationSeconds??scene.durationSeconds);
                 const clipStart=offset+effectiveStart;
                 const clipDuration=Math.max(0,Math.min(effectiveDuration,scene.durationSeconds-effectiveStart));
-                return <div key={clip.id} className={styles.videoTrackRow} role="group" aria-label={'Video track '+(trackIndex+1)+': '+clip.name}>
-                  <span className={styles.videoClipLaneLabel} title={'Video track '+(trackIndex+1)+': '+clip.name}><Icon name="video"/><span>V{trackIndex+1}</span></span>
+                const imageTrackNumber=timelineMediaClips.slice(0,trackIndex).filter(entry=>entry.clip.type==='image').length+1;
+                const videoTrackNumber=timelineMediaClips.slice(0,trackIndex).filter(entry=>entry.clip.type==='video').length+1;
+                const isImage=clip.type==='image';
+                const trackLabel=(isImage?'Image track ':'Video track ')+(isImage?imageTrackNumber:videoTrackNumber);
+                return <div key={clip.id} className={styles.mediaTrackRow} role="group" aria-label={trackLabel+': '+clip.name}>
+                  <span className={styles.mediaTrackLabel} title={trackLabel+': '+clip.name}><Icon name={isImage?'image':'video'}/><span>{isImage?'I'+imageTrackNumber:'V'+videoTrackNumber}</span></span>
                   <div className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
-                    <div role="group" aria-label={'Video timeline clip '+clip.name} className={styles.videoClipItem}
+                    <div role="group" aria-label={'Timeline clip '+clip.name} className={styles.videoClipItem}
                       style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
                       <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
                         title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
-                        aria-label={'Select timeline video clip '+clip.name}
+                        aria-label={'Select timeline '+(isImage?'image':'video')+' clip '+clip.name}
                         onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
-                        onClick={()=>selectTimelineVideoClip(scene,clip)}><Icon name="video"/><span>{clip.name}</span></button>
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}><Icon name={isImage?'image':'video'}/><span>{clip.name}</span></button>
                       <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
                         aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
                         onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
-                        onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}/>
                       <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
                         aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
                         onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
-                        onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}/>
                     </div>
                   </div>
                 </div>;
@@ -1707,6 +1772,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {one?.locked && <div className={styles.lockNotice}>This layer is locked. Unlock it in Layers to edit.</div>}
         {one?.type === 'text' && <label>Text<textarea disabled={one.locked} value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
         {one?.type === 'image' && <label>Image fit<select disabled={one.locked} aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
+        {one?.type === 'image' && <><div className={styles.videoClipInspectorTitle}>Image clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
+          <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Image clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event=>updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds),Number(event.target.value)))})}/></label>
+          <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Image clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,page.durationSeconds-(one.startSeconds??0))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event=>updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds??0),Number(event.target.value)))})}/></label></>}
          {one?.type === 'video' && <><div className={styles.videoClipInspectorTitle}>Video clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
            <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Video clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds),Number(event.target.value)))})}/></label>
            <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Video clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0)))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event => updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0),Number(event.target.value)))})}/></label>

@@ -893,6 +893,89 @@ for (const width of [390, 768, 1280]) {
   });
 }
 
+test('timed image clips stay synchronized in timeline preview and rendered video', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Brand', exact: true }).click();
+  await page.getByRole('button', { name: 'Add logo / image' }).click();
+  const picker = page.getByRole('dialog', { name: 'Brand image picker' });
+  const pngBase64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Image fixture canvas is unavailable.');
+    context.fillStyle = '#ff0000';
+    context.fillRect(0, 0, 32, 32);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await picker.locator('input[aria-label="Upload brand logo or image"]').setInputFiles({
+    name: 'timed-campaign.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngBase64, 'base64'),
+  });
+
+  const imageTrack = page.getByRole('group', { name: 'Image track 1: timed-campaign.png' });
+  await expect(imageTrack).toBeVisible();
+  const imageDuration = page.getByRole('spinbutton', { name: 'Image clip duration' });
+  await expect(imageDuration).toHaveValue('5');
+  await imageDuration.fill('2');
+  await page.getByRole('spinbutton', { name: 'Image clip start' }).fill('2');
+
+  const playhead = page.getByRole('slider', { name: 'Timeline playhead' });
+  await playhead.focus();
+  for (let i = 0; i < 10; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('1');
+  const timelineCanvas = page.locator('canvas[aria-label="Timeline preview"]');
+  await expect(timelineCanvas).toBeVisible();
+  const readTimelinePixel = () => timelineCanvas.evaluate(canvas => {
+    const element = canvas as HTMLCanvasElement;
+    const context = element.getContext('2d');
+    if (!context) throw new Error('Timeline preview canvas is unavailable.');
+    const pixel = context.getImageData(Math.floor(element.width/2), Math.floor(element.height*.4), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  await expect.poll(async () => (await readTimelinePixel())[0]).toBeLessThan(100);
+
+  for (let i = 0; i < 20; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('3');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80;
+  }).toBe(true);
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  const readRenderedPixel = async (seconds: number) => {
+    await video.evaluate((element, time) => new Promise<void>((resolve, reject) => {
+      const output = element as HTMLVideoElement;
+      const timeout = window.setTimeout(() => reject(new Error('Rendered video seek timed out.')), 10000);
+      output.addEventListener('seeked', () => { window.clearTimeout(timeout); resolve(); }, { once: true });
+      output.currentTime = time as number;
+    }), seconds);
+    return video.evaluate(element => {
+      const output = element as HTMLVideoElement;
+      const canvas = document.createElement('canvas');
+      canvas.width = output.videoWidth;
+      canvas.height = output.videoHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Rendered video frame canvas is unavailable.');
+      context.drawImage(output, 0, 0);
+      const pixel = context.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height*.4), 1, 1).data;
+      return [pixel[0], pixel[1], pixel[2]];
+    });
+  };
+  const beforeClip = await readRenderedPixel(1);
+  expect(beforeClip[0]).toBeLessThan(100);
+  const duringClip = await readRenderedPixel(3);
+  expect(duringClip[0]).toBeGreaterThan(150);
+  expect(duringClip[1]).toBeLessThan(100);
+  expect(duringClip[2]).toBeLessThan(100);
+});
+
 test('multiple uploaded video clips have independent, editable timeline tracks', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
