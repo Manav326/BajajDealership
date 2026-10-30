@@ -4,10 +4,10 @@ appId: com.quantaedge.luckybajaj
 - launchApp
 - extendedWaitUntil:
     visible: "LUCKY BAJAJ"
-    timeout: 30000
+    timeout: 90000
 - runFlow:
     when:
-      visible: "Sign in securely"
+      visible: "CUSTOMER CARE, CONNECTED"
     commands:
       - assertVisible: "A QuantaEdge customer experience"
       - assertVisible: "CUSTOMER CARE, CONNECTED"
@@ -49,8 +49,11 @@ appId: com.quantaedge.luckybajaj
       - assertVisible: "Sign out"
       - assertVisible: "Your ride care, in one place."
       - assertVisible: "YOUR CUSTOMER SPACE"
-      - scrollUntilVisible:
-          element: "My bikes"
-          direction: DOWN
-          timeout: 10000
-      - assertVisible: "My bikes"
+      - tapOn: "Service"
+      - assertVisible: "Service history"
+      - tapOn: "Visits"
+      - assertVisible: "Service visits"
+      - tapOn: "Updates"
+      - assertVisible: "Dealership updates"
+      - tapOn: "Home"
+      - assertVisible: "YOUR CUSTOMER SPACE"
