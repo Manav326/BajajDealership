@@ -60,7 +60,7 @@ const descriptions: Record<string, string> = {
   'Billing & expenses': 'Operational invoices, receipts, collections, expenses and daily reconciliation.',
   'Team & access': 'Staff accounts, role permissions, assignments and accountable change history.',
   'Notification Studio': 'Design rich Hindi/English messages, preview eligible customers, schedule campaigns and review delivery.',
-  'Social Media Studio': 'Create channel-sized dealership artwork and captions; external publishing integrations are being added in phases.',
+  'Social Media Studio': 'Create dealership campaigns, edit artwork and video, connect social accounts, and manage publishing and messaging.',
   Reports: 'Sales, workshop, collections, expenses and stock reports based on saved transactions.',
 };
 
@@ -94,6 +94,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [activePage, setActivePage] = useState<string>(() => pageFromHash(window.location.hash));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopNavCollapsed, setDesktopNavCollapsed] = useState<boolean>(() => window.localStorage.getItem('qe_staff_nav_collapsed') === 'true');
   const mobileNavToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileNavRef = useRef<HTMLElement | null>(null);
   const [health, setHealth] = useState<ApiHealth | null>(null);
@@ -105,6 +106,10 @@ function App() {
   const [showInbox, setShowInbox] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const updateUnreadCount = useCallback((count: number) => setUnreadCount(count), []);
+
+  useEffect(() => {
+    window.localStorage.setItem('qe_staff_nav_collapsed', String(desktopNavCollapsed));
+  }, [desktopNavCollapsed]);
 
   function navigateToPage(page: string, replace = false) {
     const hash = pageHashFor(page);
@@ -395,7 +400,7 @@ function App() {
         role={mobileNavOpen ? 'dialog' : undefined}
         aria-modal={mobileNavOpen ? true : undefined}
         aria-label={mobileNavOpen ? 'Primary navigation menu' : undefined}
-        className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'}>
+        className={`sidebar${mobileNavOpen ? ' mobile-open' : ''}${desktopNavCollapsed ? ' collapsed' : ''}`}>
         <div className="brand-lockup">
           <div className="brand-mark">Q</div>
           <div className="brand-copy">
@@ -418,6 +423,7 @@ function App() {
               <button type="button" key={item.label}
                 className={activePage === item.label ? 'nav-item active' : 'nav-item'}
                 aria-current={activePage === item.label ? 'page' : undefined}
+                title={item.label}
                 onClick={() => { navigateToPage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
                 <span className="nav-icon" aria-hidden="true">{item.icon}</span>
                 <span className="nav-text">{item.label}</span>
@@ -435,6 +441,7 @@ function App() {
 
       <main className="main-content" aria-hidden={mobileNavOpen ? true : undefined}>
         <header className="topbar">
+          <button type="button" className="desktop-nav-toggle" aria-label={desktopNavCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-controls="primary-navigation" aria-expanded={!desktopNavCollapsed} title={desktopNavCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}>{desktopNavCollapsed ? '›' : '‹'}</button>
           <button ref={mobileNavToggleRef} type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? '×' : '☰'}</button>
           <div className="breadcrumbs">Lucky Bajaj Agency <span>/</span> {activePage}</div>
           <div className="topbar-actions">
