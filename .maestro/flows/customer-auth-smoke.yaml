@@ -37,6 +37,10 @@ appId: com.quantaedge.luckybajaj
       - tapOn: "Sign in"
       - assertVisible: "Dealership code"
       - assertVisible: "Customer code"
+      - scrollUntilVisible:
+          element: "Sign in securely"
+          direction: DOWN
+          timeout: 10000
       - assertVisible: "Sign in securely"
 - runFlow:
     when:
@@ -45,4 +49,8 @@ appId: com.quantaedge.luckybajaj
       - assertVisible: "Sign out"
       - assertVisible: "Your ride care, in one place."
       - assertVisible: "YOUR CUSTOMER SPACE"
+      - scrollUntilVisible:
+          element: "My bikes"
+          direction: DOWN
+          timeout: 10000
       - assertVisible: "My bikes"
