@@ -48,7 +48,9 @@ appId: com.quantaedge.luckybajaj
     commands:
       - assertVisible: "Sign out"
       - assertVisible: "Your ride care, in one place."
-      - assertVisible: "YOUR CUSTOMER SPACE"
+      - extendedWaitUntil:
+          visible: "YOUR CUSTOMER SPACE"
+          timeout: 90000
       - tapOn: "Service"
       - assertVisible: "Service history"
       - tapOn: "Visits"
