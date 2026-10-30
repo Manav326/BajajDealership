@@ -17,7 +17,7 @@ export function EditionContentTarget({children,style}:EditionBackdropProps){
 }
 export function GlassOverlay({intensity=52}:{intensity?:number}){
  const targetRef=useContext(BlurTargetContext); if(!targetRef)return null;
- return <BlurView pointerEvents="none" blurTarget={targetRef} intensity={intensity} tint="light" blurMethod="dimezisBlurViewSdk31Plus" style={StyleSheet.absoluteFillObject}/>;
+ return <BlurView pointerEvents="none" blurTarget={targetRef} intensity={intensity} tint="light" blurMethod="dimezisBlurViewSdk31Plus" style={StyleSheet.absoluteFill}/>;
 }
 const styles=StyleSheet.create({
  backdrop:{flex:1,backgroundColor:'#EAF0FA',overflow:'hidden'},

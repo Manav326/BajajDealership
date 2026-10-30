@@ -16,7 +16,7 @@ const liquidGlassOverrides = {
   safe:{...baseStyles.safe,backgroundColor:C.canvas},
   content:{...baseStyles.content,paddingTop:18,paddingHorizontal:17,paddingBottom:36},
   contentWide:{...baseStyles.contentWide,paddingHorizontal:26},
-  contentTarget:{...StyleSheet.absoluteFillObject,zIndex:0},
+  contentTarget:{position:'absolute',top:0,right:0,bottom:0,left:0,zIndex:0},
   glassContentInset:{flex:1,paddingTop:64,paddingBottom:80},
   topBar:{...baseStyles.topBar,position:'absolute',top:0,left:0,right:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.52)',borderBottomColor:'rgba(255,255,255,0.78)',borderTopWidth:1,borderTopColor:'rgba(255,255,255,0.88)',overflow:'hidden',paddingVertical:12},
   brandMarkSmall:{...baseStyles.brandMarkSmall,backgroundColor:'rgba(255,255,255,0.76)',borderColor:'rgba(255,255,255,0.98)',borderRadius:16,shadowColor:'#536987',shadowOpacity:0.14,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:3},
@@ -52,6 +52,6 @@ const liquidGlassOverrides = {
   bottomNav:{...baseStyles.bottomNav,position:'absolute',left:0,right:0,bottom:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.54)',borderTopColor:'rgba(255,255,255,0.92)',borderTopWidth:1.2,paddingTop:9,paddingBottom:Platform.OS==='android'?9:14,overflow:'hidden'},
   navItem:{...baseStyles.navItem,borderRadius:16,paddingVertical:7},
   navActive:{...baseStyles.navActive,backgroundColor:'rgba(230,110,50,0.13)',borderWidth:1,borderColor:'rgba(230,110,50,0.25)'}
-} satisfies Partial<Record<keyof typeof baseStyles, ViewStyle | TextStyle | ImageStyle>>;
+} as const;
 
-export const S = StyleSheet.create({ ...baseStyles, ...liquidGlassOverrides });
+export const S = StyleSheet.create({ ...baseStyles, ...liquidGlassOverrides } as typeof baseStyles);
