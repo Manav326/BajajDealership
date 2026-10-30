@@ -160,7 +160,7 @@ $suites = switch ($Suite) {
   "All" { @("public", "authenticated", "fixtures") }
 }
 if ($suites -contains "authenticated" -or $suites -contains "fixtures") {
-  Require-Environment @("MAESTRO_DEALERSHIP_CODE", "MAESTRO_CUSTOMER_CODE", "MAESTRO_CUSTOMER_PASSWORD")
+  Require-Environment @("MAESTRO_DEALERSHIP_CODE", "MAESTRO_CUSTOMER_CODE", "MAESTRO_CUSTOMER_PASSWORD", "MAESTRO_CUSTOMER_VEHICLE_NAME")
 }
 if ($suites -contains "fixtures") {
   Require-Environment @(
@@ -176,7 +176,7 @@ if ($suites -contains "fixtures") {
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 $maestroEnv = @()
 foreach ($name in @(
-  "MAESTRO_DEALERSHIP_CODE", "MAESTRO_CUSTOMER_CODE", "MAESTRO_CUSTOMER_PASSWORD",
+  "MAESTRO_DEALERSHIP_CODE", "MAESTRO_CUSTOMER_CODE", "MAESTRO_CUSTOMER_PASSWORD", "MAESTRO_CUSTOMER_VEHICLE_NAME",
   "MAESTRO_NOTIFICATION_TITLE", "MAESTRO_NOTIFICATION_IMAGE_ALT", "MAESTRO_NOTIFICATION_CTA_LABEL",
   "MAESTRO_NOTIFICATION_DESTINATION_HEADING", "MAESTRO_NOTIFICATION_ACTION_TITLE",
   "MAESTRO_NOTIFICATION_PAGE_TWO_TITLE"
@@ -192,7 +192,7 @@ foreach ($suiteName in $suites) {
   New-Item -ItemType Directory -Path $debugPath -Force | Out-Null
 
   Write-Host ([Environment]::NewLine + "=== Maestro suite: $suiteName ===")
-  $arguments = @("--device=$selectedDevice", "test", $flowPath, "--format", "junit", "--output", $reportPath, "--test-output-dir", $debugPath) + $maestroEnv
+  $arguments = @("--device=$selectedDevice", "test", $flowPath, "--format", "JUNIT", "--output", $reportPath, "--test-output-dir", $debugPath) + $maestroEnv
   & maestro @arguments
   if ($LASTEXITCODE -ne 0) {
     Fail "Maestro suite '$suiteName' failed. Review device output and the saved test artifacts."
