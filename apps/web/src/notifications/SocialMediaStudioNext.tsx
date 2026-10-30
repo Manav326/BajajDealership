@@ -1094,6 +1094,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setSelectedIds([item.id]); setTool('layers'); onNotify('Video clip added to this scene. Adjust its timing in Properties.');
   }
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
+    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
     try {
       const pageIndex = project.pages.findIndex(item => item.id === page.id);
@@ -1130,6 +1132,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       return;
     }
 
+    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(4);
     let cancelled=false;
     let recorder: MediaRecorder | null = null;
@@ -1590,7 +1594,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {one?.type === 'text' && <label>Text<textarea disabled={one.locked} value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
         {one?.type === 'image' && <label>Image fit<select disabled={one.locked} aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
          {one?.type === 'video' && <><div className={styles.videoClipInspectorTitle}>Video clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
-           <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Video clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-1)} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-1,Number(event.target.value)))})}/></label>
+           <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Video clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds),Number(event.target.value)))})}/></label>
            <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Video clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0)))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event => updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0),Number(event.target.value)))})}/></label>
            <label>Source in-point · {formatTime(one.sourceStartSeconds ?? 0)}<input aria-label="Video source in point" disabled={one.locked} type="number" min="0" max={Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds))} step="0.1" value={Number((one.sourceStartSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{sourceStartSeconds:Math.max(0,Math.min(Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds)),Number(event.target.value)))})}/></label></>}
         <label>X<input disabled={one?.locked} type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
