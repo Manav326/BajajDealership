@@ -624,19 +624,33 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const point = pointFromEvent(event);
     const dx = point.x - drag.start.x, dy = point.y - drag.start.y;
     if (drag.mode === 'move') {
-      const moving = drag.items.map((item) => {
-        let x = item.x + dx, y = item.y + dy;
-        const centerX = x + item.width / 2, centerY = y + item.height / 2;
-        const guides: { x?: number; y?: number } = {};
-        if (Math.abs(centerX - page.width / 2) < 12) { x = page.width / 2 - item.width / 2; guides.x = page.width / 2; }
-        if (Math.abs(centerY - page.height / 2) < 12) { y = page.height / 2 - item.height / 2; guides.y = page.height / 2; }
-        return { ...item, x, y };
+      // Snap the selection's bounding box as one unit so grouped/multi-selected
+      // elements retain their relative spacing while moving together.
+      const bounds = drag.items.reduce((current, item) => ({
+        left: Math.min(current.left, item.x),
+        top: Math.min(current.top, item.y),
+        right: Math.max(current.right, item.x + item.width),
+        bottom: Math.max(current.bottom, item.y + item.height),
+      }), {
+        left: Number.POSITIVE_INFINITY,
+        top: Number.POSITIVE_INFINITY,
+        right: Number.NEGATIVE_INFINITY,
+        bottom: Number.NEGATIVE_INFINITY,
       });
-      const guides = moving.reduce((acc, item) => {
-        if (Math.abs(item.x + item.width / 2 - page.width / 2) < 1) acc.x = page.width / 2;
-        if (Math.abs(item.y + item.height / 2 - page.height / 2) < 1) acc.y = page.height / 2;
-        return acc;
-      }, {} as { x?: number; y?: number });
+      let moveX = dx;
+      let moveY = dy;
+      const guides: { x?: number; y?: number } = {};
+      const centerX = (bounds.left + bounds.right) / 2 + moveX;
+      const centerY = (bounds.top + bounds.bottom) / 2 + moveY;
+      if (Math.abs(centerX - page.width / 2) < 12) {
+        moveX += page.width / 2 - centerX;
+        guides.x = page.width / 2;
+      }
+      if (Math.abs(centerY - page.height / 2) < 12) {
+        moveY += page.height / 2 - centerY;
+        guides.y = page.height / 2;
+      }
+      const moving = drag.items.map((item) => ({ ...item, x: item.x + moveX, y: item.y + moveY }));
       setSnapGuides(guides);
       replacePage({ ...page, elements: page.elements.map((item) => moving.find((next) => next.id === item.id) ?? item) }, false);
     } else if (drag.mode === 'resize') {
