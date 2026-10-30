@@ -29,3 +29,6 @@ apps/web/test-results/
 # Local physical-device Maestro credentials and generated reports
 apps/android/.maestro/local.env
 apps/android/maestro-results/
+
+# Downloaded local Android APKs and install logs
+artifacts/

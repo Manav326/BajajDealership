@@ -245,6 +245,21 @@ Every CI run on `main` (and pull requests targeting `main`) validates the backen
 - `customer-portal-web-<commit>` — compiled customer website in `dist/`.
 - `lucky-bajaj-android-debug-apk-<commit>` — installable Android debug APK.
 
+### Download and install the latest APK on an Android phone
+
+From the repository root in Windows PowerShell, after pulling the latest `main`:
+
+```powershell
+.\scripts\android-fetch-latest-apk.ps1
+```
+
+The script uses the GitHub CLI to find the newest **successful** CI run on `main` that actually contains the Android APK (it automatically skips successful runs where Android was not rebuilt). It downloads the artifact, verifies the APK when Android SDK Build-Tools are available, replaces the single saved copy at `artifacts/lucky-bajaj-latest.apk`, displays the source commit and SHA-256, then offers to install it through ADB.
+
+Install prerequisites: GitHub CLI authenticated with `gh auth login`, Android Platform-Tools/ADB, and a phone connected by USB or Wireless debugging with its authorization prompt accepted. When more than one phone is connected, the script asks which device to use; or pass `-DeviceSerial <adb-serial>`. Use `-DownloadOnly` to download without installing.
+
+Installation uses `adb install -r`; it does not uninstall the existing app or clear its local data. A signing-key mismatch is reported without automatic uninstall. The script keeps only one current APK copy, plus its JSON source metadata and install-history log, under the ignored `artifacts/` directory. GitHub APK artifacts are retained for 14 days.
+
+
 Artifacts are retained for 14 days. The web artifacts are static build files, separate from the live preview links above. The Android artifact is a debug APK, not a Play Store-signed release, and defaults to `https://lucky-bajaj-api.onrender.com/`. Override `BAJAJ_API_BASE_URL` in Actions or `EXPO_PUBLIC_API_BASE_URL` for local development; use `http://192.168.31.47:8080/` for a physical phone on the mPAY-style LAN setup and `http://10.0.2.2:8080/` for an Android Studio emulator. A local URL must serve the BajajDealership API, not mPAY's backend.
 
 ## Local development — build locally or pull from GHCR

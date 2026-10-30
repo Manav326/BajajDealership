@@ -59,6 +59,19 @@ npx expo run:android
 
 CI builds an installable Android debug APK whenever `apps/android/**` changes. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions). The APK is a debug artifact and is not a signed Play Store release.
 
+### Download and install the latest CI APK (Windows)
+
+Run this from the repository root after `git pull origin main`:
+
+```powershell
+.\scripts\android-fetch-latest-apk.ps1
+```
+
+Prerequisites: GitHub CLI (`gh auth login`), Android SDK Platform-Tools (`adb`), and an authorized USB or Wireless debugging connection. The script finds the newest successful `main` CI run containing an APK, downloads it to `artifacts/lucky-bajaj-latest.apk`, then prompts before installing. It skips successful runs without a new Android artifact, so commits that only change the web/backend do not stop APK downloads.
+
+Use `-DownloadOnly` to download without installing, or `-DeviceSerial <adb-serial>` to choose a specific phone. It installs with `adb install -r`, which updates the app without clearing its local data. It never uninstalls automatically after a signature mismatch.
+
+
 ## Release limitations
 
 The following remain separate release tasks unless their external setup and acceptance are completed:
