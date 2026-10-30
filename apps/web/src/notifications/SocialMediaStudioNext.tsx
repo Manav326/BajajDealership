@@ -59,7 +59,7 @@ const element = (type: StudioElement['type'], x = 250, y = 240): StudioElement =
   x, y, width: type === 'text' ? 470 : type === 'line' ? 360 : 280, height: type === 'text' ? 120 : type === 'line' ? 8 : 180,
   rotation: 0, opacity: 1, fill: type === 'text' ? '#ffffff' : '#f97316', stroke: 'transparent', strokeWidth: 0,
   text: type === 'text' ? 'Your text here' : '', fontSize: 76, fontFamily: 'Arial', fontWeight: '700',
-  italic: false, align: 'left', imageFit: 'cover', visible: true, locked: false,
+  italic: false, letterSpacing: 0, align: 'left', imageFit: 'cover', visible: true, locked: false,
 });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const formatBytes = (value: number) => value < 1024 * 1024 ? Math.max(1, Math.round(value / 1024)) + ' KB' : (value / (1024 * 1024)).toFixed(1) + ' MB';
@@ -107,7 +107,7 @@ function elementSvg(item: StudioElement, url?: string) {
   const common = { opacity: item.opacity, transform: `rotate(${item.rotation} ${item.width / 2} ${item.height / 2})` };
   if (item.type === 'text') {
     return <text x={0} y={item.fontSize} fill={item.fill} textAnchor={item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end'}
-      fontSize={item.fontSize} fontFamily={item.fontFamily} fontWeight={item.fontWeight} fontStyle={item.italic ? 'italic' : 'normal'}
+      fontSize={item.fontSize} fontFamily={item.fontFamily} fontWeight={item.fontWeight} fontStyle={item.italic ? 'italic' : 'normal'} letterSpacing={item.letterSpacing ?? 0}
       transform={common.transform} opacity={common.opacity}>
       {item.text.split('\n').slice(0, 8).map((line, index) => <tspan key={index} x={item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width} dy={index === 0 ? 0 : item.fontSize * 1.2}>{line}</tspan>)}
     </text>;
@@ -115,6 +115,7 @@ function elementSvg(item: StudioElement, url?: string) {
   if (item.type === 'image') return url
     ? <image href={url} x={0} y={0} width={item.width} height={item.height} preserveAspectRatio={item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'} transform={common.transform} opacity={common.opacity} />
     : <rect x={0} y={0} width={item.width} height={item.height} fill="#94a3b8" opacity=".35" />;
+  if (item.shapeKind) return <polygon points={shapePoints(item.shapeKind,item.width,item.height)} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity}/>;
   if (item.type === 'video') return <g transform={common.transform} opacity={common.opacity}><rect x={0} y={0} width={item.width} height={item.height} rx={12} fill="#101827" stroke="#93a4ba" strokeWidth={3}/><path d={`M ${item.width*.44} ${item.height*.3} L ${item.width*.68} ${item.height*.5} L ${item.width*.44} ${item.height*.7} Z`} fill="#fff"/><text x={item.width/2} y={item.height*.88} fill="#fff" fontSize={Math.max(12,item.height*.07)} textAnchor="middle">VIDEO CLIP</text></g>;
   if (item.type === 'circle') return <ellipse cx={item.width / 2} cy={item.height / 2} rx={item.width / 2} ry={item.height / 2} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
   if (item.type === 'line') return <line x1={0} y1={item.height / 2} x2={item.width} y2={item.height / 2} stroke={item.fill} strokeWidth={Math.max(2, item.strokeWidth || item.height)} transform={common.transform} opacity={common.opacity} />;
@@ -127,9 +128,10 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
     let shape = '';
     if (item.type === 'text') {
       const lines = item.text.split('\n').slice(0, 8);
-      shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
+      shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" letter-spacing="' + (item.letterSpacing ?? 0) + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
     } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
     else if (item.type === 'video') shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
+    else if (item.shapeKind) shape = '<polygon points="' + shapePoints(item.shapeKind,item.width,item.height) + '" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
     else if (item.type === 'line') shape = '<line x1="0" y1="' + item.height / 2 + '" x2="' + item.width + '" y2="' + item.height / 2 + '" stroke="' + item.fill + '" stroke-width="' + Math.max(2, item.strokeWidth || item.height) + '"/>';
     else shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
@@ -140,6 +142,17 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
 }
 function formatTime(seconds: number): string { const v = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0)); return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0'); }
 function escapeSvg(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char] ?? char)); }
+function shapePoints(kind: NonNullable<StudioElement['shapeKind']>, width: number, height: number): string {
+  if (kind === 'triangle') return `${width/2},0 ${width},${height} 0,${height}`;
+  if (kind === 'arrow') return `0,${height*.3} ${width*.62},${height*.3} ${width*.62},0 ${width},${height/2} ${width*.62},${height} ${width*.62},${height*.7} 0,${height*.7}`;
+  const spikes = kind === 'star' ? 5 : 12;
+  return Array.from({length:spikes*2},(_,index)=>{
+    const angle=-Math.PI/2+index*Math.PI/spikes;
+    const radius=index%2===0?.48:kind==='star'?.21:.34;
+    return `${width/2+Math.cos(angle)*width*radius},${height/2+Math.sin(angle)*height*radius}`;
+  }).join(' ');
+}
+
 
 async function convertImageBlob(blob: Blob, mimeType: 'image/jpeg'): Promise<Blob> {
   if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot convert the rendered image format.');
@@ -531,6 +544,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [dirty, setDirty] = useState(false);
   const [panelSearch, setPanelSearch] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [lastSavedName, setLastSavedName] = useState(project.name);
   const [nameSaving, setNameSaving] = useState(false);
   const [canvasFullscreen, setCanvasFullscreen] = useState(false);
@@ -617,8 +631,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if (!dirty) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      setSaving(true);
-      void saveProject(project).then(() => setSaving(false)).catch((cause) => { setSaving(false); onNotify(cause instanceof Error ? cause.message : 'Autosave failed.'); });
+      setSaving(true); setSaveStatus('saving');
+      void saveProject(project).then(() => { setSaving(false); setSaveStatus('saved'); }).catch((cause) => { setSaving(false); setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Autosave failed.'); });
       setDirty(false);
     }, 900);
     return () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); };
@@ -639,11 +653,23 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  async function leaveEditor() {
+    if (dirty || saving) {
+      setSaving(true); setSaveStatus('saving');
+      try { await saveProject(project); setDirty(false); setSaveStatus('saved'); setSaving(false); }
+      catch (cause) {
+        setSaving(false); setSaveStatus('error');
+        onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
+        if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
+      }
+    }
+    onOpenLibrary();
+  }
   async function saveProjectName() {
     if (!project.name.trim() || project.name.trim() === lastSavedName) return;
-    setNameSaving(true);
-    try { await saveProject(project); setLastSavedName(project.name); onNotify('Design name saved.'); }
-    catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Design name could not be saved.'); }
+    setNameSaving(true); setSaveStatus('saving');
+    try { await saveProject(project); setLastSavedName(project.name); setSaveStatus('saved'); onNotify('Design name saved.'); }
+    catch (cause) { setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Design name could not be saved.'); }
     finally { setNameSaving(false); }
   }
   function toggleCanvasFullscreen() {
@@ -1144,10 +1170,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
 
   return <div className={styles.editorOverlay} role="dialog" aria-modal="true" aria-label="Creative editor">
     <header className={styles.editorTopbar}>
-      <button type="button" title="Back to resources" aria-label="Back to resources" onClick={onOpenLibrary}><Icon name="back"/></button>
+      <button type="button" title="Back to resources" aria-label="Back to resources" onClick={() => void leaveEditor()}><Icon name="back"/></button>
       <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => changeProject({ ...project, name: event.target.value })}/>
       <button type="button" className={styles.saveNameButton} title="Save design name" aria-label="Save design name" disabled={nameSaving || !project.name.trim() || project.name.trim() === lastSavedName} onClick={() => void saveProjectName()}><Icon name="save"/></button>
-      <span className={styles.saveState}>{saving ? 'Saving edits…' : 'Edits autosaved'}</span>
+      <span className={styles.saveState} role="status" aria-live="polite">{saveStatus === 'saving' ? 'Saving edits…' : saveStatus === 'error' ? 'Save failed · edit to retry' : 'All edits saved'}</span>
       <button type="button" title="Undo" aria-label="Undo" disabled={!undoRef.current.length} onClick={undo}><Icon name="undo"/></button>
       <button type="button" title="Redo" aria-label="Redo" disabled={!redoRef.current.length} onClick={redo}><Icon name="redo"/></button>
       <span className={styles.topSpacer}/>
@@ -1170,11 +1196,15 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             setSelectedIds([]);
           }}><span style={{ background: item.primary }}><b style={{ color: item.accent }}>Aa</b></span><strong>{item.name}</strong></button>)}</div>}
         {tool === 'elements' && <div className={styles.toolTiles}>
-          {['Rectangle','Rounded badge','Offer badge','Pill','Outline box','Circle','Ellipse','Divider'].filter((preset) => preset.toLowerCase().includes(panelSearch.toLowerCase())).map((preset) =>
+          {['Rectangle','Rounded badge','Offer badge','Pill','Outline box','Circle','Ellipse','Divider','Arrow','Triangle sticker','Star sticker','Burst sticker'].filter((preset) => preset.toLowerCase().includes(panelSearch.toLowerCase())).map((preset) =>
             <button type="button" key={preset} onClick={() => {
               const kind = preset === 'Divider' ? 'line' : ['Circle','Ellipse'].includes(preset) ? 'circle' : 'rect';
               const next = makeElement(kind, page); next.name = preset;
               if (preset === 'Outline box') { next.fill = 'transparent'; next.stroke = project.accentColor; next.strokeWidth = 5; }
+              if (preset === 'Arrow') { next.shapeKind = 'arrow'; next.width = page.width * .48; next.height = page.height * .18; next.fill = project.accentColor; }
+              if (preset === 'Triangle sticker') { next.shapeKind = 'triangle'; next.width = page.width * .24; next.height = page.height * .2; next.fill = project.accentColor; }
+              if (preset === 'Star sticker') { next.shapeKind = 'star'; next.width = page.width * .22; next.height = page.height * .22; next.fill = '#facc15'; next.stroke = '#a16207'; next.strokeWidth = 3; }
+              if (preset === 'Burst sticker') { next.shapeKind = 'burst'; next.width = page.width * .28; next.height = page.height * .25; next.fill = project.accentColor; }
               if (['Offer badge','Rounded badge','Pill'].includes(preset)) { next.fill = project.accentColor; next.width = page.width * .36; next.height = page.height * .13; }
               mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) }));
               setSelectedIds([next.id]);
@@ -1187,6 +1217,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             ['Subheading','Discover something extraordinary',.038,'600','#e5edf6'],
             ['Body text','Add your supporting message here.',.027,'400','#e5edf6'],
             ['Price / offer','₹ 99,999',.07,'800',project.accentColor],
+            ['Badge text','LIMITED OFFER',.035,'800',project.accentColor],
             ['Call to action','BOOK YOUR TEST RIDE',.032,'800','#ffffff'],
             ['Fine print','Terms and conditions apply.',.018,'400','#cbd5e1'],
           ].filter(([name]) => String(name).toLowerCase().includes(panelSearch.toLowerCase())).map(([name,content,scale,weight,fill]) => <button type="button" key={String(name)} onClick={() => {
@@ -1259,9 +1290,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <span className={styles.toolbarDivider}/>
           {one && <>
             <label className={styles.colourControl}><span>{one.type === 'text' ? 'Text colour' : 'Fill'}</span><input aria-label={one.type === 'text' ? 'Text colour' : 'Element fill'} disabled={one.locked} type="color" value={one.fill} onChange={(event) => updateElement(one.id, { fill: event.target.value })}/></label>
+            {one.type === 'text' && <div className={styles.colourSwatches} aria-label="Text colour swatches">{['#ffffff','#172033','#f97316','#facc15','#ef4444'].map((colour) => <button key={colour} type="button" className={styles.colourSwatch} style={{background:colour}} title={colour} aria-label={'Set text colour ' + colour} aria-pressed={one.fill.toLowerCase() === colour} disabled={one.locked} onClick={() => updateElement(one.id,{fill:colour})}/>)}</div>}
             {one.type === 'text' && <>
               <select disabled={one.locked} aria-label="Font family" value={one.fontFamily} onChange={(event) => updateElement(one.id, { fontFamily: event.target.value })}><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Impact</option><option>Courier New</option></select>
               <input disabled={one.locked} aria-label="Font size" type="number" min="8" max="500" value={one.fontSize} onChange={(event) => updateElement(one.id, { fontSize: Number(event.target.value) })}/>
+              <label className={styles.typographyControl}><span>Spacing</span><input disabled={one.locked} aria-label="Letter spacing" type="number" min="-10" max="50" step="0.5" value={one.letterSpacing ?? 0} onChange={(event) => updateElement(one.id,{letterSpacing:Number(event.target.value)})}/></label>
               <select disabled={one.locked} aria-label="Text alignment" value={one.align} onChange={(event) => updateElement(one.id, { align: event.target.value as StudioElement['align'] })}><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select>
               <button type="button" title="Bold" aria-label="Bold" disabled={one.locked} aria-pressed={one.fontWeight === '800'} onClick={() => updateElement(one.id, { fontWeight: one.fontWeight === '800' ? '400' : '800' })}><b>B</b></button>
               <button type="button" title="Italic" aria-label="Italic" disabled={one.locked} aria-pressed={one.italic} onClick={() => updateElement(one.id, { italic: !one.italic })}><i>I</i></button>

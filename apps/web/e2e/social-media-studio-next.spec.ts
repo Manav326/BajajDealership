@@ -223,6 +223,27 @@ test('brand logo picker imports and inserts the selected image once', async ({ p
   await expect(page.getByRole('img',{name:'Editable design canvas'}).locator('image')).toHaveCount(1);
 });
 
+
+test('adds sticker presets and exposes editable text spacing and save state', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Headline' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Letter spacing' })).toHaveValue('0');
+  await page.getByRole('spinbutton', { name: 'Letter spacing' }).fill('2.5');
+  await expect(page.getByRole('spinbutton', { name: 'Letter spacing' })).toHaveValue('2.5');
+  await page.getByRole('button', { name: 'Set text colour #facc15' }).click();
+  await page.getByRole('button', { name: 'Elements' }).click();
+  await page.getByRole('textbox', { name: 'Search tool resources' }).fill('Star sticker');
+  await page.getByRole('button', { name: 'Star sticker' }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('textbox', { name: 'Page 1 name' }).fill('Opening scene');
+  await page.getByRole('combobox', { name: 'Transition after page 1' }).selectOption('fade');
+  await page.getByRole('spinbutton', { name: 'Fade duration after page 1' }).fill('1.5');
+  await expect(page.getByRole('textbox', { name: 'Page 1 name' })).toHaveValue('Opening scene');
+  await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 1' })).toHaveValue('1.5');
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });

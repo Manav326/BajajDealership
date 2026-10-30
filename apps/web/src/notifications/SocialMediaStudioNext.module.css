@@ -76,3 +76,11 @@
 .videoClip span,.videoClipActive span{overflow:hidden;text-overflow:ellipsis}
 .videoClipInspectorTitle{padding:8px;border:1px solid #dce6f2;border-radius:7px;background:#f2f6fb;color:#344d6b;font-size:10px;font-weight:700}
 @media(max-width:700px){.canvasWorkspace{grid-template-rows:40px minmax(0,1fr) 160px}.timeline{grid-template-rows:28px 34px 28px 30px 30px}.videoClipLane{padding-inline:5px;gap:4px}.videoClipLaneLabel{width:54px;font-size:7px}.videoClip,.videoClipActive{font-size:7px;padding-inline:3px}}
+
+.colourSwatches{display:flex;align-items:center;gap:4px;flex:none}
+.colourSwatch{width:17px;height:17px;padding:0;border:1px solid #aeb9c8;border-radius:50%;box-shadow:inset 0 0 0 1px #ffffff88}
+.colourSwatch[aria-pressed="true"]{outline:2px solid #ef741d;outline-offset:2px}
+.colourSwatch:disabled{opacity:.4}
+.typographyControl{display:flex;align-items:center;gap:4px;flex:none;color:#65748a;font-size:9px}
+.typographyControl input{width:54px;min-width:0;height:29px;padding:4px 5px;border:1px solid #dce3eb;border-radius:6px;background:white;color:#46566d;font-size:9px}
+.saveState[role="status"]{min-width:84px}

@@ -40,6 +40,8 @@ export type StudioElement = {
   startSeconds?: number;
   durationSeconds?: number;
   sourceStartSeconds?: number;
+  letterSpacing?: number;
+  shapeKind?: 'arrow' | 'triangle' | 'star' | 'burst';
 };
 
 export type StudioPage = {
