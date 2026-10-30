@@ -66,3 +66,57 @@ The following remain separate release tasks unless their external setup and acce
 - Production signing keys, signed release APK/AAB, store listing and Play Store release.
 - Physical-device acceptance across supported Android versions, accessibility checks and network edge cases.
 - Live Render API verification; a successful CI build alone is not proof that every external service is configured or reachable.
+
+
+## Local physical-device Maestro testing (LAN HTTP)
+
+The normal test target is a **physical Android phone on the same Wi-Fi/LAN as the Windows development PC**. Local testing intentionally uses HTTP, not HTTPS or Render:
+
+- QuantaEdge's documented physical-device LAN API address: `http://192.168.31.47:8080/`.
+- The customer website share target in the local Android build is `http://192.168.31.47:3000`.
+- The phone must be able to reach the PC on TCP port 8080. Start the local Docker stack first, allow inbound TCP 8080 on the Windows Private firewall profile, and disable Wi-Fi client/AP isolation if the router enables it.
+- This local HTTP configuration is compiled only by the dedicated test runner. Normal Expo / production builds continue to default to the hosted HTTPS API.
+
+### One-time Windows setup
+
+1. Install Node.js 24, JDK 17+, Android Studio / Android SDK platform-tools and make sure `adb` is on PATH.
+2. Enable Developer options and USB debugging on the physical phone. Connect it by USB and accept the RSA debugging prompt. Verify with `adb devices -l`.
+3. Install Maestro CLI for native Windows from its [official releases](https://github.com/mobile-dev-inc/Maestro/releases/latest): download `maestro.zip`, extract it to a stable directory such as `C:\\maestro`, add `C:\\maestro\\bin` to PATH, then reopen PowerShell. Maestro requires Java 17 or newer.
+4. Copy `.maestro/local.env.example` to `.maestro/local.env`. Use a dedicated **local test customer**, not a real customer's account. Fill in the credentials and notification fixture values. This private file is ignored by Git.
+
+### Run tests from the repository root (PowerShell)
+
+```powershell
+# Public showroom + login/activation entry screens
+.\scripts\test-android-maestro.ps1 -Suite Public
+
+# Authenticated account navigation + customer inbox
+.\scripts\test-android-maestro.ps1 -Suite Authenticated
+
+# Authenticated notification tests; requires the notification fixtures below
+.\scripts\test-android-maestro.ps1 -Suite Notifications
+
+# All suites
+.\scripts\test-android-maestro.ps1 -Suite All
+
+# Override the saved LAN address if the PC/router IP changes
+.\scripts\test-android-maestro.ps1 -LanIp 192.168.31.47 -Suite All
+```
+
+The runner detects the single connected physical Android device, verifies the local API health endpoint, installs or updates a debug APK built with `http://192.168.31.47:8080/`, runs the selected Maestro flows and saves JUnit XML plus screenshots/debug output under `apps/android/maestro-results/<timestamp>/`. It refuses to silently test an emulator or hosted API. When multiple phones are connected, pass `-DeviceId <adb-serial>`.
+
+### Notification test data
+
+The customer notification fixture flows intentionally do not create or send campaigns on their own. Create and send these through the staff Notification Studio to the dedicated local test customer:
+
+- A rich-content campaign with a hero, a PNG/JPEG image block uploaded by the Studio, and a CTA whose target is `/appointments`.
+- A separate campaign with title matching `MAESTRO_NOTIFICATION_ACTION_TITLE`, so read → unread → dismiss is tested without deleting the rich-content fixture.
+- At least 26 total sent notifications, with the value in `MAESTRO_NOTIFICATION_PAGE_TWO_TITLE` on page 2 (items 26–50), to exercise real pagination.
+
+The notification title, image alt text, CTA label and destination heading must match the exact strings in `.maestro/local.env`. The test checks that the authenticated customer can fetch the image referenced by their sent notification; it does not weaken the separate staff media permission.
+
+### What Maestro covers
+
+Maestro is end-to-end UI coverage, not source-code line coverage. These flows exercise the public showroom, login/activation entry, authenticated customer navigation, inbox filtering, notification rich content, notification CTA navigation, notification read/unread/dismiss, media visibility and pagination. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
+
+The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
