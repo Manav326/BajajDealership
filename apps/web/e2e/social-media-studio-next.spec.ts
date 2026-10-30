@@ -103,10 +103,10 @@ test('supports editable elements, contextual properties, custom sizes, pages and
 
   await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
-  await expect(page.getByText('1080 × 1440', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
   await page.getByRole('button', { name: 'Create variant 1080 by 1080' }).click();
   await expect(page.getByRole('button', { name: /2 Square feed/ })).toBeVisible();
-  await expect(page.getByText('1080 × 1080', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1080');
 
   await page.getByRole('button', { name: 'Pages' }).click();
   await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
@@ -119,7 +119,7 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await expect(project).toBeVisible();
   await project.click();
   await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Ride into your next journey');
-  await expect(page.getByText('1080 × 1440', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
 });
 
 test('exports artwork into the independent local resource library and supports re-download', async ({ page }) => {
