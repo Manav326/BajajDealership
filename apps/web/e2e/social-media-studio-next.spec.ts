@@ -893,19 +893,32 @@ for (const width of [390, 768, 1280]) {
   });
 }
 
-test('uploaded video media becomes a timed, selectable timeline clip', async ({ page }) => {
+test('multiple uploaded video clips have independent, editable timeline tracks', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Uploads' }).click();
-  await page.getByLabel('Import media').setInputFiles({
-    name: 'scene-video.webm',
-    mimeType: 'video/webm',
-    buffer: Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAPREU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggO77AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIBQqxoaDkAoicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgTC6gTCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIBQqxoaDkAohnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QhLngQCjwYEAAIBwAwCdASowADAAAEcIhYWImYSIAgICdaoD+AP6AgdqCOecuLQA/v1u8//kb+PnRv/I4//8Sp7jieP//EaAo7KBAGQAMQIABRCsABgMUUvbO5RwHhcckwD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQDIABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQEsABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQGQABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQH0ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQJYABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQK8ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQMgABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=', 'base64'),
-  });
+  const videoBytes = Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAPREU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggO77AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIBQqxoaDkAoicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgTC6gTCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIBQqxoaDkAohnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QhLngQCjwYEAAIBwAwCdASowADAAAEcIhYWImYSIAgICdaoD+AP6AgdqCOecuLQA/v1u8//kb+PnRv/I4//8Sp7jieP//EaAo7KBAGQAMQIABRCsABgMUUvbO5RwHhcckwD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQDIABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQEsABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQGQABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQH0ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQJYABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQK8ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQMgABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=', 'base64');
+  await page.getByLabel('Import media').setInputFiles([
+    { name: 'scene-video.webm', mimeType: 'video/webm', buffer: videoBytes },
+    { name: 'scene-overlay.webm', mimeType: 'video/webm', buffer: Buffer.from(videoBytes) },
+  ]);
   const videoAsset = page.getByRole('button', { name: /scene-video\.webm/ });
   await expect(videoAsset).toBeVisible();
+  const overlayAsset = page.getByRole('button', { name: /scene-overlay/ });
+  await expect(overlayAsset).toBeVisible();
   await videoAsset.click();
-  await expect(page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Uploads' }).click();
+  await overlayAsset.click();
+  const firstVideoTrack = page.getByRole('group', { name: 'Video track 1: scene-video.webm' });
+  const secondVideoTrack = page.getByRole('group', { name: 'Video track 2: scene-overlay.webm' });
+  await expect(firstVideoTrack).toBeVisible();
+  await expect(secondVideoTrack).toBeVisible();
+  const firstTrackBox = await firstVideoTrack.boundingBox();
+  const secondTrackBox = await secondVideoTrack.boundingBox();
+  if (!firstTrackBox || !secondTrackBox) throw new Error('Both independent video tracks should be measurable.');
+  expect(secondTrackBox.y).toBeGreaterThan(firstTrackBox.y);
+  const firstTimelineClip = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
+  await firstTimelineClip.click();
   const clipDuration = page.getByRole('spinbutton', { name: 'Video clip duration' });
   await expect(clipDuration).toBeVisible();
   const initialDuration = Number(await clipDuration.inputValue());

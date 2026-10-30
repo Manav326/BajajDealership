@@ -727,6 +727,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
   const audioClipLength = Math.max(.1,Math.min(project.audioDurationSeconds??30,Math.max(.1,audioTrackDuration-project.audioStartSeconds),Math.max(.1,totalSceneDuration)));
+  const timelineVideoClips = project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>({scene,sceneIndex,clip})));
   const changeProject = (next:StudioProject) => {
     projectRef.current = next;
     if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
@@ -907,7 +908,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   }
   function beginTimelineClipDrag(event:ReactPointerEvent<HTMLElement>,scene:StudioPage,clip:StudioElement,mode:'move'|'start'|'end') {
     if(clip.locked){onNotify('Unlock this video clip before changing its timeline position or trim.');return;}
-    const track=timelineClipTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();
+    const track=event.currentTarget.closest('.videoClipTrack') as HTMLDivElement|null;if(!track)return;timelineClipTrackRef.current=track;event.preventDefault();event.stopPropagation();
     const rect=track.getBoundingClientRect();if(!rect.width)return;
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(.1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
@@ -1645,33 +1646,37 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
           </div>
           <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
-          <div className={styles.videoClipLane}>
-            <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
-            <div ref={timelineClipTrackRef} className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
-              {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{
+          <div className={styles.videoTracks} aria-label="Video tracks">
+            {timelineVideoClips.length===0
+              ? <div className={styles.videoTracksEmpty}><Icon name="video"/> Add video clips from Uploads</div>
+              : timelineVideoClips.map(({scene,sceneIndex,clip},trackIndex)=>{
                 const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
                 const effectiveStart=timelineClipPreview?.clipId===clip.id?timelineClipPreview.startSeconds:(clip.startSeconds??0);
                 const effectiveDuration=timelineClipPreview?.clipId===clip.id?timelineClipPreview.durationSeconds:(clip.durationSeconds??scene.durationSeconds);
                 const clipStart=offset+effectiveStart;
                 const clipDuration=Math.max(0,Math.min(effectiveDuration,scene.durationSeconds-effectiveStart));
-                return <div key={clip.id} role="group" aria-label={'Video timeline clip '+clip.name} className={styles.videoClipItem}
-                  style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
-                  <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
-                    title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
-                    aria-label={'Select timeline video clip '+clip.name}
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}><Icon name="video"/><span>{clip.name}</span></button>
-                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
-                    aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
-                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
-                    aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                return <div key={clip.id} className={styles.videoTrackRow} role="group" aria-label={'Video track '+(trackIndex+1)+': '+clip.name}>
+                  <span className={styles.videoClipLaneLabel} title={'Video track '+(trackIndex+1)+': '+clip.name}><Icon name="video"/><span>V{trackIndex+1}</span></span>
+                  <div className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
+                    <div role="group" aria-label={'Video timeline clip '+clip.name} className={styles.videoClipItem}
+                      style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
+                      <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
+                        title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
+                        aria-label={'Select timeline video clip '+clip.name}
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
+                        onClick={()=>selectTimelineVideoClip(scene,clip)}><Icon name="video"/><span>{clip.name}</span></button>
+                      <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
+                        aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
+                        onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                      <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
+                        aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
+                        onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                    </div>
+                  </div>
                 </div>;
-              }))}
-            </div>
+              })}
           </div>
           <div className={styles.timelineTrack}>
             <span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudioResource?selectedAudioResource.name:'No soundtrack selected'}<small>{selectedAudioResource?formatTime(audioPreviewTime)+' / '+formatTime(audioTrackDuration)+(audioPlaying?' · Playing':''):formatTime(totalSceneDuration)+' total'}</small></div>
