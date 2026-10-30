@@ -752,6 +752,7 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await connect.click();
   const consent = page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' });
   await expect(consent).toBeVisible();
+  await expect(consent).toBeFocused();
   await expect(consent).toContainText('Meta will show the exact permissions requested');
   await expect(consent).toContainText('Connecting an account does not publish anything');
   await consent.getByText('See the exact Meta permissions being requested').click();
@@ -765,7 +766,6 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   expect(connectRequests).toHaveLength(0);
 
   const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
-  await page.keyboard.press('Tab');
   await expect(permissionSummary).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(continueToMeta).toBeFocused();
