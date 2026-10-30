@@ -228,6 +228,25 @@ test('renders a photo first, then downloads it only after an explicit choice', a
   await page.getByRole('button', { name: /Download .*\.png/ }).click();
 });
 
+test('video render can be cancelled, cleans up and can be retried', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const cancel = page.getByRole('button', { name: 'Cancel render' });
+  await expect(cancel).toBeVisible({ timeout: 15000 });
+  await cancel.click();
+  await expect(page.getByText('Video rendering was cancelled.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Cancel render' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
+});
+
 test('download workflow supports video-only and photo-plus-video selections', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -300,6 +319,7 @@ test('element search filters presets and layer search filters the actual layer l
   await page.getByRole('button', { name: 'Lock layer' }).click();
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
+  await expect(page.locator('svg[aria-label="Editable design canvas"] > g[transform*="rotate"]')).toHaveCount(0);
   const lockedLayer = page.getByRole('button', { name: 'Offer badge', exact: true });
   const lockedCanvasObject = page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Offer badge, locked"]');
   await expect(lockedCanvasObject).toHaveCount(1);
