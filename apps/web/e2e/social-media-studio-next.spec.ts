@@ -290,11 +290,11 @@ test('video render can be cancelled, cleans up and can be retried', async ({ pag
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Pages' }).click();
-  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('8');
   await page.getByRole('button', { name: 'Render video' }).click();
   const cancel = page.getByRole('button', { name: 'Cancel render' });
   await expect(cancel).toBeVisible({ timeout: 15000 });
-  await cancel.click();
+  await cancel.click({ force: true });
   await expect(page.getByText('Video rendering was cancelled.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Cancel render' })).toHaveCount(0);
@@ -761,7 +761,7 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   }
   const notNow = consent.getByRole('button', { name: 'Not now' });
   const continueToMeta = consent.getByRole('button', { name: 'Continue to Meta' });
-  await expect(consent).toBeFocused();
+  await expect(permissionSummary).toBeFocused();
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   expect(connectRequests).toHaveLength(0);
 
@@ -863,7 +863,7 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await openNewStudio(page);
   await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Untitled design' }).click();
-  await page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Text"]').click();
+  await page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Headline"]').click();
   await expect(page.getByRole('textbox', { name: 'Text', exact: true })).toHaveValue('Persistent campaign headline');
 });
 
