@@ -729,6 +729,10 @@ export default function CustomerExperience() {
         setScreen('showroom');
         return true;
       }
+      if (screen === 'cart') {
+        setScreen('parts');
+        return true;
+      }
       if (token && screen !== 'home') {
         setScreen('home');
         return true;
