@@ -309,7 +309,7 @@ async function validateAudioBlob(blob: Blob): Promise<void> {
       audio.onerror = () => reject(new Error('Audio duration could not be read. Use a supported audio file.'));
       audio.src = url;
     });
-    if (!Number.isFinite(duration) || duration < MUSIC_CLIP_MIN_SECONDS) throw new Error('Audio tracks must be at least 20 seconds long.');
+    if (!Number.isFinite(duration) || duration < MUSIC_CLIP_MIN_SECONDS) throw new Error('Audio tracks must be at least one second long.');
   } finally { URL.revokeObjectURL(url); }
 }
 export async function saveResource(blob: Blob, name: string, kind: StudioResourceKind, exported = false): Promise<StudioResource> {
