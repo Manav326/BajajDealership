@@ -283,6 +283,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # This second build is deliberately local-only. It is not the customer installer:
+      # its API endpoint is the host loopback port published by Docker Compose.
+      - name: Build local-Docker Windows test installer
+        working-directory: apps/web
+        env:
+          VITE_API_BASE_URL: http://127.0.0.1:8080/
+          VITE_APP_VERSION: "0.1.0-local"
+        run: npm run tauri:build
+      - name: Verify local-Docker API URL was embedded in the desktop bundle
+        shell: pwsh
+        run: |
+          $bundles = Get-ChildItem "apps/web/dist-desktop/assets/*.js" -File
+          if (-not $bundles) { throw "No desktop JavaScript bundles were produced." }
+          $match = Select-String -Path $bundles.FullName -SimpleMatch "http://127.0.0.1:8080"
+          if (-not $match) { throw "The local-Docker API URL was not embedded in the desktop build." }
+      - name: Upload local-Docker Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: lucky-bajaj-windows-local-docker-${{ github.sha }}
+          path: |
+            apps/web/src-tauri/target/release/bundle/nsis/*.exe
+            apps/web/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
   android:
     name: Build Lucky Bajaj Android APK
     needs: [android-changes]
