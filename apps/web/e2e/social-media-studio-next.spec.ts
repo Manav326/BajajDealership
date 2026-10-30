@@ -128,7 +128,7 @@ test('exports a short promotional video without requiring a soundtrack', async (
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export video' }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/\\.(mp4|webm)$/);
+  expect(['mp4', 'webm']).toContain(download.suggestedFilename().split('.').pop()?.toLowerCase());
   await expect(page.getByRole('status').filter({ hasText: 'Video saved and downloaded' })).toBeVisible();
 });
 
