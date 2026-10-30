@@ -14,12 +14,14 @@ test('staff sign-in uses the bundled Inter font and readable glass surfaces', as
 
   const typography = await page.evaluate(async () => {
     const loadedFaces = await document.fonts.load('500 14px Inter');
+    const hindiFaces = await document.fonts.load('500 14px "Noto Sans Devanagari"', 'नमस्ते');
     const intro = document.querySelector<HTMLElement>('.auth-intro')!;
     const card = document.querySelector<HTMLElement>('.auth-card')!;
     const introStyle = getComputedStyle(intro);
     const cardStyle = getComputedStyle(card);
     return {
       interLoaded: loadedFaces.some((face) => face.status === 'loaded'),
+      devanagariLoaded: hindiFaces.some((face) => face.status === 'loaded'),
       fontFamily: getComputedStyle(document.body).fontFamily,
       introColor: introStyle.color,
       introSize: introStyle.fontSize,
@@ -30,6 +32,7 @@ test('staff sign-in uses the bundled Inter font and readable glass surfaces', as
   });
 
   expect(typography.interLoaded).toBe(true);
+  expect(typography.devanagariLoaded).toBe(true);
   expect(typography.fontFamily).toContain('Inter');
   expect(typography.introColor).toBe('rgb(68, 85, 111)');
   expect(typography.introSize).toBe('14px');
