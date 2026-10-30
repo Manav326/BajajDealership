@@ -98,6 +98,7 @@ function makeElement(type: StudioElement['type'], page: StudioPage): StudioEleme
   const next = element(type, page.width * .18, page.height * .2);
   if (type === 'text') { next.fontSize = Math.max(36, Math.round(page.width * .075)); next.width = page.width * .64; next.height = page.height * .18; }
   if (type === 'image') { next.width = page.width * .55; next.height = page.height * .4; }
+  if (type === 'video') { next.width = page.width * .72; next.height = page.height * .42; next.fill = '#101827'; next.startSeconds = 0; next.durationSeconds = page.durationSeconds; next.sourceStartSeconds = 0; }
   if (type === 'line') { next.width = page.width * .5; next.height = 2; }
   return next;
 }
@@ -114,6 +115,7 @@ function elementSvg(item: StudioElement, url?: string) {
   if (item.type === 'image') return url
     ? <image href={url} x={0} y={0} width={item.width} height={item.height} preserveAspectRatio={item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice'} transform={common.transform} opacity={common.opacity} />
     : <rect x={0} y={0} width={item.width} height={item.height} fill="#94a3b8" opacity=".35" />;
+  if (item.type === 'video') return <g transform={common.transform} opacity={common.opacity}><rect x={0} y={0} width={item.width} height={item.height} rx={12} fill="#101827" stroke="#93a4ba" strokeWidth={3}/><path d={`M ${item.width*.44} ${item.height*.3} L ${item.width*.68} ${item.height*.5} L ${item.width*.44} ${item.height*.7} Z`} fill="#fff"/><text x={item.width/2} y={item.height*.88} fill="#fff" fontSize={Math.max(12,item.height*.07)} textAnchor="middle">VIDEO CLIP</text></g>;
   if (item.type === 'circle') return <ellipse cx={item.width / 2} cy={item.height / 2} rx={item.width / 2} ry={item.height / 2} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
   if (item.type === 'line') return <line x1={0} y1={item.height / 2} x2={item.width} y2={item.height / 2} stroke={item.fill} strokeWidth={Math.max(2, item.strokeWidth || item.height)} transform={common.transform} opacity={common.opacity} />;
   return <rect x={0} y={0} width={item.width} height={item.height} rx={12} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
@@ -127,6 +129,7 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
       const lines = item.text.split('\n').slice(0, 8);
       shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
     } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
+    else if (item.type === 'video') shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
     else if (item.type === 'line') shape = '<line x1="0" y1="' + item.height / 2 + '" x2="' + item.width + '" y2="' + item.height / 2 + '" stroke="' + item.fill + '" stroke-width="' + Math.max(2, item.strokeWidth || item.height) + '"/>';
     else shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
@@ -912,6 +915,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     item.name = resource.name; item.resourceId = resource.id;
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
     setSelectedIds([item.id]);
+  }
+  function addLibraryVideo(resource: StudioResource) {
+    const item = makeElement('video', page); item.name = resource.name; item.resourceId = resource.id;
+    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
+    setSelectedIds([item.id]); setTool('layers'); onNotify('Video clip added to this scene. Adjust its timing in Properties.');
   }
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
     setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
