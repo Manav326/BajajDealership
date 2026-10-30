@@ -1,0 +1,18 @@
+appId: com.quantaedge.luckybajaj
+name: Customer notification inbox and unread filter
+tags:
+  - authenticated
+  - notifications
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Updates"
+- assertVisible: "Dealership updates"
+- assertVisible:
+    text: "Unread only"
+    optional: true
+- tapOn:
+    text: "Unread only"
+    optional: true
+- assertVisible: "Show all updates"
+- tapOn: "Show all updates"
+- assertVisible: "Dealership updates"
