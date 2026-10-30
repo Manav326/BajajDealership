@@ -22,26 +22,37 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CustomerGoogleIdentityService {
   private final String clientId;
+  private final String androidClientId;
   private final GoogleIdTokenVerifier verifier;
 
   public CustomerGoogleIdentityService(
-      @Value("${app.auth.google-client-id:}") String clientId) {
+      @Value("${app.auth.google-client-id:}") String clientId,
+      @Value("${app.auth.google-android-client-id:}") String androidClientId) {
     this.clientId = clientId == null ? "" : clientId.trim();
-    this.verifier = this.clientId.isBlank() ? null
+    this.androidClientId = androidClientId == null ? "" : androidClientId.trim();
+    List<String> audiences = java.util.stream.Stream.of(this.clientId, this.androidClientId)
+        .filter(value -> !value.isBlank())
+        .distinct()
+        .toList();
+    this.verifier = audiences.isEmpty() ? null
         : new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), JacksonFactory.getDefaultInstance())
-            .setAudience(List.of(this.clientId))
+            .setAudience(audiences)
             .build();
   }
 
-  /** This public client ID is not a secret; client secrets must never be sent to the browser. */
+  /** Public OAuth client IDs are not secrets; client secrets must never be sent to a client. */
   public String publicClientId() {
     return clientId;
   }
 
+  public String publicAndroidClientId() {
+    return androidClientId;
+  }
+
   public VerifiedIdentity verify(String credential) {
-    if (verifier == null || clientId.isBlank()) {
+    if (verifier == null) {
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-          "Google sign-in is not configured. Configure the same GOOGLE_WEB_CLIENT_ID used by QuantaEdge.");
+          "Google sign-in is not configured. Configure GOOGLE_WEB_CLIENT_ID and/or GOOGLE_ANDROID_CLIENT_ID as applicable.");
     }
     if (credential == null || credential.isBlank() || credential.length() > 12000) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
