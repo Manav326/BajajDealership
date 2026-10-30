@@ -147,8 +147,8 @@ test('resource import, filter and delete remain in the resource library', async 
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
   await page.getByRole('combobox', { name: 'Resource type' }).selectOption('image');
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
-  await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
   page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
   // Confirm the resource is removed after the explicit confirmation.
   await expect(page.getByText('local-campaign-photo.png')).toHaveCount(0);
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import { apiFetch } from './apiClient';
 import { ARTWORK_TEMPLATES, STARTER_ARTWORK_ASSETS } from './artworkAssets';
+import { STARTER_MUSIC_CATALOG } from './artworkMusic';
 import {
   chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources,
   removeProject, removeResource, requestSavedFolderPermission, saveExport,
@@ -12,6 +13,7 @@ import styles from './SocialMediaStudioNext.module.css';
 
 type Tool = 'templates' | 'elements' | 'text' | 'uploads' | 'brand' | 'audio' | 'layers' | 'pages' | 'resize';
 type HubPage = 'projects' | 'resources' | 'publish' | 'whatsapp' | 'connections';
+type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
 type SizePreset = { id: string; label: string; platform: string; width: number; height: number; group: string };
 
 const SIZE_PRESETS: SizePreset[] = [
@@ -283,6 +285,17 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       notify('Design saved.');
     } catch (cause) { notify(cause instanceof Error ? cause.message : 'Design could not be saved.'); }
   }
+  async function saveAndOpenResources(project: StudioProject) {
+    try {
+      await saveProject(project);
+      setActiveProject(null);
+      setEditorOpen(false);
+      setHubPage('resources');
+      await refreshLibrary();
+      notify('Design saved to the resource library.');
+    } catch (cause) { notify(cause instanceof Error ? cause.message : 'Design could not be saved.'); }
+  }
+
   async function uploadResources(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = '';
@@ -467,6 +480,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         </article>)}</div>
       </section>}
       {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <section className={styles.whatsappHost} style={{ display: hubPage === 'whatsapp' ? 'block' : 'none' }} aria-hidden={hubPage !== 'whatsapp'}>
+        <div className={styles.whatsappResourcePicker}><Icon name="image"/><select aria-label="WhatsApp artwork design" value={activeProject?.id ?? ''} onChange={(event) => setActiveProject(projects.find((item) => item.id === event.target.value) ?? null)}><option value="">Choose artwork for image templates</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
         <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp}
           getArtworkJpeg={async () => {
             if (!activeProject) throw new Error('Open a saved design from Projects first.');
@@ -477,7 +491,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
       onProjectChange={setActiveProject} onClose={() => void saveAndClose(activeProject)} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
-      onNotify={notify} onOpenLibrary={() => void saveAndClose(activeProject)}/>}
+      onNotify={notify} onOpenLibrary={() => void saveAndOpenResources(activeProject)}/>}
   </div>;
 }
 
@@ -497,12 +511,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
   const [selectedAudio, setSelectedAudio] = useState(project.selectedAudioId ?? '');
+  const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [exporting, setExporting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [panelSearch, setPanelSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ mode: 'move' | 'resize' | 'rotate'; ids: string[]; start: { x: number; y: number }; items: StudioElement[]; handle?: string; center?: { x: number; y: number } } | null>(null);
   const undoRef = useRef<StudioProject[]>([]);
@@ -760,6 +774,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       onNotify('This browser cannot record canvas video. Use current Chrome or Edge.');
       return;
     }
+    const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
+    const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
+    if (totalDuration > maxDuration) { onNotify('This destination supports up to ' + maxDuration + ' seconds. Shorten the scene timeline first.'); return; }
     setExporting(true);
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
@@ -907,8 +924,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           {resources.filter((item) => item.kind === 'audio').map((resource) => <button key={resource.id} type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}>
             <Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}
           </button>)}
+          <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small></span><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div>)}</div>
           <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => changeProject({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
           <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
+          <label className={styles.panelField}>Story destination<select aria-label="Story destination" value={storyTarget} onChange={(event) => setStoryTarget(event.target.value as StoryTarget)}><option value="whatsapp-status">WhatsApp Status · 90s</option><option value="instagram-story">Instagram Story · 60s</option><option value="facebook-story">Facebook Story · 60s</option><option value="social-reel">Instagram / Facebook Reel · 120s</option></select></label>
           <label className={styles.panelField}>Scene duration <input type="number" min="1" max="60" value={page.durationSeconds} onChange={(event) => replacePage({ ...page, durationSeconds: Math.max(1, Math.min(60, Number(event.target.value))) })}/></label>
         </div>}
         {tool === 'layers' && <div className={styles.layerList}>{[...page.elements].reverse().map((item) => <div className={styles.layerRow} key={item.id} data-selected={selectedIds.includes(item.id)}>
@@ -959,7 +978,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
             role="img" aria-label="Editable design canvas" onPointerMove={movePointer} onPointerUp={endPointer}>
             <rect x="0" y="0" width={page.width} height={page.height} fill={page.background}/>
             {page.elements.filter((item) => item.visible).map((item) => <g key={item.id} transform={`translate(${item.x} ${item.y})`} opacity={item.opacity}
-              onPointerDown={(event) => { event.stopPropagation(); selectObject(event, item.id); }} onContextMenu={(event) => { event.preventDefault(); setSelectedIds([item.id]); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
+              onPointerDown={(event) => { event.stopPropagation(); selectObject(event, item.id); }}>
               {elementSvg(item, item.resourceId ? urls[item.resourceId] : undefined)}
             </g>)}
             {selected.map((item) => <g key={'select-' + item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation} ${item.width / 2} ${item.height / 2})`} pointerEvents="none">
@@ -998,7 +1017,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         <div className={styles.inspectorActions}><button type="button" onClick={() => reorderSelected(-1)}>Backward</button><button type="button" onClick={() => reorderSelected(1)}>Forward</button></div>
       </aside>}
     </div>
-    {contextMenu && <button type="button" className={styles.contextDismiss} onClick={() => setContextMenu(null)} aria-label="Close context menu"/>}
     <div className={styles.editorFooter}><button type="button" onClick={() => setCaptionOpen((value) => !value)} aria-expanded={captionOpen}>Caption / hashtags</button>
       <span>{page.width} × {page.height}</span><span>{saving ? 'Saving…' : ' '}</span><button type="button" onClick={onClose}><Icon name="check"/> Done</button></div>
     {captionOpen && <div className={styles.captionPopover}><label>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label><label>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label></div>}
