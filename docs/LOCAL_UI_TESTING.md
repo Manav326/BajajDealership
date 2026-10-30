@@ -37,7 +37,7 @@ Initial dependency and browser/CLI downloads need an internet connection.
 
 ## One-time Android machine prerequisites
 
-To run `-Target Android` or `-Target Both`, install **Node.js 24**, **JDK 17 or 21**, and **Android Studio with Android SDK/platform-tools**. Ensure `JAVA_HOME` points to the JDK (the script also checks Android Studio's bundled JBR in its standard install location). Create an Android Virtual Device once in Android Studio's Device Manager, or connect a physical Android phone with USB debugging enabled. The script can boot an existing AVD automatically; it cannot create an Android SDK/system image before Android Studio has been installed and licensed.
+To run `-Target Android` or `-Target Both`, install **Node.js 24**, **JDK 17 or 21**, and **Android Studio with Android SDK/platform-tools**. The Android SDK Manager must also contain **Android SDK Platform 36**, **Build Tools 36.0.0**, and **NDK 27.1.12297006**; the runner checks these up front and reports any missing package. Ensure `JAVA_HOME` points to the JDK (the script also checks Android Studio's bundled JBR in its standard install location). Create an Android Virtual Device once in Android Studio's Device Manager, or connect a physical Android phone with USB debugging enabled. The script can boot an existing AVD automatically; it cannot create an Android SDK/system image before Android Studio has been installed and licensed.
 
 The app is built in release mode so the test does not depend on a persistent Metro window. The emulator or phone remains visible while Maestro performs the UI actions.
 
