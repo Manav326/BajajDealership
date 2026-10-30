@@ -16,7 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Verifies Google Identity Services ID tokens exactly as QuantaEdge does:
- * provider-signed token, expiry/issuer checks and one centrally configured audience.
+ * provider-signed token, expiry/issuer checks and centrally configured audiences.
  * No email or profile field supplied outside the verified token is trusted.
  */
 @Service

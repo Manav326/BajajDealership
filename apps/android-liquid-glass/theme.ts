@@ -1,9 +1,9 @@
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, type ImageStyle, type TextStyle, type ViewStyle } from 'react-native';
 
 export const LIQUID_GLASS = true;
-export const C = { ink: '#17253B', muted: '#52647D', quiet: '#667891', orange: '#E66E32', darkOrange: '#A94B20', border: 'rgba(164,182,207,0.52)', canvas: '#EAF0FA', white: '#FFFFFF', green: '#16734A', red: '#AF3938', pale: 'rgba(230,110,50,0.13)', navy: '#172A45' };
+export const C = { ink: '#17253B', muted: '#52647D', quiet: '#667891', orange: '#E66E32', darkOrange: '#A94B20', border: 'rgba(164,182,207,0.52)', canvas: '#EAF0FA', white: '#FFFFFF', green: '#16734A', red: '#AF3938', pale: 'rgba(230,110,50,0.13)', navy: '#172A45' } as const;
 
-const baseStyles = { backdrop:{flex:1},
+const baseStyles = { backdrop:{flex:1}, contentTarget:{flex:1}, glassContentInset:{flex:1},
   safe:{flex:1,backgroundColor:C.canvas}, scroll:{flex:1}, content:{padding:16,paddingBottom:28,gap:13}, contentWide:{alignSelf:'center',width:'100%',maxWidth:1040,paddingHorizontal:24}, flex:{flex:1,minWidth:0}, rowBetween:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10}, wrapRow:{flexDirection:'row',alignItems:'center',flexWrap:'wrap',gap:8},
   topBar:{flexDirection:'row',alignItems:'center',gap:10,paddingHorizontal:16,paddingVertical:10,backgroundColor:'rgba(255,255,255,0.94)',borderBottomWidth:1,borderBottomColor:C.border}, brandMarkSmall:{width:39,height:39,borderRadius:13,backgroundColor:C.pale,borderWidth:1,borderColor:'#F4D7C6',alignItems:'center',justifyContent:'center'}, brandMarkText:{fontSize:12,fontWeight:'900',color:C.darkOrange}, brandName:{fontSize:11,letterSpacing:1.3,fontWeight:'900',color:C.ink}, brandCaption:{fontSize:10,color:C.quiet,marginTop:3}, headerButton:{paddingHorizontal:13,paddingVertical:10,borderRadius:11,borderWidth:1,borderColor:C.border,backgroundColor:C.white}, headerButtonText:{fontSize:11,fontWeight:'800',color:C.ink},
   card:{padding:16,borderRadius:20,backgroundColor:'rgba(255,255,255,0.94)',borderWidth:1,borderColor:'#FFFFFF',gap:10,shadowColor:'#566B89',shadowOpacity:0.05,shadowRadius:13,shadowOffset:{width:0,height:4},elevation:2}, heading:{flexDirection:'row',alignItems:'center',gap:10,marginTop:4,marginBottom:2}, h2:{fontSize:20,lineHeight:27,fontWeight:'900',letterSpacing:-0.35,color:C.ink}, sub:{fontSize:12,lineHeight:18,color:C.muted}, cardTitle:{fontSize:14,lineHeight:20,fontWeight:'800',color:C.ink}, body:{fontSize:13,lineHeight:20,color:C.muted}, meta:{fontSize:11,lineHeight:17,color:C.quiet}, title:{fontSize:29,lineHeight:36,fontWeight:'900',letterSpacing:-0.6,color:C.ink}, price:{fontSize:21,lineHeight:28,fontWeight:'900',color:C.ink}, eyebrow:{fontSize:10,letterSpacing:1.3,fontWeight:'900',color:C.darkOrange}, eyebrowLight:{fontSize:10,letterSpacing:1.4,fontWeight:'900',color:'#F9B68B'}, heroTitleLarge:{fontSize:31,lineHeight:38,fontWeight:'900',letterSpacing:-0.8,color:C.white}, heroCopy:{fontSize:13,lineHeight:21,color:'#D9E3F0'},
@@ -16,7 +16,9 @@ const liquidGlassOverrides = {
   safe:{...baseStyles.safe,backgroundColor:C.canvas},
   content:{...baseStyles.content,paddingTop:18,paddingHorizontal:17,paddingBottom:36},
   contentWide:{...baseStyles.contentWide,paddingHorizontal:26},
-  topBar:{...baseStyles.topBar,backgroundColor:'rgba(247,251,255,0.52)',borderBottomColor:'rgba(255,255,255,0.78)',borderTopWidth:1,borderTopColor:'rgba(255,255,255,0.88)',overflow:'hidden',paddingVertical:12},
+  contentTarget:{...StyleSheet.absoluteFillObject,zIndex:0},
+  glassContentInset:{flex:1,paddingTop:64,paddingBottom:80},
+  topBar:{...baseStyles.topBar,position:'absolute',top:0,left:0,right:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.52)',borderBottomColor:'rgba(255,255,255,0.78)',borderTopWidth:1,borderTopColor:'rgba(255,255,255,0.88)',overflow:'hidden',paddingVertical:12},
   brandMarkSmall:{...baseStyles.brandMarkSmall,backgroundColor:'rgba(255,255,255,0.76)',borderColor:'rgba(255,255,255,0.98)',borderRadius:16,shadowColor:'#536987',shadowOpacity:0.14,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:3},
   headerButton:{...baseStyles.headerButton,backgroundColor:'rgba(255,255,255,0.62)',borderColor:'rgba(255,255,255,0.96)',borderRadius:18,paddingHorizontal:16,shadowColor:'#536987',shadowOpacity:0.08,shadowRadius:9,shadowOffset:{width:0,height:3},elevation:2},
   card:{...baseStyles.card,backgroundColor:'rgba(255,255,255,0.76)',borderColor:'rgba(255,255,255,0.96)',borderWidth:1.2,borderRadius:26,padding:17,shadowColor:'#536987',shadowOpacity:0.15,shadowRadius:21,shadowOffset:{width:0,height:9},elevation:5},
@@ -46,10 +48,10 @@ const liquidGlassOverrides = {
   innerCard:{...baseStyles.innerCard,backgroundColor:'rgba(255,255,255,0.66)',borderRadius:18,borderWidth:1,borderColor:'rgba(255,255,255,0.9)'},
   option:{...baseStyles.option,backgroundColor:'rgba(255,255,255,0.72)',borderColor:'rgba(255,255,255,0.98)',borderRadius:17},
   optionActive:{...baseStyles.optionActive,backgroundColor:'rgba(230,110,50,0.14)',borderColor:'rgba(230,110,50,0.55)'},
-  authBottom:{...baseStyles.authBottom,backgroundColor:'rgba(247,251,255,0.58)',borderTopColor:'rgba(255,255,255,0.92)',overflow:'hidden'},
-  bottomNav:{...baseStyles.bottomNav,backgroundColor:'rgba(247,251,255,0.54)',borderTopColor:'rgba(255,255,255,0.92)',borderTopWidth:1.2,paddingTop:9,paddingBottom:Platform.OS==='android'?9:14,overflow:'hidden'},
+  authBottom:{...baseStyles.authBottom,position:'absolute',left:0,right:0,bottom:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.58)',borderTopColor:'rgba(255,255,255,0.92)',overflow:'hidden'},
+  bottomNav:{...baseStyles.bottomNav,position:'absolute',left:0,right:0,bottom:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.54)',borderTopColor:'rgba(255,255,255,0.92)',borderTopWidth:1.2,paddingTop:9,paddingBottom:Platform.OS==='android'?9:14,overflow:'hidden'},
   navItem:{...baseStyles.navItem,borderRadius:16,paddingVertical:7},
   navActive:{...baseStyles.navActive,backgroundColor:'rgba(230,110,50,0.13)',borderWidth:1,borderColor:'rgba(230,110,50,0.25)'}
-};
+} satisfies Partial<Record<keyof typeof baseStyles, ViewStyle | TextStyle | ImageStyle>>;
 
 export const S = StyleSheet.create({ ...baseStyles, ...liquidGlassOverrides });

@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
-import { EditionBackdrop, GlassOverlay } from './GlassEffects';
+import { EditionBackdrop, EditionContentTarget, GlassOverlay } from './GlassEffects';
 import { C, S } from './theme';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -1042,12 +1042,16 @@ export default function CustomerExperience() {
     <View style={S.topBar}><GlassOverlay intensity={46}/><View style={S.brandMarkSmall}><Text style={S.brandMarkText}>LB</Text></View><View style={S.flex}><Text style={S.brandName}>LUCKY BAJAJ</Text><Text style={S.brandCaption}>{customer?.dealershipName || 'A QuantaEdge customer experience'}</Text></View>
       {token ? <Pressable onPress={() => setScreen('more')} style={S.headerButton}><Text style={S.headerButtonText}>{(customer?.fullName || 'You').split(' ')[0]}</Text></Pressable> : <Pressable onPress={() => setScreen('signin')} style={S.headerButton}><Text style={S.headerButtonText}>Sign in</Text></Pressable>}
     </View>
+    <EditionContentTarget style={S.contentTarget}>
+      <View style={S.glassContentInset}>
     {error ? <Notice message={error}/> : null}{success ? <Notice message={success} good/> : null}
     {loading || loadingData ? <View style={S.loading}><ActivityIndicator color={C.orange}/><Text style={S.meta}>{loading ? 'Opening your customer space…' : 'Syncing your customer records…'}</Text></View> : null}
     <ScrollView key={screen} style={S.scroll} contentContainerStyle={[S.content, wide && S.contentWide]} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={C.orange}/>}>
       {!loading ? renderContent() : null}
       <View style={S.footer}><Text style={S.meta}>YOUR DETAILS STAY WITH YOUR VERIFIED CUSTOMER RECORD</Text><Text style={S.meta}>Powered by QuantaEdge for Lucky Bajaj Agency</Text></View>
     </ScrollView>
+      </View>
+    </EditionContentTarget>
     {authScreen ? <View style={S.authBottom}><GlassOverlay intensity={54}/><Button label="Return to showroom" secondary onPress={() => { setScreen('showroom'); setError(''); setSuccess(''); }}/></View> : <View style={S.bottomNav}><GlassOverlay intensity={58}/>{(token ? NAV : [{key:'showroom' as Screen,label:'Bikes',icon:'◈'},{key:'signin' as Screen,label:'Sign in',icon:'↗'},{key:'privacy' as Screen,label:'Privacy',icon:'⌑'}]).map(item => <Pressable key={item.key} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{selected:screen === item.key}} onPress={() => { setError(''); setSuccess(''); setScreen(item.key); }} style={[S.navItem, screen === item.key && S.navActive]}><Text style={[S.navIcon, screen === item.key && S.navTextActive]}>{item.icon}</Text><Text numberOfLines={1} style={[S.navLabel, screen === item.key && S.navTextActive]}>{item.label}</Text>{item.key === 'updates' && notifications.unreadCount > 0 ? <View style={S.dot}/> : null}{item.key === 'parts' && cartCount > 0 ? <View style={S.dot}/> : null}</Pressable>)}</View>}
   </EditionBackdrop></SafeAreaView>;
 }
