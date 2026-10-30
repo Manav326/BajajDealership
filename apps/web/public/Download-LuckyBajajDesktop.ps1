@@ -10,7 +10,7 @@ $repository = 'Manav326/BajajDealership'
 $branch = $null
 $apiRoot = "https://api.github.com/repos/$repository"
 $artifactPrefix = 'lucky-bajaj-windows-local-docker-'
-$desktopJobName = 'Build unsigned direct installers and Store MSIX package'
+$desktopJobName = 'Build unsigned direct installers and local-Docker test installer'
 
 function Get-GitHubHeaders {
   $headers = @{
@@ -59,7 +59,7 @@ $backupDirectory = $null
 
 try {
   $null = New-Item -ItemType Directory -Path $stagingDirectory -Force
-  Write-Host 'Checking the latest PR #37 Windows build…' -ForegroundColor Cyan
+  Write-Host 'Checking the latest Lucky Bajaj Windows build…' -ForegroundColor Cyan
 
   $pullRequest = Invoke-GitHubApi -Path 'pulls/37'
   if ($pullRequest.state -eq 'closed' -and -not $pullRequest.merged) {
