@@ -122,7 +122,7 @@ function elementSvg(item: StudioElement, url?: string) {
   return <rect x={0} y={0} width={item.width} height={item.height} rx={12} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
 }
 
-function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false): string {
+function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false, includeVideoPlaceholders = true): string {
   const content = page.elements.filter((item) => item.visible).map((item) => {
     const url = item.resourceId ? resourceUrls[item.resourceId] : undefined;
     let shape = '';
@@ -130,7 +130,7 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
       const lines = item.text.split('\n').slice(0, 8);
       shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" letter-spacing="' + (item.letterSpacing ?? 0) + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
     } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
-    else if (item.type === 'video') shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
+    else if (item.type === 'video' && includeVideoPlaceholders) shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
     else if (item.shapeKind) shape = '<polygon points="' + shapePoints(item.shapeKind,item.width,item.height) + '" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
     else if (item.type === 'line') shape = '<line x1="0" y1="' + item.height / 2 + '" x2="' + item.width + '" y2="' + item.height / 2 + '" stroke="' + item.fill + '" stroke-width="' + Math.max(2, item.strokeWidth || item.height) + '"/>';
@@ -174,9 +174,47 @@ async function convertImageBlob(blob: Blob, mimeType: 'image/jpeg'): Promise<Blo
   } finally { bitmap.close(); }
 }
 
-async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png'): Promise<Blob> {
-  const svg = new Blob([makeSvg(page, urls)], { type: 'image/svg+xml;charset=utf-8' });
+async function decodeVideoFrame(sourceUrl: string, requestedTime: number): Promise<HTMLVideoElement> {
+  const video = document.createElement('video');
+  video.preload = 'auto'; video.muted = true; video.playsInline = true;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let timeout = 0;
+      const cleanup = () => {
+        if (timeout) window.clearTimeout(timeout);
+        video.removeEventListener('loadeddata', onLoaded);
+        video.removeEventListener('error', onError);
+      };
+      const onError = () => { cleanup(); reject(new Error('A video clip could not be decoded. Use a browser-supported MP4 or WebM file.')); };
+      const onLoaded = () => {
+        cleanup();
+        if (Number.isFinite(video.duration) && requestedTime >= video.duration) {
+          reject(new Error('A video clip source in-point is beyond the end of its media.'));
+          return;
+        }
+        if (requestedTime <= 0.01) { resolve(); return; }
+        const onSeeked = () => { if (timeout) window.clearTimeout(timeout); video.removeEventListener('error', onSeekError); resolve(); };
+        const onSeekError = () => { if (timeout) window.clearTimeout(timeout); video.removeEventListener('seeked', onSeeked); reject(new Error('A video clip frame could not be seeked for the photo render.')); };
+        timeout = window.setTimeout(onSeekError, 10000);
+        video.addEventListener('seeked', onSeeked, { once: true });
+        video.addEventListener('error', onSeekError, { once: true });
+        try { video.currentTime = requestedTime; } catch { onSeekError(); }
+      };
+      timeout = window.setTimeout(() => { cleanup(); reject(new Error('A video clip could not be decoded in time.')); }, 15000);
+      video.addEventListener('loadeddata', onLoaded, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      video.src = sourceUrl; video.load();
+    });
+    return video;
+  } catch (cause) {
+    video.pause(); video.removeAttribute('src'); video.load(); throw cause;
+  }
+}
+
+async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png', sceneTime = 0): Promise<Blob> {
+  const svg = new Blob([makeSvg(page, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svg);
+  const decodedVideos: HTMLVideoElement[] = [];
   try {
     const image = new Image();
     image.decoding = 'sync';
@@ -190,8 +228,27 @@ async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mi
     context.fillStyle = page.background;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const clip of page.elements.filter(item => item.type === 'video' && item.visible)) {
+      const clipStart = clip.startSeconds ?? 0;
+      const clipDuration = clip.durationSeconds ?? page.durationSeconds;
+      if (sceneTime < clipStart || sceneTime >= clipStart + clipDuration) continue;
+      const sourceUrl = clip.resourceId ? urls[clip.resourceId] : undefined;
+      if (!sourceUrl) throw new Error('The video media for "' + clip.name + '" is not available in the resource library.');
+      const sourceTime = Math.max(0, (clip.sourceStartSeconds ?? 0) + sceneTime - clipStart);
+      const video = await decodeVideoFrame(sourceUrl, sourceTime);
+      decodedVideos.push(video);
+      context.save();
+      context.translate(clip.x + clip.width / 2, clip.y + clip.height / 2);
+      context.rotate(clip.rotation * Math.PI / 180);
+      context.globalAlpha = clip.opacity;
+      context.drawImage(video, -clip.width / 2, -clip.height / 2, clip.width, clip.height);
+      context.restore();
+    }
     return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('The design could not be exported.')), mimeType, .94));
-  } finally { URL.revokeObjectURL(url); }
+  } finally {
+    decodedVideos.forEach(video => { video.pause(); video.removeAttribute('src'); video.load(); });
+    URL.revokeObjectURL(url);
+  }
 }
 
 function pageFromTemplate(templateId: string): StudioPage | null {
@@ -596,7 +653,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const one = selected.length === 1 ? selected[0] : null;
   const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
-  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
+  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
   useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
@@ -967,7 +1024,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
     setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
     try {
-      const blob = await renderPageBlob(page, urls, mime);
+      const pageIndex = project.pages.findIndex(item => item.id === page.id);
+      const pageOffset = project.pages.slice(0, Math.max(0, pageIndex)).reduce((sum, item) => sum + item.durationSeconds, 0);
+      const sceneTime = timelinePreviewVisible && timelineTime >= pageOffset && timelineTime < pageOffset + page.durationSeconds ? timelineTime - pageOffset : 0;
+      const blob = await renderPageBlob(page, urls, mime, sceneTime);
       setRenderStage('saving'); setRenderProgress(75);
       const extension = mime === 'image/png' ? 'png' : 'jpg';
       const filename = slug(project.name) + '-' + slug(page.name) + '.' + extension;
@@ -1011,7 +1071,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     try {
       Object.values(videoElementsRef.current).forEach(video=>video.pause());
       const frames = await Promise.all(project.pages.map(async (item) => {
-        const blob = new Blob([makeSvg(item, urls)], { type: 'image/svg+xml;charset=utf-8' });
+        const blob = new Blob([makeSvg(item, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         frameUrls.push(url);
         const image = new Image();
