@@ -20,7 +20,7 @@ const baseConfig: ExpoConfig = {
     package: 'com.quantaedge.luckybajaj',
     versionCode: 2,
   },
-  extra: { apiBaseUrl, customerWebUrl },
+  extra: { apiBaseUrl, customerWebUrl, androidPackage: 'com.quantaedge.luckybajaj' },
 };
 
 // Permit cleartext HTTP only when an explicit local development URL is supplied.

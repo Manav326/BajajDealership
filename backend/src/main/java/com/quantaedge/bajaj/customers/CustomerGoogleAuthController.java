@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Customer Google sign-in using the same public OAuth client ID and token-verification pattern as QuantaEdge. */
@@ -26,9 +27,10 @@ public class CustomerGoogleAuthController {
   }
 
   @GetMapping("/google/config")
-  public ResponseEntity<Map<String, Object>> config() {
+  public ResponseEntity<Map<String, Object>> config(
+      @RequestParam(name = "applicationId", required = false) String applicationId) {
     String clientId = identities.publicClientId();
-    String androidClientId = identities.publicAndroidClientId();
+    String androidClientId = identities.publicAndroidClientId(applicationId);
     return ResponseEntity.ok().cacheControl(CacheControl.noStore())
         .body(Map.of(
             "configured", !clientId.isBlank(),

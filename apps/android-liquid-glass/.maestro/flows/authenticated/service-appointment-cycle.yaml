@@ -1,0 +1,23 @@
+appId: com.quantaedge.luckybajajlg
+name: Service appointment request and cancellation
+tags:
+  - authenticated
+  - service
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "More"
+- tapOn: "Appointments"
+- assertVisible: "Service visits"
+- tapOn: ${MAESTRO_CUSTOMER_VEHICLE_NAME}
+- tapOn: "What does your bike need?"
+- inputText: "Maestro automated service appointment test. Please disregard."
+- tapOn: "Request appointment"
+- extendedWaitUntil:
+    visible: "Cancel appointment"
+    timeout: 20000
+- tapOn: "Cancellation reason"
+- inputText: "Maestro test cleanup"
+- tapOn: "Cancel appointment"
+- extendedWaitUntil:
+    visible: "Cancelled"
+    timeout: 20000

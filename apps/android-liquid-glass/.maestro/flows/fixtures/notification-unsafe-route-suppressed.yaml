@@ -1,0 +1,11 @@
+appId: com.quantaedge.luckybajajlg
+name: Unsupported internal notification destinations are hidden
+tags:
+  - authenticated
+  - notification-fixture
+  - security
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Updates"
+- assertVisible: ${MAESTRO_NOTIFICATION_UNSAFE_TARGET_TITLE}
+- assertNotVisible: ${MAESTRO_UNSAFE_CTA_LABEL}

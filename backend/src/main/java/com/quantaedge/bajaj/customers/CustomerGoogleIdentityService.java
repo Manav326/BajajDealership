@@ -16,21 +16,24 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Verifies Google Identity Services ID tokens exactly as QuantaEdge does:
- * provider-signed token, expiry/issuer checks and one centrally configured audience.
+ * provider-signed token, expiry/issuer checks and centrally configured audiences.
  * No email or profile field supplied outside the verified token is trusted.
  */
 @Service
 public class CustomerGoogleIdentityService {
   private final String clientId;
   private final String androidClientId;
+  private final String androidLiquidGlassClientId;
   private final GoogleIdTokenVerifier verifier;
 
   public CustomerGoogleIdentityService(
       @Value("${app.auth.google-client-id:}") String clientId,
-      @Value("${app.auth.google-android-client-id:}") String androidClientId) {
+      @Value("${app.auth.google-android-client-id:}") String androidClientId,
+      @Value("${app.auth.google-android-liquid-glass-client-id:}") String androidLiquidGlassClientId) {
     this.clientId = clientId == null ? "" : clientId.trim();
     this.androidClientId = androidClientId == null ? "" : androidClientId.trim();
-    List<String> audiences = java.util.stream.Stream.of(this.clientId, this.androidClientId)
+    this.androidLiquidGlassClientId = androidLiquidGlassClientId == null ? "" : androidLiquidGlassClientId.trim();
+    List<String> audiences = java.util.stream.Stream.of(this.clientId, this.androidClientId, this.androidLiquidGlassClientId)
         .filter(value -> !value.isBlank())
         .distinct()
         .toList();
@@ -45,14 +48,15 @@ public class CustomerGoogleIdentityService {
     return clientId;
   }
 
-  public String publicAndroidClientId() {
+  public String publicAndroidClientId(String applicationId) {
+    if ("com.quantaedge.luckybajajlg".equals(applicationId)) return androidLiquidGlassClientId;
     return androidClientId;
   }
 
   public VerifiedIdentity verify(String credential) {
     if (verifier == null) {
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-          "Google sign-in is not configured. Configure GOOGLE_WEB_CLIENT_ID and/or GOOGLE_ANDROID_CLIENT_ID as applicable.");
+          "Google sign-in is not configured. Configure GOOGLE_WEB_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID and/or GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID as applicable.");
     }
     if (credential == null || credential.isBlank() || credential.length() > 12000) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

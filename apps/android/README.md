@@ -2,7 +2,7 @@
 
 **Product owner:** Lucky Bajaj Agency  
 **Software provider:** QuantaEdge  
-**UI direction:** Mobile-first Liquid Glass, adaptive layouts and native Android interaction patterns.
+**Edition:** Standard Edition. Its existing customer UI is preserved; Liquid Glass styling is exclusive to the separate Liquid Glass Edition.
 
 ## Customer workflows
 
@@ -136,3 +136,8 @@ The notification title, image alt text, CTA label and destination heading must m
 Maestro is end-to-end UI coverage, not source-code line coverage. The current suite contains 10 runnable flows plus one shared login subflow. It exercises the public showroom and search, login/activation entry, authenticated navigation, profile/address/service screens, service appointment request and cancellation, parts cart persistence across app restart, portrait/landscape layout adaptation, inbox unread filtering, rich notification rendering, CTA navigation, notification read/unread/dismiss, customer-authorized image loading and page-2 pagination. Three notification fixture flows require the sent campaigns described above. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
 
 The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
+
+
+## Two Android editions
+
+The Standard Edition remains package `com.quantaedge.luckybajaj`. Its Liquid Glass sibling lives in `apps/android-liquid-glass`, uses `com.quantaedge.luckybajajlg`, and can be installed alongside Standard. Both use the same Lucky Bajaj API and customer records. Shared feature source and Maestro flows are byte-identical and checked by `scripts/check-android-edition-parity.ps1`; edition-specific visual tokens and glass effects are separate.

@@ -244,6 +244,7 @@ Every CI run on `main` (and pull requests targeting `main`) validates the backen
 - `staff-portal-web-<commit>` — compiled staff/admin website in `dist/`.
 - `customer-portal-web-<commit>` — compiled customer website in `dist/`.
 - `lucky-bajaj-android-debug-apk-<commit>` — installable Android debug APK.
+- `lucky-bajaj-android-liquid-glass-debug-apk-<commit>` — installable Liquid Glass Android debug APK.
 
 ### Download and install the latest APK on an Android phone
 
@@ -259,8 +260,18 @@ Install prerequisites: GitHub CLI authenticated with `gh auth login`, Android Pl
 
 Installation uses `adb install -r`; it does not uninstall the existing app or clear its local data. A signing-key mismatch is reported without automatic uninstall. The script keeps only one current APK copy, plus its JSON source metadata and install-history log, under the ignored `artifacts/` directory. GitHub APK artifacts are retained for 14 days.
 
+### Download and install the Liquid Glass edition
 
-Artifacts are retained for 14 days. The web artifacts are static build files, separate from the live preview links above. The Android artifact is a debug APK, not a Play Store-signed release, and defaults to `https://lucky-bajaj-api.onrender.com/`. Override `BAJAJ_API_BASE_URL` in Actions or `EXPO_PUBLIC_API_BASE_URL` for local development; use `http://192.168.31.47:8080/` for a physical phone on the mPAY-style LAN setup and `http://10.0.2.2:8080/` for an Android Studio emulator. A local URL must serve the BajajDealership API, not mPAY's backend.
+Use its independent downloader from the repository root:
+
+```powershell
+.\\scripts\\android-lg-fetch-latest-apk.ps1
+```
+
+It saves the APK as `artifacts/lucky-bajaj-liquid-glass-latest.apk` and targets package `com.quantaedge.luckybajajlg`. Standard remains `com.quantaedge.luckybajaj`; both packages can stay installed together, with separate local app data. The Liquid Glass downloader uses the same ADB device-selection, APK validation, download-only and no-automatic-uninstall protections as the Standard downloader.
+
+
+Artifacts are retained for 14 days. The web artifacts are static build files, separate from the live preview links above. Both Standard and Liquid Glass Android artifacts are debug APKs, not Play Store-signed releases; both default to `https://lucky-bajaj-api.onrender.com/`. Override `BAJAJ_API_BASE_URL` in Actions or `EXPO_PUBLIC_API_BASE_URL` for local development; use `http://192.168.31.47:8080/` for a physical phone on the mPAY-style LAN setup and `http://10.0.2.2:8080/` for an Android Studio emulator. A local URL must serve the BajajDealership API, not mPAY's backend.
 
 ## Local development — build locally or pull from GHCR
 
@@ -349,13 +360,13 @@ docker compose -f compose.yaml logs -f customer-web staff-web
 
 ### Android API address
 
-The Android app uses `EXPO_PUBLIC_API_BASE_URL`. The startup script writes `apps/android/.env` for a physical device using the computer's detected LAN IP. That URL must serve this BajajDealership API, not another backend.
+Both Android editions use `EXPO_PUBLIC_API_BASE_URL`. The existing startup script prepares `apps/android/.env` for the Standard app; the Liquid Glass Maestro runner builds from `apps/android-liquid-glass` and sets the same computer LAN API URL for that separate app. The URL must serve this BajajDealership API, not another backend.
 
 - **Physical phone:** connect the phone and computer to the same Wi-Fi and use `http://<computer-LAN-IP>:8080/`; allow port 8080 through the computer firewall if needed.
 - **Android Studio emulator:** set `BAJAJ_ANDROID_API_BASE_URL=http://10.0.2.2:8080/` before running the startup script.
 - **Override:** set `BAJAJ_ANDROID_API_BASE_URL` before startup; the helper writes it to the ignored Android `.env`.
 
-The Android app is not a Docker service. CI builds an installable debug APK; it is not a signed Play Store release.
+Neither Android edition is a Docker service. CI builds independent installable debug APKs for the Standard and Liquid Glass packages; neither is a signed Play Store release.
 
 ### Initial owner bootstrap
 
@@ -422,6 +433,6 @@ The customer quote covers one outlet and up to 20 staff logins. It proposes a ma
 
 ### Customer Google sign-in
 
-The customer portal uses the same Google Identity Services web client ID and server-side audience verification as QuantaEdge. Configure `GOOGLE_WEB_CLIENT_ID` on the Lucky Bajaj API service with the exact existing value from the QuantaEdge deployment (`APP_AUTH_GOOGLE_CLIENT_ID` inside the API container). The value is a public OAuth client identifier, not a client secret; keep it centrally managed and do not put a client secret in either web app. The Render Blueprint declares the variable as a manual deployment setting so it can be supplied without committing it to source.
+The customer portal uses the same Google Identity Services web client ID and server-side audience verification as QuantaEdge. Configure `GOOGLE_WEB_CLIENT_ID` on the Lucky Bajaj API service with the exact existing value from the QuantaEdge deployment (`APP_AUTH_GOOGLE_CLIENT_ID` inside the API container). The value is a public OAuth client identifier, not a client secret; keep it centrally managed and do not put a client secret in either web app. The Render Blueprint declares the variable as a manual deployment setting so it can be supplied without committing it to source. For Android sign-in, register separate Android OAuth clients for Standard (`com.quantaedge.luckybajaj`) and Liquid Glass (`com.quantaedge.luckybajajlg`) using the SHA-1 fingerprints of the corresponding APK signing certificates. Configure their public client IDs as `GOOGLE_ANDROID_CLIENT_ID` and `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID`, respectively. The Render Blueprint exposes both as manual API-service settings; local Compose forwards the same variables from the root `.env`. Debug and release signing certificates may require different Android OAuth registrations.
 
 In Google Cloud Console, add `https://lucky-bajaj-customer-web.onrender.com` to the OAuth client’s **Authorized JavaScript origins** alongside the existing QuantaEdge origins. Once configured, check `https://lucky-bajaj-api.onrender.com/api/v1/customer/auth/google/config`; it should return `configured: true` and the same public `clientId` as QuantaEdge. This feature does not change customer-code/password login or staff authentication.

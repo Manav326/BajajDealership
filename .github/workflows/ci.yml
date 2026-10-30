@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       android: ${{ steps.filter.outputs.android }}
+      liquid_glass: ${{ steps.filter.outputs.liquid_glass }}
     steps:
       # Required for push events: dorny/paths-filter compares the pushed tree to its base.
       - name: Checkout
@@ -35,6 +36,8 @@ jobs:
           filters: |
             android:
               - 'apps/android/**'
+            liquid_glass:
+              - 'apps/android-liquid-glass/**'
 
   backend:
     name: Backend tests and PostgreSQL migrations
@@ -144,7 +147,9 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1","scripts/android-fetch-latest-apk.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
+          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1","scripts/test-android-liquid-glass-maestro.ps1","scripts/android-fetch-latest-apk.ps1","scripts/android-lg-fetch-latest-apk.ps1","scripts/check-android-edition-parity.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
+      - name: Verify Android edition feature and test parity
+        run: pwsh -NoLogo -NoProfile -File scripts/check-android-edition-parity.ps1
       - name: Validate Docker Compose configuration
         run: |
           docker compose -f compose.yaml config --quiet
@@ -293,12 +298,87 @@ jobs:
             echo "- This is a debug build, not a signed Play Store release."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  android-liquid-glass:
+    name: Build Lucky Bajaj Liquid Glass Android APK
+    needs: [android-changes]
+    # Native Android builds are costly. Build only for Android source changes,
+    # or when explicitly requested through workflow_dispatch.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.android-changes.outputs.liquid_glass == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    # Build the APK against the deployed Bajaj API by default.
+    # Set BAJAJ_API_BASE_URL for LAN/emulator or staging builds.
+    env:
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/android-liquid-glass/package.json
+      - name: Set up Java for Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # Match the packages required by Expo SDK 57 / React Native 0.86.
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
+      - name: Install mobile dependencies
+        working-directory: apps/android-liquid-glass
+        run: npm install --prefer-offline --no-audit --no-fund
+      - name: Check Expo native dependency versions
+        working-directory: apps/android-liquid-glass
+        run: npx expo install --check
+      - name: Typecheck Android app
+        working-directory: apps/android-liquid-glass
+        run: npm run typecheck
+      - name: Generate native Android project
+        working-directory: apps/android-liquid-glass
+        run: npx expo prebuild --platform android --non-interactive --no-install
+      - name: Cache Gradle dependencies and build outputs
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # PR builds restore main's cache; only main updates the shared cache.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Build debug APK
+        working-directory: apps/android-liquid-glass/android
+        run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
+      - name: Upload installable debug APK
+        id: upload-android-apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: lucky-bajaj-android-liquid-glass-debug-apk-${{ github.sha }}
+          path: apps/android-liquid-glass/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Add Android APK download to build summary
+        if: success()
+        env:
+          ARTIFACT_URL: ${{ steps.upload-android-apk.outputs.artifact-url }}
+          API_BASE_URL: ${{ env.EXPO_PUBLIC_API_BASE_URL }}
+        run: |
+          {
+            echo "### Lucky Bajaj Liquid Glass Android app"
+            echo "- [Download the installable debug APK ZIP]($ARTIFACT_URL)"
+            echo "- API base compiled into this APK: `$API_BASE_URL`"
+            echo "- This is a debug build, not a signed Play Store release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish-images:
     name: Publish API and web images to GHCR
     # Android may be skipped for non-mobile changes; still publish images when all
     # required backend/web/Docker checks pass and Android either passes or is skipped.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.backend.result == 'success' && needs.web.result == 'success' && needs['docker-stack'].result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') }}
-    needs: [backend, web, docker-stack, android]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.backend.result == 'success' && needs.web.result == 'success' && needs['docker-stack'].result == 'success' && (needs.android.result == 'success' || needs.android.result == 'skipped') && (needs['android-liquid-glass'].result == 'success' || needs['android-liquid-glass'].result == 'skipped') }}
+    needs: [backend, web, docker-stack, android, android-liquid-glass]
     runs-on: ubuntu-latest
     permissions:
       contents: read

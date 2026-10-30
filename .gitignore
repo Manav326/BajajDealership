@@ -32,3 +32,9 @@ apps/android/maestro-results/
 
 # Downloaded local Android APKs and install logs
 artifacts/
+
+# Generated native project for Liquid Glass Expo app
+apps/android-liquid-glass/android/
+apps/android-liquid-glass/ios/
+apps/android-liquid-glass/.maestro/local.env
+apps/android-liquid-glass/maestro-results/

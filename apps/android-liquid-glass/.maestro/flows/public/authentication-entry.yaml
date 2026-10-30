@@ -1,0 +1,24 @@
+appId: com.quantaedge.luckybajajlg
+name: Customer sign-in and activation entry
+tags:
+  - smoke
+  - public
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Find the ride that feels like you."
+    timeout: 30000
+- tapOn: "Sign in / activate account"
+- assertVisible: "Your customer space, in your pocket."
+- assertVisible: "Dealership code"
+- assertVisible: "Customer code"
+- assertVisible: "Password"
+- tapOn: "Activate account"
+- assertVisible: "One-time activation token"
+- assertVisible: "Create username"
+- assertVisible: "Create password (12+ characters)"
+- tapOn: "Sign in"
+- assertVisible: "Sign in securely"
+- tapOn: "Return to showroom"
+- assertVisible: "Explore Bajaj motorcycles"

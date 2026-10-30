@@ -1,0 +1,17 @@
+appId: com.quantaedge.luckybajajlg
+name: Customer screen adapts to portrait and landscape
+tags:
+  - authenticated
+  - responsive
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "My bikes"
+- assertVisible: "My motorcycles"
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: "My motorcycles"
+- assertVisible: "Parts"
+- assertVisible: "Updates"
+- setOrientation: PORTRAIT
+- assertVisible: "My motorcycles"
+- tapOn: "Updates"
+- assertVisible: "Dealership updates"
