@@ -37,9 +37,9 @@ Cleartext HTTP is permitted only if an explicit local-development URL is configu
 
 ## Google sign-in setup
 
-Configure both public OAuth client IDs on the API deployment when Google sign-in is required:
+Configure the shared web OAuth client ID and this edition's Android OAuth client ID on the API deployment when Google sign-in is required:
 - `GOOGLE_WEB_CLIENT_ID`: the existing web OAuth client ID used by QuantaEdge and the customer website.
-- `GOOGLE_ANDROID_CLIENT_ID`: an Android OAuth client registered for package `com.quantaedge.luckybajajlg` and the SHA-1 fingerprint of the applicable debug/release signing certificate.
+- `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID`: an Android OAuth client registered for package `com.quantaedge.luckybajajlg` and the SHA-1 fingerprint of the applicable debug/release signing certificate.
 
 The API verifies ID-token audiences against the configured client IDs. The Android app reports when native Google sign-in is not configured rather than silently falling back to password login. Never place an OAuth client secret in the mobile app.
 
