@@ -545,6 +545,9 @@ jobs:
       - name: Record Android APK build metadata
         run: |
           node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = { edition: 'liquid-glass', packageName: 'com.quantaedge.luckybajajlg', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+      - name: Validate Liquid Glass APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
       - name: Upload installable debug APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
