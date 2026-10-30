@@ -14,6 +14,18 @@ type Tool = 'templates' | 'elements' | 'text' | 'publishing' | 'uploads' | 'bran
 type HubPage = 'projects' | 'resources' | 'publish' | 'whatsapp' | 'connections';
 type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
 type SizePreset = { id: string; label: string; platform: string; width: number; height: number; group: string };
+type VideoFormatPreference = 'auto' | 'mp4' | 'webm';
+
+function videoMimeCandidates(format: VideoFormatPreference): string[] {
+  const mp4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4'];
+  const webm = ['video/webm;codecs=vp9,opus', 'video/webm'];
+  return format === 'mp4' ? mp4 : format === 'webm' ? webm : [...mp4, ...webm];
+}
+
+function findSupportedVideoMime(format: VideoFormatPreference): string | null {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return videoMimeCandidates(format).find((mime) => MediaRecorder.isTypeSupported(mime)) ?? null;
+}
 
 const SIZE_PRESETS: SizePreset[] = [
   { id: 'ig-square', label: 'Square feed', platform: 'Instagram / Facebook', width: 1080, height: 1080, group: 'Instagram' },
@@ -663,6 +675,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<'photo' | 'video' | 'both'>('photo');
   const [downloadPhotoFormat, setDownloadPhotoFormat] = useState<'png' | 'jpg'>('png');
+  const [videoFormatPreference, setVideoFormatPreference] = useState<VideoFormatPreference>('auto');
+  const supportedVideoFormats = useMemo(() => ({ mp4: !!findSupportedVideoMime('mp4'), webm: !!findSupportedVideoMime('webm') }), []);
+  const selectedVideoMime = findSupportedVideoMime(videoFormatPreference);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [audioTrackDuration, setAudioTrackDuration] = useState(125);
   const [audioPlaying, setAudioPlaying] = useState(false);
@@ -1189,6 +1204,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       onNotify('This browser cannot record canvas video. Use current Chrome or Edge.');
       return;
     }
+    if (videoFormatPreference !== 'auto' && !selectedVideoMime) {
+      onNotify(videoFormatPreference.toUpperCase() + ' recording is not supported by this browser. Choose another available format.');
+      return;
+    }
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
     const audioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
@@ -1261,12 +1280,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         audioDestination.stream.getAudioTracks().forEach((track) => mediaStream?.addTrack(track));
       }
 
-      const mime = [
-        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-        'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm',
-      ].find((value) => MediaRecorder.isTypeSupported(value));
+      const mime = selectedVideoMime;
       recorder = new MediaRecorder(mediaStream, mime
         ? { mimeType: mime, videoBitsPerSecond: 3_000_000, audioBitsPerSecond: 128_000 }
         : undefined);
@@ -1535,6 +1549,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           </div>)}
         </div>}
         {tool === 'resize' && <div className={styles.resizePanel}>
+          <label className={styles.panelField}>Video output format
+            <select aria-label="Video output format" value={videoFormatPreference} onChange={(event) => setVideoFormatPreference(event.target.value as VideoFormatPreference)}>
+              <option value="auto">Automatic · best supported</option>
+              <option value="mp4" disabled={!supportedVideoFormats.mp4}>MP4{supportedVideoFormats.mp4 ? '' : ' · unavailable in this browser'}</option>
+              <option value="webm" disabled={!supportedVideoFormats.webm}>WebM{supportedVideoFormats.webm ? '' : ' · unavailable in this browser'}</option>
+            </select>
+            <small>Codec support depends on this browser. Choose before rendering video.</small>
+          </label>
           {SIZE_PRESETS.map((preset) => <div className={styles.resizePreset} key={preset.id}>
             <button type="button" className={styles.resizePresetMain} onClick={() => applyPreset(preset)}><span>{preset.platform}</span><strong>{preset.label}</strong><small>{preset.width} × {preset.height}</small></button>
             <button type="button" className={styles.resizeVariantButton} aria-label={'Create variant ' + preset.width + ' by ' + preset.height} onClick={() => createSizeVariant(preset)}><Icon name="copy"/> Variant</button>
@@ -1710,7 +1732,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {renderedPhoto && <option value="photo">Photo only</option>}{renderedVideo && <option value="video">Video only</option>}{renderedPhoto && renderedVideo && <option value="both">Photo and video</option>}
       </select></label>
       {(downloadTarget==='photo'||downloadTarget==='both') && renderedPhoto && <label>Photo format<select aria-label="Photo format" value={downloadPhotoFormat} onChange={(event) => setDownloadPhotoFormat(event.target.value as 'png'|'jpg')}><option value="png">PNG</option><option value="jpg">JPEG</option></select></label>}
-      {(downloadTarget==='video'||downloadTarget==='both') && renderedVideo && <label>Video format<select aria-label="Video format" disabled><option>{renderedVideo.name.split('.').pop()?.toUpperCase()} · Original</option></select></label>}
+      {(downloadTarget==='video'||downloadTarget==='both') && renderedVideo && <label>Video format<select aria-label="Video format" disabled><option>{renderedVideo.name.split('.').pop()?.toUpperCase()} · Selected before rendering</option></select></label>}
       <button type="button" className={styles.primaryDownloadButton} disabled={downloadBusy} onClick={() => void downloadOutputs()}><Icon name="download"/> Download selected</button>
       <p>The editor stays open. Your browser manages the final file transfer.</p>
     </div></div>}
