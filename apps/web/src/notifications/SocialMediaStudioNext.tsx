@@ -762,10 +762,26 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     let remaining=Math.max(0,seconds),index=0;while(index<project.pages.length-1&&remaining>=project.pages[index].durationSeconds){remaining-=project.pages[index].durationSeconds;index++;}
     const current=project.pages[index],image=timelineFramesRef.current[current.id];if(!image)return;
     const draw=(img:HTMLImageElement,alpha=1)=>{const scale=Math.min(canvas.width/img.width,canvas.height/img.height),w=img.width*scale,h=img.height*scale;ctx.globalAlpha=alpha;ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);ctx.globalAlpha=1;};
-    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);
-    current.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{const video=videoElementsRef.current[clip.id],start=clip.startSeconds??0,duration=clip.durationSeconds??current.durationSeconds,active=remaining>=start&&remaining<start+duration;if(!video)return;if(!active){video.pause();return;}const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+remaining-start);if(Number.isFinite(video.duration)&&sourceTime>=video.duration){video.pause();return;}if(video.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA){if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Decoder is still loading. */}}if(timelinePlaying&&video.paused)void video.play().catch(()=>undefined);else if(!timelinePlaying)video.pause();ctx.save();ctx.translate(clip.x+clip.width/2,clip.y+clip.height/2);ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity;ctx.drawImage(video,-clip.width/2,-clip.height/2,clip.width,clip.height);ctx.restore();}});
+    const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+      const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+      scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
+        const video=videoElementsRef.current[clip.id],start=clip.startSeconds??0,duration=clip.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
+        if(!video)return;if(!active){if(!timelinePlaying)video.pause();return;}
+        const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-start);
+        if(Number.isFinite(video.duration)&&sourceTime>=video.duration){video.pause();return;}
+        if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
+        if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Decoder is still loading. */}}
+        if(timelinePlaying&&video.paused)void video.play().catch(()=>undefined);else if(!timelinePlaying)video.pause();
+        ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
+        ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+      });
+    };
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);drawSceneVideos(current,remaining,1);
     const next=project.pages[index+1],fade=Math.min(current.durationSeconds,current.transitionDurationSeconds??.5);
-    if(next&&current.transitionAfter==='fade'&&fade>0&&current.durationSeconds-remaining<fade){const nextImage=timelineFramesRef.current[next.id];if(nextImage){const progress=1-Math.max(0,current.durationSeconds-remaining)/fade;draw(nextImage,Math.max(0,Math.min(1,progress)));}}
+    if(next&&current.transitionAfter==='fade'&&fade>0&&current.durationSeconds-remaining<fade){
+      const progress=Math.max(0,Math.min(1,1-(current.durationSeconds-remaining)/fade)),nextImage=timelineFramesRef.current[next.id];
+      if(nextImage){draw(nextImage,progress);drawSceneVideos(next,Math.min(next.durationSeconds,progress*fade),progress);}
+    }
   }
   function seekTimeline(seconds:number){const t=Math.max(0,Math.min(totalSceneDuration,seconds));timelineTimeRef.current=t;setTimelineTime(t);setTimelinePreviewVisible(true);drawTimelinePreview(t);const audio=audioPlayerRef.current;if(audio&&timelinePlaying){if(t<audioClipLength)audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+t);else audio.pause();}}
   function toggleTimelinePlayback(){const audio=audioPlayerRef.current;if(timelinePlaying){setTimelinePlaying(false);audio?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);if(audio&&start<audioClipLength){audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+start);void audio.play().catch(()=>onNotify('Audio preview could not start.'));}else audio?.pause();setTimelinePlaying(true);}
@@ -1221,13 +1237,29 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
 
           ctx.fillStyle = '#101c35';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
+          const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+            const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+            scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
+              const video=videoElementsRef.current[clip.id],clipStart=clip.startSeconds??0,clipDuration=clip.durationSeconds??scene.durationSeconds;
+              if(!video||sceneTime<clipStart||sceneTime>=clipStart+clipDuration)return;
+              const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-clipStart);
+              if(Number.isFinite(video.duration)&&sourceTime>=video.duration)return;
+              if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
+              if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Wait for decoded frame. */}}
+              if(video.paused)void video.play().catch(()=>undefined);
+              ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);
+              ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
+              ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+            });
+          };
           drawContained(selectedFrame.image);
-          selectedFrame.page.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{const video=videoElementsRef.current[clip.id],clipStart=clip.startSeconds??0,clipDuration=clip.durationSeconds??selectedFrame.duration;if(!video||selectedOffset<clipStart||selectedOffset>=clipStart+clipDuration)return;const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+selectedOffset-clipStart);if(Number.isFinite(video.duration)&&sourceTime>=video.duration)return;if(video.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA){if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Wait for decoded frame. */}}if(video.paused)void video.play().catch(()=>undefined);ctx.save();ctx.translate(clip.x+clip.width/2,clip.y+clip.height/2);ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity;ctx.drawImage(video,-clip.width/2,-clip.height/2,clip.width,clip.height);ctx.restore();}});
+          drawSceneVideos(selectedFrame.page,selectedOffset,1);
           const nextFrame = frames[selectedFrameIndex + 1];
           const transitionWindow = Math.min(selectedFrame.duration, selectedFrame.transitionDuration);
           if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
-            const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
-            drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
+            const progress = Math.max(0,Math.min(1,1-(selectedFrame.duration-selectedOffset)/transitionWindow));
+            drawContained(nextFrame.image,progress);
+            drawSceneVideos(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
           }
 
           if (elapsed >= total) {
