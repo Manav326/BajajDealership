@@ -44,6 +44,9 @@ services:
       # Reuse the public Google OAuth web client ID configured for QuantaEdge.
       - key: GOOGLE_WEB_CLIENT_ID
         sync: false
+      # Android OAuth client ID registered for com.quantaedge.luckybajaj and the appropriate signing SHA-1.
+      - key: GOOGLE_ANDROID_CLIENT_ID
+        sync: false
       # Required when this API serves more than one active dealership.
       - key: APP_PUBLIC_DEALERSHIP_CODE
         sync: false
