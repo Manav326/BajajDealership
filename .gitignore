@@ -17,3 +17,7 @@ service-account*.json
 .DS_Store
 .gradle/
 build/
+
+# Local physical-device Maestro credentials and generated reports
+apps/android/.maestro/local.env
+apps/android/maestro-results/
