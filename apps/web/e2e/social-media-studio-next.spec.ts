@@ -764,10 +764,15 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   expect(connectRequests).toHaveLength(0);
 
+  const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
   await page.keyboard.press('Shift+Tab');
-  await expect(continueToMeta).toBeFocused();
+  await expect(permissionSummary).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(notNow).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(continueToMeta).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(permissionSummary).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(consent).toHaveCount(0);
   await expect(connect).toBeFocused();
