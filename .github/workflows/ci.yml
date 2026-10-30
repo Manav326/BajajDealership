@@ -33,7 +33,61 @@ jobs:
         id: filter
         with:
           filters: |
-            android:
+            windows-store-msix-validation:
+    name: Optional Store MSIX packaging validation
+    needs: [windows-desktop]
+    if: ${{ always() && needs.windows-desktop.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download validated Windows installer artifact
+        id: download-installers
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: lucky-bajaj-windows-builds-${{ github.sha }}
+          path: windows-installers
+
+      - name: Build and verify development-identity MSIX package
+        id: build-msix-validation
+        if: steps.download-installers.outcome == 'success'
+        timeout-minutes: 12
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $msis = @(Get-ChildItem -Path "windows-installers" -Filter "*.msi" -File -Recurse)
+          if ($msis.Count -ne 1) {
+            throw "Expected exactly one MSI in the validated installer artifact; found $($msis.Count)."
+          }
+          $params = @{
+            MsiPath = $msis[0].FullName
+            IconPath = "apps/web/src-tauri/icons/icon.ico"
+            PackageName = "QuantaEdge.LuckyBajajDesktop.Dev"
+            Publisher = "CN=QuantaEdge Development"
+            PublisherDisplayName = "QuantaEdge Development"
+            Version = "0.1.0.0"
+            OutputPath = "release-validation/LuckyBajajDesktop.StoreValidation.msix"
+          }
+          & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-msix.ps1 @params
+          if ($LASTEXITCODE -ne 0) { throw "Optional MSIX packaging exited with code $LASTEXITCODE." }
+
+      - name: Upload Store MSIX validation artifact
+        if: steps.build-msix-validation.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: lucky-bajaj-windows-msix-validation-${{ github.sha }}
+          path: release-validation/LuckyBajajDesktop.StoreValidation.msix
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report optional Store packaging result
+        if: steps.build-msix-validation.outcome != 'success'
+        shell: pwsh
+        run: |
+          Write-Warning "Optional Store MSIX validation did not complete. The required EXE/MSI and local-Docker installer artifacts were built independently and are unaffected."
+
+  android:
               - 'apps/android/**'
 
   backend:
@@ -220,9 +274,9 @@ jobs:
 
 
   windows-desktop:
-    name: Build unsigned direct installers and Store MSIX package
+    name: Build unsigned direct installers and local-Docker test installer
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
       VITE_APP_VERSION: "0.1.0"
@@ -284,23 +338,6 @@ jobs:
               throw "Expected $($installer.Name) to remain unsigned; found $($signature.Status)."
             }
           }
-      - name: Build and verify development-identity MSIX package
-        id: build-msix-validation
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $msi = Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
-          if (-not $msi) { throw "The Tauri MSI was not produced." }
-          $params = @{
-            MsiPath = $msi.FullName
-            IconPath = "apps/web/src-tauri/icons/icon.ico"
-            PackageName = "QuantaEdge.LuckyBajajDesktop.Dev"
-            Publisher = "CN=QuantaEdge Development"
-            PublisherDisplayName = "QuantaEdge Development"
-            Version = "0.1.0.0"
-            OutputPath = "release-validation/LuckyBajajDesktop.StoreValidation.msix"
-          }
-          & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-msix.ps1 @params
       - name: Upload Windows build validation artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -310,15 +347,6 @@ jobs:
             apps/web/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 14
-      - name: Upload Store MSIX validation artifact
-        if: steps.build-msix-validation.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: lucky-bajaj-windows-msix-validation-${{ github.sha }}
-          path: release-validation/LuckyBajajDesktop.StoreValidation.msix
-          if-no-files-found: error
-          retention-days: 14
-
       # This second build is deliberately local-only. It is not the customer installer:
       # its API endpoint is the host loopback port published by Docker Compose.
       - name: Build local-Docker Windows test installer
