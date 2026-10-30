@@ -180,7 +180,7 @@ test('Meta, WhatsApp and publishing workflows stay on dedicated tabs', async ({ 
   await page.getByRole('button', { name: /Publishing & history/ }).click();
   await expect(page.getByRole('region', { name: 'Publish campaign artwork' })).toBeVisible();
   await expect(page.getByText('Approval and schedule queue')).toBeVisible();
-  await expect(page.getByText(/not configured/i).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Publish campaign artwork' }).getByText('Not configured')).toBeVisible();
 });
 
 test('WhatsApp composer keeps unsent form state when switching studio tabs', async ({ page }) => {
