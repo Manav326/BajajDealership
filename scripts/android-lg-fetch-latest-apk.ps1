@@ -4,7 +4,7 @@
 param(
     [string]$Repository = "Manav326/BajajDealership",
     [string]$Branch = "main",
-    [string]$ArtifactPattern = "lucky-bajaj-android-liquid-glass-debug-apk-*",
+    [string]$ArtifactPattern = "lucky-bajaj-android-liquid-glass-maestro-apk-*",
     [string]$PackageName = "com.quantaedge.luckybajajlg",
     [string]$DeviceSerial = "",
     [switch]$DownloadOnly
@@ -225,7 +225,7 @@ try {
             $downloadExit = 1
         }
         if ($downloadExit -eq 0) {
-            $apkFiles = @(Get-ChildItem -LiteralPath $runDir -Filter "app-debug.apk" -File -Recurse -ErrorAction SilentlyContinue |
+            $apkFiles = @(Get-ChildItem -LiteralPath $runDir -Filter "app-release.apk" -File -Recurse -ErrorAction SilentlyContinue |
                 Where-Object { $_.Length -gt 1MB } |
                 Sort-Object Length -Descending)
             if ($apkFiles.Count -eq 1) {
@@ -234,7 +234,7 @@ try {
                 $sourceRunDir = $runDir
                 break
             }
-            Write-Status ("Run {0} did not contain exactly one plausible app-debug.apk; checking an older successful run." -f $run.databaseId) "Yellow"
+            Write-Status ("Run {0} did not contain exactly one plausible app-release.apk; checking an older successful run." -f $run.databaseId) "Yellow"
         } else {
             $reason = ($downloadOutput | ForEach-Object { [string]$_ } | Where-Object { $_.Trim() }) -join " "
             if ($reason) {
@@ -266,6 +266,16 @@ try {
     }
 
     $apkInfo = Get-Item -LiteralPath $stagedApk
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $apkArchive = [System.IO.Compression.ZipFile]::OpenRead($stagedApk)
+    try {
+        $bundleEntry = $apkArchive.GetEntry("assets/index.android.bundle")
+        if (-not $bundleEntry -or $bundleEntry.Length -le 0) {
+            throw "The APK is missing assets/index.android.bundle and would require Metro. The previous APK was not changed."
+        }
+    } finally {
+        $apkArchive.Dispose()
+    }
     $apkHash = (Get-FileHash -LiteralPath $stagedApk -Algorithm SHA256).Hash
     $signingSha1 = $null
 
@@ -324,9 +334,13 @@ try {
             throw "The Android APK and build metadata refer to different source commits."
         }
     }
-    $compiledApiBaseUrl = if ($buildMetadata) { [string]$buildMetadata.apiBaseUrl } else { $null }
+    if (-not $buildMetadata -or $buildMetadata.buildType -ne "release") {
+        Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+        throw "The downloaded artifact is not marked as a self-contained release-variant Maestro APK. Debug APKs require Metro."
+    }
+    $compiledApiBaseUrl = [string]$buildMetadata.apiBaseUrl
 
-    $artifactName = "lucky-bajaj-android-liquid-glass-debug-apk-$($sourceRun.headSha)"
+    $artifactName = "lucky-bajaj-android-liquid-glass-maestro-apk-$($sourceRun.headSha)"
     $metadata = [ordered]@{
         repository = $Repository
         branch = [string]$sourceRun.headBranch
@@ -341,6 +355,7 @@ try {
         downloadedAtUtc = [DateTime]::UtcNow.ToString("o")
         packageName = $PackageName
         apiBaseUrl = $compiledApiBaseUrl
+        buildType = [string]$buildMetadata.buildType
         sizeBytes = [long]$apkInfo.Length
         sha256 = $apkHash
         signingCertificateSha1 = $signingSha1

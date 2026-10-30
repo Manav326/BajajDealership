@@ -57,7 +57,7 @@ npm run typecheck
 npx expo run:android
 ```
 
-CI builds an independent installable Liquid Glass debug APK whenever `apps/android-liquid-glass/**` changes. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions). The APK is a debug artifact and is not a signed Play Store release.
+CI builds an independent, self-contained release-variant Liquid Glass Maestro test APK whenever `apps/android-liquid-glass/**` changes. Its JavaScript bundle is embedded, so Metro does not need to run on the PC during device tests. This is an installable test build, not a signed Play Store release. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions).
 
 ### Download and install the latest CI APK (Windows)
 
@@ -69,7 +69,7 @@ Run this from the repository root after `git pull origin main`:
 
 Prerequisites: GitHub CLI (`gh auth login`), Android SDK Platform-Tools (`adb`), and an authorized USB or Wireless debugging connection. The script finds the newest successful `main` CI run containing an APK, downloads it to `artifacts/lucky-bajaj-liquid-glass-latest.apk`, then prompts before installing. It skips successful runs without a new Android artifact, so commits that only change the web/backend do not stop APK downloads.
 
-Use `-DownloadOnly` to download without installing, or `-DeviceSerial <adb-serial>` to choose a specific phone. It installs with `adb install -r`, which updates the app without clearing its local data. It never uninstalls automatically after a signature mismatch. The download/install script targets only package `com.quantaedge.luckybajajlg`; the Standard Edition remains installed separately. The local Maestro runner rebuilds with this PC's Android debug keystore. Android cannot update an installation signed by a different key; the runner will not uninstall automatically, because that would erase this edition's local app data.
+Use `-DownloadOnly` to download without installing, or `-DeviceSerial <adb-serial>` to choose a specific phone. It installs with `adb install -r`, which updates the app without clearing its local data. It never uninstalls automatically after a signature mismatch. The download/install script targets only package `com.quantaedge.luckybajajlg`; the Standard Edition remains installed separately. The local Maestro runner rebuilds an installable self-contained APK with this PC's local Android signing configuration. Android cannot update an installation signed by a different key; the runner will not uninstall automatically, because that would erase this edition's local app data.
 
 
 ## Release limitations
@@ -121,13 +121,13 @@ The normal test target is a **physical Android phone on the same Wi-Fi/LAN as th
 .\scripts\test-android-liquid-glass-maestro.ps1 -AllowNonLocalApi -Suite Public
 ```
 
-The runner detects the single connected physical Android device, downloads the newest successful Liquid Glass APK artifact from the GitHub Actions `main` workflow, verifies its package and API metadata, installs it with `adb install -r` and runs the selected Maestro flows. It does **not** run npm install, Expo prebuild or Gradle by default. Reports and screenshots/debug output are saved under `apps/android-liquid-glass/maestro-results/<timestamp>/`.
+The runner detects the single connected physical Android device, downloads the newest successful Liquid Glass self-contained Maestro APK artifact from the GitHub Actions `main` workflow, verifies its release build type, embedded JavaScript bundle and package/API metadata, then installs it with `adb install -r` and runs the selected Maestro flows. It does **not** run npm install, Expo prebuild or Gradle by default. Reports and screenshots/debug output are saved under `apps/android-liquid-glass/maestro-results/<timestamp>/`.
 
 For local-LAN testing, the APK must be **built by CI with the local API URL embedded**. In GitHub, open **Settings → Secrets and variables → Actions → Variables** and set the repository variable `BAJAJ_API_BASE_URL` to `http://192.168.31.47:8080/` (or your current PC LAN IP). Both Android editions use this same API URL variable. The Liquid Glass workflow records its own package ID and the URL beside the APK; the runner refuses a mismatch rather than pretending that `-LanIp` can change a prebuilt APK. A successful Liquid Glass Android CI run must exist after changing this variable.
 
 When you intentionally want to test the API already embedded in a hosted CI APK, pass `-AllowNonLocalApi`; ensure test data is safe for that environment. `-LanIp` validates the expected local endpoint, not the contents of the downloaded binary.
 
-A local Gradle build remains available explicitly with `-BuildLocalApk`. It discovers the Android SDK from the ADB executable, sets `ANDROID_HOME` / `ANDROID_SDK_ROOT` and writes the generated project's ignored `android/local.properties`. The runner installs and verifies only package `com.quantaedge.luckybajajlg`, so the Liquid Glass app can coexist with Standard on the same phone.
+A local Gradle build remains available explicitly with `-BuildLocalApk`. It builds the self-contained `release` variant (not `assembleDebug`) and discovers the Android SDK from the ADB executable, sets `ANDROID_HOME` / `ANDROID_SDK_ROOT` and writes the generated project's ignored `android/local.properties`. The runner installs and verifies only package `com.quantaedge.luckybajajlg`, so the Liquid Glass app can coexist with Standard on the same phone.
 
 ### Notification test data
 
