@@ -8,7 +8,7 @@ const baseConfig: ExpoConfig = {
   slug: 'lucky-bajaj-customer',
   scheme: 'luckybajaj',
   version: '0.2.0',
-  orientation: 'portrait',
+  orientation: 'default',
   userInterfaceStyle: 'light',
   plugins: [
     '@react-native-community/datetimepicker',
