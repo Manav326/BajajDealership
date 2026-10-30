@@ -1,0 +1,131 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const permissions = [
+  'social_media.read',
+  'social_media.manage',
+  'social_media.publish',
+  'social_media.whatsapp.read',
+  'social_media.whatsapp.manage',
+  'social_media.whatsapp.send',
+  'notification.read',
+];
+
+async function installApiFixture(page: Page) {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('qe_staff_token', 'social-studio-browser-test');
+  });
+
+  await page.route('**/api/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+
+    if (path.endsWith('/auth/staff/me')) {
+      return json({
+        staffPublicId: 'STAFF-SOCIAL-E2E',
+        fullName: 'Social Studio Test Staff',
+        dealershipPublicId: 'DEALERSHIP-SOCIAL-E2E',
+        dealershipCode: 'LUCKYBAJAJ',
+        roles: ['OWNER'],
+        permissions,
+      });
+    }
+    if (path.endsWith('/system/health')) {
+      return json({ status: 'UP', service: 'bajaj-api', version: 'browser-test', timestamp: new Date().toISOString() });
+    }
+    if (path.endsWith('/admin/notifications/inbox')) return json({ unreadCount: 0, items: [] });
+    if (path.endsWith('/admin/social/meta/status')) {
+      return json({
+        configured: false,
+        publishingReady: false,
+        code: 'CONFIGURATION_REQUIRED',
+        message: 'Meta is not configured in this isolated browser test.',
+        missingConfigurationKeys: ['SOCIAL_META_APP_ID'],
+        missingPublishingConfigurationKeys: ['SOCIAL_MEDIA_PUBLIC_BASE_URL'],
+        destinations: [],
+      });
+    }
+    if (path.endsWith('/admin/social/meta/publish-requests')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/status')) {
+      return json({
+        configured: false,
+        webhookConfigured: false,
+        message: 'WhatsApp is not configured in this isolated browser test.',
+        webhookMessage: 'Webhook is not configured in this isolated browser test.',
+        missingConfigurationKeys: ['SOCIAL_WHATSAPP_ENABLED'],
+        missingWebhookConfigurationKeys: ['SOCIAL_WHATSAPP_VERIFY_TOKEN'],
+      });
+    }
+    if (path.endsWith('/admin/social/whatsapp/customers')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/scheduled')) return json([]);
+    if (path.endsWith('/admin/social/whatsapp/templates')) return json([]);
+
+    // These browser tests exercise UI transitions only. No provider credentials are
+    // configured and no real posts or customer messages may leave the application.
+    return json({ message: 'No fixture exists for this API route.' }, 404);
+  });
+}
+
+test.beforeEach(async ({ page }) => {
+  await installApiFixture(page);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Social Media Studio' })).toBeVisible();
+  await page.getByRole('button', { name: 'Social Media Studio' }).click();
+  await expect(page.getByRole('heading', { name: 'LuckyBajaj Creative Studio' })).toBeVisible();
+});
+
+test('opens as a regular editor-first page, not a modal', async ({ page }) => {
+  await expect(page.getByRole('dialog', { name: 'Social Media Artwork Studio' })).toHaveCount(0);
+  await expect(page.locator('canvas[aria-label^="Preview of"], canvas[aria-label^="Editable canvas"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create & edit/ })).toHaveAttribute('aria-current', 'page');
+});
+
+test('image and music catalogues open as independent pickers and can be searched', async ({ page }) => {
+  await page.getByRole('button', { name: /Photos & assets/ }).click();
+  const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
+  await expect(imagePicker).toBeVisible();
+  await expect(imagePicker.getByText('Diwali · Diyas & warm lights')).toBeVisible();
+  await imagePicker.getByRole('searchbox', { name: 'Search image assets' }).fill('Chhath');
+  await expect(imagePicker.getByText('Chhath Puja · Arghya at sunrise')).toBeVisible();
+  await imagePicker.getByRole('button', { name: 'Hide library' }).click();
+  await expect(imagePicker).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Music & sound/ }).click();
+  const musicPicker = page.getByRole('dialog', { name: 'Choose background music' });
+  await expect(musicPicker).toBeVisible();
+  await expect(musicPicker.getByText('Chhath · Hindu Festive Music')).toBeVisible();
+  await expect(musicPicker.getByRole('button', { name: 'Preview' }).first()).toBeDisabled();
+  await musicPicker.getByRole('searchbox', { name: 'Search music tracks' }).fill('Bhojpuri');
+  await expect(musicPicker.getByText('Bhojpuri · Regional festive feel')).toBeVisible();
+  await expect(musicPicker.getByText('Chhath · Hindu Festive Music')).toHaveCount(0);
+});
+
+test('canvas tools create and persist editable text and shape objects in a saved draft', async ({ page }) => {
+  await page.getByRole('button', { name: '＋ Text' }).click();
+  await expect(page.getByText(/1 editable object/)).toBeVisible();
+  const textField = page.getByLabel('Text');
+  await expect(textField).toHaveValue('Your message here');
+  await textField.fill('Ride into your next adventure');
+  await page.getByRole('button', { name: '＋ Rectangle' }).click();
+  await expect(page.getByText(/2 editable object/)).toBeVisible();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved in this browser' })).toBeVisible();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByText(/0 editable object/)).toBeVisible();
+});
+
+test('Meta, WhatsApp and publishing workflows stay on dedicated tabs', async ({ page }) => {
+  await page.getByRole('button', { name: /Connections/ }).click();
+  await expect(page.getByRole('region', { name: 'Meta account connections' })).toBeVisible();
+  await expect(page.getByText('SOCIAL_META_APP_ID')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Publishing & history/ }).click();
+  await expect(page.getByRole('region', { name: 'Publish campaign artwork' })).toBeVisible();
+  await expect(page.getByText('Approval and schedule queue')).toBeVisible();
+  await expect(page.getByText(/not configured/i).first()).toBeVisible();
+});

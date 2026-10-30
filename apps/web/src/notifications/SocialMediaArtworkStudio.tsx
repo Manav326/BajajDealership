@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { apiFetch } from './apiClient';
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import styles from './SocialMediaArtworkStudio.module.css';
@@ -110,6 +110,20 @@ function drawPhotoCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
 }
 
 
+type CanvasObject = {
+  id: string;
+  kind: 'text' | 'rectangle' | 'circle';
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  fontSize: number;
+  bold: boolean;
+  opacity: number;
+};
+
 type ArtworkDraft = {
   id: string;
   name: string;
@@ -133,6 +147,7 @@ type ArtworkDraft = {
   musicClipDuration?: number;
   musicVolume?: number;
   storyTarget?: StoryTarget;
+  objects?: CanvasObject[];
   updatedAt: string;
 };
 type ArtworkLayerVisibility = { decorations: boolean; brand: boolean; headline: boolean; message: boolean; photo: boolean; callToAction: boolean; footer: boolean };
@@ -288,16 +303,31 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [layerVisibility, setLayerVisibility] = useState<ArtworkLayerVisibility>(defaultArtworkLayers);
   const [layerTransforms, setLayerTransforms] = useState<ArtworkTransforms>(defaultArtworkTransforms);
   const [selectedLayer, setSelectedLayer] = useState<ArtworkLayerKey>('headline');
+  const [canvasObjects, setCanvasObjects] = useState<CanvasObject[]>([]);
+  const [selectedCanvasObjectId, setSelectedCanvasObjectId] = useState<string | null>(null);
+  const canvasDragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const canvasUndoRef = useRef<CanvasObject[][]>([]);
+  const canvasRedoRef = useRef<CanvasObject[][]>([]);
   const [artworkAssets, setArtworkAssets] = useState<ArtworkAsset[]>([]);
   const [assetPreviewSources, setAssetPreviewSources] = useState<Record<string, string>>({});
   const assetPreviewUrlsRef = useRef<Record<string, string>>({});
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [selectedLogoAssetId, setSelectedLogoAssetId] = useState<string | null>(null);
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
+  const [assetSearch, setAssetSearch] = useState('');
+  const [assetPreviewId, setAssetPreviewId] = useState<string | null>(null);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
   const [musicAssets, setMusicAssets] = useState<ArtworkMusicAsset[]>([]);
-  const [musicLibraryOpen, setMusicLibraryOpen] = useState(true);
+  const [musicLibraryOpen, setMusicLibraryOpen] = useState(false);
+  const [musicSearch, setMusicSearch] = useState('');
+  const [favoriteMusicIds, setFavoriteMusicIds] = useState<string[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem('bajaj-social-music-favourites') ?? '[]') as string[]; }
+    catch { return []; }
+  });
+  const [previewingMusicId, setPreviewingMusicId] = useState<string | null>(null);
+  const pickerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pickerAudioUrlRef = useRef<string | null>(null);
   const [selectedMusicId, setSelectedMusicId] = useState<string | null>(null);
   const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [musicPreviewUrl, setMusicPreviewUrl] = useState<string | null>(null);
@@ -328,11 +358,14 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const publishPreviewUrlRefs = useRef<Record<string, string>>({});
 
   const [scheduleLocal, setScheduleLocal] = useState('');
+  const [activeStudioTab, setActiveStudioTab] = useState<'create' | 'connections' | 'publishing'>('create');
 
   useEffect(() => { void refreshPublishRequests(); }, []);
   useEffect(() => () => {
     Object.values(publishPreviewUrlRefs.current).forEach((url) => URL.revokeObjectURL(url));
     Object.values(assetPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    if (pickerAudioRef.current) { pickerAudioRef.current.pause(); pickerAudioRef.current.src = ''; }
+    if (pickerAudioUrlRef.current) URL.revokeObjectURL(pickerAudioUrlRef.current);
   }, []);
 
 
@@ -408,6 +441,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setMusicIsPlaying(false);
     return () => URL.revokeObjectURL(url);
   }, [musicAssets, selectedMusicId]);
+
+  useEffect(() => {
+    window.localStorage.setItem('bajaj-social-music-favourites', JSON.stringify(favoriteMusicIds));
+  }, [favoriteMusicIds]);
 
   useEffect(() => {
     const audio = musicAudioRef.current;
@@ -565,6 +602,29 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         ctx.fillText('SERVICE YOU CAN TRUST', (landscape ? margin : width / 2) + width * footerTransform.x / 100, height * 0.965 + height * footerTransform.y / 100);
         ctx.textAlign = 'left';
       }
+      canvasObjects.forEach((item) => {
+        const x = width * item.x / 100;
+        const y = height * item.y / 100;
+        const objectWidth = width * item.width / 100;
+        const objectHeight = height * item.height / 100;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(100, item.opacity)) / 100;
+        ctx.fillStyle = item.fill;
+        if (item.kind === 'rectangle') {
+          roundedRect(ctx, x, y, objectWidth, objectHeight, Math.min(18 * scale, objectHeight * .18));
+          ctx.fill();
+        } else if (item.kind === 'circle') {
+          ctx.beginPath();
+          ctx.ellipse(x + objectWidth / 2, y + objectHeight / 2, objectWidth / 2, objectHeight / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.font = (item.bold ? '800 ' : '500 ') + Math.max(14, Math.round(item.fontSize * scale)) + 'px Arial, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          item.text.split(/\r?\n/).slice(0, 5).forEach((line, index) => ctx.fillText(line, x, y + index * Math.max(18, item.fontSize * scale * 1.2), objectWidth));
+        }
+        ctx.restore();
+      });
     };
 
     let photoLoaded = !photoSource;
@@ -590,7 +650,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
     renderWhenReady();
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms, canvasObjects]);
 
   async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
     const assets = await loadArtworkAssets();
@@ -1089,6 +1149,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         musicClipDuration,
         musicVolume,
         storyTarget,
+        objects: canvasObjects,
         updatedAt: new Date().toISOString(),
       };
       await writeArtworkDraft(draft);
@@ -1142,6 +1203,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       setMusicClipStart(draft.musicClipStart ?? 0);
       setMusicVolume(draft.musicVolume ?? 78);
       setSelectedLayer('headline');
+      setCanvasObjects(draft.objects ?? []);
+      setSelectedCanvasObjectId(null);
+      canvasUndoRef.current = [];
+      canvasRedoRef.current = [];
       setSelectedAssetId(null);
       setSelectedLogoAssetId(null);
       setNotice('Saved draft loaded.');
@@ -1193,6 +1258,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     setSelectedLogoAssetId(null);
     setLayerVisibility(defaultArtworkLayers);
     setLayerTransforms(defaultArtworkTransforms);
+    setCanvasObjects([]);
+    setSelectedCanvasObjectId(null);
+    canvasUndoRef.current = [];
+    canvasRedoRef.current = [];
     setSelectedMusicId(null);
     setStoryTarget('whatsapp-status');
     setMusicClipStart(0);
@@ -1437,17 +1506,135 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
   }
 
+
+  async function togglePickerMusicPreview(track: ArtworkMusicAsset) {
+    if (!track.fileData) {
+      setNotice('This catalogue track links to its source page. Download the MP3 and attach it to this track before previewing.');
+      return;
+    }
+    const audio = pickerAudioRef.current;
+    if (!audio) return;
+    if (previewingMusicId === track.id && !audio.paused) {
+      audio.pause();
+      setPreviewingMusicId(null);
+      return;
+    }
+    audio.pause();
+    if (pickerAudioUrlRef.current) URL.revokeObjectURL(pickerAudioUrlRef.current);
+    const url = URL.createObjectURL(track.fileData);
+    pickerAudioUrlRef.current = url;
+    audio.src = url;
+    audio.volume = musicVolume / 100;
+    audio.currentTime = 0;
+    try { await audio.play(); setPreviewingMusicId(track.id); setError(''); }
+    catch { setPreviewingMusicId(null); setError('The selected music could not be previewed in this browser.'); }
+  }
+
+  function toggleMusicFavourite(id: string) {
+    setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+
+  function pushCanvasObjectHistory() {
+    canvasUndoRef.current = [...canvasUndoRef.current.slice(-39), canvasObjects];
+    canvasRedoRef.current = [];
+  }
+
+  function addCanvasObject(kind: CanvasObject['kind']) {
+    pushCanvasObjectHistory();
+    const next: CanvasObject = {
+      id: newDraftId(), kind, text: kind === 'text' ? 'Your message here' : '',
+      x: 28, y: 43, width: kind === 'text' ? 48 : 24, height: kind === 'text' ? 9 : 18,
+      fill: kind === 'text' ? '#ffffff' : accent, fontSize: 44, bold: true, opacity: 100,
+    };
+    setCanvasObjects((current) => [...current, next]);
+    setSelectedCanvasObjectId(next.id);
+  }
+
+  function updateCanvasObject(id: string, changes: Partial<CanvasObject>) {
+    pushCanvasObjectHistory();
+    setCanvasObjects((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
+  }
+
+  function duplicateCanvasObject() {
+    const selected = canvasObjects.find((item) => item.id === selectedCanvasObjectId);
+    if (!selected) return;
+    pushCanvasObjectHistory();
+    const copy = { ...selected, id: newDraftId(), x: Math.min(88, selected.x + 4), y: Math.min(88, selected.y + 4) };
+    setCanvasObjects((current) => [...current, copy]);
+    setSelectedCanvasObjectId(copy.id);
+  }
+
+  function deleteCanvasObject() {
+    if (!selectedCanvasObjectId) return;
+    pushCanvasObjectHistory();
+    setCanvasObjects((current) => current.filter((item) => item.id !== selectedCanvasObjectId));
+    setSelectedCanvasObjectId(null);
+  }
+
+  function undoCanvasObject() {
+    const previous = canvasUndoRef.current.pop();
+    if (!previous) return;
+    canvasRedoRef.current.push(canvasObjects);
+    setCanvasObjects(previous);
+  }
+
+  function redoCanvasObject() {
+    const next = canvasRedoRef.current.pop();
+    if (!next) return;
+    canvasUndoRef.current.push(canvasObjects);
+    setCanvasObjects(next);
+  }
+
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    const selected = [...canvasObjects].reverse().find((item) =>
+      x >= item.x && x <= item.x + item.width && y >= item.y && y <= item.y + item.height,
+    );
+    if (!selected) { setSelectedCanvasObjectId(null); return; }
+    event.preventDefault();
+    pushCanvasObjectHistory();
+    setSelectedCanvasObjectId(selected.id);
+    canvasDragRef.current = { id: selected.id, offsetX: x - selected.x, offsetY: y - selected.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const drag = canvasDragRef.current;
+    if (!drag) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100 - drag.offsetX;
+    const y = ((event.clientY - rect.top) / rect.height) * 100 - drag.offsetY;
+    setCanvasObjects((current) => current.map((item) => item.id === drag.id
+      ? { ...item, x: Math.max(0, Math.min(100 - item.width, x)), y: Math.max(0, Math.min(100 - item.height, y)) }
+      : item));
+  }
+
+  function handleCanvasPointerUp(event: ReactPointerEvent<HTMLCanvasElement>) {
+    canvasDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="social-artwork-title">
+    <div className={styles.page}>
       <section className={styles.studio}>
         <header className={styles.header}>
           <div>
             <span className={styles.eyebrow}>LUCKY BAJAJ AGENCY · CAMPAIGN DESIGN</span>
-            <h2 id="social-artwork-title">Social Media Artwork Studio</h2>
-            <p>Create, export and publish campaign artwork. Direct posting is for feed formats; Story / Status uses manual share or export.</p>
+            <h2 id="social-artwork-title">LuckyBajaj Creative Studio</h2>
+            <p>Create dealership campaigns in the editor, then connect accounts and manage approval, scheduling and delivery.</p>
           </div>
-          <button type="button" className={styles.close} onClick={onClose} aria-label="Close social media artwork studio">×</button>
+          <button type="button" className={styles.close} onClick={onClose} aria-label="Back to staff workspace">← Back</button>
         </header>
+
+        <nav className={styles.studioTabs} aria-label="Social media studio sections">
+          <button type="button" className={activeStudioTab === 'create' ? styles.studioTabActive : styles.studioTab} aria-current={activeStudioTab === 'create' ? 'page' : undefined} onClick={() => setActiveStudioTab('create')}><span>01</span>Create & edit</button>
+          <button type="button" className={activeStudioTab === 'connections' ? styles.studioTabActive : styles.studioTab} aria-current={activeStudioTab === 'connections' ? 'page' : undefined} onClick={() => setActiveStudioTab('connections')}><span>02</span>Connections</button>
+          <button type="button" className={activeStudioTab === 'publishing' ? styles.studioTabActive : styles.studioTab} aria-current={activeStudioTab === 'publishing' ? 'page' : undefined} onClick={() => setActiveStudioTab('publishing')}><span>03</span>Publishing & history</button>
+        </nav>
+        {activeStudioTab === 'connections' && <div className={styles.connectionsWorkspace}>
         <section className={styles.metaPanel} aria-label="Meta account connections">
           <div className={styles.metaPanelHeader}>
             <div>
@@ -1494,8 +1681,60 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
           {canManage && metaStatus?.destinations?.some((destination) => destination.status === 'ACTIVE') && <button type="button" className={styles.textButton} disabled={metaDisconnecting || metaConnecting} onClick={() => void disconnectMeta()}>{metaDisconnecting ? 'Disconnecting accounts…' : 'Disconnect all Meta accounts'}</button>}
           <p className={styles.metaFootnote}>{metaStatus?.publishingReady ? 'Direct publishing is configured. Each post needs confirmation and a provider-backed result.' : 'Direct publishing is disabled until every required setting is configured. The exact setting names are listed above; connecting an account alone never publishes content.'}</p>
         </section>
-        <div className={styles.content}>
+
+          {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />}
+        </div>}
+        {activeStudioTab === 'publishing' && <div className={styles.publishWorkspace}>
+            <section className={styles.publishPanel} aria-label="Publish campaign artwork">
+              <div className={styles.publishPanelHeading}><strong>Publish to social media</strong><span>{metaStatus?.publishingReady?'API ready':'Not configured'}</span></div>
+              <label>Destination
+                <select value={publishDestinationId} onChange={(event)=>setPublishDestinationId(event.target.value)} disabled={!activeMetaDestinations.length||publishingBusy}>
+                  {activeMetaDestinations.length===0&&<option value="">Connect a Facebook Page or Instagram account first</option>}
+                  {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
+                </select>
+              </label>
+              <label>Schedule for (optional)
+                <input type="datetime-local" value={scheduleLocal} min={localDateTimeMin()} onChange={(event)=>setScheduleLocal(event.target.value)} disabled={publishingBusy}/>
+              </label>
+              <p className={styles.note}>Leave blank for immediate publishing after approval. Scheduled posts must be at least two minutes ahead and within 90 days.</p>
+              <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy} onClick={()=>void publishArtwork()}>{publishingBusy?'Saving approval request…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Request approval':'Choose a feed format to request approval'}</button>
+              <div className={styles.publishResult}>
+                <div><strong>Approval and schedule queue</strong><button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishRequests()}>Refresh</button></div>
+                {publishRequests.length===0&&<p>No publish requests yet.</p>}
+                {publishRequests.map(request=><article key={request.publicId} className={styles.publishResult}>
+                  <div><strong>{request.destinationName}</strong><span className={request.publishStatus==='PUBLISHED'?styles.connectedState:request.publishStatus==='FAILED'||request.publishStatus==='REJECTED'?styles.disconnectedState:styles.publishPendingState}>{request.publishStatus||request.status}</span></div>
+                  <p>{request.status.replaceAll('_',' ')} · requested by {request.requestedBy}{request.approvedBy?' · approved by '+request.approvedBy:''}</p>
+                  {request.scheduledAt&&<p>Scheduled: {new Date(request.scheduledAt).toLocaleString()}</p>}
+                  <p>{request.caption}</p>
+                  <button type="button" className={styles.textButton} disabled={publishPreviewLoadingId!==null}
+                    onClick={()=>void togglePublishPreview(request)}>
+                    {publishPreviewLoadingId===request.publicId?'Loading artwork preview…':publishPreviewUrls[request.publicId]?'Hide artwork preview':'Preview submitted artwork'}
+                  </button>
+                  {publishPreviewUrls[request.publicId]&&<img src={publishPreviewUrls[request.publicId]}
+                    alt={'Submitted campaign artwork for '+request.destinationName}
+                    style={{maxWidth:'100%',maxHeight:360,display:'block',objectFit:'contain',marginTop:8}} />}
+                  {canManage&&request.status==='PENDING_APPROVAL'&&!publishPreviewUrls[request.publicId]&&
+                    <p className={styles.note}>Load the submitted artwork preview before approving. If it cannot be loaded, reject the request and ask for a fresh submission.</p>}
+                  {request.externalPostId&&<p>Provider post ID: {request.externalPostId}</p>}
+                  {request.errorCode&&<p>Error: {request.errorCode}</p>}
+                  {canManage&&request.status==='PENDING_APPROVAL'&&<div className={styles.actions}>
+                    <button type="button" className={styles.primary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
+                    <button type="button" className={styles.secondary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
+                  </div>}
+                  {canManage&&request.status==='SCHEDULED'&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void (async()=>{try{const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/cancel',{method:'POST'});const result=await response.json() as MetaPublishRequest;if(!response.ok)throw new Error('Cancel request failed.');setPublishRequests(old=>old.map(item=>item.publicId===result.publicId?result:item));}catch(cause){setMetaError(cause instanceof Error?cause.message:'Cancel request failed.');}})()}>Cancel scheduled post</button>}
+                </article>)}
+              </div>
+              {!canPublishSelectedFormat && <p className={styles.note}>Story / Status artwork is export/share-only in this version. Choose Facebook Feed, Square Feed or Instagram Feed to publish directly.</p>}
+              <p className={styles.note}>Requests are saved in the backend for approval. The scheduler dispatches approved posts; uncertain provider outcomes are reconciled and never blindly reposted.</p>
+            </section>
+
+        </div>}
+        <div className={styles.content} style={{ display: activeStudioTab === 'create' ? 'grid' : 'none' }}>
           <aside className={styles.controls}>
+            <div className={styles.pickerLaunchers}>
+              <button type="button" className={styles.pickerLaunchButton} onClick={() => { setAssetSearch(''); setAssetLibraryOpen(true); }}><span>▧</span><strong>Photos & assets</strong><small>{artworkAssets.length} images · browse library</small></button>
+              <button type="button" className={styles.pickerLaunchButton} onClick={() => { setMusicSearch(''); setMusicLibraryOpen(true); }}><span>♫</span><strong>Music & sound</strong><small>{musicAssets.length} tracks · choose audio</small></button>
+            </div>
             <div className={styles.draftPanel}>
               <div className={styles.draftPanelTitle}>Saved drafts <span>Browser only</span></div>
               <label>Draft name
@@ -1536,6 +1775,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               </div>}
               <p className={styles.panelFootnote}>Choose a design, then edit its headline, message, colours, image and call to action. Confirm text and any offer details before export.</p>
             </section>
+            {assetLibraryOpen && <div className={styles.pickerBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setAssetLibraryOpen(false); }}>
+              <div className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose an artwork image">
             <section className={styles.assetPanel} aria-label="Artwork asset library">
               <div className={styles.panelHeading}>
                 <div><strong>Asset library</strong><small>{artworkAssets.length} / {ARTWORK_ASSET_LIMIT} images · JPEG or PNG</small></div>
@@ -1547,8 +1788,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 <input data-testid="artwork-image-upload" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => void handlePhotoUpload(event)} disabled={assetBusyId !== null || artworkAssets.length >= ARTWORK_ASSET_LIMIT} />
               </label>
               <p className={styles.panelFootnote}>Maximum 50 assets total; each upload is limited to 4.5 MB and 20 megapixels. Starter images are imported and kept in this browser when selected. Uploaded files are browser-local and are not synced to other staff devices.</p>
+              <input className={styles.pickerSearch} type="search" aria-label="Search image assets" placeholder="Search images and categories" value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
+              {assetPreviewId && artworkAssets.find((item) => item.id === assetPreviewId) && <div className={styles.assetFocusPreview}><img src={assetPreviewSources[assetPreviewId] || artworkAssets.find((item) => item.id === assetPreviewId)?.sourceUrl || ''} alt={artworkAssets.find((item) => item.id === assetPreviewId)?.name || 'Artwork image preview'} /><div><strong>{artworkAssets.find((item) => item.id === assetPreviewId)?.name}</strong><small>{artworkAssets.find((item) => item.id === assetPreviewId)?.category}</small></div></div>}
               {assetLibraryOpen && <div className={styles.assetGrid}>
-                {artworkAssets.map((asset) => <article key={asset.id} className={styles.assetTile}>
+                {artworkAssets.filter((asset) => (asset.name + ' ' + asset.category).toLowerCase().includes(assetSearch.toLowerCase())).map((asset) => <article key={asset.id} className={styles.assetTile} onMouseEnter={() => setAssetPreviewId(asset.id)}>
                   {assetPreviewSources[asset.id]
                     ? <img src={assetPreviewSources[asset.id]} alt="" loading="lazy" />
                     : <div className={styles.templatePlaceholder}>Image preview</div>}
@@ -1571,6 +1814,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 </article>)}
               </div>}
             </section>
+              </div>
+            </div>}
+            {musicLibraryOpen && <div className={styles.pickerBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setMusicLibraryOpen(false); }}>
+              <div className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose background music">
             <section className={styles.musicPanel} aria-label="Music asset library">
               <div className={styles.panelHeading}>
                 <div><strong>Music library</strong><small>{musicAssets.length} / {ARTWORK_MUSIC_LIMIT} tracks · separate from image assets</small></div>
@@ -1584,8 +1831,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   disabled={videoExporting || musicAssets.length >= ARTWORK_MUSIC_LIMIT} />
               </label>
               <p className={styles.panelFootnote}>Maximum 50 songs and {Math.round(ARTWORK_MUSIC_LIBRARY_MAX_BYTES / (1024 * 1024))} MB total audio, separately from the 50 images. Each file is limited to 25 MB. Tracks must be at least 20 seconds; videos can use 20–120 seconds, with 30 seconds as the default. The 10 curated festive picks below link to their source pages: download the MP3 there and attach it once to keep it in this browser. Please check each track's current licence and rights before commercial use.</p>
+              <input className={styles.pickerSearch} type="search" aria-label="Search music tracks" placeholder="Search track, creator or category" value={musicSearch} onChange={(event) => setMusicSearch(event.target.value)} />
               {musicLibraryOpen && <div className={styles.musicGrid}>
-                {musicAssets.map((track) => (
+                {musicAssets.filter((track) => (track.name + ' ' + track.category + ' ' + track.creator).toLowerCase().includes(musicSearch.toLowerCase())).map((track) => (
                   <article key={track.id} className={styles.musicTile} data-ready={Boolean(track.fileData)} data-selected={selectedMusicId === track.id}>
                     <div className={styles.musicTileTop}>
                       <span className={styles.musicDisc} aria-hidden="true">♫</span>
@@ -1603,6 +1851,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                         disabled={videoExporting} />
                     </label>
                     <div className={styles.musicActions}>
+                      <button type="button" className={styles.secondary} onClick={() => void togglePickerMusicPreview(track)} disabled={!track.fileData || videoExporting}>{previewingMusicId === track.id ? 'Pause preview' : 'Preview'}</button>
+                      <button type="button" className={styles.textButton} onClick={() => toggleMusicFavourite(track.id)} aria-pressed={favoriteMusicIds.includes(track.id)}>{favoriteMusicIds.includes(track.id) ? '★ Saved' : '☆ Favourite'}</button>
                       <button type="button" className={styles.secondary} onClick={() => void selectMusicTrack(track)} disabled={!track.fileData || videoExporting}>
                         {selectedMusicId === track.id ? 'Selected track' : 'Use track'}
                       </button>
@@ -1617,6 +1867,9 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 ))}
               </div>}
             </section>
+              </div>
+            </div>}
+            <audio ref={pickerAudioRef} hidden onEnded={() => setPreviewingMusicId(null)} onPause={() => setPreviewingMusicId(null)} />
             <section className={styles.storyVideoPanel} aria-label="Story video creator">
               <div className={styles.panelHeading}><div><strong>Story video creator</strong><small>9:16 vertical video · choose where it will be used</small></div><span className={styles.storyDurationPill}>{musicClipDuration}s</span></div>
               <label className={styles.storyTargetLabel}>Destination
@@ -1699,6 +1952,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 </div>
               </div>
             </section>
+            <section className={styles.objectPanel} aria-label="Selected canvas object">
+              <div className={styles.panelHeading}><div><strong>Canvas objects</strong><small>{canvasObjects.length} editable object(s) · select and drag on canvas</small></div></div>
+              {selectedCanvasObjectId && canvasObjects.find((item) => item.id === selectedCanvasObjectId) ? (() => {
+                const selected = canvasObjects.find((item) => item.id === selectedCanvasObjectId)!;
+                return <div className={styles.objectInspector}>
+                  {selected.kind === 'text' && <label>Text<input value={selected.text} maxLength={180} onChange={(event) => updateCanvasObject(selected.id, { text: event.target.value })} /></label>}
+                  <label>Colour<input type="color" value={selected.fill} onChange={(event) => updateCanvasObject(selected.id, { fill: event.target.value })} /></label>
+                  {selected.kind === 'text' && <label>Font size<input type="range" min={18} max={120} value={selected.fontSize} onChange={(event) => updateCanvasObject(selected.id, { fontSize: Number(event.target.value) })} /></label>}
+                  <label>Opacity<input type="range" min={10} max={100} value={selected.opacity} onChange={(event) => updateCanvasObject(selected.id, { opacity: Number(event.target.value) })} /></label>
+                  <div className={styles.assetActions}><button type="button" className={styles.secondary} onClick={duplicateCanvasObject}>Duplicate</button><button type="button" className={styles.textButton} onClick={deleteCanvasObject}>Delete object</button></div>
+                </div>;
+              })() : <p className={styles.panelFootnote}>Add text or shapes from the canvas toolbar. Existing dealership artwork layers remain editable below.</p>}
+              {canvasObjects.length > 0 && <div className={styles.objectLayerList} aria-label="Object layers">{[...canvasObjects].reverse().map((item) => <button key={item.id} type="button" className={selectedCanvasObjectId === item.id ? styles.objectLayerActive : styles.objectLayer} onClick={() => setSelectedCanvasObjectId(item.id)}>{item.kind === 'text' ? 'T' : item.kind === 'circle' ? '○' : '▭'} {item.kind === 'text' ? item.text.slice(0, 24) : item.kind}</button>)}</div>}
+            </section>
             <label>Artwork format
               <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
                 {formats.map((format) => <option key={format.id} value={format.id}>{format.label}</option>)}
@@ -1723,54 +1990,16 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <p className={styles.privacy}>Drafts and your 50-item asset library are stored in this browser. Publishing uploads the rendered JPEG only after you request approval; a Manager or Owner approves before dispatch.</p>
           </aside>
           <main className={styles.previewColumn}>
-            <div className={styles.previewBar}><span>LIVE PREVIEW · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} PNG</small></div>
+            <div className={styles.editorToolbar} aria-label="Canvas tools">
+              <div><button type="button" onClick={() => addCanvasObject('text')}>＋ Text</button><button type="button" onClick={() => addCanvasObject('rectangle')}>＋ Rectangle</button><button type="button" onClick={() => addCanvasObject('circle')}>＋ Circle</button></div>
+              <div><button type="button" onClick={undoCanvasObject} disabled={!canvasUndoRef.current.length}>Undo</button><button type="button" onClick={redoCanvasObject} disabled={!canvasRedoRef.current.length}>Redo</button></div>
+            </div>
+            <div className={styles.previewBar}><span>LIVE EDITOR · {selectedFormat.channel}</span><small>{selectedFormat.width} × {selectedFormat.height} · drag added objects on canvas</small></div>
             <div className={styles.previewFrame} style={{ aspectRatio: selectedFormat.width + ' / ' + selectedFormat.height }}>
-              <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={'Preview of ' + headline} />
+              <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={'Editable canvas for ' + headline} onPointerDown={handleCanvasPointerDown} onPointerMove={handleCanvasPointerMove} onPointerUp={handleCanvasPointerUp} onPointerCancel={handleCanvasPointerUp} />
             </div>
             <label className={styles.captionPreview}>Caption preview<textarea readOnly rows={4} value={fullCaption} /></label>
 
-            <section className={styles.publishPanel} aria-label="Publish campaign artwork">
-              <div className={styles.publishPanelHeading}><strong>Publish to social media</strong><span>{metaStatus?.publishingReady?'API ready':'Not configured'}</span></div>
-              <label>Destination
-                <select value={publishDestinationId} onChange={(event)=>setPublishDestinationId(event.target.value)} disabled={!activeMetaDestinations.length||publishingBusy}>
-                  {activeMetaDestinations.length===0&&<option value="">Connect a Facebook Page or Instagram account first</option>}
-                  {activeMetaDestinations.map(d=><option key={d.publicId} value={d.publicId}>{d.displayName} · {d.type==='FACEBOOK_PAGE'?'Facebook Page':'Instagram'}</option>)}
-                </select>
-              </label>
-              <label>Schedule for (optional)
-                <input type="datetime-local" value={scheduleLocal} min={localDateTimeMin()} onChange={(event)=>setScheduleLocal(event.target.value)} disabled={publishingBusy}/>
-              </label>
-              <p className={styles.note}>Leave blank for immediate publishing after approval. Scheduled posts must be at least two minutes ahead and within 90 days.</p>
-              <button type="button" className={styles.publishButton} disabled={!canPublish||!canPublishSelectedFormat||!metaStatus?.publishingReady||!publishDestinationId||publishingBusy} onClick={()=>void publishArtwork()}>{publishingBusy?'Saving approval request…':!canPublish?'Publishing permission required':canPublishSelectedFormat?'Request approval':'Choose a feed format to request approval'}</button>
-              <div className={styles.publishResult}>
-                <div><strong>Approval and schedule queue</strong><button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void refreshPublishRequests()}>Refresh</button></div>
-                {publishRequests.length===0&&<p>No publish requests yet.</p>}
-                {publishRequests.map(request=><article key={request.publicId} className={styles.publishResult}>
-                  <div><strong>{request.destinationName}</strong><span className={request.publishStatus==='PUBLISHED'?styles.connectedState:request.publishStatus==='FAILED'||request.publishStatus==='REJECTED'?styles.disconnectedState:styles.publishPendingState}>{request.publishStatus||request.status}</span></div>
-                  <p>{request.status.replaceAll('_',' ')} · requested by {request.requestedBy}{request.approvedBy?' · approved by '+request.approvedBy:''}</p>
-                  {request.scheduledAt&&<p>Scheduled: {new Date(request.scheduledAt).toLocaleString()}</p>}
-                  <p>{request.caption}</p>
-                  <button type="button" className={styles.textButton} disabled={publishPreviewLoadingId!==null}
-                    onClick={()=>void togglePublishPreview(request)}>
-                    {publishPreviewLoadingId===request.publicId?'Loading artwork preview…':publishPreviewUrls[request.publicId]?'Hide artwork preview':'Preview submitted artwork'}
-                  </button>
-                  {publishPreviewUrls[request.publicId]&&<img src={publishPreviewUrls[request.publicId]}
-                    alt={'Submitted campaign artwork for '+request.destinationName}
-                    style={{maxWidth:'100%',maxHeight:360,display:'block',objectFit:'contain',marginTop:8}} />}
-                  {canManage&&request.status==='PENDING_APPROVAL'&&!publishPreviewUrls[request.publicId]&&
-                    <p className={styles.note}>Load the submitted artwork preview before approving. If it cannot be loaded, reject the request and ask for a fresh submission.</p>}
-                  {request.externalPostId&&<p>Provider post ID: {request.externalPostId}</p>}
-                  {request.errorCode&&<p>Error: {request.errorCode}</p>}
-                  {canManage&&request.status==='PENDING_APPROVAL'&&<div className={styles.actions}>
-                    <button type="button" className={styles.primary} disabled={publishingBusy||!publishPreviewUrls[request.publicId]} onClick={()=>void decidePublishRequest(request,'approve')}>Approve {request.scheduledAt?'schedule':'and publish'}</button>
-                    <button type="button" className={styles.secondary} disabled={publishingBusy} onClick={()=>void decidePublishRequest(request,'reject')}>Reject</button>
-                  </div>}
-                  {canManage&&request.status==='SCHEDULED'&&<button type="button" className={styles.textButton} disabled={publishingBusy} onClick={()=>void (async()=>{try{const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/cancel',{method:'POST'});const result=await response.json() as MetaPublishRequest;if(!response.ok)throw new Error('Cancel request failed.');setPublishRequests(old=>old.map(item=>item.publicId===result.publicId?result:item));}catch(cause){setMetaError(cause instanceof Error?cause.message:'Cancel request failed.');}})()}>Cancel scheduled post</button>}
-                </article>)}
-              </div>
-              {!canPublishSelectedFormat && <p className={styles.note}>Story / Status artwork is export/share-only in this version. Choose Facebook Feed, Square Feed or Instagram Feed to publish directly.</p>}
-              <p className={styles.note}>Requests are saved in the backend for approval. The scheduler dispatches approved posts; uncertain provider outcomes are reconciled and never blindly reposted.</p>
-            </section>
             {error && <div className={styles.error} role="alert">{error}</div>}
             {notice && <div className={styles.notice} role="status">{notice}</div>}
             <div className={styles.actions}>
@@ -1782,7 +2011,6 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
             <p className={styles.note}>Facebook/Instagram posts and WhatsApp Business template messages use separate, permission-gated API workflows. WhatsApp Status is still manual export/share.</p>
           </main>
         </div>
-        {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />}
       </section>
     </div>
   );
