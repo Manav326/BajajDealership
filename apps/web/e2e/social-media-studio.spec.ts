@@ -127,6 +127,8 @@ test('asset picker adds an independent image object and drafts restore its layer
   await page.getByRole('button', { name: /Photos & assets/ }).click();
   const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
   await expect(imagePicker).toBeVisible();
+  await imagePicker.getByRole('searchbox', { name: 'Search image assets' }).fill('Diwali');
+  await expect(imagePicker.getByText('Diwali · Diyas & warm lights').first()).toBeVisible();
   await imagePicker.getByRole('button', { name: 'Add to canvas' }).first().click();
   await expect(imagePicker).toHaveCount(0);
   await expect(page.getByText(/1 editable object/)).toBeVisible();
