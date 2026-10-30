@@ -7,12 +7,8 @@ tags:
 - runFlow: ../../subflows/customer-login.yaml
 - tapOn: "Updates"
 - assertVisible: "Dealership updates"
-- assertVisible:
-    text: "Unread only"
-    optional: true
-- tapOn:
-    text: "Unread only"
-    optional: true
+- assertVisible: "Unread only"
+- tapOn: "Unread only"
 - assertVisible: "Show all updates"
 - tapOn: "Show all updates"
 - assertVisible: "Dealership updates"
