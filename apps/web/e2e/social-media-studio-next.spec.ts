@@ -855,7 +855,7 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
-  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
   await page.getByRole('textbox', { name: 'Text' }).fill('Persistent campaign headline');
   await page.getByRole('button', { name: 'Back to resources' }).click();
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
@@ -878,7 +878,7 @@ test('editing a project invalidates previously rendered outputs until the next r
   await expect(download).toBeEnabled({ timeout: 30000 });
 
   await page.getByRole('button', { name: 'Text' }).click();
-  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
   await page.getByRole('textbox', { name: 'Text' }).fill('A newer design revision');
   await expect(download).toBeDisabled();
 
