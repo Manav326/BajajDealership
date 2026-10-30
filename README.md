@@ -359,6 +359,18 @@ The local startup script generates a random temporary `APP_BOOTSTRAP_TOKEN` in t
 
 These credentials and defaults are for development only. Do not expose this Compose stack to the public internet or reuse its database credentials in production. Production requires HTTPS, separate secrets, restricted database access, durable private media, monitoring and verified backups.
 
+## Local UI testing (Playwright + Maestro)
+
+Run local web and native Android UI tests using the repository helper; see [docs/LOCAL_UI_TESTING.md](docs/LOCAL_UI_TESTING.md) for prerequisites, coverage and troubleshooting.
+
+```powershell
+.\scripts\test-ui.ps1                 # Playwright UI Mode for web tests
+.\scripts\test-ui.ps1 -Target Android # Build/install app and run Maestro on emulator/device
+.\scripts\test-ui.ps1 -Target Both    # Visible web suite, then native Android smoke test
+```
+
+The web test scenarios use synthetic fixtures where configured. Maestro preserves app state and checks the auth/activation UI when signed out or the home shell plus main-tab navigation when signed in; it does not submit credentials or write backend data. A green UI smoke test is not, by itself, acceptance evidence for every business workflow.
+
 ## Notification Studio design reference
 
 The behaviour and safety requirements are adapted from QuantaEdge:
