@@ -1,0 +1,294 @@
+export type StudioResourceKind = 'image' | 'audio' | 'video' | 'export';
+export type StudioResource = {
+  id: string;
+  name: string;
+  kind: StudioResourceKind;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  relativePath: string | null;
+  blob: Blob;
+};
+
+export type StudioElement = {
+  id: string;
+  type: 'text' | 'rect' | 'circle' | 'line' | 'image';
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+  fontWeight: '400' | '600' | '700' | '800';
+  italic: boolean;
+  align: 'left' | 'center' | 'right';
+  resourceId?: string;
+  visible: boolean;
+  locked: boolean;
+  groupId?: string;
+};
+
+export type StudioPage = {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  durationSeconds: number;
+  background: string;
+  elements: StudioElement[];
+};
+
+export type StudioProject = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  pages: StudioPage[];
+  selectedPageId: string;
+  selectedAudioId: string | null;
+  audioStartSeconds: number;
+  audioVolume: number;
+  caption: string;
+  hashtags: string;
+  primaryColor: string;
+  accentColor: string;
+};
+
+type DirectoryHandleLike = {
+  name: string;
+  queryPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
+  requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
+  getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<DirectoryHandleLike>;
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FileHandleLike>;
+};
+type FileHandleLike = {
+  getFile: () => Promise<File>;
+  createWritable: () => Promise<{ write: (data: Blob | string) => Promise<void>; close: () => Promise<void> }>;
+};
+
+const DB_NAME = 'lucky-bajaj-creative-studio';
+const DB_VERSION = 1;
+const SETTINGS_STORE = 'settings';
+const PROJECTS_STORE = 'projects';
+const RESOURCES_STORE = 'resources';
+const ROOT_HANDLE_KEY = 'workspace-directory-handle';
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('This browser does not provide local project storage.'));
+      return;
+    }
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) db.createObjectStore(SETTINGS_STORE);
+      if (!db.objectStoreNames.contains(PROJECTS_STORE)) db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(RESOURCES_STORE)) db.createObjectStore(RESOURCES_STORE, { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Local studio storage could not be opened.'));
+  });
+}
+
+async function readValue<T>(storeName: string, key: IDBValidKey): Promise<T | undefined> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).get(key);
+    request.onsuccess = () => { db.close(); resolve(request.result as T | undefined); };
+    request.onerror = () => { db.close(); reject(request.error ?? new Error('Local data could not be read.')); };
+  });
+}
+
+async function writeValue(storeName: string, value: unknown, key?: IDBValidKey): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    if (key === undefined) tx.objectStore(storeName).put(value);
+    else tx.objectStore(storeName).put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Local data could not be saved.')); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error('Local save was cancelled.')); };
+  });
+}
+
+async function listValues<T>(storeName: string): Promise<T[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+    request.onsuccess = () => { db.close(); resolve(request.result as T[]); };
+    request.onerror = () => { db.close(); reject(request.error ?? new Error('Local library could not be read.')); };
+  });
+}
+
+async function deleteValue(storeName: string, key: IDBValidKey): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Local item could not be deleted.')); };
+  });
+}
+
+export function supportsLocalDirectoryAccess(): boolean {
+  return typeof window !== 'undefined'
+    && typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+}
+
+export async function getWorkspaceDirectory(): Promise<DirectoryHandleLike | null> {
+  return (await readValue<DirectoryHandleLike>(SETTINGS_STORE, ROOT_HANDLE_KEY)) ?? null;
+}
+
+export async function getWorkspacePermission(): Promise<PermissionState | 'missing'> {
+  const root = await getWorkspaceDirectory();
+  if (!root) return 'missing';
+  if (!root.queryPermission) return 'denied';
+  try { return await root.queryPermission({ mode: 'readwrite' }); }
+  catch { return 'denied'; }
+}
+
+export async function chooseWorkspaceDirectory(): Promise<string> {
+  const picker = (window as unknown as {
+    showDirectoryPicker?: (options: { id: string; mode: 'readwrite' }) => Promise<DirectoryHandleLike>;
+  }).showDirectoryPicker;
+  if (!picker) throw new Error('This browser cannot grant folder access. Use Chrome or Edge, or use browser-local storage.');
+  const root = await picker.call(window, { id: 'lucky-bajaj-studio', mode: 'readwrite' });
+  if (root.requestPermission) {
+    const permission = await root.requestPermission({ mode: 'readwrite' });
+    if (permission !== 'granted') throw new Error('Folder access was not granted.');
+  }
+  await writeValue(SETTINGS_STORE, root, ROOT_HANDLE_KEY);
+  await ensureWorkspaceFolders(root);
+  return root.name;
+}
+
+export async function requestSavedFolderPermission(): Promise<PermissionState | 'missing'> {
+  const root = await getWorkspaceDirectory();
+  if (!root) return 'missing';
+  const state = root.queryPermission ? await root.queryPermission({ mode: 'readwrite' }) : 'denied';
+  if (state === 'granted') return state;
+  if (!root.requestPermission) return 'denied';
+  return root.requestPermission({ mode: 'readwrite' });
+}
+
+async function ensureWorkspaceFolders(root: DirectoryHandleLike): Promise<void> {
+  for (const name of ['Projects', 'Assets', 'Assets/Images', 'Assets/Audio', 'Assets/Videos', 'Exports', 'Exports/Images', 'Exports/Videos']) {
+    let current = root;
+    for (const part of name.split('/')) current = await current.getDirectoryHandle(part, { create: true });
+  }
+}
+
+async function directoryAt(root: DirectoryHandleLike, parts: string[], create: boolean): Promise<DirectoryHandleLike> {
+  let current = root;
+  for (const part of parts) current = await current.getDirectoryHandle(part, { create });
+  return current;
+}
+
+function safeFileName(value: string): string {
+  return value.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'resource';
+}
+
+async function writeLocalFile(relativePath: string, blob: Blob): Promise<void> {
+  const root = await getWorkspaceDirectory();
+  if (!root) return;
+  const permission = root.queryPermission ? await root.queryPermission({ mode: 'readwrite' }) : 'denied';
+  if (permission !== 'granted') throw new Error('The local resource folder needs permission again.');
+  const parts = relativePath.split('/');
+  const fileName = parts.pop();
+  if (!fileName) throw new Error('Invalid local resource path.');
+  const dir = await directoryAt(root, parts, true);
+  const fileHandle = await dir.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+export async function saveProject(project: StudioProject): Promise<void> {
+  const saved = { ...project, updatedAt: new Date().toISOString() };
+  await writeValue(PROJECTS_STORE, saved);
+  const root = await getWorkspaceDirectory();
+  if (root) {
+    const filename = safeFileName(saved.name) + '-' + saved.id + '.json';
+    await writeLocalFile('Projects/' + filename, new Blob([JSON.stringify(saved, null, 2)], { type: 'application/json' }));
+  }
+}
+
+export async function listProjects(): Promise<StudioProject[]> {
+  return (await listValues<StudioProject>(PROJECTS_STORE)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function removeProject(id: string): Promise<void> {
+  const project = await readValue<StudioProject>(PROJECTS_STORE, id);
+  await deleteValue(PROJECTS_STORE, id);
+  const root = await getWorkspaceDirectory();
+  if (root && project) {
+    const filename = safeFileName(project.name) + '-' + project.id + '.json';
+    try {
+      const dir = await directoryAt(root, ['Projects'], false);
+      const db = await openDb();
+      db.close();
+      const handle = await dir.getFileHandle(filename);
+      const writable = await handle.createWritable();
+      await writable.write('');
+      await writable.close();
+    } catch { /* The indexed project is already removed; stale local files can be cleaned manually. */ }
+  }
+}
+
+export async function saveResource(blob: Blob, name: string, kind: StudioResourceKind): Promise<StudioResource> {
+  if (!blob.size) throw new Error('The selected file is empty.');
+  const id = globalThis.crypto?.randomUUID?.() ?? 'resource-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  const extension = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+  const safeName = safeFileName(name.replace(/\.[^.]+$/, ''));
+  const folder = kind === 'image' ? 'Images' : kind === 'audio' ? 'Audio' : kind === 'video' ? 'Videos' : 'Images';
+  const relativePath = 'Assets/' + folder + '/' + id + '-' + safeName + (extension ? '.' + safeFileName(extension) : '');
+  const resource: StudioResource = {
+    id, name: name.slice(0, 140), kind, mimeType: blob.type || 'application/octet-stream',
+    size: blob.size, createdAt: new Date().toISOString(), relativePath, blob,
+  };
+  await writeValue(RESOURCES_STORE, resource);
+  await writeLocalFile(relativePath, blob);
+  return resource;
+}
+
+export async function listResources(): Promise<StudioResource[]> {
+  return (await listValues<StudioResource>(RESOURCES_STORE)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function readResource(id: string): Promise<StudioResource | undefined> {
+  return readValue<StudioResource>(RESOURCES_STORE, id);
+}
+
+export async function removeResource(id: string): Promise<void> {
+  await deleteValue(RESOURCES_STORE, id);
+}
+
+export async function saveExport(blob: Blob, name: string, kind: 'image' | 'video'): Promise<void> {
+  const root = await getWorkspaceDirectory();
+  if (!root) return;
+  const directory = kind === 'image' ? 'Exports/Images' : 'Exports/Videos';
+  await writeLocalFile(directory + '/' + safeFileName(name), blob);
+}
+
+export async function persistHandleName(): Promise<string | null> {
+  return (await getWorkspaceDirectory())?.name ?? null;
+}
+
+export function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = safeFileName(name);
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 15_000);
+}
