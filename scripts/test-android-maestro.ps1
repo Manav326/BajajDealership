@@ -5,6 +5,8 @@ param(
   [ValidateSet("Public", "Authenticated", "Notifications", "All")]
   [string]$Suite = "Public",
   [switch]$SkipBuild,
+  [switch]$BuildLocalApk,
+  [switch]$AllowNonLocalApi,
   [switch]$SkipApiHealthCheck
 )
 
@@ -13,7 +15,10 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $appRoot = Join-Path $projectRoot "apps/android"
 $maestroRoot = Join-Path $appRoot ".maestro"
 $localEnvFile = Join-Path $maestroRoot "local.env"
-$apkPath = Join-Path $appRoot "android/app/build/outputs/apk/debug/app-debug.apk"
+$localBuildApkPath = Join-Path $appRoot "android/app/build/outputs/apk/debug/app-debug.apk"
+$ciApkPath = Join-Path $projectRoot "artifacts/lucky-bajaj-latest.apk"
+$apkPath = if ($BuildLocalApk) { $localBuildApkPath } else { $ciApkPath }
+$apkMetadataPath = "$apkPath.json"
 $reportRoot = Join-Path $appRoot "maestro-results"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runRoot = Join-Path $reportRoot $timestamp
@@ -55,7 +60,15 @@ function Resolve-AdbExecutable {
 
   foreach ($candidate in ($candidates | Select-Object -Unique)) {
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      return (Resolve-Path -LiteralPath $candidate).Path
+      $resolvedAdb = (Resolve-Path -LiteralPath $candidate).Path
+      $resolvedSdkRoot = Split-Path -Parent (Split-Path -Parent $resolvedAdb)
+      if (Test-Path -LiteralPath (Join-Path $resolvedSdkRoot "platform-tools/adb.exe") -PathType Leaf) {
+        # ADB proves which SDK is installed. Export it so an optional local Gradle build
+        # works even when ANDROID_HOME / ANDROID_SDK_ROOT were not configured manually.
+        $env:ANDROID_HOME = $resolvedSdkRoot
+        $env:ANDROID_SDK_ROOT = $resolvedSdkRoot
+      }
+      return $resolvedAdb
     }
   }
 
@@ -191,9 +204,7 @@ if (-not [System.Net.IPAddress]::TryParse($LanIp, [ref]$parsedAddress) -or
   Fail "'$LanIp' is not a usable computer LAN IPv4 address."
 }
 
-$apiBaseUrl = "http://{0}:8080/" -f $LanIp
-$env:EXPO_PUBLIC_API_BASE_URL = $apiBaseUrl
-$env:EXPO_PUBLIC_CUSTOMER_WEB_URL = "http://{0}:3000" -f $LanIp
+$localApiBaseUrl = "http://{0}:8080/" -f $LanIp
 
 $script:AdbPath = Resolve-AdbExecutable
 Write-Host ("Using ADB: {0}" -f $script:AdbPath)
@@ -209,21 +220,76 @@ if ($maestroVersion) { Write-Host ("Maestro version: {0}" -f ($maestroVersion -j
 
 $selectedDevice = Get-PhysicalAndroidDevice
 Write-Host ("Physical Android device: {0}" -f $selectedDevice)
-Write-Host ("Local API compiled into app: {0}" -f $apiBaseUrl)
-Write-Host "HTTP is intentional for same-LAN local testing; this private address must not be used for a public release build."
 
-if (-not $SkipApiHealthCheck) {
-  $healthUrl = $apiBaseUrl.TrimEnd("/") + "/actuator/health"
+if ($BuildLocalApk -and $SkipBuild) {
+  Fail "Use either -BuildLocalApk or -SkipBuild, not both. The default workflow downloads the CI APK."
+}
+
+if ($BuildLocalApk) {
+  $apiBaseUrl = $localApiBaseUrl
+  $env:EXPO_PUBLIC_API_BASE_URL = $apiBaseUrl
+  $env:EXPO_PUBLIC_CUSTOMER_WEB_URL = "http://{0}:3000" -f $LanIp
+  Write-Host ("Building a local APK with API URL: {0}" -f $apiBaseUrl)
+  Write-Host "HTTP is intentional for same-LAN local testing; this private address must not be used for a public release build."
+} else {
+  Write-Host ([Environment]::NewLine + "Downloading the latest successful main-branch Android APK from GitHub Actions...")
+  $downloadScript = Join-Path $projectRoot "scripts/android-fetch-latest-apk.ps1"
+  if (-not (Test-Path -LiteralPath $downloadScript -PathType Leaf)) {
+    Fail "The GitHub APK downloader is missing: $downloadScript. Pull the latest main branch and retry."
+  }
+  & $downloadScript -DownloadOnly
+  if (-not $?) { Fail "GitHub APK download failed. Confirm GitHub CLI is installed and authenticated with 'gh auth login'." }
+  if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) {
+    Fail "The CI APK was not downloaded to $apkPath."
+  }
+
+  if (-not (Test-Path -LiteralPath $apkMetadataPath -PathType Leaf)) {
+    Fail "The downloaded APK has no build metadata. Pull an APK artifact from a successful CI run created after the Android build-metadata change; the runner will not guess which API the APK targets."
+  }
+
   try {
-    $health = Invoke-RestMethod -Method Get -Uri $healthUrl -TimeoutSec 8
-    if ($health.status -and $health.status -ne "UP") { Fail "Local API health is '$($health.status)' at $healthUrl." }
-    Write-Host ("Local API reachable at {0}" -f $healthUrl)
+    $apkMetadata = Get-Content -LiteralPath $apkMetadataPath -Raw | ConvertFrom-Json
   } catch {
-    Fail ("Cannot reach local API at {0}. Start the local Docker/API stack, confirm port 8080 is published, allow inbound TCP 8080 on the Windows Private firewall profile, and ensure the phone is on the same LAN. {1}" -f $healthUrl, $_.Exception.Message)
+    Fail ("Could not read APK build metadata at {0}: {1}" -f $apkMetadataPath, $_.Exception.Message)
+  }
+  $apiBaseUrl = [string]$apkMetadata.apiBaseUrl
+  if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+    Fail "The downloaded APK metadata does not record apiBaseUrl. Re-run after a successful CI Android build."
+  }
+  if ($apkMetadata.packageName -and $apkMetadata.packageName -ne "com.quantaedge.luckybajaj") {
+    Fail ("The downloaded APK metadata describes package '{0}', not the Standard Edition package 'com.quantaedge.luckybajaj'." -f $apkMetadata.packageName)
+  }
+
+  $expectedLocalApi = $localApiBaseUrl.TrimEnd("/")
+  $embeddedApi = $apiBaseUrl.TrimEnd("/")
+  if ($embeddedApi -ne $expectedLocalApi -and -not $AllowNonLocalApi) {
+    Fail ("This CI APK is compiled for '{0}', not your local API '{1}'. -LanIp does not rewrite a prebuilt APK. Set the GitHub Actions repository variable BAJAJ_API_BASE_URL to '{1}', wait for a successful Android CI build, then rerun. Use -AllowNonLocalApi only when you intentionally want Maestro to test the API embedded in this APK." -f $apiBaseUrl, $localApiBaseUrl)
+  }
+  if ($embeddedApi -ne $expectedLocalApi) {
+    Write-Warning ("Explicit non-local API test enabled. Maestro will use the API embedded in the APK: {0}" -f $apiBaseUrl)
+  } else {
+    Write-Host ("CI APK is configured for the local API: {0}" -f $apiBaseUrl)
+  }
+  if ($apkMetadata.headSha) {
+    Write-Host ("APK source commit: {0}" -f $apkMetadata.headSha)
   }
 }
 
-if (-not $SkipBuild) {
+if (-not $SkipApiHealthCheck) {
+  if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+    Fail "The APK API URL is unknown. The API health check cannot run safely."
+  }
+  $healthUrl = $apiBaseUrl.TrimEnd("/") + "/actuator/health"
+  try {
+    $health = Invoke-RestMethod -Method Get -Uri $healthUrl -TimeoutSec 8
+    if ($health.status -and $health.status -ne "UP") { Fail "API health is '$($health.status)' at $healthUrl." }
+    Write-Host ("API reachable at {0}" -f $healthUrl)
+  } catch {
+    Fail ("Cannot reach the API embedded in this APK at {0}. For local testing, start the local Docker/API stack, confirm port 8080 is published, allow inbound TCP 8080 on the Windows Private firewall profile, and ensure the phone is on the same LAN. {1}" -f $healthUrl, $_.Exception.Message)
+  }
+}
+
+if ($BuildLocalApk) {
   Push-Location $appRoot
   try {
     Write-Host ([Environment]::NewLine + "Installing Android app dependencies...")
@@ -239,10 +305,26 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Fail "Android TypeScript typecheck failed." }
 
     Write-Host ([Environment]::NewLine + "Generating the Android native project with local HTTP API configuration...")
-    & npx expo prebuild --platform android --non-interactive --no-install
-    if ($LASTEXITCODE -ne 0) { Fail "Expo Android prebuild failed." }
+    $previousCi = $env:CI
+    try {
+      $env:CI = "1"
+      & npx expo prebuild --platform android --no-install
+      if ($LASTEXITCODE -ne 0) { Fail "Expo Android prebuild failed." }
+    } finally {
+      if ($null -eq $previousCi) { Remove-Item Env:CI -ErrorAction SilentlyContinue }
+      else { $env:CI = $previousCi }
+    }
 
-    Push-Location (Join-Path $appRoot "android")
+    $androidProjectRoot = Join-Path $appRoot "android"
+    $sdkRoot = $env:ANDROID_SDK_ROOT
+    if (-not $sdkRoot -or -not (Test-Path -LiteralPath $sdkRoot -PathType Container)) {
+      Fail "Android SDK was found through ADB, but its SDK root could not be resolved. Set ANDROID_HOME or ANDROID_SDK_ROOT to the Android SDK directory."
+    }
+    $localPropertiesPath = Join-Path $androidProjectRoot "local.properties"
+    $sdkDirForGradle = $sdkRoot.Replace("\", "/")
+    Set-Content -LiteralPath $localPropertiesPath -Value ("sdk.dir={0}" -f $sdkDirForGradle) -Encoding Ascii
+
+    Push-Location $androidProjectRoot
     try {
       Write-Host ([Environment]::NewLine + "Building installable debug APK...")
       & .\gradlew.bat assembleDebug --no-daemon --build-cache --parallel
@@ -253,11 +335,20 @@ if (-not $SkipBuild) {
   } finally {
     Pop-Location
   }
-} elseif (-not (Test-Path $apkPath)) {
-  Fail "No debug APK exists at $apkPath. Run without -SkipBuild."
+
+  $localMetadata = [ordered]@{
+    packageName = "com.quantaedge.luckybajaj"
+    apiBaseUrl = $apiBaseUrl
+    headSha = "local"
+    buildSource = "local"
+  }
+  $localMetadata | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $apkMetadataPath -Encoding UTF8
 }
 
-if (-not (Test-Path $apkPath)) { Fail "Android APK was not produced: $apkPath" }
+if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) {
+  Fail "Android APK was not found: $apkPath"
+}
+
 Write-Host ([Environment]::NewLine + "Installing APK on the selected physical phone...")
 & $script:AdbPath -s $selectedDevice install -r $apkPath
 if ($LASTEXITCODE -ne 0) { Fail "APK installation failed. Check the phone for an existing incompatible or differently signed installation." }
