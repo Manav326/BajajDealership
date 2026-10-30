@@ -1,3 +1,136 @@
+/* Tauri desktop: keep the application frame inside the native window.
+   Only the workspace and navigation rail may scroll; the WebView document never pans. */
+html.tauri-desktop,
+html.tauri-desktop body,
+html.tauri-desktop #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html.tauri-desktop {
+  overscroll-behavior: none;
+}
+
+html.tauri-desktop body {
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+html.tauri-desktop #root {
+  display: flex;
+}
+
+html.tauri-desktop .app-shell {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.tauri-desktop .app-shell > .sidebar {
+  position: relative;
+  top: auto;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html.tauri-desktop .app-shell > .main-content {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+html.tauri-desktop .main-content > .license-status-banner {
+  flex: 0 0 auto;
+  margin: 10px 22px 10px;
+}
+
+html.tauri-desktop .main-content > .topbar {
+  position: relative;
+  top: auto;
+  z-index: 30;
+  flex: 0 0 76px;
+  width: 100%;
+  min-width: 0;
+}
+
+html.tauri-desktop .main-content > .page-wrap {
+  flex: 1 1 0;
+  width: 100%;
+  max-width: 1500px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+html.tauri-desktop #root > .auth-screen,
+html.tauri-desktop #root > .license-blocked-screen {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html.tauri-desktop .app-shell > .sidebar::-webkit-scrollbar,
+html.tauri-desktop .main-content > .page-wrap::-webkit-scrollbar {
+  width: 8px;
+}
+
+html.tauri-desktop .app-shell > .sidebar::-webkit-scrollbar-thumb,
+html.tauri-desktop .main-content > .page-wrap::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: rgba(111, 128, 151, 0.34);
+  background-clip: padding-box;
+}
+
+/* Short desktop windows retain the same scroll model with denser outer spacing. */
+@media (max-height: 720px) {
+  html.tauri-desktop .main-content > .page-wrap {
+    padding-top: 22px;
+    padding-bottom: 14px;
+  }
+
+  html.tauri-desktop .app-shell > .sidebar {
+    padding-top: 18px;
+    padding-bottom: 12px;
+  }
+
+  html.tauri-desktop .app-shell > .sidebar .brand-lockup {
+    padding-bottom: 17px;
+  }
+
+  html.tauri-desktop .app-shell > .sidebar .agency-switcher {
+    margin-bottom: 16px;
+  }
+
+  html.tauri-desktop .app-shell > .sidebar .nav-group {
+    margin-bottom: 10px;
+  }
+}
+
 /* Staff shell and notification preview UX fixes.
    Keep the desktop navigation in the viewport and give each preview state a stable layout. */
 
