@@ -200,11 +200,41 @@ test('element search filters presets and layer search filters the actual layer l
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
   const lockedLayer = page.getByRole('button', { name: 'Offer badge', exact: true });
+  const lockedCanvasObject = page.locator('svg.designCanvas g[aria-label="Select Offer badge, locked"]');
+  await expect(lockedCanvasObject).toHaveCount(1);
+  const lockedBefore = await lockedCanvasObject.boundingBox();
+  if (!lockedBefore) throw new Error('Locked canvas object is not visible.');
+  await page.mouse.move(lockedBefore.x + lockedBefore.width/2, lockedBefore.y + lockedBefore.height/2);
+  await page.mouse.down();
+  await page.mouse.move(lockedBefore.x + lockedBefore.width/2 + 50, lockedBefore.y + lockedBefore.height/2 + 35, { steps: 3 });
+  await page.mouse.up();
+  const lockedAfter = await lockedCanvasObject.boundingBox();
+  expect(lockedAfter?.x).toBeCloseTo(lockedBefore.x, 1);
+  expect(lockedAfter?.y).toBeCloseTo(lockedBefore.y, 1);
   await page.keyboard.press('Delete');
   await page.keyboard.press('Control+d');
   await expect(lockedLayer).toBeVisible();
 });
 
+
+test('layer visibility hides and restores the selected canvas object', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Elements' }).click();
+  await page.getByRole('button', { name: 'Offer badge', exact: true }).click();
+  const canvasObject = page.locator('svg.designCanvas g[aria-label="Select Offer badge"]');
+  await expect(canvasObject).toHaveCount(1);
+  await page.getByRole('button', { name: 'Layers' }).click();
+  const hide = page.getByRole('button', { name: 'Hide layer' });
+  await expect(hide).toBeVisible();
+  await hide.click();
+  const show = page.getByRole('button', { name: 'Show layer' });
+  await expect(show).toHaveAttribute('aria-pressed', 'true');
+  await expect(canvasObject).toHaveCount(0);
+  await show.click();
+  await expect(page.getByRole('button', { name: 'Hide layer' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(canvasObject).toHaveCount(1);
+});
 
 test('scene timeline plays and seeks a preview without triggering a render', async ({ page }) => {
   await openNewStudio(page); await page.getByRole('button',{name:'Create',exact:true}).click();
