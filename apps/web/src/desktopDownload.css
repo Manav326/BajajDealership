@@ -38,3 +38,5 @@ body { margin: 0; min-width: 320px; }
   .desktop-download-actions a { width: 100%; }
   .desktop-download-footer { align-items: flex-start; flex-direction: column; }
 }
+
+.desktop-download-actions button:disabled { cursor: not-allowed; opacity: .55; }

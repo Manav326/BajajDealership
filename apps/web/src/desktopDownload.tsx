@@ -1,7 +1,61 @@
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './desktopDownload.css';
 
+type PublicRelease = {
+  tag_name: string;
+  html_url: string;
+  draft: boolean;
+  prerelease: boolean;
+  assets: { name: string; browser_download_url: string; }[];
+};
+
+type Installers = { exeUrl: string; msiUrl: string; releaseUrl: string; tag: string; };
+
 function DesktopDownloadPage() {
+  const [installers, setInstallers] = useState<Installers | null>(null);
+  const [releaseState, setReleaseState] = useState<'checking' | 'available' | 'unavailable'>('checking');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(
+          'https://api.github.com/repos/Manav326/BajajDealership/releases?per_page=20',
+          { headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal },
+        );
+        if (!response.ok) throw new Error('Public release list is unavailable.');
+        const releases = await response.json() as PublicRelease[];
+        const release = releases.find((candidate) =>
+          !candidate.draft
+          && !candidate.prerelease
+          && /^desktop-v\d+\.\d+\.\d+/.test(candidate.tag_name)
+          && candidate.assets.some((asset) => asset.name === 'LuckyBajajDesktopSetup.exe')
+          && candidate.assets.some((asset) => asset.name === 'LuckyBajajDesktop.msi'));
+        if (!release) {
+          setReleaseState('unavailable');
+          return;
+        }
+        const exe = release.assets.find((asset) => asset.name === 'LuckyBajajDesktopSetup.exe');
+        const msi = release.assets.find((asset) => asset.name === 'LuckyBajajDesktop.msi');
+        if (!exe || !msi) {
+          setReleaseState('unavailable');
+          return;
+        }
+        setInstallers({
+          exeUrl: exe.browser_download_url,
+          msiUrl: msi.browser_download_url,
+          releaseUrl: release.html_url,
+          tag: release.tag_name,
+        });
+        setReleaseState('available');
+      } catch {
+        if (!controller.signal.aborted) setReleaseState('unavailable');
+      }
+    })();
+    return () => controller.abort();
+  }, []);
+
   return (
     <main className="desktop-download-shell">
       <header className="desktop-download-header">
@@ -20,22 +74,29 @@ function DesktopDownloadPage() {
           Open the staff portal from your Windows Start menu. Your existing staff login,
           roles and central dealership records remain in use.
         </p>
-        <div className="desktop-download-notice">
-          <strong>Release availability</strong>
-          <span>The installer links become active after a reviewed Windows release is published. Until then, use the staff website.</span>
+        <div className="desktop-download-notice" role="status">
+          <strong>{releaseState === 'available' ? `Available now · ${installers?.tag}` : 'Release availability'}</strong>
+          <span>{releaseState === 'checking'
+            ? 'Checking for a reviewed Windows release…'
+            : releaseState === 'available'
+              ? 'Download only from this official page. The installer connects to your central dealership account.'
+              : 'A public, reviewed Windows installer is not currently available. Use the staff website until a signed release is published.'}</span>
         </div>
         <div className="desktop-download-actions">
-          <a href="https://github.com/Manav326/BajajDealership/releases/latest/download/LuckyBajajDesktopSetup.exe">
-            Download Windows installer (.exe)
-          </a>
-          <a className="desktop-download-secondary" href="https://github.com/Manav326/BajajDealership/releases/latest">
-            View release details and MSI installer
-          </a>
+          {releaseState === 'available' && installers ? <>
+            <a href={installers.exeUrl}>Download Windows installer (.exe)</a>
+            <a className="desktop-download-secondary" href={installers.msiUrl}>Download Windows MSI installer</a>
+            <a className="desktop-download-secondary" href={installers.releaseUrl} target="_blank" rel="noreferrer">View release notes and verification details</a>
+          </> : <>
+            <button type="button" disabled>{releaseState === 'checking' ? 'Checking availability…' : 'Installer not yet available'}</button>
+            <a className="desktop-download-secondary" href="https://github.com/Manav326/BajajDealership/releases" target="_blank" rel="noreferrer">View official release page</a>
+          </>}
         </div>
         <ul className="desktop-download-requirements">
           <li>Windows 10 or 11, 64-bit</li>
           <li>Internet connection required for live records and transactions</li>
-          <li>Use only the installer linked from this official page</li>
+          <li>Expired licenses retain read-only access and owner data export</li>
+          <li>Install only a reviewed release with verified publisher/signature details</li>
         </ul>
       </section>
       <footer className="desktop-download-footer">

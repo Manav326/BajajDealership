@@ -61,7 +61,7 @@ jobs:
         with:
           name: "Lucky Bajaj Desktop ${{ github.ref_name }} (draft)"
           draft: true
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           body: |
             This release is a draft candidate and has not been approved for public distribution.

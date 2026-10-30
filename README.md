@@ -409,6 +409,7 @@ Licensing is enforced by the Spring Boot API, not the website or desktop executa
 - `SUSPENDED`, `REVOKED`, `NOT_YET_ACTIVE` and missing-license states block operational reads and writes. Staff may still check license status, verify the current session and sign out.
 - Staff invitations reserve a seat while their account is `INVITED`; `ACTIVE` and `INVITED` accounts count against the seat limit. Deactivated staff do not consume an active seat.
 - The restricted vendor console is hosted at `/license-admin.html`. Configure `APP_LICENSE_ADMIN_TOKEN` as a high-entropy API deployment secret; generate one with `openssl rand -base64 48`. The console sends it in `X-License-Admin-Token` and holds it in page memory only. If the secret is unset, API license-management endpoints remain unavailable.
+- After expiry plus grace, dealership owners can use `GET /api/v1/admin/data-export` to download a ZIP of dealership-owned JSON Lines business records. The route requires the OWNER role, is audit-logged, and omits authentication, session, licensing and secret-like data.
 - Every license update records an audit event with the requested plan, state, dates, grace period, staff-seat limit and change reason. The token itself is never written to the database or audit trail.
 - Before deploying this migration to a live customer, configure the API secret and commercial license terms. The migration trial is a safety transition, not proof of a paid subscription.
 

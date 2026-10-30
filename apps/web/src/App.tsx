@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch, apiRequestUrl } from './apiClient';
+import { apiFetch, apiRequestUrl, desktopRequestHeaders } from './apiClient';
 import CustomerWorkspace from './customers/CustomerWorkspace';
 import VehicleInventoryWorkspace from './inventory/VehicleInventoryWorkspace';
 import SparePartsWorkspace from './inventory/SparePartsWorkspace';
@@ -100,6 +100,8 @@ function App() {
   const [healthError, setHealthError] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
   const [showInbox, setShowInbox] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const updateUnreadCount = useCallback((count: number) => setUnreadCount(count), []);
@@ -279,6 +281,44 @@ function App() {
     setLogoutError('');
   }
 
+  async function downloadBusinessData() {
+    if (!token || !staff?.roles.includes('OWNER')) return;
+    setExportBusy(true);
+    setExportMessage('');
+    try {
+      const headers = new Headers(desktopRequestHeaders());
+      headers.set('Accept', 'application/zip');
+      headers.set('Authorization', `Bearer ${token}`);
+      const response = await fetch(apiRequestUrl('/api/v1/admin/data-export'), { headers });
+      if (!response.ok) {
+        let message = `Data export failed (HTTP ${response.status}).`;
+        try {
+          const problem = await response.json() as { message?: string; detail?: string; code?: string };
+          message = problem.message ?? problem.detail ?? problem.code ?? message;
+        } catch {
+          // Preserve the HTTP status if the API did not return JSON.
+        }
+        throw new Error(message);
+      }
+      const archive = await response.blob();
+      const objectUrl = window.URL.createObjectURL(archive);
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const filename = disposition.match(/filename="([^"]+)"/i)?.[1] ?? 'LuckyBajaj-data-export.zip';
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 2000);
+      setExportMessage('Export downloaded. Credential, session and licensing secrets are excluded.');
+    } catch (cause) {
+      setExportMessage(cause instanceof Error ? cause.message : 'The business data export could not be downloaded.');
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   async function logout() {
     setLogoutError('');
     try {
@@ -329,6 +369,12 @@ function App() {
           <strong>Read-only mode: license expired.</strong>
           <span> Existing records and permitted exports remain available. Creating or changing records is disabled. Contact licensing support to renew.</span>
           {licenseStatus.expiresAt && <small> Expired {new Date(licenseStatus.expiresAt).toLocaleDateString()}.</small>}
+          {staff.roles.includes('OWNER') && (
+            <button type="button" className="license-export-button" onClick={() => void downloadBusinessData()} disabled={exportBusy}>
+              {exportBusy ? 'Preparing export…' : 'Download business data'}
+            </button>
+          )}
+          {exportMessage && <span className="license-export-status" role="status">{exportMessage}</span>}
         </div>
       )}
       {licenseStatus?.state === 'GRACE' && (
