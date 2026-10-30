@@ -964,7 +964,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(.1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
     timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.type==='video'?(clip.sourceStartSeconds??0):0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mediaType:clip.type==='image'?'image':'video',mode,changed:false};
-    selectTimelineVideoClip(scene,clip);
+    selectTimelineMediaClip(scene,clip);
   }
   function moveTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
     const drag=timelineClipDragRef.current;if(!drag||drag.pointerId!==event.pointerId)return;
@@ -974,7 +974,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     else if(drag.mode==='start'){const end=drag.startSeconds+drag.durationSeconds;startSeconds=Math.max(0,Math.min(end-.1,drag.startSeconds+delta));durationSeconds=end-startSeconds;}
     else durationSeconds=Math.max(.1,Math.min(drag.sceneDuration-drag.startSeconds,drag.durationSeconds+delta));
     const sourceDuration=drag.mediaType==='video'?videoElementsRef.current[drag.clipId]?.duration:undefined;
-    const sourceStartSeconds=drag.mediaType==='video'&&drag.mode==='start'?Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):drag.sourceStartSeconds;
+    const maxSourceStart=typeof sourceDuration==='number'&&Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER;
+    const sourceStartSeconds=drag.mediaType==='video'&&drag.mode==='start'?Math.max(0,Math.min(maxSourceStart,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):drag.sourceStartSeconds;
     drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;drag.previewSourceStartSeconds=sourceStartSeconds;
     drag.changed=Math.abs(startSeconds-drag.startSeconds)>.04||Math.abs(durationSeconds-drag.durationSeconds)>.04;
     setTimelineClipPreview({clipId:drag.clipId,startSeconds,durationSeconds});
