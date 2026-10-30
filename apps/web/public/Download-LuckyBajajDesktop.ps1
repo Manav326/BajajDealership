@@ -78,10 +78,6 @@ try {
   }
   $run = $matchingRuns[0]
 
-  if ($run.status -ne 'completed' -or $run.conclusion -ne 'success') {
-    throw "CI for the current PR commit is not successful yet (status: $($run.status), result: $($run.conclusion)). No installer was downloaded."
-  }
-
   $jobsResponse = Invoke-GitHubApi -Path "actions/runs/$($run.id)/jobs?per_page=100"
   $desktopJob = @($jobsResponse.jobs | Where-Object { $_.name -eq $desktopJobName } | Select-Object -First 1)
   if ($desktopJob.Count -eq 0) {

@@ -89,8 +89,8 @@ function DesktopDownloadPage() {
         <div className="desktop-download-notice" role="status">
           <strong>PR #37 · current-commit build only</strong>
           <span>
-            The downloader checks the latest PR branch commit and its Windows desktop CI job.
-            It will stop when CI is running or failed; it will never quietly give you an older installer.
+            The downloader checks the latest PR branch commit and its Windows desktop build job.
+            It proceeds only after that exact job succeeds; it never quietly gives you an older installer.
           </span>
         </div>
 
