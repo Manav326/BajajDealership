@@ -111,11 +111,27 @@ function Resolve-MaestroExecutable {
     $candidates += (Join-Path $root "bin/maestro.exe")
     $candidates += (Join-Path $root "maestro.bat")
     $candidates += (Join-Path $root "maestro.exe")
+
+    # The previous bootstrap copied the release ZIP's top-level "maestro" folder
+    # underneath this install root, resulting in:
+    # %LOCALAPPDATA%\BajajDealership\tools\maestro\maestro\bin\maestro.bat
+    # Search inside existing install roots before deciding to download again.
+    if (Test-Path -LiteralPath $root -PathType Container) {
+      $nestedLaunchers = @(
+        Get-ChildItem -LiteralPath $root -Filter "maestro.bat" -File -Recurse -ErrorAction SilentlyContinue |
+          Where-Object { $_.Directory.Name -ieq "bin" }
+      )
+      foreach ($launcher in $nestedLaunchers) {
+        $candidates += $launcher.FullName
+      }
+    }
   }
 
   foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      return (Resolve-Path -LiteralPath $candidate).Path
+      $resolvedLauncher = (Resolve-Path -LiteralPath $candidate).Path
+      Write-Host ("Using existing Maestro installation: {0}" -f $resolvedLauncher)
+      return $resolvedLauncher
     }
   }
 
