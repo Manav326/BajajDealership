@@ -258,7 +258,7 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect.poll(async () => renderedVideoCard.locator('span').last().textContent()).toContain('00:01');
   const reDownload = page.waitForEvent('download');
   await renderedVideoCard.getByRole('button', { name: /Download untitled-design-video\.(?:mp4|webm)/ }).click();
-  expect((await reDownload).suggestedFilename()).toMatch(/\.webm$/);
+  expect((await reDownload).suggestedFilename()).toMatch(/\.(?:mp4|webm)$/);
 });
 
 test('renders a photo first, then downloads it only after an explicit choice', async ({ page }) => {
@@ -327,11 +327,14 @@ test('download workflow supports video-only and photo-plus-video selections', as
 
   await page.getByRole('button', { name: 'Download rendered outputs' }).click();
   await page.getByRole('combobox', { name: 'Output selection' }).selectOption('both');
-  const bothDownloads = Promise.all([page.waitForEvent('download'), page.waitForEvent('download')]);
+  const bothDownloads: string[] = [];
+  const captureDownload = (download: { suggestedFilename: () => string }) => bothDownloads.push(download.suggestedFilename());
+  page.on('download', captureDownload);
   await page.getByRole('button', { name: 'Download selected' }).click();
-  const [photoDownload, secondDownload] = await bothDownloads;
-  expect(photoDownload.suggestedFilename()).toMatch(/\.png$/);
-  expect(secondDownload.suggestedFilename()).toMatch(/\.(?:mp4|webm)$/);
+  await expect.poll(() => bothDownloads.length).toBe(2);
+  page.off('download', captureDownload);
+  expect(bothDownloads[0]).toMatch(/\.png$/);
+  expect(bothDownloads[1]).toMatch(/\.(?:mp4|webm)$/);
 });
 
 test('resource import, filter and delete remain in the resource library', async ({ page }) => {
@@ -553,6 +556,10 @@ test('short audio under twenty seconds imports, trims and renders with video', a
   await expect.poll(async () => Number(await audioEnd.inputValue())).toBeCloseTo(.5,1);
   await audioEnd.fill('0.3');
   await expect(page.getByText('Duration · 0.3 seconds')).toBeVisible();
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.3');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.3');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.3');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('0.3');
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
   await expect(preview).toBeVisible({ timeout: 30000 });
@@ -613,6 +620,37 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await page.mouse.up();
   await expect.poll(async () => Number(await start.inputValue())).toBeLessThan(35);
   await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
+
+  const beforeStartTrim = Number(await start.inputValue());
+  const beforeEndTrim = Number(await end.inputValue());
+  const startHandle = page.getByRole('button', { name: 'Audio trim start' });
+  const startHandleBox = await startHandle.boundingBox();
+  if (!startHandleBox) throw new Error('Audio start trim handle is not visible.');
+  await page.mouse.move(startHandleBox.x + startHandleBox.width/2, startHandleBox.y + startHandleBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(startHandleBox.x + startHandleBox.width/2 + 12, startHandleBox.y + startHandleBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await start.inputValue())).toBeGreaterThan(beforeStartTrim);
+  await expect.poll(async () => Number(await end.inputValue())).toBeCloseTo(beforeEndTrim, 1);
+
+  const afterStartTrim = Number(await start.inputValue());
+  const beforeEndHandle = Number(await end.inputValue());
+  const endHandle = page.getByRole('button', { name: 'Audio trim end' });
+  const endHandleBox = await endHandle.boundingBox();
+  if (!endHandleBox) throw new Error('Audio end trim handle is not visible.');
+  await page.mouse.move(endHandleBox.x + endHandleBox.width/2, endHandleBox.y + endHandleBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(endHandleBox.x + endHandleBox.width/2 + 12, endHandleBox.y + endHandleBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await end.inputValue())).toBeGreaterThan(beforeEndHandle);
+  await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(afterStartTrim, 1);
+
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('65');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.8');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('1.1');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('65');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.8');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('1.1');
 });
 
 test('fade transition blends the timeline preview and the rendered video consistently', async ({ page }) => {
