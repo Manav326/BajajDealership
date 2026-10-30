@@ -1,0 +1,12 @@
+appId: com.quantaedge.luckybajaj
+name: Customer notification inbox pagination
+tags:
+  - authenticated
+  - notification-fixture
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Updates"
+- assertVisible: "Dealership updates"
+- assertVisible: "Load more updates"
+- tapOn: "Load more updates"
+- assertVisible: ${MAESTRO_NOTIFICATION_PAGE_TWO_TITLE}
