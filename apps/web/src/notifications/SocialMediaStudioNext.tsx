@@ -50,6 +50,7 @@ const newProject = (): StudioProject => {
   return {
     id: randomId(), name: 'Untitled design', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     pages: [page], selectedPageId: page.id, selectedAudioId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
+    audioFadeInSeconds: 0, audioFadeOutSeconds: 0,
     caption: '', hashtags: '#LuckyBajaj #Bajaj', primaryColor: '#15213a', accentColor: '#f97316',
   };
 };
@@ -542,7 +543,19 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [audioTrackDuration, setAudioTrackDuration] = useState(125);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPreviewTime, setAudioPreviewTime] = useState(0);
+  const [timelinePlaying, setTimelinePlaying] = useState(false);
+  const [timelinePreviewVisible, setTimelinePreviewVisible] = useState(false);
+  const [timelineTime, setTimelineTime] = useState(0);
+  const [renderStage, setRenderStage] = useState<'idle'|'preparing'|'rendering'|'saving'|'ready'|'failed'|'cancelled'>('idle');
+  const [canCancelRender, setCanCancelRender] = useState(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const timelineFramesRef = useRef<Record<string, HTMLImageElement>>({});
+  const timelineTimeRef = useRef(0);
+  const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
+  const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
+  const cancelRenderRef = useRef<(()=>void)|null>(null);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ mode: 'move' | 'resize' | 'rotate'; ids: string[]; start: { x: number; y: number }; items: StudioElement[]; handle?: string; center?: { x: number; y: number } } | null>(null);
@@ -551,12 +564,21 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const saveTimer = useRef<number | null>(null);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-  const audioClipLength = Math.max(1, Math.min(project.audioDurationSeconds ?? 30, audioTrackDuration, Math.max(1, totalSceneDuration)));
-  const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
+  const audioClipLength = Math.max(1,Math.min(project.audioDurationSeconds??30,Math.max(1,audioTrackDuration-project.audioStartSeconds),Math.max(1,totalSceneDuration)));
+  const changeProject = (next:StudioProject) => {
+    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    setTimelinePreviewVisible(false);timelineTimeRef.current=0;setTimelineTime(0);
+    if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
+    setRenderedPhoto(null);setRenderedVideo(null);setPhotoPreviewOpen(false);setVideoPreviewOpen(false);setDownloadOpen(false);setRenderStage('idle');setRenderProgress(0);
+    onProjectChange(next);setDirty(true);
+  };
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
   const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
-  useEffect(() => { try { window.localStorage.setItem('lucky-bajaj-studio-music-favourites', JSON.stringify(favoriteMusicIds)); } catch { /* Session-only favourites remain usable. */ } }, [favoriteMusicIds]);
+  useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
+  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);};},[project.pages,urls]);
+  useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
+  useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   const mutate = (updater: (current: StudioProject) => StudioProject, addHistory = true) => {
@@ -627,24 +649,24 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     else if (node.requestFullscreen) void node.requestFullscreen().catch(() => onNotify('Canvas fullscreen is unavailable.'));
     else onNotify('Canvas fullscreen is unavailable.');
   }
-  function toggleAudioPlayback() {
-    const audio = audioPlayerRef.current;
-    if (!audio) return;
-    if (!audio.paused) { audio.pause(); return; }
-    const clipEnd = Math.min(audioTrackDuration, project.audioStartSeconds + audioClipLength);
-    if (audio.currentTime < project.audioStartSeconds || audio.currentTime >= clipEnd) {
-      audio.currentTime = Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - .1));
-    }
-    void audio.play().catch(() => onNotify('Audio preview could not start.'));
+  function drawTimelinePreview(seconds:number){
+    const canvas=timelineCanvasRef.current,ctx=canvas?.getContext('2d');if(!canvas||!ctx||!project.pages.length)return;
+    if(canvas.width!==page.width)canvas.width=page.width;if(canvas.height!==page.height)canvas.height=page.height;
+    let remaining=Math.max(0,seconds),index=0;while(index<project.pages.length-1&&remaining>=project.pages[index].durationSeconds){remaining-=project.pages[index].durationSeconds;index++;}
+    const current=project.pages[index],image=timelineFramesRef.current[current.id];if(!image)return;
+    const draw=(img:HTMLImageElement,alpha=1)=>{const scale=Math.min(canvas.width/img.width,canvas.height/img.height),w=img.width*scale,h=img.height*scale;ctx.globalAlpha=alpha;ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);ctx.globalAlpha=1;};
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);
+    const next=project.pages[index+1],fade=Math.min(current.durationSeconds,current.transitionDurationSeconds??.5);
+    if(next&&current.transitionAfter==='fade'&&fade>0&&current.durationSeconds-remaining<fade){const nextImage=timelineFramesRef.current[next.id];if(nextImage){const progress=1-Math.max(0,current.durationSeconds-remaining)/fade;draw(nextImage,Math.max(0,Math.min(1,progress)));}}
   }
-  function updateAudioPlayback() {
-    const audio = audioPlayerRef.current;
-    if (!audio) return;
-    setAudioPreviewTime(audio.currentTime);
-    if (!audio.paused && audio.currentTime >= project.audioStartSeconds + audioClipLength) {
-      audio.pause(); audio.currentTime = project.audioStartSeconds;
-    }
-  }
+  function seekTimeline(seconds:number){const t=Math.max(0,Math.min(totalSceneDuration,seconds));timelineTimeRef.current=t;setTimelineTime(t);setTimelinePreviewVisible(true);drawTimelinePreview(t);const audio=audioPlayerRef.current;if(audio&&timelinePlaying){if(t<audioClipLength)audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+t);else audio.pause();}}
+  function toggleTimelinePlayback(){const audio=audioPlayerRef.current;if(timelinePlaying){setTimelinePlaying(false);audio?.pause();return;}const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);if(audio&&start<audioClipLength){audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+start);void audio.play().catch(()=>onNotify('Audio preview could not start.'));}else audio?.pause();setTimelinePlaying(true);}
+  function setAudioRange(start:number,duration:number){const s=Math.max(0,Math.min(audioTrackDuration-1,start)),max=Math.max(1,Math.min(audioTrackDuration-s,totalSceneDuration));changeProject({...project,audioStartSeconds:s,audioDurationSeconds:Math.max(1,Math.min(max,duration))});}
+  function beginAudioRangeDrag(event:ReactPointerEvent<HTMLElement>,request:'auto'|'start'|'end'|'move'){const track=audioRangeTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();const rect=track.getBoundingClientRect(),pos=rect.width?(event.clientX-rect.left)/rect.width*audioTrackDuration:0;let mode=request;const start=project.audioStartSeconds,end=start+audioClipLength;if(mode==='auto')mode=pos>=start&&pos<=end?'move':Math.abs(pos-start)<=Math.abs(pos-end)?'start':'end';track.setPointerCapture(event.pointerId);audioRangeDragRef.current={mode,pointerX:event.clientX,start,duration:audioClipLength};}
+  function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){const drag=audioRangeDragRef.current,track=audioRangeTrackRef.current;if(!drag||!track)return;const rect=track.getBoundingClientRect();if(!rect.width)return;const delta=(event.clientX-drag.pointerX)/rect.width*audioTrackDuration;if(drag.mode==='move'){const max=Math.max(0,Math.min(audioTrackDuration-drag.duration,totalSceneDuration-drag.duration));setAudioRange(Math.max(0,Math.min(max,drag.start+delta)),drag.duration);}else if(drag.mode==='start'){const end=drag.start+drag.duration,next=Math.max(0,Math.min(end-1,drag.start+delta));setAudioRange(next,end-next);}else{const max=Math.max(1,Math.min(audioTrackDuration-drag.start,totalSceneDuration));setAudioRange(drag.start,Math.max(1,Math.min(max,drag.duration+delta)));}}
+  function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){const track=audioRangeTrackRef.current;if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;}
+  function updateAudioPlayback(){const audio=audioPlayerRef.current;if(!audio)return;setAudioPreviewTime(audio.currentTime);const t=Math.max(0,audio.currentTime-project.audioStartSeconds),fadeIn=Math.max(0,project.audioFadeInSeconds??0),fadeOut=Math.max(0,project.audioFadeOutSeconds??0);let volume=project.audioVolume/100;if(fadeIn>0&&t<fadeIn)volume*=t/fadeIn;if(fadeOut>0&&t>audioClipLength-fadeOut)volume*=Math.max(0,(audioClipLength-t)/fadeOut);audio.volume=Math.max(0,Math.min(1,volume));if(!audio.paused&&t>=audioClipLength)audio.pause();}
+
   async function downloadOutputs() {
     if (!renderedPhoto && !renderedVideo) return;
     setDownloadBusy(true);
@@ -892,19 +914,19 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setSelectedIds([item.id]);
   }
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
-    setExporting(true); setRenderProgress(10);
+    setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
     try {
       const blob = await renderPageBlob(page, urls, mime);
-      setRenderProgress(75);
+      setRenderStage('saving'); setRenderProgress(75);
       const extension = mime === 'image/png' ? 'png' : 'jpg';
       const filename = slug(project.name) + '-' + slug(page.name) + '.' + extension;
       const resource = await saveResource(blob, filename, 'export');
       await onResourceAdded(resource);
       if (renderedPhoto?.url) URL.revokeObjectURL(renderedPhoto.url);
       setRenderedPhoto({ blob, url: URL.createObjectURL(blob), name: filename });
-      setRenderProgress(100);
+      setRenderProgress(100); setRenderStage('ready');
       onNotify('Photo rendered and saved. It has not been downloaded.');
-    } catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Photo rendering failed.'); }
+    } catch (cause) { setRenderStage('failed'); onNotify(cause instanceof Error ? cause.message : 'Photo rendering failed.'); }
     finally { setExporting(false); }
   }
 
@@ -925,7 +947,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       return;
     }
 
-    setExporting(true); setRenderProgress(4);
+    setExporting(true); setRenderStage('preparing'); setRenderProgress(4);
+    let cancelled=false;
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
     let audioSource: AudioBufferSourceNode | null = null;
@@ -946,8 +969,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       }));
 
       const canvas = document.createElement('canvas');
-      canvas.width = frames[0]?.width ?? page.width;
-      canvas.height = frames[0]?.height ?? page.height;
+      // Render every scene letterboxed at the selected page's exact dimensions.
+      canvas.width = page.width;
+      canvas.height = page.height;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Video render canvas is unavailable.');
       mediaStream = canvas.captureStream(30);
@@ -961,18 +985,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         audioSource = context.createBufferSource();
         audioSource.buffer = decoded;
         const gain = context.createGain();
-        gain.gain.value = Math.max(0, Math.min(1, project.audioVolume / 100));
-        audioSource.connect(gain);
-        gain.connect(audioDestination);
+        audioClipStart=Math.max(0,project.audioStartSeconds);
+        audioClipDuration=Math.min(project.audioDurationSeconds??30,totalDuration,Math.max(0,decoded.duration-audioClipStart));
+        if(audioClipDuration<1)throw new Error('The selected audio range must contain at least one second within the video duration.');
+        const volume=Math.max(0,Math.min(1,project.audioVolume/100)),fadeIn=Math.max(0,Math.min(audioClipDuration,project.audioFadeInSeconds??0)),fadeOut=Math.max(0,Math.min(audioClipDuration,project.audioFadeOutSeconds??0)),started=context.currentTime;
+        gain.gain.setValueAtTime(fadeIn>0?0:volume,started);if(fadeIn>0)gain.gain.linearRampToValueAtTime(volume,started+fadeIn);if(fadeOut>0){const outAt=Math.max(fadeIn,audioClipDuration-fadeOut);gain.gain.setValueAtTime(volume,started+outAt);gain.gain.linearRampToValueAtTime(0,started+audioClipDuration);}
+        audioSource.connect(gain);gain.connect(audioDestination);
         audioDestination.stream.getAudioTracks().forEach((track) => mediaStream?.addTrack(track));
-
-        audioClipStart = Math.max(0, project.audioStartSeconds);
-        audioClipDuration = Math.min(
-          project.audioDurationSeconds ?? 30,
-          totalDuration,
-          Math.max(0, decoded.duration - audioClipStart),
-        );
-        if (audioClipDuration < 1) throw new Error('The selected audio range must contain at least one second within the video duration.');
       }
 
       const mime = [
@@ -1001,6 +1020,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       void stopped.catch(() => undefined);
 
       recorder.start(250);
+      setRenderStage('rendering');setCanCancelRender(true);
+      cancelRenderRef.current=()=>{cancelled=true;if(recorder?.state==='recording')recorder.stop();};
       if (context && audioSource) {
         await context.resume();
         audioSource.start(0, audioClipStart, audioClipDuration);
@@ -1040,7 +1061,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           drawContained(selectedFrame.image);
           const nextFrame = frames[selectedFrameIndex + 1];
-          const transitionWindow = selectedFrame.transitionDuration;
+          const transitionWindow = Math.min(selectedFrame.duration, selectedFrame.transitionDuration);
           if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
             const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
             drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
@@ -1064,19 +1085,21 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       frameId = requestAnimationFrame(draw);
 
       const blob = await stopped;
+      if(cancelled)throw new Error('Video rendering was cancelled.');
       if (renderFailure) throw renderFailure;
       if (!blob.size) throw new Error('Video export is empty.');
-
+      setRenderStage('saving');
       const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
       const filename = slug(project.name) + '-video.' + extension;
       const resource = await saveResource(blob, filename, 'video', true);
       await onResourceAdded(resource);
       if (renderedVideo?.url) URL.revokeObjectURL(renderedVideo.url);
       setRenderedVideo({ blob, url: URL.createObjectURL(blob), name: filename, duration: total });
-      setRenderProgress(100); setVideoPreviewOpen(true);
+      setRenderProgress(100);setRenderStage('ready');setVideoPreviewOpen(true);
       onNotify('Video rendered and saved. Preview it here or download it when ready.');
     } catch (cause) {
       if (recorder?.state === 'recording') recorder.stop();
+      setRenderStage(cancelled?'cancelled':'failed');
       onNotify(cause instanceof Error ? cause.message : 'Video export failed.');
     } finally {
       if (stopWatch !== null) window.clearTimeout(stopWatch);
@@ -1085,6 +1108,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       mediaStream?.getTracks().forEach((track) => track.stop());
       frameUrls.forEach((url) => URL.revokeObjectURL(url));
       await context?.close().catch(() => undefined);
+      cancelRenderRef.current=null;setCanCancelRender(false);
       setExporting(false);
     }
   }
@@ -1169,7 +1193,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <label className={styles.panelField}>Primary colour<input type="color" value={project.primaryColor} onChange={(event) => changeProject({ ...project, primaryColor: event.target.value })}/></label>
           <label className={styles.panelField}>Accent colour<input type="color" value={project.accentColor} onChange={(event) => changeProject({ ...project, accentColor: event.target.value })}/></label>
           <label className={styles.panelField}>Page background<input type="color" value={page.background} onChange={(event) => replacePage({ ...page, background: event.target.value })}/></label>
-          <button type="button" onClick={() => { setTool('uploads'); setPanelSearch(''); onNotify('Choose an existing image or import a logo, then select it to place it on the canvas.'); }}><Icon name="image"/>Choose logo / image</button>
+          <button type="button" onClick={() => logoInputRef.current?.click()}><Icon name="imageplus"/>Add logo / image</button>
+          <input ref={logoInputRef} className={styles.hiddenFileInput} type="file" accept="image/*" aria-label="Upload brand logo or image" onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void(async()=>{try{const resource=await saveResource(file,file.name,'image');await onResourceAdded(resource);await addLibraryImage(resource);onNotify('Brand image added to the canvas and saved in the resource library.');}catch(cause){onNotify(cause instanceof Error?cause.message:'Brand image could not be added.');}})();}}/>
         </div>}
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
@@ -1179,15 +1204,16 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           </div>)}
           <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
           <label className={styles.panelField}>Story destination<select aria-label="Story destination" value={storyTarget} onChange={(event) => setStoryTarget(event.target.value as StoryTarget)}><option value="whatsapp-status">WhatsApp Status · 90s</option><option value="instagram-story">Instagram Story · 60s</option><option value="facebook-story">Facebook Story · 60s</option><option value="social-reel">Instagram / Facebook Reel · 120s</option></select></label>
-          <label className={styles.panelField}>Scene duration <input type="number" min="1" max="60" value={page.durationSeconds} onChange={(event) => replacePage({ ...page, durationSeconds: Math.max(1, Math.min(60, Number(event.target.value))) })}/></label>
+
         </div>}
         {tool === 'layers' && <div className={styles.layerList}>{[...page.elements].filter((item) => (item.name + ' ' + item.type + ' ' + (item.type === 'text' ? item.text : '')).toLowerCase().includes(panelSearch.toLowerCase())).reverse().map((item) => <div className={styles.layerRow} key={item.id} data-selected={selectedIds.includes(item.id)}>
-          <button type="button" onClick={() => setSelectedIds([item.id])}><span>{item.type === 'text' ? 'T' : item.type === 'image' ? '▧' : '◇'}</span>{item.name}</button>
+          <button type="button" aria-label={item.name} onClick={() => setSelectedIds([item.id])}><span aria-hidden="true">{item.type === 'text' ? 'T' : item.type === 'image' ? '▧' : '◇'}</span>{item.name}</button>
           <button type="button" title={item.visible ? 'Hide layer' : 'Show layer'} aria-label={item.visible ? 'Hide layer' : 'Show layer'} aria-pressed={!item.visible} onClick={() => updateElement(item.id, { visible: !item.visible })}><Icon name={item.visible ? 'eye' : 'eye-off'}/></button>
           <button type="button" title={item.locked ? 'Unlock layer' : 'Lock layer'} aria-label={item.locked ? 'Unlock layer' : 'Lock layer'} aria-pressed={item.locked} onClick={() => updateElement(item.id, { locked: !item.locked })}><Icon name={item.locked ? 'lock' : 'unlock'}/></button>
         </div>)}</div>}
         {tool === 'pages' && <div className={styles.pageTools}>
           <button type="button" onClick={addPage}><Icon name="plus"/>Add page</button><button type="button" onClick={duplicatePage}><Icon name="copy"/>Duplicate page</button><button type="button" disabled={project.pages.length <= 1} onClick={deletePage}><Icon name="trash"/>Delete page</button>
+          <label className={styles.panelField}>Selected scene duration · {page.durationSeconds}s<input aria-label="Selected scene duration" type="number" min="1" max="60" step="0.5" value={page.durationSeconds} onChange={event=>replacePage({...page,durationSeconds:Math.max(1,Math.min(60,Number(event.target.value)))})}/></label>
           {project.pages.map((item, index) => <div className={styles.pageTransitionRow} key={item.id}>
             <div className={styles.pageTitleControl}><button type="button" className={item.id === page.id ? styles.pageToolActive : styles.pageTool} onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}>{index + 1}</button>
               <input aria-label={'Page ' + (index + 1) + ' name'} value={item.name} onChange={(event) => mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === item.id ? { ...entry, name: event.target.value } : entry) }), false)}/>
@@ -1235,7 +1261,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           
         </div>
         <div ref={canvasViewportRef} className={styles.canvasViewport} onPointerUp={endPointer} onPointerCancel={endPointer}>
-          <svg ref={svgRef} className={styles.designCanvas} viewBox={`${page.width * (1 - 100 / zoom) / 2} ${page.height * (1 - 100 / zoom) / 2} ${page.width * 100 / zoom} ${page.height * 100 / zoom}`}
+          <canvas ref={timelineCanvasRef} className={styles.timelinePreviewCanvas} aria-label="Timeline preview" style={{display:timelinePreviewVisible?'block':'none'}}/>
+          <svg ref={svgRef} className={styles.designCanvas} style={{display:timelinePreviewVisible?'none':'block'}} viewBox={`${page.width * (1 - 100 / zoom) / 2} ${page.height * (1 - 100 / zoom) / 2} ${page.width * 100 / zoom} ${page.height * 100 / zoom}`}
             role="img" aria-label="Editable design canvas" onPointerMove={movePointer} onPointerUp={endPointer}>
             <rect x="0" y="0" width={page.width} height={page.height} fill={page.background}/>
             {page.elements.filter((item) => item.visible).map((item) => <g key={item.id} transform={`translate(${item.x} ${item.y})`} opacity={item.opacity} tabIndex={0} role="button" aria-label={'Select ' + item.name + (item.locked ? ', locked' : '')} onFocus={() => setSelectedIds([item.id])}
@@ -1259,40 +1286,34 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           </svg>
         </div>
         <div className={styles.timeline}>
-          <div className={styles.timelinePages}>{project.pages.map((item, index) => <button type="button" key={item.id} className={item.id === page.id ? styles.timelinePageActive : styles.timelinePage}
-            onClick={() => { mutate((current) => ({ ...current, selectedPageId: item.id }), false); setSelectedIds([]); }}><span>{index + 1}</span><small>{item.name}</small></button>)}
-            <button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
-          <div className={styles.timelineTrack}>
-            <span><Icon name="audio"/></span>
-            <div className={styles.audioLane}>{selectedAudioResource ? selectedAudioResource.name : 'No soundtrack selected'}<small>{selectedAudioResource ? formatTime(audioPreviewTime) + ' / ' + formatTime(audioTrackDuration) : formatTime(totalSceneDuration) + ' total'}</small></div>
-            {selectedAudioResource && <button type="button" title={audioPlaying ? 'Pause audio preview' : 'Play audio preview'} aria-label={audioPlaying ? 'Pause audio preview' : 'Play audio preview'} onClick={toggleAudioPlayback}><Icon name={audioPlaying ? 'minus' : 'play'}/></button>}
-            {renderedPhoto && <button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={() => setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
-            {renderedVideo && <button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={() => setVideoPreviewOpen(true)}><Icon name="video"/></button>}
-            {selectedAudioResource && <audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={(event) => {
-              const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 125;
-              const safeStart = Math.min(project.audioStartSeconds, Math.max(0, duration - 1));
-              const safeLength = Math.max(1, Math.min(project.audioDurationSeconds ?? 30, duration - safeStart, totalSceneDuration || 1));
-              if (safeStart !== project.audioStartSeconds || safeLength !== (project.audioDurationSeconds ?? 30)) {
-                changeProject({ ...project, audioStartSeconds: safeStart, audioDurationSeconds: safeLength });
-              }
-              setAudioTrackDuration(duration); setAudioPreviewTime(safeStart);
-              event.currentTarget.currentTime = safeStart;
-            }} onTimeUpdate={updateAudioPlayback} onPlay={() => setAudioPlaying(true)} onPause={() => setAudioPlaying(false)}/>}
+          <div className={styles.timelinePlaybackControls}>
+            <button type="button" aria-label={timelinePlaying?'Pause timeline preview':'Play timeline preview'} disabled={exporting||totalSceneDuration<=0} onClick={toggleTimelinePlayback}><Icon name={timelinePlaying?'minus':'play'}/></button>
+            <input aria-label="Timeline playhead" type="range" min="0" max={Math.max(1,totalSceneDuration)} step="0.1" value={Math.min(timelineTime,totalSceneDuration)} onChange={event=>seekTimeline(Number(event.target.value))}/>
+            <strong>{formatTime(timelineTime)} / {formatTime(totalSceneDuration)}</strong>
+            {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
           </div>
-          {selectedAudioResource && <div className={styles.audioTimelineControls}>
-            <label>Start <input aria-label="Timeline audio start" type="range" min="0" max={Math.max(0, audioTrackDuration - audioClipLength)} step="0.1" value={Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - audioClipLength))} onChange={(event) => changeProject({ ...project, audioStartSeconds: Number(event.target.value) })}/></label>
-            <label>Clip length <input aria-label="Timeline audio duration" type="range" min="1" max={Math.max(1, Math.min(audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} value={Math.max(1, Math.min(project.audioDurationSeconds ?? 30, audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
-            <span>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds + audioClipLength)}</span>
-          </div>}
-        </div>
-      </main>
-      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
+          <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
+          <div className={styles.timelineTrack}>
+            <span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudioResource?selectedAudioResource.name:'No soundtrack selected'}<small>{selectedAudioResource?formatTime(audioPreviewTime)+' / '+formatTime(audioTrackDuration)+(audioPlaying?' · Playing':''):formatTime(totalSceneDuration)+' total'}</small></div>
+            {renderedPhoto&&<button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={()=>setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
+            {renderedVideo&&<button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={()=>setVideoPreviewOpen(true)}><Icon name="video"/></button>}
+            {selectedAudioResource&&<audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={event=>{const duration=Number.isFinite(event.currentTarget.duration)?event.currentTarget.duration:125,safeStart=Math.min(project.audioStartSeconds,Math.max(0,duration-1)),safeLength=Math.max(1,Math.min(project.audioDurationSeconds??30,duration-safeStart,totalSceneDuration||1));if(safeStart!==project.audioStartSeconds||safeLength!==(project.audioDurationSeconds??30))changeProject({...project,audioStartSeconds:safeStart,audioDurationSeconds:safeLength});setAudioTrackDuration(duration);setAudioPreviewTime(safeStart);event.currentTarget.currentTime=safeStart;}} onTimeUpdate={updateAudioPlayback} onPlay={()=>setAudioPlaying(true)} onPause={()=>setAudioPlaying(false)}/>}
+          </div>
+          <div className={styles.audioTimelineControls}>{selectedAudioResource?<><span className={styles.audioRangeTime}>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds+audioClipLength)}</span>
+            <div ref={audioRangeTrackRef} className={styles.audioRangeTrack} role="group" aria-label="Audio trim range" onPointerDown={event=>beginAudioRangeDrag(event,'auto')} onPointerMove={moveAudioRange} onPointerUp={endAudioRangeDrag} onPointerCancel={endAudioRangeDrag}>
+              <span className={styles.audioRangeTrackBase}/><span className={styles.audioRangeSelection} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%',width:audioClipLength/audioTrackDuration*100+'%'}} onPointerDown={event=>beginAudioRangeDrag(event,'move')}/>
+              <button type="button" className={styles.audioRangeHandle} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%'}} aria-label="Audio trim start" onPointerDown={event=>beginAudioRangeDrag(event,'start')}/>
+              <button type="button" className={styles.audioRangeHandle} style={{left:(project.audioStartSeconds+audioClipLength)/audioTrackDuration*100+'%'}} aria-label="Audio trim end" onPointerDown={event=>beginAudioRangeDrag(event,'end')}/>
+            </div><span className={styles.audioRangeDuration}>{audioClipLength.toFixed(1)}s</span></>:<span className={styles.audioRangeEmpty}>Add an audio track to trim it here.</span>}</div>
+        </div>      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>Audio properties</strong></div>
         <div className={styles.audioInspectorTrack}><Icon name="audio"/><span>{selectedAudioResource.name}</span></div>
-        <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="range" min="0" max={Math.max(0, audioTrackDuration - audioClipLength)} step="0.1" value={Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - audioClipLength))} onChange={(event) => changeProject({ ...project, audioStartSeconds: Number(event.target.value) })}/></label>
-        <label>Clip length · {audioClipLength}s<input aria-label="Audio clip length" type="range" min="1" max={Math.max(1, Math.min(audioTrackDuration - project.audioStartSeconds, totalSceneDuration || 1))} value={audioClipLength} onChange={(event) => changeProject({ ...project, audioDurationSeconds: Number(event.target.value) })}/></label>
-        <label>Volume · {project.audioVolume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
-        <div className={styles.audioRangeSummary}>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds + audioClipLength)} selected</div>
+        <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-1)} step="0.1" value={Number(project.audioStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),project.audioStartSeconds+audioClipLength-Number(event.target.value))}/></label>
+        <label>End position · {formatTime(project.audioStartSeconds+audioClipLength)}<input aria-label="Audio end position" type="number" min={project.audioStartSeconds+1} max={Math.min(audioTrackDuration,totalSceneDuration+project.audioStartSeconds)} step="0.1" value={Number((project.audioStartSeconds+audioClipLength).toFixed(1))} onChange={event=>setAudioRange(project.audioStartSeconds,Number(event.target.value)-project.audioStartSeconds)}/></label>
+        <div className={styles.audioRangeSummary}>Duration · {audioClipLength.toFixed(1)} seconds</div>
+        <label>Volume · {project.audioVolume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={project.audioVolume} onChange={event=>changeProject({...project,audioVolume:Number(event.target.value)})}/></label>
+        <label>Fade in · {project.audioFadeInSeconds??0}s<input aria-label="Audio fade in" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeInSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeInSeconds:Number(event.target.value)})}/></label>
+        <label>Fade out · {project.audioFadeOutSeconds??0}s<input aria-label="Audio fade out" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeOutSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeOutSeconds:Number(event.target.value)})}/></label>
       </aside>}
       {selected.length > 0 && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>{selected.length === 1 ? one?.name : selected.length + ' selected'}</strong><button type="button" aria-label="Close properties" onClick={() => setSelectedIds([])}><Icon name="close"/></button></div>
@@ -1329,7 +1350,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       <button type="button" className={styles.primaryDownloadButton} disabled={downloadBusy} onClick={() => void downloadOutputs()}><Icon name="download"/> Download selected</button>
       <p>The editor stays open. Your browser manages the final file transfer.</p>
     </div></div>}
-    {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> Rendering · {renderProgress}%<div className={styles.renderProgress}><div style={{width:renderProgress+'%'}}/></div></div></div>}
+    {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> {renderStage==='preparing'?'Preparing':renderStage==='saving'?'Saving to library':'Rendering'} · {renderProgress}%<div className={styles.renderProgress}><div style={{width:renderProgress+'%'}}/></div>{canCancelRender&&<button type="button" onClick={()=>cancelRenderRef.current?.()}>Cancel render</button>}</div></div>}
   </div>;
 }
 
