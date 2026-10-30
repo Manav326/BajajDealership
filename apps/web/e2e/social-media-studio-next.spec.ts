@@ -850,6 +850,41 @@ test('mixed-size scenes use the selected page as the deliberate video output fra
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1080);
 });
 
+
+test('projects survive a full browser reload and reopen with their edits intact', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('textbox', { name: 'Text' }).fill('Persistent campaign headline');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Persistent campaign headline');
+});
+
+test('editing a project invalidates previously rendered outputs until the next render', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const download = page.getByRole('button', { name: 'Download rendered outputs' });
+  await expect(download).toBeDisabled();
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(download).toBeEnabled({ timeout: 30000 });
+
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Add heading' }).click();
+  await page.getByRole('textbox', { name: 'Text' }).fill('A newer design revision');
+  await expect(download).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(download).toBeEnabled({ timeout: 30000 });
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });
