@@ -264,13 +264,22 @@ jobs:
       - name: Verify direct-download installers remain unsigned
         shell: pwsh
         run: |
-          $installers = @(
-            Get-ChildItem "apps/web/src-tauri/target/release/bundle/nsis/*.exe",
-            Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi"
+          $installerPaths = @(
+            "apps/web/src-tauri/target/release/bundle/nsis/*.exe"
+            "apps/web/src-tauri/target/release/bundle/msi/*.msi"
           )
-          if ($installers.Count -lt 2) { throw "Expected both EXE and MSI installers." }
+          $installers = @(
+            foreach ($installerPath in $installerPaths) {
+              Get-ChildItem -Path $installerPath -File -ErrorAction Stop
+            }
+          )
+          $exeCount = @($installers | Where-Object { $_.Extension -ieq '.exe' }).Count
+          $msiCount = @($installers | Where-Object { $_.Extension -ieq '.msi' }).Count
+          if ($exeCount -ne 1 -or $msiCount -ne 1) {
+            throw "Expected exactly one EXE and one MSI installer; found $exeCount EXE and $msiCount MSI."
+          }
           foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
             if ($signature.Status -ne 'NotSigned') {
               throw "Expected $($installer.Name) to remain unsigned; found $($signature.Status)."
             }
