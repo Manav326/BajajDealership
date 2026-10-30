@@ -575,7 +575,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       </section>}
     </main>
     {metaConsentOpen && <div className={styles.consentBackdrop}>
-      <section className={styles.consentDialog} role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description">
+      <section className={styles.consentDialog} id="meta-consent-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description">
         <div className={styles.consentHeading}>
           <span className={styles.consentMark} aria-hidden="true"><Icon name="link"/></span>
           <div><h2 id="meta-consent-title">Connect Facebook and Instagram?</h2><p>Authorize the dealership's social accounts</p></div>
@@ -588,7 +588,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         </ul>
         <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. You can cancel here or decline on Meta's authorization screen.</p>
         <div className={styles.consentActions}>
-          <button type="button" onClick={() => setMetaConsentOpen(false)}>Not now</button>
+          <button type="button" autoFocus onClick={() => setMetaConsentOpen(false)}>Not now</button>
           <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
         </div>
       </section>
