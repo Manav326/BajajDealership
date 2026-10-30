@@ -15,7 +15,7 @@ const liquidGlassOverrides = {
   backdrop:{flex:1},
   safe:{...baseStyles.safe,backgroundColor:C.canvas},
   content:{...baseStyles.content,paddingTop:18,paddingHorizontal:17,paddingBottom:36},
-  contentWide:{...baseStyles.contentWide,paddingHorizontal:26},
+  contentWide:{...baseStyles.contentWide,alignSelf:'center',width:'100%',paddingHorizontal:26},
   contentTarget:{position:'absolute',top:0,right:0,bottom:0,left:0,zIndex:0},
   glassContentInset:{flex:1,paddingTop:64,paddingBottom:80},
   topBar:{...baseStyles.topBar,position:'absolute',top:0,left:0,right:0,zIndex:20,backgroundColor:'rgba(247,251,255,0.52)',borderBottomColor:'rgba(255,255,255,0.78)',borderTopWidth:1,borderTopColor:'rgba(255,255,255,0.88)',overflow:'hidden',paddingVertical:12},
