@@ -15,6 +15,8 @@ type LicenseEntry = {
   gracePeriodDays: number;
   maxStaffSeats: number;
   occupiedStaffSeats: number;
+  maxDesktopDevices: number;
+  activeDesktopDevices: number;
   daysUntilExpiry: number;
   message: string;
 };
@@ -27,6 +29,7 @@ type LicenseForm = {
   expiresAt: string;
   gracePeriodDays: number;
   maxStaffSeats: number;
+  maxDesktopDevices: number;
   reason: string;
 };
 
@@ -51,6 +54,7 @@ function makeForm(entry: LicenseEntry): LicenseForm {
     expiresAt: toLocalDateTime(entry.expiresAt),
     gracePeriodDays: entry.gracePeriodDays,
     maxStaffSeats: entry.maxStaffSeats,
+    maxDesktopDevices: entry.maxDesktopDevices,
     reason: '',
   };
 }
@@ -68,6 +72,10 @@ function friendlyError(response: Response): string {
 function LicenseAdminApp() {
   const [token, setToken] = useState('');
   const [licenses, setLicenses] = useState<LicenseEntry[]>([]);
+  const [devices, setDevices] = useState<{
+    publicId: string; displayName: string; appVersion: string | null; status: string;
+    firstActivatedAt: string; lastSeenAt: string; revokedAt: string | null; lastChangedReason: string | null;
+  }[]>([]);
   const [form, setForm] = useState<LicenseForm | null>(null);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'info' | 'error' | 'success'>('info');
@@ -89,6 +97,7 @@ function LicenseAdminApp() {
       if (!response.ok) throw new Error(friendlyError(response));
       const result = await response.json() as LicenseEntry[];
       setLicenses(result);
+      setDevices([]);
       setMessage('Connected securely. The token is held only in this page until it is closed or refreshed.');
       setMessageType('success');
     } catch (error) {
@@ -101,9 +110,52 @@ function LicenseAdminApp() {
     }
   }
 
-  function chooseLicense(entry: LicenseEntry) {
+  async function chooseLicense(entry: LicenseEntry) {
     setForm(makeForm(entry));
     setMessage('');
+    setDevices([]);
+    try {
+      const response = await fetch(apiRequestUrl(
+        '/api/v1/system/license/admin/licenses/' + encodeURIComponent(entry.dealershipCode) + '/devices',
+      ), { headers: { Accept: 'application/json', 'X-License-Admin-Token': token.trim() } });
+      if (!response.ok) throw new Error(friendlyError(response));
+      setDevices(await response.json() as typeof devices);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to load desktop devices.');
+      setMessageType('error');
+    }
+  }
+
+  async function setDeviceStatus(device: (typeof devices)[number], status: 'ACTIVE' | 'REVOKED') {
+    if (!form) return;
+    const reason = window.prompt(
+      status === 'REVOKED' ? 'Reason for deactivating this device:' : 'Reason for reactivating this device:',
+    );
+    if (!reason || reason.trim().length < 4) {
+      setMessage('Device change cancelled. Enter a reason of at least four characters.');
+      setMessageType('info');
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(apiRequestUrl(
+        '/api/v1/system/license/admin/licenses/' + encodeURIComponent(form.dealershipCode)
+          + '/devices/' + encodeURIComponent(device.publicId),
+      ), {
+        method: 'PUT',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-License-Admin-Token': token.trim() },
+        body: JSON.stringify({ status, reason: reason.trim() }),
+      });
+      if (!response.ok) throw new Error(friendlyError(response));
+      setDevices(await response.json() as typeof devices);
+      setMessage('Desktop device status updated and audited.');
+      setMessageType('success');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to update desktop device.');
+      setMessageType('error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveLicense(event: FormEvent<HTMLFormElement>) {
@@ -138,6 +190,7 @@ function LicenseAdminApp() {
           expiresAt: toIso(form.expiresAt),
           gracePeriodDays: Number(form.gracePeriodDays),
           maxStaffSeats: Number(form.maxStaffSeats),
+          maxDesktopDevices: Number(form.maxDesktopDevices),
           reason: form.reason.trim(),
         }),
       });
@@ -211,8 +264,10 @@ function LicenseAdminApp() {
                   </span>
                   <span className="license-record-meta">{entry.dealershipCode} · {entry.planCode ?? 'No plan'}</span>
                   <span className="license-record-meta">
-                    {entry.occupiedStaffSeats} of {entry.maxStaffSeats} staff seats ·
-                    {entry.expiresAt ? ' expires ' + new Date(entry.expiresAt).toLocaleDateString() : ' no expiry configured'}
+                    {entry.occupiedStaffSeats} of {entry.maxStaffSeats} staff seats · {entry.activeDesktopDevices} of {entry.maxDesktopDevices} desktop devices
+                  </span>
+                  <span className="license-record-meta">
+                    {entry.expiresAt ? 'expires ' + new Date(entry.expiresAt).toLocaleDateString() : 'no expiry configured'}
                   </span>
                 </button>
               ))}
@@ -250,6 +305,10 @@ function LicenseAdminApp() {
                 </label>
               </div>
               <div className="license-form-two">
+                <label>Maximum desktop installations
+                  <input type="number" required min={1} max={100} value={form.maxDesktopDevices}
+                    onChange={(event) => setForm({ ...form, maxDesktopDevices: Number(event.target.value) })}/>
+                </label>
                 <label>Grace period (days)
                   <input type="number" required min={0} max={90} value={form.gracePeriodDays}
                     onChange={(event) => setForm({ ...form, gracePeriodDays: Number(event.target.value) })}/>
@@ -267,6 +326,33 @@ function LicenseAdminApp() {
               <p className="license-form-help">Expired licenses retain read-only access and permitted exports after grace. Suspended and revoked licenses block operational data access. Changes are audited.</p>
               <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save license settings'}</button>
             </form>
+          )}
+          {form && (
+            <section className="license-device-section">
+              <div className="license-panel-heading">
+                <div><p className="license-eyebrow">REGISTERED INSTALLATIONS</p><h2>Desktop devices</h2></div>
+                <span className="license-count">{devices.filter((device) => device.status === 'ACTIVE').length} active</span>
+              </div>
+              {devices.length === 0 ? (
+                <p className="license-empty">No registered Windows installations yet. The list populates when the desktop app signs in with an installation ID.</p>
+              ) : (
+                <div className="license-record-list">
+                  {devices.map((device) => (
+                    <div className="license-device-record" key={device.publicId}>
+                      <div>
+                        <strong>{device.displayName}</strong>
+                        <p className="license-record-meta">Version {device.appVersion || 'unknown'} · last seen {new Date(device.lastSeenAt).toLocaleString()}</p>
+                        <span className={'license-state license-state--' + device.status.toLowerCase()}>{device.status}</span>
+                      </div>
+                      <button type="button" disabled={busy}
+                        onClick={() => void setDeviceStatus(device, device.status === 'ACTIVE' ? 'REVOKED' : 'ACTIVE')}>
+                        {device.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
         </section>
       </div>

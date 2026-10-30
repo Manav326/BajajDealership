@@ -63,3 +63,12 @@ button, input, select, textarea { font: inherit; }
   .license-token-row, .license-form-two { grid-template-columns: 1fr; }
   .license-token-row button, .license-edit-form > button { width: 100%; }
 }
+
+.license-device-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid #e6ebf3; }
+.license-device-record { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid #e2e8f1; border-radius: 12px; background: #fbfcff; }
+.license-device-record > div { display: grid; gap: 6px; min-width: 0; }
+.license-device-record strong { font-size: 12px; color: #273a59; }
+.license-device-record p { margin: 0; overflow-wrap: anywhere; }
+.license-device-record button { flex: 0 0 auto; }
+.license-state--revoked { background: #ffe5e3; color: #9c3d36; }
+@media (max-width: 520px) { .license-device-record { align-items: flex-start; flex-direction: column; } }

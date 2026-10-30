@@ -101,6 +101,10 @@ public class StaffSecurityConfiguration {
     addOrigins(allowedOrigins, originTwo);
 
     CorsConfiguration configuration = new CorsConfiguration();
+    // Tauri 2 WebView origins are fixed local origins on Windows; allow them explicitly.
+    // They cannot be supplied by a remote browser page through the configured-origin env.
+    allowedOrigins.add("http://tauri.localhost");
+    allowedOrigins.add("tauri://localhost");
     configuration.setAllowedOrigins(allowedOrigins.stream().distinct().toList());
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(Arrays.asList(

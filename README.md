@@ -413,3 +413,7 @@ Licensing is enforced by the Spring Boot API, not the website or desktop executa
 - Before deploying this migration to a live customer, configure the API secret and commercial license terms. The migration trial is a safety transition, not proof of a paid subscription.
 
 Per-installation device activation and limits will be connected when the Windows desktop client is packaged. The current license implementation enforces server-side dealership state and staff-seat limits; it does not claim a device cap before the desktop client registers an installation identity.
+
+### Desktop installation activation
+
+The Windows build registers an installation UUID on staff login. The API stores only a SHA-256 digest of that UUID, ties the resulting staff session to that installation and checks the registered-device state on each request. The identity is an installation identifier, not hardware attestation; it improves licensing/accountability but should not be described as impossible to tamper with. Existing registered desktop installations can retain read-only access after license expiry; new device activations are rejected after expiry+grace. A device administrator can revoke/re-activate installations in the license console.
