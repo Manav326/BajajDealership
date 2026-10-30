@@ -412,7 +412,7 @@ Licensing is enforced by the Spring Boot API, not the website or desktop executa
 - Every license update records an audit event with the requested plan, state, dates, grace period, staff-seat limit and change reason. The token itself is never written to the database or audit trail.
 - Before deploying this migration to a live customer, configure the API secret and commercial license terms. The migration trial is a safety transition, not proof of a paid subscription.
 
-Per-installation device activation and limits will be connected when the Windows desktop client is packaged. The current license implementation enforces server-side dealership state and staff-seat limits; it does not claim a device cap before the desktop client registers an installation identity.
+The licensing model enforces server-side dealership state, staff-seat limits and registered desktop-installation limits. Each desktop session is tied to its installation registration; device IDs remain installation identities rather than cryptographic hardware attestation.
 
 ### Desktop installation activation
 
@@ -421,7 +421,7 @@ The Windows build registers an installation UUID on staff login. The API stores 
 
 ## Windows desktop client
 
-The staff web build is also packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and publishes them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`, which points to the official release assets once a reviewed release is published.
+The staff portal is packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and uploads them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`; it becomes a public installer download once a reviewed, signed release is published.
 
 To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with `LuckyBajajDesktopSetup.exe` and `LuckyBajajDesktop.msi` so a maintainer can verify and sign installers before making them public. No public release should be published until code signing is configured and the installers are verified on a clean Windows machine.
 

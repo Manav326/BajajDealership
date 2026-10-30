@@ -10,7 +10,8 @@
     "typecheck": "tsc -b --pretty",
     "test:e2e": "playwright test",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build --bundles nsis,msi"
+    "tauri:build": "tauri build --bundles nsis,msi",
+    "build:desktop": "tsc -b && vite build --config vite.desktop.config.ts"
   },
   "dependencies": {
     "react": "19.3.0",
