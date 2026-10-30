@@ -15,7 +15,7 @@ export type StudioResource = {
 
 export type StudioElement = {
   id: string;
-  type: 'text' | 'rect' | 'circle' | 'line' | 'image';
+  type: 'text' | 'rect' | 'circle' | 'line' | 'image' | 'video';
   name: string;
   x: number;
   y: number;
@@ -37,6 +37,9 @@ export type StudioElement = {
   locked: boolean;
   groupId?: string;
   imageFit?: 'cover' | 'contain';
+  startSeconds?: number;
+  durationSeconds?: number;
+  sourceStartSeconds?: number;
 };
 
 export type StudioPage = {
