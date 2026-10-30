@@ -113,10 +113,12 @@ The customer notification fixture flows intentionally do not create or send camp
 - A separate campaign with title matching `MAESTRO_NOTIFICATION_ACTION_TITLE`, so read → unread → dismiss is tested without deleting the rich-content fixture.
 - At least 26 total sent notifications, with the value in `MAESTRO_NOTIFICATION_PAGE_TWO_TITLE` on page 2 (items 26–50), to exercise real pagination.
 
+The local test customer also needs one currently linked motorcycle whose displayed model name exactly matches `MAESTRO_CUSTOMER_VEHICLE_NAME`, and at least one available, priced parts-catalogue item for the cart test. The service appointment test creates a short-lived request and then cancels it; use a dedicated test customer and ensure it has no conflicting appointment at the app's default future slot.
+
 The notification title, image alt text, CTA label and destination heading must match the exact strings in `.maestro/local.env`. The test checks that the authenticated customer can fetch the image referenced by their sent notification; it does not weaken the separate staff media permission.
 
 ### What Maestro covers
 
-Maestro is end-to-end UI coverage, not source-code line coverage. These flows exercise the public showroom, login/activation entry, authenticated customer navigation, inbox filtering, notification rich content, notification CTA navigation, notification read/unread/dismiss, media visibility and pagination. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
+Maestro is end-to-end UI coverage, not source-code line coverage. The current suite contains 10 runnable flows plus one shared login subflow. It exercises the public showroom and search, login/activation entry, authenticated navigation, profile/address/service screens, service appointment request and cancellation, parts cart persistence across app restart, portrait/landscape layout adaptation, inbox unread filtering, rich notification rendering, CTA navigation, notification read/unread/dismiss, customer-authorized image loading and page-2 pagination. Three notification fixture flows require the sent campaigns described above. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
 
 The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
