@@ -1,5 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
 
+function makeSilentWav(seconds: number) {
+  const sampleRate = 8000;
+  const dataBytes = sampleRate * seconds * 2;
+  const file = Buffer.alloc(44 + dataBytes);
+  file.write('RIFF', 0);
+  file.writeUInt32LE(36 + dataBytes, 4);
+  file.write('WAVE', 8);
+  file.write('fmt ', 12);
+  file.writeUInt32LE(16, 16);
+  file.writeUInt16LE(1, 20);
+  file.writeUInt16LE(1, 22);
+  file.writeUInt32LE(sampleRate, 24);
+  file.writeUInt32LE(sampleRate * 2, 28);
+  file.writeUInt16LE(2, 32);
+  file.writeUInt16LE(16, 34);
+  file.write('data', 36);
+  file.writeUInt32LE(dataBytes, 40);
+  return file;
+}
+
 async function installStudioFixture(page: Page) {
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'social-studio-next-browser-test');
@@ -310,6 +330,28 @@ test('Back saves a new blank design before returning to the resource library', a
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
+});
+
+test('short audio under twenty seconds imports, trims and renders with video', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'short-cue.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2),
+  });
+  const audioTrack = page.getByRole('button', { name: /short-cue\.wav/ });
+  await expect(audioTrack).toBeVisible();
+  await audioTrack.click();
+  const audioEnd = page.getByRole('spinbutton', { name: 'Audio end position' });
+  await expect.poll(async () => audioEnd.inputValue()).toBe('2');
+  await audioEnd.fill('1.5');
+  await expect(page.getByText('Duration · 1.5 seconds')).toBeVisible();
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect(preview.locator('video')).toHaveAttribute('controls', '');
 });
 
 test('publishing caption and hashtags live in the dedicated Publishing tool', async ({ page }) => {
