@@ -65,6 +65,89 @@ function Resolve-AdbExecutable {
   Fail ("ADB was not found. Checked the existing Android SDK location '{0}', ANDROID_SDK_ROOT/ANDROID_HOME, and PATH. Install Android SDK platform-tools if missing." -f (Join-Path $env:LOCALAPPDATA "Android/Sdk/platform-tools/adb.exe"))
 }
 
+function Resolve-MaestroExecutable {
+  # Respect an existing installation first, including the standard C:\maestro location.
+  # The script invokes the resolved launcher directly, so no user/system PATH edit is needed.
+  $candidates = @()
+  $pathCommand = Get-Command maestro -ErrorAction SilentlyContinue
+  if ($pathCommand) {
+    $commandPath = $pathCommand.Source
+    if (-not $commandPath) { $commandPath = $pathCommand.Path }
+    if ($commandPath) { $candidates += $commandPath }
+  }
+
+  $installRoots = @()
+  if ($env:MAESTRO_HOME) { $installRoots += $env:MAESTRO_HOME }
+  if ($env:LOCALAPPDATA) {
+    $installRoots += (Join-Path $env:LOCALAPPDATA "Maestro")
+    $installRoots += (Join-Path $env:LOCALAPPDATA "BajajDealership/tools/maestro")
+  }
+  $installRoots += "C:\maestro"
+
+  foreach ($root in ($installRoots | Where-Object { $_ } | Select-Object -Unique)) {
+    $candidates += (Join-Path $root "bin/maestro.bat")
+    $candidates += (Join-Path $root "bin/maestro.exe")
+    $candidates += (Join-Path $root "maestro.bat")
+    $candidates += (Join-Path $root "maestro.exe")
+  }
+
+  foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return (Resolve-Path -LiteralPath $candidate).Path
+    }
+  }
+
+  if (-not $env:LOCALAPPDATA) {
+    Fail "LOCALAPPDATA is unavailable; cannot install Maestro into a user-local tools directory."
+  }
+
+  # Bootstrap the official Windows release ZIP into a stable, user-local directory.
+  # This is separate from the repository and does not modify global PATH.
+  $installRoot = Join-Path $env:LOCALAPPDATA "BajajDealership/tools/maestro"
+  $downloadId = [Guid]::NewGuid().ToString("N")
+  $zipPath = Join-Path $env:TEMP ("maestro-cli-" + $downloadId + ".zip")
+  $extractRoot = Join-Path $env:TEMP ("maestro-cli-extract-" + $downloadId)
+  $releaseUri = "https://github.com/mobile-dev-inc/Maestro/releases/latest/download/maestro.zip"
+
+  try {
+    Write-Host "Maestro CLI was not found. Downloading the official Windows release..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $releaseUri -OutFile $zipPath -UseBasicParsing -TimeoutSec 180
+    if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf) -or (Get-Item -LiteralPath $zipPath).Length -lt 1024) {
+      Fail "The Maestro release download was empty or incomplete."
+    }
+
+    Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
+    $downloadedLauncher = Get-ChildItem -LiteralPath $extractRoot -Filter "maestro.bat" -File -Recurse |
+      Where-Object { $_.Directory.Name -ieq "bin" } |
+      Select-Object -First 1
+    if (-not $downloadedLauncher) {
+      Fail "The downloaded Maestro ZIP did not contain the expected Windows bin/maestro.bat launcher."
+    }
+
+    if (Test-Path -LiteralPath $installRoot) {
+      Remove-Item -LiteralPath $installRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+    Copy-Item -Path (Join-Path $extractRoot "*") -Destination $installRoot -Recurse -Force
+
+    $installedLauncher = Get-ChildItem -LiteralPath $installRoot -Filter "maestro.bat" -File -Recurse |
+      Where-Object { $_.Directory.Name -ieq "bin" } |
+      Select-Object -First 1
+    if (-not $installedLauncher) {
+      Fail "Maestro CLI was extracted, but its Windows launcher could not be found under $installRoot."
+    }
+
+    Write-Host ("Maestro CLI installed locally at: {0}" -f $installedLauncher.FullName)
+    return $installedLauncher.FullName
+  } catch {
+    Fail ("Could not install Maestro CLI from the official release ZIP. Check internet access and write permissions, then retry. Details: {0}" -f $_.Exception.Message)
+  } finally {
+    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue }
+  }
+}
+
 function Get-PhysicalAndroidDevice {
   $lines = & $script:AdbPath devices
   if ($LASTEXITCODE -ne 0) { Fail "ADB could not enumerate devices. Check Android SDK platform-tools." }
@@ -114,12 +197,15 @@ $env:EXPO_PUBLIC_CUSTOMER_WEB_URL = "http://{0}:3000" -f $LanIp
 
 $script:AdbPath = Resolve-AdbExecutable
 Write-Host ("Using ADB: {0}" -f $script:AdbPath)
-if (-not (Get-Command maestro -ErrorAction SilentlyContinue)) {
-  Fail "Maestro CLI is not installed or not on PATH. On Windows, download the CLI ZIP from https://github.com/mobile-dev-inc/Maestro/releases/latest, add its bin directory to PATH, and restart PowerShell."
-}
 if (-not (Get-Command java -ErrorAction SilentlyContinue)) {
   Fail "Java 17 or newer is required by Maestro and the Android Gradle build."
 }
+
+$script:MaestroPath = Resolve-MaestroExecutable
+Write-Host ("Using Maestro CLI: {0}" -f $script:MaestroPath)
+$maestroVersion = & $script:MaestroPath --version
+if ($LASTEXITCODE -ne 0) { Fail "Maestro CLI was found but could not start. Verify Java 17+ and the Maestro installation." }
+if ($maestroVersion) { Write-Host ("Maestro version: {0}" -f ($maestroVersion -join " ")) }
 
 $selectedDevice = Get-PhysicalAndroidDevice
 Write-Host ("Physical Android device: {0}" -f $selectedDevice)
@@ -220,7 +306,7 @@ foreach ($suiteName in $suites) {
 
   Write-Host ([Environment]::NewLine + "=== Maestro suite: $suiteName ===")
   $arguments = @("--device=$selectedDevice", "test", $flowPath, "--format", "JUNIT", "--output", $reportPath, "--test-output-dir", $debugPath) + $maestroEnv
-  & maestro @arguments
+  & $script:MaestroPath @arguments
   if ($LASTEXITCODE -ne 0) {
     Fail "Maestro suite '$suiteName' failed. Review device output and the saved test artifacts."
   }
