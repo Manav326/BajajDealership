@@ -56,6 +56,17 @@ export type StudioPage = {
   elements: StudioElement[];
 };
 
+export type StudioAudioTrack = {
+  id: string;
+  resourceId: string;
+  timelineStartSeconds: number;
+  sourceStartSeconds: number;
+  durationSeconds: number;
+  volume: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+};
+
 export type StudioProject = {
   id: string;
   name: string;
@@ -64,6 +75,9 @@ export type StudioProject = {
   pages: StudioPage[];
   selectedPageId: string;
   selectedAudioId: string | null;
+  /** Missing audioTracks denotes a legacy single-soundtrack project. */
+  audioTracks?: StudioAudioTrack[];
+  selectedAudioTrackId?: string | null;
   audioStartSeconds: number;
   audioDurationSeconds?: number;
   audioVolume: number;

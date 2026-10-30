@@ -6,7 +6,7 @@ import { STARTER_MUSIC_CATALOG } from './artworkMusic';
 import {
   chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources, persistHandleName,
   removeProject, removeResource, requestSavedFolderPermission, saveProject, saveResource, supportsLocalDirectoryAccess, useBrowserStorage,
-  type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
+  type StudioAudioTrack, type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
 } from './socialStudioLocalStore';
 import styles from './SocialMediaStudioNext.module.css';
 
@@ -61,7 +61,7 @@ const newProject = (): StudioProject => {
   const page = defaultPage();
   return {
     id: randomId(), name: 'Untitled design', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
+    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioTracks: [], selectedAudioTrackId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
     audioFadeInSeconds: 0, audioFadeOutSeconds: 0,
     caption: '', hashtags: '#LuckyBajaj #Bajaj', primaryColor: '#15213a', accentColor: '#f97316',
   };
@@ -73,6 +73,16 @@ const element = (type: StudioElement['type'], x = 250, y = 240): StudioElement =
   text: type === 'text' ? 'Your text here' : '', fontSize: 76, fontFamily: 'Arial', fontWeight: '700',
   italic: false, letterSpacing: 0, align: 'left', imageFit: 'cover', visible: true, locked: false,
 });
+function projectAudioTracks(project: StudioProject): StudioAudioTrack[] {
+  if (Array.isArray(project.audioTracks)) return project.audioTracks;
+  if (!project.selectedAudioId) return [];
+  return [{id:'legacy-audio-'+project.id,resourceId:project.selectedAudioId,timelineStartSeconds:0,sourceStartSeconds:Math.max(0,project.audioStartSeconds??0),durationSeconds:Math.max(.1,project.audioDurationSeconds??30),volume:Math.max(0,Math.min(100,project.audioVolume??80)),fadeInSeconds:Math.max(0,project.audioFadeInSeconds??0),fadeOutSeconds:Math.max(0,project.audioFadeOutSeconds??0)}];
+}
+function projectWithAudioTracks(project: StudioProject, tracks: StudioAudioTrack[], selectedId: string | null): StudioProject {
+  const selected=tracks.find(track=>track.id===selectedId)??tracks[0]??null;
+  return {...project,audioTracks:tracks,selectedAudioTrackId:selected?.id??null,selectedAudioId:selected?.resourceId??null,audioStartSeconds:selected?.sourceStartSeconds??0,audioDurationSeconds:selected?.durationSeconds??30,audioVolume:selected?.volume??80,audioFadeInSeconds:selected?.fadeInSeconds??0,audioFadeOutSeconds:selected?.fadeOutSeconds??0};
+}
+
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const formatBytes = (value: number) => value < 1024 * 1024 ? Math.max(1, Math.round(value / 1024)) + ' KB' : (value / (1024 * 1024)).toFixed(1) + ' MB';
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'lucky-bajaj';
@@ -711,7 +721,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
-  const [selectedAudio, setSelectedAudio] = useState(project.selectedAudioId ?? '');
   const [favoriteMusicIds, setFavoriteMusicIds] = useState<string[]>(() => { try { return JSON.parse(window.localStorage.getItem('lucky-bajaj-studio-music-favourites') ?? '[]') as string[]; } catch { return []; } });
   const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [exporting, setExporting] = useState(false);
@@ -735,7 +744,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const supportedVideoFormats = useMemo(() => ({ mp4: !!findSupportedVideoMime('mp4'), webm: !!findSupportedVideoMime('webm') }), []);
   const selectedVideoMime = findSupportedVideoMime(videoFormatPreference);
   const [downloadBusy, setDownloadBusy] = useState(false);
-  const [audioTrackDuration, setAudioTrackDuration] = useState(125);
+  const [audioTrackDurations, setAudioTrackDurations] = useState<Record<string, number>>({});
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPreviewTime, setAudioPreviewTime] = useState(0);
   const [timelinePlaying, setTimelinePlaying] = useState(false);
@@ -743,7 +752,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [timelineTime, setTimelineTime] = useState(0);
   const [renderStage, setRenderStage] = useState<'idle'|'preparing'|'rendering'|'saving'|'ready'|'failed'|'cancelled'>('idle');
   const [canCancelRender, setCanCancelRender] = useState(false);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
   const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineFramesRef = useRef<Record<string, HTMLImageElement>>({});
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
@@ -752,8 +761,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const timelineClipTrackRef = useRef<HTMLDivElement | null>(null);
   const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mediaType:'image'|'video';mode:'move'|'start'|'end';changed:boolean}|null>(null);
   const [timelineClipPreview,setTimelineClipPreview] = useState<{clipId:string;startSeconds:number;durationSeconds:number}|null>(null);
-  const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
-  const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
+  const audioRangeTrackRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const audioRangeDragRef = useRef<{trackId:string;mode:'start'|'end'|'move';pointerX:number;trackWidth:number;timelineStart:number;sourceStart:number;duration:number}|null>(null);
   const cancelRenderRef = useRef<(()=>void)|null>(null);
   const projectRef = useRef(project);
   useEffect(() => { projectRef.current = project; }, [project]);
@@ -768,11 +777,16 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const saveInFlightRef = useRef(0);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-  const audioClipLength = Math.max(.1,Math.min(project.audioDurationSeconds??30,Math.max(.1,audioTrackDuration-project.audioStartSeconds),Math.max(.1,totalSceneDuration)));
+  const audioTracks = projectAudioTracks(project);
+  const selectedAudioTrack = audioTracks.find(track=>track.id===project.selectedAudioTrackId)??audioTracks[0]??null;
+  const selectedAudio = selectedAudioTrack?.resourceId??project.selectedAudioId??'';
+  const selectedAudioResource = resources.find(item=>item.id===selectedAudio&&item.kind==='audio');
+  const audioTrackDuration = selectedAudioTrack?(audioTrackDurations[selectedAudioTrack.resourceId]??125):0;
+  const audioClipLength = selectedAudioTrack?.durationSeconds??0;
   const timelineMediaClips = project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video'||element.type==='image').map(clip=>({scene,sceneIndex,clip})));
   const changeProject = (next:StudioProject) => {
     projectRef.current = next;
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     setTimelinePreviewVisible(false);timelineTimeRef.current=0;setTimelineTime(0);Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
     setRenderedPhoto(null);setRenderedVideo(null);setPhotoPreviewOpen(false);setVideoPreviewOpen(false);setDownloadOpen(false);setRenderStage('idle');setRenderProgress(0);
@@ -784,7 +798,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   function endSave() { saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1); setSaving(saveInFlightRef.current > 0); }
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
-  const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
   useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));const imageEntries=await Promise.all(project.pages.flatMap(scene=>scene.elements.filter(element=>hasTimedImageRange(element)&&element.resourceId&&urls[element.resourceId])).map(async element=>{const image=new Image();image.src=urls[element.resourceId!];try{await image.decode();return [element.id,image] as [string,HTMLImageElement];}catch{return null;}}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
       if(!Number.isFinite(video.duration)||video.duration<=0)return;
@@ -798,7 +811,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       if(Math.abs(clipStart-(sourceClip.startSeconds??0))<.01&&Math.abs(sourceStart-(sourceClip.sourceStartSeconds??0))<.01&&Math.abs(safeDuration-(sourceClip.durationSeconds??owner.durationSeconds))<.01)return;
       changeProject({...currentProject,pages:currentProject.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
     });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);timelineImageElementsRef.current=Object.fromEntries(imageEntries.filter((entry):entry is [string,HTMLImageElement]=>entry!==null));videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
-  useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
+  useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);syncAudioPlaybackAtTime(t,true);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);pauseAudioPlayers();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
@@ -947,13 +960,125 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     }
     Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
   }
-  function seekTimeline(seconds:number){const t=Math.max(0,Math.min(totalSceneDuration,seconds));timelineTimeRef.current=t;setTimelineTime(t);setTimelinePreviewVisible(true);drawTimelinePreview(t);const audio=audioPlayerRef.current;if(audio&&timelinePlaying){if(t<audioClipLength)audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+t);else audio.pause();}}
-  function toggleTimelinePlayback(){const audio=audioPlayerRef.current;if(timelinePlaying){setTimelinePlaying(false);audio?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);if(audio&&start<audioClipLength){audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+start);void audio.play().catch(()=>onNotify('Audio preview could not start.'));}else audio?.pause();setTimelinePlaying(true);}
-  function setAudioRange(start:number,duration:number){const s=Math.max(0,Math.min(audioTrackDuration-.1,start)),max=Math.max(.1,Math.min(audioTrackDuration-s,totalSceneDuration));changeProject({...project,audioStartSeconds:s,audioDurationSeconds:Math.max(.1,Math.min(max,duration))});}
-  function beginAudioRangeDrag(event:ReactPointerEvent<HTMLElement>,request:'auto'|'start'|'end'|'move'){const track=audioRangeTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();const rect=track.getBoundingClientRect(),pos=rect.width?(event.clientX-rect.left)/rect.width*audioTrackDuration:0;let mode=request;const start=project.audioStartSeconds,end=start+audioClipLength;if(mode==='auto')mode=pos>=start&&pos<=end?'move':Math.abs(pos-start)<=Math.abs(pos-end)?'start':'end';track.setPointerCapture(event.pointerId);audioRangeDragRef.current={mode,pointerX:event.clientX,start,duration:audioClipLength};}
-  function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){const drag=audioRangeDragRef.current,track=audioRangeTrackRef.current;if(!drag||!track)return;const rect=track.getBoundingClientRect();if(!rect.width)return;const delta=(event.clientX-drag.pointerX)/rect.width*audioTrackDuration;if(drag.mode==='move'){const max=Math.max(0,Math.min(audioTrackDuration-drag.duration,totalSceneDuration-drag.duration));setAudioRange(Math.max(0,Math.min(max,drag.start+delta)),drag.duration);}else if(drag.mode==='start'){const end=drag.start+drag.duration,next=Math.max(0,Math.min(end-.1,drag.start+delta));setAudioRange(next,end-next);}else{const max=Math.max(.1,Math.min(audioTrackDuration-drag.start,totalSceneDuration));setAudioRange(drag.start,Math.max(.1,Math.min(max,drag.duration+delta)));}}
+  function seekTimeline(seconds:number){
+    const time=Math.max(0,Math.min(totalSceneDuration,seconds));
+    timelineTimeRef.current=time;setTimelineTime(time);setTimelinePreviewVisible(true);drawTimelinePreview(time);
+    syncAudioPlaybackAtTime(time,timelinePlaying);
+  }
+  function toggleTimelinePlayback(){
+    if(timelinePlaying){
+      setTimelinePlaying(false);pauseAudioPlayers();
+      Object.values(videoElementsRef.current).forEach(video=>video.pause());
+      return;
+    }
+    const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;
+    timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);
+    syncAudioPlaybackAtTime(start,true);
+    setTimelinePlaying(true);
+  }
+  function pauseAudioPlayers(){Object.values(audioElementsRef.current).forEach(audio=>audio.pause());setAudioPlaying(false);}
+  function syncAudioPlaybackAtTime(seconds:number,shouldPlay:boolean){
+    const tracks=projectAudioTracks(projectRef.current);
+    tracks.forEach(track=>{
+      const audio=audioElementsRef.current[track.id];if(!audio)return;
+      const local=seconds-track.timelineStartSeconds;
+      if(local<0||local>=track.durationSeconds){audio.pause();return;}
+      const sourceTime=track.sourceStartSeconds+local;
+      if(audio.readyState>0&&Math.abs(audio.currentTime-sourceTime)>.22){try{audio.currentTime=sourceTime;}catch{/* Audio metadata may still be loading. */}}
+      const inLevel=track.fadeInSeconds>0?local/track.fadeInSeconds:1;
+      const outLevel=track.fadeOutSeconds>0?(track.durationSeconds-local)/track.fadeOutSeconds:1;
+      audio.volume=Math.max(0,Math.min(1,track.volume/100,inLevel,outLevel));
+      if(shouldPlay&&audio.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA&&audio.paused)void audio.play().catch(()=>onNotify('An audio track could not start.'));
+      else if(!shouldPlay)audio.pause();
+      if(track.id===(projectRef.current.selectedAudioTrackId??tracks[0]?.id))setAudioPreviewTime(sourceTime);
+    });
+    setAudioPlaying(Object.values(audioElementsRef.current).some(audio=>!audio.paused));
+  }
+  function updateAudioPlayback(trackId:string,audio:HTMLAudioElement){
+    const track=projectAudioTracks(projectRef.current).find(item=>item.id===trackId);if(!track)return;
+    const local=audio.currentTime-track.sourceStartSeconds;
+    const inLevel=track.fadeInSeconds>0?local/track.fadeInSeconds:1;
+    const outLevel=track.fadeOutSeconds>0?(track.durationSeconds-local)/track.fadeOutSeconds:1;
+    audio.volume=Math.max(0,Math.min(1,track.volume/100,inLevel,outLevel));
+    if(local>=track.durationSeconds)audio.pause();
+    if(track.id===(projectRef.current.selectedAudioTrackId??projectAudioTracks(projectRef.current)[0]?.id))setAudioPreviewTime(audio.currentTime);
+    setAudioPlaying(Object.values(audioElementsRef.current).some(player=>!player.paused));
+  }
+  function updateAudioTrack(trackId:string,changes:Partial<StudioAudioTrack>){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    const next=tracks.map(track=>track.id===trackId?{...track,...changes}:track);
+    changeProject(projectWithAudioTracks(current,next,current.selectedAudioTrackId??trackId));
+  }
+  function addAudioTrack(resource:StudioResource){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    if(tracks.length>=8){onNotify('A project can contain up to eight audio tracks.');return;}
+    const available=audioTrackDurations[resource.id]??30;
+    const duration=Math.max(.1,Math.min(available,Math.max(.1,totalSceneDuration)));
+    const track:StudioAudioTrack={id:randomId(),resourceId:resource.id,timelineStartSeconds:0,sourceStartSeconds:0,durationSeconds:duration,volume:80,fadeInSeconds:0,fadeOutSeconds:0};
+    changeProject(projectWithAudioTracks(current,[...tracks,track],track.id));
+    setTool('audio');setAudioPreviewTime(0);
+  }
+  function selectAudioTrack(trackId:string){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    const activeId=current.selectedAudioTrackId??tracks[0]?.id??null;
+    if(activeId!==trackId)changeProject(projectWithAudioTracks(current,tracks,trackId));
+    setTool('audio');
+    const track=tracks.find(item=>item.id===trackId);if(track)setAudioPreviewTime(track.sourceStartSeconds);
+  }
+  function removeAudioTrack(trackId:string){
+    const current=projectRef.current,tracks=projectAudioTracks(current).filter(track=>track.id!==trackId);
+    const selectedId=current.selectedAudioTrackId===trackId?(tracks[tracks.length-1]?.id??null):current.selectedAudioTrackId??null;
+    audioElementsRef.current[trackId]?.pause();delete audioElementsRef.current[trackId];
+    changeProject(projectWithAudioTracks(current,tracks,selectedId));
+  }
+  function handleAudioMetadata(trackId:string,audio:HTMLAudioElement){
+    const duration=Number.isFinite(audio.duration)&&audio.duration>0?audio.duration:0;if(!duration)return;
+    const current=projectRef.current,track=projectAudioTracks(current).find(item=>item.id===trackId);if(!track)return;
+    setAudioTrackDurations(existing=>({...existing,[track.resourceId]:duration}));
+    const timelineStart=Math.max(0,Math.min(track.timelineStartSeconds,Math.max(0,totalSceneDuration-.1)));
+    const sourceStart=Math.max(0,Math.min(track.sourceStartSeconds,Math.max(0,duration-.1)));
+    const clipDuration=Math.max(.1,Math.min(track.durationSeconds,duration-sourceStart,totalSceneDuration-timelineStart));
+    if(Math.abs(timelineStart-track.timelineStartSeconds)>.01||Math.abs(sourceStart-track.sourceStartSeconds)>.01||Math.abs(clipDuration-track.durationSeconds)>.01){
+      const next=projectAudioTracks(current).map(item=>item.id===trackId?{...item,timelineStartSeconds:timelineStart,sourceStartSeconds:sourceStart,durationSeconds:clipDuration}:item);
+      changeProject(projectWithAudioTracks(current,next,current.selectedAudioTrackId??trackId));
+    }
+    if(track.id===(current.selectedAudioTrackId??projectAudioTracks(current)[0]?.id)){setAudioPreviewTime(sourceStart);audio.currentTime=sourceStart;}
+  }
+  function setAudioRange(start:number,duration:number){
+    if(!selectedAudioTrack)return;
+    const limit=audioTrackDuration||Math.max(.1,start+duration);
+    const sourceStart=Math.max(0,Math.min(limit-.1,start));
+    const clipDuration=Math.max(.1,Math.min(limit-sourceStart,totalSceneDuration-selectedAudioTrack.timelineStartSeconds,duration));
+    updateAudioTrack(selectedAudioTrack.id,{sourceStartSeconds:sourceStart,durationSeconds:clipDuration});
+  }
+  function beginAudioRangeDrag(trackId:string,event:ReactPointerEvent<HTMLElement>,mode:'start'|'end'|'move'){
+    const element=audioRangeTrackRefs.current[trackId],track=projectAudioTracks(projectRef.current).find(item=>item.id===trackId);if(!element||!track)return;
+    event.preventDefault();event.stopPropagation();const rect=element.getBoundingClientRect();if(!rect.width)return;
+    element.setPointerCapture(event.pointerId);
+    audioRangeDragRef.current={trackId,mode,pointerX:event.clientX,trackWidth:rect.width,timelineStart:track.timelineStartSeconds,sourceStart:track.sourceStartSeconds,duration:track.durationSeconds};
+    selectAudioTrack(trackId);
+  }
+  function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){
+    const drag=audioRangeDragRef.current;if(!drag)return;
+    const delta=(event.clientX-drag.pointerX)/drag.trackWidth*totalSceneDuration;
+    const track=projectAudioTracks(projectRef.current).find(item=>item.id===drag.trackId);if(!track)return;
+    const resourceDuration=audioTrackDurations[track.resourceId]??(drag.sourceStart+drag.duration);
+    let timelineStart=drag.timelineStart,sourceStart=drag.sourceStart,duration=drag.duration;
+    if(drag.mode==='move')timelineStart=Math.max(0,Math.min(totalSceneDuration-duration,drag.timelineStart+delta));
+    else if(drag.mode==='start'){
+      const clipEnd=drag.timelineStart+drag.duration;
+      timelineStart=Math.max(0,Math.min(clipEnd-.1,drag.timelineStart+delta));
+      sourceStart=Math.max(0,Math.min(resourceDuration-.1,drag.sourceStart+(timelineStart-drag.timelineStart)));
+      duration=Math.max(.1,Math.min(clipEnd-timelineStart,resourceDuration-sourceStart));
+    }else duration=Math.max(.1,Math.min(drag.duration+delta,totalSceneDuration-drag.timelineStart,resourceDuration-drag.sourceStart));
+    updateAudioTrack(drag.trackId,{timelineStartSeconds:timelineStart,sourceStartSeconds:sourceStart,durationSeconds:duration});
+  }
+  function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){
+    const drag=audioRangeDragRef.current;if(!drag)return;const element=audioRangeTrackRefs.current[drag.trackId];
+    if(element?.hasPointerCapture(event.pointerId))element.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;
+  }
   function selectTimelineMediaClip(scene:StudioPage,clip:StudioElement) {
-    setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());
+    setTimelinePlaying(false);pauseAudioPlayers();Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(project.selectedPageId!==scene.id)mutate(current=>({...current,selectedPageId:scene.id}),false);
     setSelectedIds([clip.id]);setTool('layers');
   }
@@ -991,8 +1116,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);
     timelineClipDragRef.current=null;setTimelineClipPreview(null);
   }
-  function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){const track=audioRangeTrackRef.current;if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;}
-  function updateAudioPlayback(){const audio=audioPlayerRef.current;if(!audio)return;setAudioPreviewTime(audio.currentTime);const t=Math.max(0,audio.currentTime-project.audioStartSeconds),fadeIn=Math.max(0,project.audioFadeInSeconds??0),fadeOut=Math.max(0,project.audioFadeOutSeconds??0),fadeInLevel=fadeIn>0?t/fadeIn:1,fadeOutLevel=fadeOut>0?(audioClipLength-t)/fadeOut:1,envelope=Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel)),volume=(project.audioVolume/100)*envelope;audio.volume=Math.max(0,Math.min(1,volume));if(!audio.paused&&t>=audioClipLength)audio.pause();}
 
   async function downloadOutputs() {
     if (!renderedPhoto && !renderedVideo) return;
@@ -1246,7 +1369,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setSelectedIds([item.id]); setTool('layers'); onNotify('Video clip added to this scene. Adjust its timing in Properties.');
   }
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
     try {
@@ -1278,8 +1401,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     }
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-    const audioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
-    if (audioResource && totalDuration < 1) {
+    const renderAudioTracks = projectAudioTracks(project).map(track => ({track,resource:resources.find(item=>item.id===track.resourceId&&item.kind==='audio')})).filter((item):item is {track:StudioAudioTrack;resource:StudioResource}=>!!item.resource);
+    if (renderAudioTracks.length && totalDuration < 1) {
       onNotify('Add at least one second of scene duration before rendering with audio.');
       return;
     }
@@ -1288,13 +1411,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       return;
     }
 
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(4);
     let cancelled=false;
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
-    let audioSource: AudioBufferSourceNode | null = null;
+    const audioSources: Array<{source:AudioBufferSourceNode;gain:GainNode;timelineStart:number;sourceStart:number;duration:number;envelope:Float32Array}> = [];
     let mediaStream: MediaStream | null = null;
     let frameId = 0;
     let stopWatch: number | null = null;
@@ -1332,24 +1455,38 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       if (!ctx) throw new Error('Video render canvas is unavailable.');
       mediaStream = canvas.captureStream(30);
 
-      let audioClipStart = 0;
-      let audioClipDuration = 0;
-      if (audioResource) {
+      if (renderAudioTracks.length) {
         context = new AudioContext();
         const audioDestination = context.createMediaStreamDestination();
-        const decoded = await context.decodeAudioData(await audioResource.blob.arrayBuffer());
-        audioSource = context.createBufferSource();
-        audioSource.buffer = decoded;
-        const gain = context.createGain();
-        audioClipStart=Math.max(0,project.audioStartSeconds);
-        audioClipDuration=Math.min(project.audioDurationSeconds??30,totalDuration,Math.max(0,decoded.duration-audioClipStart));
-        if(audioClipDuration<.1)throw new Error('The selected audio range must contain at least 0.1 seconds within the video duration.');
-        const volume=Math.max(0,Math.min(1,project.audioVolume/100)),fadeIn=Math.max(0,Math.min(audioClipDuration,project.audioFadeInSeconds??0)),fadeOut=Math.max(0,Math.min(audioClipDuration,project.audioFadeOutSeconds??0)),started=context.currentTime;
-        const envelope=new Float32Array(128);
-        for(let index=0;index<envelope.length;index+=1){const time=index/(envelope.length-1)*audioClipDuration,fadeInLevel=fadeIn>0?time/fadeIn:1,fadeOutLevel=fadeOut>0?(audioClipDuration-time)/fadeOut:1;envelope[index]=volume*Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel));}
-        gain.gain.setValueCurveAtTime(envelope,started,audioClipDuration);
-        audioSource.connect(gain);gain.connect(audioDestination);
-        audioDestination.stream.getAudioTracks().forEach((track) => mediaStream?.addTrack(track));
+        const decodedByResource = new Map<string, AudioBuffer>();
+        for (const {track,resource} of renderAudioTracks) {
+          let decoded = decodedByResource.get(resource.id);
+          if (!decoded) {
+            decoded = await context.decodeAudioData(await resource.blob.arrayBuffer());
+            decodedByResource.set(resource.id, decoded);
+          }
+          const timelineStart = Math.max(0,Math.min(totalDuration,track.timelineStartSeconds));
+          const sourceStart = Math.max(0,Math.min(decoded.duration-.1,track.sourceStartSeconds));
+          const duration = Math.min(track.durationSeconds,decoded.duration-sourceStart,totalDuration-timelineStart);
+          if (duration < .1) continue;
+          const source = context.createBufferSource();
+          source.buffer = decoded;
+          const gain = context.createGain();
+          const volume = Math.max(0,Math.min(1,track.volume/100));
+          const fadeIn = Math.max(0,Math.min(duration,track.fadeInSeconds));
+          const fadeOut = Math.max(0,Math.min(duration,track.fadeOutSeconds));
+          const envelope = new Float32Array(128);
+          for (let index=0;index<envelope.length;index+=1) {
+            const time=index/(envelope.length-1)*duration;
+            const fadeInLevel=fadeIn>0?time/fadeIn:1;
+            const fadeOutLevel=fadeOut>0?(duration-time)/fadeOut:1;
+            envelope[index]=volume*Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel));
+          }
+          source.connect(gain);
+          gain.connect(audioDestination);
+          audioSources.push({source,gain,timelineStart,sourceStart,duration,envelope});
+        }
+        audioDestination.stream.getAudioTracks().forEach(track => mediaStream?.addTrack(track));
       }
 
       const mime = selectedVideoMime;
@@ -1375,18 +1512,22 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       recorder.start(250);
       setRenderStage('rendering');setCanCancelRender(true);
       cancelRenderRef.current=()=>{cancelled=true;if(recorder?.state==='recording')recorder.stop();};
-      if (context && audioSource) {
-        await context.resume();
-        audioSource.start(0, audioClipStart, audioClipDuration);
+      if (context) await context.resume();
+      const started = performance.now() + (context ? 20 : 0);
+      if (context) {
+        const audioClockStart = context.currentTime + .02;
+        audioSources.forEach(({source,gain,timelineStart,sourceStart,duration,envelope})=>{
+          gain.gain.setValueCurveAtTime(envelope,audioClockStart+timelineStart,duration);
+          source.start(audioClockStart+timelineStart,sourceStart,duration);
+        });
       }
 
       const total = frames.reduce((sum, item) => sum + item.duration, 0);
-      const started = performance.now();
       let renderFailure: Error | null = null;
 
       const draw = (now: number) => {
         try {
-          const elapsed = (now - started) / 1000;
+          const elapsed = Math.max(0,(now - started) / 1000);
           setRenderProgress(Math.min(96, Math.round(8 + elapsed / total * 86)));
           let offset = elapsed;
           let selectedFrameIndex = frames.length - 1;
@@ -1485,7 +1626,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     } finally {
       if (stopWatch !== null) window.clearTimeout(stopWatch);
       if (frameId) cancelAnimationFrame(frameId);
-      try { audioSource?.stop(); } catch { /* The source may not have started before an export error. */ }
+      audioSources.forEach(({source})=>{try{source.stop();}catch{/* A source may already have ended. */}});
       mediaStream?.getTracks().forEach((track) => track.stop());
       frameUrls.forEach((url) => URL.revokeObjectURL(url));
       await context?.close().catch(() => undefined);
@@ -1606,7 +1747,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
           {resources.filter((item) => item.kind === 'audio' && item.name.toLowerCase().includes(panelSearch.toLowerCase())).map((resource) => <div className={styles.audioResourceRow} key={resource.id}>
-            <button type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedIds([]); setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}><Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}</button>
+            <button type="button" className={styles.audioTrack} aria-label={resource.name} title="Add this as a separate audio track" onClick={() => {setSelectedIds([]);addAudioTrack(resource);}}><Icon name="audio"/><span>{resource.name}</span><Icon name="plus"/></button>
             <button type="button" title={favoriteMusicIds.includes(resource.id) ? 'Remove favourite' : 'Add favourite'} aria-label={favoriteMusicIds.includes(resource.id) ? 'Remove favourite ' + resource.name : 'Favourite ' + resource.name} aria-pressed={favoriteMusicIds.includes(resource.id)} onClick={() => toggleMusicFavourite(resource.id)}>{favoriteMusicIds.includes(resource.id) ? '★' : '☆'}</button>
           </div>)}
           <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
@@ -1708,9 +1849,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             <button type="button" aria-label={timelinePlaying?'Pause timeline preview':'Play timeline preview'} disabled={exporting||totalSceneDuration<=0} onClick={toggleTimelinePlayback}><Icon name={timelinePlaying?'minus':'play'}/></button>
             <input aria-label="Timeline playhead" type="range" min="0" max={Math.max(1,totalSceneDuration)} step="0.1" value={Math.min(timelineTime,totalSceneDuration)} onChange={event=>seekTimeline(Number(event.target.value))}/>
             <strong>{formatTime(timelineTime)} / {formatTime(totalSceneDuration)}</strong>
-            {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
+            {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);pauseAudioPlayers();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
           </div>
-          <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
+          <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);pauseAudioPlayers();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
           <div className={styles.mediaTracks} aria-label="Image and video tracks">
             {timelineMediaClips.length===0
               ? <div className={styles.mediaTracksEmpty}><Icon name="image"/> Add image or video clips from Uploads</div>
@@ -1748,28 +1889,49 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               })}
           </div>
           <div className={styles.timelineTrack}>
-            <span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudioResource?selectedAudioResource.name:'No soundtrack selected'}<small>{selectedAudioResource?formatTime(audioPreviewTime)+' / '+formatTime(audioTrackDuration)+(audioPlaying?' · Playing':''):formatTime(totalSceneDuration)+' total'}</small></div>
+            <span><Icon name="audio"/></span><div className={styles.audioLane}><strong>Audio tracks · {audioTracks.length}/8</strong><small>{selectedAudioResource?selectedAudioResource.name+' · '+formatTime(audioPreviewTime)+(audioPlaying?' · Playing':''):audioTracks.length?'Select a track to edit its timing and mix':'Add audio from the Audio panel'}</small></div>
             {renderedPhoto&&<button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={()=>setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
             {renderedVideo&&<button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={()=>setVideoPreviewOpen(true)}><Icon name="video"/></button>}
-            {selectedAudioResource&&<audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={event=>{const duration=Number.isFinite(event.currentTarget.duration)?event.currentTarget.duration:125,safeStart=Math.min(project.audioStartSeconds,Math.max(0,duration-.1)),safeLength=Math.max(.1,Math.min(project.audioDurationSeconds??30,duration-safeStart,totalSceneDuration||.1));if(safeStart!==project.audioStartSeconds||safeLength!==(project.audioDurationSeconds??30))changeProject({...project,audioStartSeconds:safeStart,audioDurationSeconds:safeLength});setAudioTrackDuration(duration);setAudioPreviewTime(safeStart);event.currentTarget.currentTime=safeStart;}} onTimeUpdate={updateAudioPlayback} onPlay={()=>setAudioPlaying(true)} onPause={()=>setAudioPlaying(false)}/>}
           </div>
-          <div className={styles.audioTimelineControls}>{selectedAudioResource?<><span className={styles.audioRangeTime}>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds+audioClipLength)}</span>
-            <div ref={audioRangeTrackRef} className={styles.audioRangeTrack} role="group" aria-label="Audio trim range" onPointerDown={event=>beginAudioRangeDrag(event,'auto')} onPointerMove={moveAudioRange} onPointerUp={endAudioRangeDrag} onPointerCancel={endAudioRangeDrag}>
-              <span className={styles.audioRangeTrackBase}/><span className={styles.audioRangeSelection} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%',width:audioClipLength/audioTrackDuration*100+'%'}} onPointerDown={event=>beginAudioRangeDrag(event,'move')}/>
-              <button type="button" className={styles.audioRangeHandle} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%'}} aria-label="Audio trim start" onPointerDown={event=>beginAudioRangeDrag(event,'start')}/>
-              <button type="button" className={styles.audioRangeHandle} style={{left:(project.audioStartSeconds+audioClipLength)/audioTrackDuration*100+'%'}} aria-label="Audio trim end" onPointerDown={event=>beginAudioRangeDrag(event,'end')}/>
-            </div><span className={styles.audioRangeDuration}>{audioClipLength.toFixed(1)}s</span></>:<span className={styles.audioRangeEmpty}>Add an audio track to trim it here.</span>}</div>
+          <div className={styles.audioTimelineControls} aria-label="Audio timeline tracks">
+            {audioTracks.length===0
+              ? <span className={styles.audioRangeEmpty}>Add one or more audio tracks from the Audio panel.</span>
+              : audioTracks.map((track,index)=>{
+                const resource=resources.find(item=>item.id===track.resourceId&&item.kind==='audio');
+                const active=track.id===selectedAudioTrack?.id;
+                const trackName=resource?.name??'Unavailable audio';
+                return <div key={track.id} className={styles.audioTrackRow} role="group" aria-label={'Audio track '+(index+1)+': '+trackName} data-selected={active}>
+                  <button type="button" className={active?styles.audioSelected:styles.audioTrack} aria-label={'Select audio track '+(index+1)+': '+trackName} onClick={()=>selectAudioTrack(track.id)}><Icon name="audio"/><span>{trackName}</span></button>
+                  <div ref={element=>{if(element)audioRangeTrackRefs.current[track.id]=element;else delete audioRangeTrackRefs.current[track.id];}}
+                    className={styles.audioRangeTrack} role="group" aria-label={'Audio trim range: '+trackName}
+                    onPointerMove={moveAudioRange} onPointerUp={endAudioRangeDrag} onPointerCancel={endAudioRangeDrag}>
+                    <span className={styles.audioRangeTrackBase}/>
+                    <span className={styles.audioRangeSelection} style={{left:track.timelineStartSeconds/Math.max(1,totalSceneDuration)*100+'%',width:track.durationSeconds/Math.max(1,totalSceneDuration)*100+'%'}} onPointerDown={event=>beginAudioRangeDrag(track.id,event,'move')}/>
+                    <button type="button" className={styles.audioRangeHandle} style={{left:track.timelineStartSeconds/Math.max(1,totalSceneDuration)*100+'%'}} aria-label="Audio trim start" title="Trim audio start" onPointerDown={event=>beginAudioRangeDrag(track.id,event,'start')}/>
+                    <button type="button" className={styles.audioRangeHandle} style={{left:(track.timelineStartSeconds+track.durationSeconds)/Math.max(1,totalSceneDuration)*100+'%'}} aria-label="Audio trim end" title="Trim audio end" onPointerDown={event=>beginAudioRangeDrag(track.id,event,'end')}/>
+                  </div>
+                  <span className={styles.audioRangeDuration}>{track.durationSeconds.toFixed(1)}s</span>
+                  {resource&&<audio className={styles.audioTrackMedia} ref={element=>{if(element)audioElementsRef.current[track.id]=element;else delete audioElementsRef.current[track.id];}}
+                    src={urls[resource.id]} preload="metadata"
+                    onLoadedMetadata={event=>handleAudioMetadata(track.id,event.currentTarget)}
+                    onTimeUpdate={event=>updateAudioPlayback(track.id,event.currentTarget)}
+                    onPlay={()=>setAudioPlaying(true)}
+                    onPause={()=>setAudioPlaying(Object.values(audioElementsRef.current).some(player=>!player.paused))}/>}
+                </div>;
+              })}
+          </div>
         </div>
       </main>
-      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
-        <div className={styles.toolPanelHeading}><strong>Audio properties</strong></div>
+      {tool === 'audio' && selectedAudioTrack && selectedAudioResource && <aside className={styles.inspector}>
+        <div className={styles.toolPanelHeading}><strong>Audio track properties</strong><button type="button" aria-label="Remove audio track" title="Remove audio track" onClick={()=>removeAudioTrack(selectedAudioTrack.id)}><Icon name="trash"/></button></div>
         <div className={styles.audioInspectorTrack}><Icon name="audio"/><span>{selectedAudioResource.name}</span></div>
-        <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-.1)} step="0.1" value={Number(project.audioStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),project.audioStartSeconds+audioClipLength-Number(event.target.value))}/></label>
-        <label>End position · {formatTime(project.audioStartSeconds+audioClipLength)}<input aria-label="Audio end position" type="number" min={project.audioStartSeconds+.1} max={Math.min(audioTrackDuration,totalSceneDuration+project.audioStartSeconds)} step="0.1" value={Number((project.audioStartSeconds+audioClipLength).toFixed(1))} onChange={event=>setAudioRange(project.audioStartSeconds,Number(event.target.value)-project.audioStartSeconds)}/></label>
+        <label>Timeline position · {formatTime(selectedAudioTrack.timelineStartSeconds)}<input aria-label="Audio timeline position" type="number" min="0" max={Math.max(0,totalSceneDuration-selectedAudioTrack.durationSeconds)} step="0.1" value={Number(selectedAudioTrack.timelineStartSeconds.toFixed(1))} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{timelineStartSeconds:Math.max(0,Math.min(totalSceneDuration-selectedAudioTrack.durationSeconds,Number(event.target.value)))})}/></label>
+        <label>Start position · {formatTime(selectedAudioTrack.sourceStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-.1)} step="0.1" value={Number(selectedAudioTrack.sourceStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds-Number(event.target.value))}/></label>
+        <label>End position · {formatTime(selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds)}<input aria-label="Audio end position" type="number" min={selectedAudioTrack.sourceStartSeconds+.1} max={Math.min(audioTrackDuration,selectedAudioTrack.sourceStartSeconds+totalSceneDuration-selectedAudioTrack.timelineStartSeconds)} step="0.1" value={Number((selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds).toFixed(1))} onChange={event=>setAudioRange(selectedAudioTrack.sourceStartSeconds,Number(event.target.value)-selectedAudioTrack.sourceStartSeconds)}/></label>
         <div className={styles.audioRangeSummary}>Duration · {audioClipLength.toFixed(1)} seconds</div>
-        <label>Volume · {project.audioVolume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={project.audioVolume} onChange={event=>changeProject({...project,audioVolume:Number(event.target.value)})}/></label>
-        <label>Fade in · {project.audioFadeInSeconds??0}s<input aria-label="Audio fade in" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeInSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeInSeconds:Number(event.target.value)})}/></label>
-        <label>Fade out · {project.audioFadeOutSeconds??0}s<input aria-label="Audio fade out" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeOutSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeOutSeconds:Number(event.target.value)})}/></label>
+        <label>Volume · {selectedAudioTrack.volume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={selectedAudioTrack.volume} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{volume:Number(event.target.value)})}/></label>
+        <label>Fade in · {selectedAudioTrack.fadeInSeconds}s<input aria-label="Audio fade in" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(selectedAudioTrack.fadeInSeconds,audioClipLength)} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+        <label>Fade out · {selectedAudioTrack.fadeOutSeconds}s<input aria-label="Audio fade out" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(selectedAudioTrack.fadeOutSeconds,audioClipLength)} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{fadeOutSeconds:Number(event.target.value)})}/></label>
       </aside>}
       {selected.length > 0 && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>{selected.length === 1 ? one?.name : selected.length + ' selected'}</strong><button type="button" aria-label="Close properties" onClick={() => setSelectedIds([])}><Icon name="close"/></button></div>

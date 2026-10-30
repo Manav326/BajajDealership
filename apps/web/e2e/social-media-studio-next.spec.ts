@@ -611,15 +611,20 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(startAfterTrim, 0);
   await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
 
-  const selectedRange = page.getByRole('group', { name: 'Audio trim range' }).locator('span').nth(1);
+  const timelinePosition = page.getByRole('spinbutton', { name: 'Audio timeline position' });
+  const sourceStartBeforeMove = Number(await start.inputValue());
+  const sourceEndBeforeMove = Number(await end.inputValue());
+  const timelinePositionBeforeMove = Number(await timelinePosition.inputValue());
+  const selectedRange = page.getByRole('group', { name: 'Audio trim range: full-track.wav' }).locator('span').nth(1);
   const rangeBox = await selectedRange.boundingBox();
   if (!rangeBox) throw new Error('Audio selected-range body was not visible.');
   await page.mouse.move(rangeBox.x + rangeBox.width/2, rangeBox.y + rangeBox.height/2);
   await page.mouse.down();
   await page.mouse.move(rangeBox.x + rangeBox.width/2 - 12, rangeBox.y + rangeBox.height/2, { steps: 4 });
   await page.mouse.up();
-  await expect.poll(async () => Number(await start.inputValue())).toBeLessThan(35);
-  await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
+  await expect.poll(async () => Number(await timelinePosition.inputValue())).toBeLessThan(timelinePositionBeforeMove);
+  await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(sourceStartBeforeMove, 1);
+  await expect.poll(async () => Number(await end.inputValue())).toBeCloseTo(sourceEndBeforeMove, 1);
 
   const beforeStartTrim = Number(await start.inputValue());
   const beforeEndTrim = Number(await end.inputValue());
@@ -651,6 +656,57 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('65');
   await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.8');
   await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('1.1');
+});
+
+test('multiple audio tracks keep independent timing and mix into the rendered video', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio' }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'music-bed.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  const musicBed = page.getByRole('button', { name: 'music-bed.wav', exact: true });
+  await expect(musicBed).toBeVisible();
+  await musicBed.click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'voiceover.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  const voiceover = page.getByRole('button', { name: 'voiceover.wav', exact: true });
+  await expect(voiceover).toBeVisible();
+  await voiceover.click();
+
+  const firstTrack = page.getByRole('group', { name: 'Audio track 1: music-bed.wav' });
+  const secondTrack = page.getByRole('group', { name: 'Audio track 2: voiceover.wav' });
+  await expect(firstTrack).toBeVisible();
+  await expect(secondTrack).toBeVisible();
+
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('4');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('4');
+  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('45');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.7');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.8');
+  await page.getByRole('button', { name: 'Select audio track 1: music-bed.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('80');
+  await page.getByRole('button', { name: 'Select audio track 2: voiceover.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('45');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const output = preview.locator('video');
+  await expect.poll(async () => output.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => output.evaluate(element => {
+    const video = element as HTMLVideoElement;
+    return typeof video.captureStream === 'function' ? video.captureStream().getAudioTracks().length : 0;
+  })).toBeGreaterThan(0);
 });
 
 test('fade transition blends the timeline preview and the rendered video consistently', async ({ page }) => {
