@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
+  ActivityIndicator, Alert, BackHandler, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput,
-  useWindowDimensions, View,
+  useWindowDimensions, View, type StyleProp, type ViewStyle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -42,6 +42,92 @@ type RetailOrder = { publicId: string; orderCode: string; status: string; paymen
 type CartLine = { partPublicId: string; quantity: number };
 type Intent = { action: Action; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string; preferredAt: string | null };
 type ProfileDraft = { fullName: string; phone: string; alternatePhone: string; email: string; preferredLanguage: Customer['preferredLanguage'] };
+const PRIVACY_SECTIONS = [
+  { title: 'Information used by the customer website', paragraphs: [
+    'Depending on the features you use, this may include your name and contact details, customer code or username, dealership association, linked motorcycle and vehicle identifiers, service history, appointment requests, sales or test-ride enquiries, spare-parts orders and customer notifications.',
+    'Information may be supplied by you, recorded by authorised Lucky Bajaj Agency staff, or created when you use a customer-portal feature.',
+  ]},
+  { title: 'How the information is used', paragraphs: [
+    'The website uses these records to verify your access, show the customer information linked to your account, handle vehicle and service enquiries, manage appointments and spare-parts requests, send relevant updates, protect the service and maintain operational records.',
+  ]},
+  { title: 'Access and service providers', paragraphs: [
+    'Your customer records are intended for Lucky Bajaj Agency workflows and are available to dealership staff according to their access permissions. QuantaEdge provides the software that operates this customer website. When you choose Google sign-in, Google processes the sign-in interaction and provides the verified identity information used by the login flow.',
+    'Links to Bajaj Auto or other third-party websites open services operated by those parties and are governed by their own policies.',
+  ]},
+  { title: 'Sessions and record retention', paragraphs: [
+    'The browser keeps the customer portal session token in session storage so it can be used during the current browser session. Customer, vehicle, service and transaction-related records are stored by the application on behalf of the dealership and are retained as needed for customer service, operational records and applicable legal obligations.',
+  ]},
+  { title: 'Your questions and requests', paragraphs: [
+    'For a question about your information or to request access or correction, contact Lucky Bajaj Agency through the dealership channel that manages your customer or service record. Please do not send your password, sign-in code or Google authentication credentials when asking for help.',
+  ]},
+  { title: 'Updates', paragraphs: [
+    'This notice describes the customer website and its currently implemented features. It may be updated when the service or applicable requirements change. Check this page for the latest version.',
+  ]},
+];
+const TERMS_SECTIONS = [
+  { title: 'Catalogue, specifications and prices', paragraphs: [
+    'Motorcycle specifications, images, offers and reference prices are provided to help you explore the Bajaj range. Manufacturer sources, verification dates and price notes are shown where available. Reference prices and location-based on-road estimates are not a final dealer quotation; the dealership must confirm the applicable model, variant, location, charges, offer terms and current price.',
+  ]},
+  { title: 'Enquiries and test rides', paragraphs: [
+    'Submitting a purchase enquiry or test-ride request sends a request to Lucky Bajaj Agency. It does not reserve a physical motorcycle, confirm stock, book a test-ride slot or complete a sale. The dealership will review availability and confirm the next steps.',
+  ]},
+  { title: 'Customer portal and service records', paragraphs: [
+    'Use the account assigned or activated for you and keep your sign-in details private. The portal displays customer and vehicle records linked to your authenticated account. If a record appears incorrect, ask the dealership to review its source record.',
+  ]},
+  { title: 'Spare parts and fulfilment', paragraphs: [
+    'Parts availability, pricing, delivery charges and fulfilment arrangements are subject to dealership confirmation. If a delivery quote is presented, review and accept it before the order can proceed through the applicable fulfilment flow. A request or status displayed by the website is not, by itself, proof that an external payment has been collected or verified.',
+  ]},
+  { title: 'External links and availability', paragraphs: [
+    'Links to manufacturer information and other external sites are provided for convenience; the destination site controls its own content and terms. Catalogue content and website features can change as dealership records and official sources are updated.',
+  ]},
+  { title: 'Questions', paragraphs: [
+    'For help with a request, vehicle record, service appointment or order, contact Lucky Bajaj Agency through the dealership channel handling that request. These terms do not remove rights that apply under relevant law.',
+  ]},
+];
+function NotificationContent({ raw }: { raw: string }) {
+  let blocks: Array<Record<string, unknown>> = [];
+  try {
+    const doc = JSON.parse(raw || '{}') as { blocks?: unknown; content?: unknown };
+    const source = Array.isArray(doc.blocks) ? doc.blocks : Array.isArray(doc.content) ? doc.content : [];
+    blocks = source.filter((block): block is Record<string, unknown> => typeof block === 'object' && block !== null);
+  } catch { return <Text style={S.meta}>This update contains a message from the dealership.</Text>; }
+  return <View style={{ gap: 8 }}>
+    {blocks.map((block, index) => {
+      const type = String(block.type || '');
+      const text = (key: string) => typeof block[key] === 'string' ? String(block[key]) : '';
+      if (type === 'hero') return <View key={index} style={S.innerCard}><Text style={S.eyebrow}>{text('eyebrow')}</Text><Text style={S.cardTitle}>{text('title')}</Text><Text style={S.body}>{text('subtitle')}</Text></View>;
+      if (type === 'richText' || ['paragraph','text','heading','title','quote','listItem'].includes(type)) return text('text') || text('body') ? <Text key={index} style={type === 'heading' || type === 'title' ? S.cardTitle : S.body}>{text('text') || text('body')}</Text> : null;
+      if (type === 'serviceCard' || type === 'vehicleCard' || type === 'icon') return <View key={index} style={S.innerCard}><Text style={S.cardTitle}>{[text('icon'), text('title')].filter(Boolean).join(' ')}</Text><Text style={S.body}>{text('description') || text('text')}</Text></View>;
+      if (type === 'highlight') return <View key={index} style={S.innerCard}><Text style={S.meta}>{text('label')}</Text><Text style={S.price}>{text('value')}</Text><Text style={S.body}>{text('description')}</Text></View>;
+      if (type === 'badge') return <Pill key={index} label={text('text') || 'Dealership update'} tone="warning"/>;
+      if (type === 'image') return <View key={index} style={S.innerCard}><Text style={S.meta}>{text('caption') || text('alt') || 'Image included in dealership update'}</Text></View>;
+      if (type === 'footer') return <Text key={index} style={S.meta}>{text('text')}</Text>;
+      if (type === 'divider') return <View key={index} style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }}/>;
+      if (type === 'button' && text('url')) return <Button key={index} small secondary label={text('text') || 'Open update link'} onPress={() => { const url = text('url'); if (/^https:\/\//i.test(url)) void Linking.openURL(url); }}/>;
+      return null;
+    })}
+  </View>;
+}
+function LegalScreen({ kind, onNavigate }: { kind: 'privacy' | 'terms'; onNavigate: (screen: Screen) => void }) {
+  const isPrivacy = kind === 'privacy';
+  const sections = isPrivacy ? PRIVACY_SECTIONS : TERMS_SECTIONS;
+  return <Card>
+    <Text style={S.eyebrow}>LUCKY BAJAJ AGENCY · CUSTOMER APP</Text>
+    <Heading title={isPrivacy ? 'Privacy policy' : 'Terms & conditions'} subtitle="Customer website information · Updated 29 October 2026"/>
+    <Text style={S.body}>{isPrivacy
+      ? 'This page explains the customer information used when you browse the Lucky Bajaj showroom or use its customer portal. Lucky Bajaj Agency operates the dealership workflows; QuantaEdge provides the software.'
+      : 'These terms explain the limits of the public catalogue and the request-based customer features provided through the Lucky Bajaj website.'}</Text>
+    {sections.map(section => <View key={section.title} style={{ gap: 7, paddingTop: 10 }}>
+      <Text style={S.cardTitle}>{section.title}</Text>
+      {section.paragraphs.map(paragraph => <Text key={paragraph} style={S.body}>{paragraph}</Text>)}
+    </View>)}
+    <View style={S.wrapRow}>
+      <Button label="Return to showroom" secondary onPress={() => onNavigate('showroom')}/>
+      <Button label="Customer sign in" onPress={() => onNavigate('signin')}/>
+    </View>
+  </Card>;
+}
+
 const emptyAddress = (): AddressDraft => ({ label: 'HOME', recipientName: '', phone: '', addressLine1: '', addressLine2: '', landmark: '', locality: '', city: '', district: '', state: '', postalCode: '', country: 'India', isDefaultDelivery: false });
 const path = (p: string) => API_BASE_URL + (p.startsWith('/') ? p : '/' + p);
 const money = (n: number | null | undefined) => n == null ? 'Ask for price' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -66,7 +152,7 @@ async function api<T>(p: string, token?: string, options: { method?: string; bod
   }
   return data as T;
 }
-function Card({ children, style }: { children: ReactNode; style?: object }) { return <View style={[S.card, style]}>{children}</View>; }
+function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) { return <View style={[S.card, style]}>{children}</View>; }
 function Button({ label, onPress, secondary = false, disabled = false, small = false }: { label: string; onPress: () => void; secondary?: boolean; disabled?: boolean; small?: boolean }) { return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress} style={({ pressed }) => [S.button, secondary && S.secondaryButton, small && S.smallButton, disabled && S.disabledButton, pressed && !disabled && S.pressed]}><Text style={[S.buttonText, secondary && S.secondaryText, small && S.smallText]}>{label}</Text></Pressable>; }
 function Field({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, autoCapitalize = 'sentences', maxLength }: { label: string; value: string; onChangeText: (v: string) => void; placeholder?: string; secureTextEntry?: boolean; keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'numeric' | 'url'; multiline?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; maxLength?: number }) { return <View style={S.field}><Text style={S.label}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder || label} placeholderTextColor={C.quiet} secureTextEntry={secureTextEntry} keyboardType={keyboardType || 'default'} autoCapitalize={autoCapitalize} autoCorrect={false} maxLength={maxLength} multiline={multiline} textAlignVertical={multiline ? 'top' : 'center'} style={[S.input, multiline && S.multiline]} /></View>; }
 function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) { return <View style={[S.pill, tone === 'success' && S.pillGood, tone === 'warning' && S.pillWarn, tone === 'danger' && S.pillBad]}><Text style={S.pillText}>{label}</Text></View>; }
@@ -104,7 +190,7 @@ export default function CustomerExperience() {
   const [activation, setActivation] = useState({ activationToken: '', username: '', password: '', confirmPassword: '' });
   const [googleWebId, setGoogleWebId] = useState('');
   const [googleAndroidId, setGoogleAndroidId] = useState('');
-  const [googleRequest, googleResponse, promptGoogle] = Google.useAuthRequest({ webClientId: googleWebId || 'unconfigured-web.apps.googleusercontent.com', androidClientId: googleAndroidId || 'unconfigured-android.apps.googleusercontent.com', scopes: ['openid', 'profile', 'email'], selectAccount: true });
+  const [googleRequest, googleResponse, promptGoogle] = Google.useAuthRequest({ webClientId: googleWebId || undefined, androidClientId: googleAndroidId || 'unconfigured-android.apps.googleusercontent.com', scopes: ['openid', 'profile', 'email'], selectAccount: true });
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [catalogueLoading, setCatalogueLoading] = useState(false);
@@ -503,7 +589,7 @@ export default function CustomerExperience() {
         {loginMode === 'username' ? <Field label="Username" value={login.username} onChangeText={v => setLogin(x => ({ ...x, username: v }))} autoCapitalize="none"/> : <Field label="Customer code" value={login.customerCode} onChangeText={v => setLogin(x => ({ ...x, customerCode: v.toUpperCase() }))} autoCapitalize="characters"/>}
         <Field label="Password" value={login.password} onChangeText={v => setLogin(x => ({ ...x, password: v }))} secureTextEntry autoCapitalize="none"/>
         <Button label={saving ? 'Signing in…' : 'Sign in securely'} disabled={saving || !login.dealershipCode.trim() || !(loginMode === 'username' ? login.username.trim() : login.customerCode.trim()) || !login.password} onPress={() => void signIn()}/>
-        <Button label="Continue with Google" secondary disabled={saving || !googleWebId || !googleAndroidId || !googleRequest} onPress={() => { if (!login.dealershipCode.trim()) { notify('Enter your dealership code before Google sign-in.'); return; } if (!googleWebId || !googleAndroidId) { notify('Google sign-in is not configured for Android yet. Ask the administrator to configure the Android OAuth client.'); return; } void promptGoogle(); }}/>
+        <Button label="Continue with Google" secondary disabled={saving || !googleAndroidId || !googleRequest} onPress={() => { if (!login.dealershipCode.trim()) { notify('Enter your dealership code before Google sign-in.'); return; } if (!googleWebId || !googleAndroidId) { notify('Google sign-in is not configured for Android yet. Ask the administrator to configure the Android OAuth client.'); return; } void promptGoogle(); }}/>
         {!googleAndroidId ? <Text style={S.meta}>Google sign-in will become available after the Android OAuth client ID is configured on the API.</Text> : null}
       </> : <>
         <Field label="One-time activation token" value={activation.activationToken} onChangeText={v => setActivation(x => ({ ...x, activationToken: v }))} autoCapitalize="none"/>
@@ -549,7 +635,7 @@ export default function CustomerExperience() {
       {addresses.length ? addresses.map(a => <Card key={a.publicId}><View style={S.rowBetween}><Pill label={pretty(a.label)}/>{a.isDefaultDelivery ? <Pill label="Default delivery" tone="success"/> : null}</View><Text style={S.cardTitle}>{a.recipientName}</Text><Text style={S.body}>{addressText(a)}</Text><Text style={S.meta}>{a.phone}</Text><View style={S.wrapRow}><Button label="Edit" secondary small onPress={() => editAddress(a)}/><Button label="Remove" secondary small onPress={() => deleteAddress(a)}/></View></Card>) : <Card><Empty title="No saved addresses yet" copy="Add home or work details once, then reuse them during parts delivery checkout."/></Card>}</>;
 
     if (screen === 'purchases') return <><Heading title="Purchases & orders" subtitle="Motorcycle purchase records and spare-parts orders, including cancelled or returned orders." right={<Button label="Refresh" secondary small onPress={() => void refreshOrders()}/>}/><Heading title="Motorcycles purchased" subtitle={purchases.length + ' records'}/>{purchases.length ? purchases.map(p => <Card key={p.publicId}><Text style={S.cardTitle}>{p.modelName}{p.variantName ? ' · ' + p.variantName : ''}</Text><Text style={S.meta}>Invoice · {p.invoiceNumber}</Text><Text style={S.price}>{money(p.invoiceTotal)}</Text><View style={S.rowBetween}><Text style={S.body}>Recorded paid</Text><Text style={S.cardTitle}>{money(p.paidAmount)}</Text></View><View style={S.rowBetween}><Text style={S.body}>Balance</Text><Text style={S.cardTitle}>{money(p.balanceDue)}</Text></View><Text style={S.meta}>Delivered {date(p.deliveredAt)} · {p.deliveredToName}</Text></Card>) : <Card><Empty title="No motorcycle purchases linked" copy="Completed deliveries will appear when the dealership links them to your customer record."/></Card>}
-      <Heading title="Spare-parts orders" subtitle={orders.length + ' orders'}/>{orders.length ? orders.map(o => <Card key={o.publicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{o.orderCode}</Text><Pill label={pretty(o.status)} tone={o.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.price}>{money(o.orderTotal)}</Text><Text style={S.meta}>{pretty(o.fulfillmentMethod)} · Payment {pretty(o.paymentStatus)} · {date(o.createdAt)}</Text>{o.lines.map((l,i) => <Text key={i} style={S.body}>{l.quantity} × {l.partName} — {money(l.lineTotal)}</Text>)}{o.fulfillmentMethod === 'DELIVERY' ? <><Text style={S.meta}>Delivery quote: {pretty(o.deliveryQuoteStatus)}{o.deliveryFee ? ' · ' + money(o.deliveryFee) : ''}</Text>{o.deliveryQuoteNote ? <Text style={S.body}>{o.deliveryQuoteNote}</Text> : null}{['PENDING','PROPOSED','AWAITING_CUSTOMER'].includes(o.deliveryQuoteStatus) ? <View style={S.wrapRow}><Button label="Accept quote" small onPress={() => void quoteResponse(o, true)}/><Button label="Decline quote" secondary small onPress={() => void quoteResponse(o, false)}/></View> : null}</> : null}{!['CANCELLED','FULFILLED','DELIVERED','RETURNED'].includes(o.status) ? <Button label="Cancel order" secondary small onPress={() => cancelOrder(o)}/> : null}</Card>) : <Card><Empty title="No parts orders yet" copy="Orders you submit from the Parts tab will appear here. Online payment is not initiated by this app."/></Card>}</>;
+      <Heading title="Spare-parts orders" subtitle={orders.length + ' orders'}/>{orders.length ? orders.map(o => <Card key={o.publicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{o.orderCode}</Text><Pill label={pretty(o.status)} tone={o.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.price}>{money(o.orderTotal)}</Text><Text style={S.meta}>{pretty(o.fulfillmentMethod)} · Payment {pretty(o.paymentStatus)} · {date(o.createdAt)}</Text>{o.lines.map((l,i) => <Text key={i} style={S.body}>{l.quantity} × {l.partName} — {money(l.lineTotal)}</Text>)}{o.fulfillmentMethod === 'DELIVERY' ? <><Text style={S.meta}>Delivery quote: {pretty(o.deliveryQuoteStatus)}{o.deliveryFee ? ' · ' + money(o.deliveryFee) : ''}</Text>{o.deliveryQuoteNote ? <Text style={S.body}>{o.deliveryQuoteNote}</Text> : null}{['PENDING','PROPOSED','AWAITING_CUSTOMER'].includes(o.deliveryQuoteStatus) ? <View style={S.wrapRow}><Button label="Accept quote" small onPress={() => void quoteResponse(o, true)}/><Button label="Decline quote" secondary small onPress={() => void quoteResponse(o, false)}/></View> : null}</> : null}{o.status === 'PLACED' ? <Button label="Cancel order" secondary small onPress={() => cancelOrder(o)}/> : null}</Card>) : <Card><Empty title="No parts orders yet" copy="Orders you submit from the Parts tab will appear here. Online payment is not initiated by this app."/></Card>}</>;
 
     if (screen === 'requests') return <><Heading title="Test rides & purchase enquiries" subtitle="Follow your request through enquiry, test ride, booking, invoice and delivery records." right={<Button label="Refresh" secondary small onPress={() => token ? void api<SalesRequest[]>('/api/v1/customer/sales-requests', token).then(setRequests).catch(c => notify(c instanceof Error ? c.message : 'Requests could not refresh.')) : undefined}/>}/>{requests.length ? requests.map(r => <Card key={r.publicId}><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>{r.modelName}</Text><Text style={S.meta}>{r.requestCode} · {pretty(r.requestType)}</Text></View><Pill label={pretty(r.status)} tone={r.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.meta}>Submitted {dateTime(r.createdAt)}</Text>{r.preferredAt ? <Text style={S.body}>Preferred test ride · {dateTime(r.preferredAt)}</Text> : null}{r.notes ? <Text style={S.body}>{r.notes}</Text> : null}<View style={S.stepList}>{[['Enquiry',r.enquiryCode,r.enquiryStatus],['Test ride',r.testRideCode,r.testRideStatus],['Booking',r.bookingCode,r.bookingStatus],['Invoice',r.invoiceNumber,r.invoiceStatus]].map(([label,code,status]) => <View key={label} style={S.stepRow}><View style={S.stepDot}/><View style={S.flex}><Text style={S.cardTitle}>{label}</Text><Text style={S.meta}>{code || 'Not recorded'}{status ? ' · ' + pretty(status) : ''}</Text></View></View>)}</View>{r.invoiceTotal != null ? <><Text style={S.price}>{money(r.invoiceTotal)}</Text><Text style={S.meta}>Paid {money(r.paidAmount)} · Balance {money(r.balanceDue)}</Text></> : null}{r.deliveredAt ? <Text style={S.meta}>Delivered {dateTime(r.deliveredAt)}</Text> : null}{r.status === 'REQUESTED' ? <Button label="Cancel request" secondary small onPress={() => Alert.alert('Cancel request?', 'This will request cancellation of ' + r.requestCode + '.', [{text:'Keep',style:'cancel'},{text:'Cancel',style:'destructive',onPress:()=>{setSaving(true);void api('/api/v1/customer/sales-requests/' + r.publicId + '/cancel', token, {method:'POST'}).then(()=>api<SalesRequest[]>('/api/v1/customer/sales-requests', token)).then(setRequests).then(()=>notify('Request cancelled.',true)).catch(c=>notify(c instanceof Error ? c.message : 'Request could not be cancelled.')).finally(()=>setSaving(false));}}])}/> : null}</Card>) : <Card><Empty title="No enquiries yet" copy="Choose a motorcycle in the showroom to send a purchase enquiry or test-ride request."/></Card>}</>;
 
@@ -558,13 +644,32 @@ export default function CustomerExperience() {
 
     if (screen === 'cart') return <><Heading title="Shopping cart" subtitle={cartCount + ' units · parts order request only'}/>{cart.length ? <Card>{cart.map(line => { const p = parts.find(v => v.publicId === line.partPublicId); if (!p) return null; return <View key={line.partPublicId} style={S.listRow}><View style={S.flex}><Text style={S.cardTitle}>{p.partName}</Text><Text style={S.meta}>{money(p.retailPrice)} each · {p.unitOfMeasure}</Text><Text style={S.cardTitle}>{money((p.retailPrice || 0) * line.quantity)}</Text></View><View style={S.qty}><Button label="−" secondary small onPress={() => addCart(p, -1)}/><Text style={S.cardTitle}>{line.quantity}</Text><Button label="+" secondary small onPress={() => addCart(p, 1)}/></View></View>; })}<View style={S.rowBetween}><Text style={S.cardTitle}>Estimated parts subtotal</Text><Text style={S.price}>{money(cartTotal)}</Text></View><Text style={S.meta}>Delivery fees and final availability are confirmed by Lucky Bajaj. No online payment is taken here.</Text><Text style={S.label}>Motorcycle for fitment checking</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{partFilters.motorcycleModels.map(m => <Pressable key={m.modelCode} onPress={() => setFitmentModel(m.modelCode)} style={[S.chip, fitmentModel === m.modelCode && S.chipSelected]}><Text style={S.chipText}>{m.modelName}</Text></Pressable>)}</ScrollView><Text style={S.label}>Fulfilment</Text><View style={S.wrapRow}><Button label="Pickup" secondary={fulfilment !== 'PICKUP'} onPress={() => setFulfilment('PICKUP')} small/><Button label="Delivery" secondary={fulfilment !== 'DELIVERY'} onPress={() => setFulfilment('DELIVERY')} small/></View>{fulfilment === 'DELIVERY' ? <><Text style={S.label}>Saved delivery address</Text>{addresses.map(a => <Pressable key={a.publicId} onPress={() => setDeliveryAddress(addressText(a))} style={[S.option, deliveryAddress === addressText(a) && S.optionActive]}><Text style={S.cardTitle}>{a.label}{a.isDefaultDelivery ? ' · Default' : ''}</Text><Text style={S.meta}>{addressText(a)}</Text></Pressable>)}<Field label="Or enter a delivery address" value={deliveryAddress} onChangeText={setDeliveryAddress} multiline/></> : null}<Field label="Note to dealership (optional)" value={orderNote} onChangeText={setOrderNote} multiline placeholder="Anything the parts team should know?"/><Button label={saving ? 'Placing request…' : 'Place parts order'} disabled={saving || !cart.length} onPress={() => void placeOrder()}/></Card> : <Card><Empty title="Your cart is empty" copy="Add available parts to build your order, then confirm pickup or delivery."/><Button label="Browse parts" onPress={() => setScreen('parts')}/></Card>}</>;
 
-    if (screen === 'updates') return <><Heading title="Dealership updates" subtitle={notifications.unreadCount + ' unread updates'}/>{notifications.items.length ? notifications.items.map(n => <Card key={n.recipientPublicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{n.title}</Text>{!n.readAt ? <Pill label="NEW" tone="warning"/> : null}</View><Text style={S.body}>{n.summary}</Text><Text style={S.meta}>{n.senderName} · {dateTime(n.createdAt)}</Text>{(() => { try { const doc = JSON.parse(n.contentDocumentJson || '{}'); const blocks = Array.isArray(doc.blocks) ? doc.blocks : Array.isArray(doc.content) ? doc.content : []; return blocks.map((block: Record<string, unknown>, i: number) => { const type = String(block.type || ''); const text = String(block.text || block.body || block.description || block.title || ''); if (['paragraph','text','heading','title','quote','listItem'].includes(type) && text) return <Text key={i} style={type === 'heading' || type === 'title' ? S.cardTitle : S.body}>{text}</Text>; if (type === 'button' && block.url) return <Button key={i} small secondary label={text || 'Open update link'} onPress={() => void Linking.openURL(String(block.url))}/>; return null; }); } catch { return null; } })()}<View style={S.wrapRow}><Button label={n.readAt ? 'Mark unread' : 'Mark read'} secondary small onPress={() => void updateNotice(n, n.readAt ? 'unread' : 'read')}/><Button label="Dismiss" secondary small onPress={() => void updateNotice(n, 'dismiss')}/></View></Card>) : <Card><Empty title="No notifications yet" copy="Service reminders and messages sent to your customer account will appear here."/></Card>}</>;
+    if (screen === 'updates') return <><Heading title="Dealership updates" subtitle={notifications.unreadCount + ' unread updates'}/>{notifications.items.length ? notifications.items.map(n => <Card key={n.recipientPublicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{n.title}</Text>{!n.readAt ? <Pill label="NEW" tone="warning"/> : null}</View><Text style={S.body}>{n.summary}</Text><Text style={S.meta}>{n.senderName} · {dateTime(n.createdAt)}</Text><NotificationContent raw={n.contentDocumentJson}/><View style={S.wrapRow}><Button label={n.readAt ? 'Mark unread' : 'Mark read'} secondary small onPress={() => void updateNotice(n, n.readAt ? 'unread' : 'read')}/><Button label="Dismiss" secondary small onPress={() => void updateNotice(n, 'dismiss')}/></View></Card>) : <Card><Empty title="No notifications yet" copy="Service reminders and messages sent to your customer account will appear here."/></Card>}</>;
 
     if (screen === 'more') return <><Heading title="More customer features" subtitle="Your account, requests, saved records and support information."/><View style={[S.moreGrid, wide && S.moreGridWide]}>{MORE.map(item => <View key={item.key} style={{width:wide?'48.5%':'100%'}}><ScreenButton title={item.title} copy={item.copy} icon={item.icon} onPress={() => setScreen(item.key)}/></View>)}</View><Card><Text style={S.cardTitle}>Account security</Text><Text style={S.body}>Sign out to clear this device's customer session. Your dealership records remain preserved.</Text><Button label="Sign out" secondary onPress={() => void logout()}/></Card></>;
-    if (screen === 'privacy') return <Card><Heading title="Privacy policy" subtitle="Customer information and how the app uses it."/><Text style={S.body}>This app shows customer data associated with the active Lucky Bajaj account, including linked motorcycles, service history, appointments, sales requests, purchases, addresses, parts orders and customer notifications.</Text><Text style={S.body}>Information is used to verify access, provide customer services, process requests and maintain operational records. QuantaEdge provides the software for Lucky Bajaj Agency. Third-party services, including Google sign-in and official Bajaj links, have their own terms and policies.</Text><Text style={S.body}>The app stores its session token in secure device storage. Contact Lucky Bajaj through the dealership channel to request correction of your source records. Never send passwords or sign-in credentials to support.</Text></Card>;
-    if (screen === 'terms') return <Card><Heading title="Terms of use" subtitle="Important notes about catalogue and customer requests."/><Text style={S.body}>Motorcycle prices, offers and availability are sourced references and can change. A showroom request is not a confirmed test ride, reservation, sale or delivery. Ownership appears in your garage only after the authorized dealership handover path.</Text><Text style={S.body}>Parts compatibility, stock and pricing are subject to dealership confirmation. Delivery orders may require accepting a delivery fee before fulfilment. This app does not initiate online payment. A service appointment remains a request until dealership staff confirm it.</Text><Text style={S.body}>This app is a customer experience provided by QuantaEdge for Lucky Bajaj Agency. Official third-party links are governed by the relevant provider terms.</Text></Card>;
+    if (screen === 'privacy') return <LegalScreen kind="privacy" onNavigate={setScreen}/>;
+    if (screen === 'terms') return <LegalScreen kind="terms" onNavigate={setScreen}/>;
     return <Card><Empty title="Choose a customer feature" copy="Use the navigation below to return to your showroom or account."/></Card>;
   };
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen === 'bike' || screen === 'signin' || screen === 'signup' || screen === 'privacy' || screen === 'terms') {
+        setScreen('showroom');
+        return true;
+      }
+      if (token && screen !== 'home') {
+        setScreen('home');
+        return true;
+      }
+      if (!token && screen !== 'showroom') {
+        setScreen('showroom');
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [screen, token]);
 
   const authScreen = !token && ['signin','signup'].includes(screen);
   return <SafeAreaView style={S.safe}>
