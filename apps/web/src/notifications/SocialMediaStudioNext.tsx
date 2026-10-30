@@ -649,7 +649,17 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const one = selected.length === 1 ? selected[0] : null;
   const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
-  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
+  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
+      if(!Number.isFinite(video.duration)||video.duration<=0)return;
+      const owner=project.pages.find(candidate=>candidate.elements.some(candidateClip=>candidateClip.id===element.id));
+      const sourceClip=owner?.elements.find(candidateClip=>candidateClip.id===element.id);
+      if(!owner||!sourceClip)return;
+      const clipStart=Math.max(0,Math.min(owner.durationSeconds-.1,sourceClip.startSeconds??0));
+      const sourceStart=Math.max(0,Math.min(sourceClip.sourceStartSeconds??0,Math.max(0,video.duration-.1)));
+      const safeDuration=Math.max(.1,Math.min(sourceClip.durationSeconds??owner.durationSeconds,owner.durationSeconds-clipStart,video.duration-sourceStart));
+      if(Math.abs(clipStart-(sourceClip.startSeconds??0))<.01&&Math.abs(sourceStart-(sourceClip.sourceStartSeconds??0))<.01&&Math.abs(safeDuration-(sourceClip.durationSeconds??owner.durationSeconds))<.01)return;
+      changeProject({...project,pages:project.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
+    });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
   useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
@@ -762,11 +772,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     let remaining=Math.max(0,seconds),index=0;while(index<project.pages.length-1&&remaining>=project.pages[index].durationSeconds){remaining-=project.pages[index].durationSeconds;index++;}
     const current=project.pages[index],image=timelineFramesRef.current[current.id];if(!image)return;
     const draw=(img:HTMLImageElement,alpha=1)=>{const scale=Math.min(canvas.width/img.width,canvas.height/img.height),w=img.width*scale,h=img.height*scale;ctx.globalAlpha=alpha;ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);ctx.globalAlpha=1;};
+    const activeVideoIds=new Set<string>();
     const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
       const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
       scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
         const video=videoElementsRef.current[clip.id],start=clip.startSeconds??0,duration=clip.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
-        if(!video)return;if(!active){if(!timelinePlaying)video.pause();return;}
+        if(!video)return;if(!active){video.pause();return;}activeVideoIds.add(clip.id);
         const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-start);
         if(Number.isFinite(video.duration)&&sourceTime>=video.duration){video.pause();return;}
         if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
@@ -782,6 +793,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const progress=Math.max(0,Math.min(1,1-(current.durationSeconds-remaining)/fade)),nextImage=timelineFramesRef.current[next.id];
       if(nextImage){draw(nextImage,progress);drawSceneVideos(next,Math.min(next.durationSeconds,progress*fade),progress);}
     }
+    Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
   }
   function seekTimeline(seconds:number){const t=Math.max(0,Math.min(totalSceneDuration,seconds));timelineTimeRef.current=t;setTimelineTime(t);setTimelinePreviewVisible(true);drawTimelinePreview(t);const audio=audioPlayerRef.current;if(audio&&timelinePlaying){if(t<audioClipLength)audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+t);else audio.pause();}}
   function toggleTimelinePlayback(){const audio=audioPlayerRef.current;if(timelinePlaying){setTimelinePlaying(false);audio?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);if(audio&&start<audioClipLength){audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+start);void audio.play().catch(()=>onNotify('Audio preview could not start.'));}else audio?.pause();setTimelinePlaying(true);}
@@ -1237,11 +1249,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
 
           ctx.fillStyle = '#101c35';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
+          const activeVideoIds=new Set<string>();
           const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
             const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
             scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
               const video=videoElementsRef.current[clip.id],clipStart=clip.startSeconds??0,clipDuration=clip.durationSeconds??scene.durationSeconds;
-              if(!video||sceneTime<clipStart||sceneTime>=clipStart+clipDuration)return;
+              if(!video)return;if(sceneTime<clipStart||sceneTime>=clipStart+clipDuration){video.pause();return;}activeVideoIds.add(clip.id);
               const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-clipStart);
               if(Number.isFinite(video.duration)&&sourceTime>=video.duration)return;
               if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
@@ -1261,6 +1274,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             drawContained(nextFrame.image,progress);
             drawSceneVideos(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
           }
+          Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
 
           if (elapsed >= total) {
             if (recorder?.state === 'recording') recorder.stop();
