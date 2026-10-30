@@ -54,4 +54,4 @@ const liquidGlassOverrides = {
   navActive:{...baseStyles.navActive,backgroundColor:'rgba(230,110,50,0.13)',borderWidth:1,borderColor:'rgba(230,110,50,0.25)'}
 } as const;
 
-export const S = StyleSheet.create({ ...baseStyles, ...liquidGlassOverrides } as typeof baseStyles);
+export const S = StyleSheet.create({ ...baseStyles, ...liquidGlassOverrides });
