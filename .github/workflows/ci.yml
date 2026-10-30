@@ -458,10 +458,8 @@ jobs:
         working-directory: apps/android/android
         run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
       - name: Record Android APK build metadata
-        env:
-          API_BASE_URL: ${{ env.EXPO_PUBLIC_API_BASE_URL }}
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = { edition: 'standard', packageName: 'com.quantaedge.luckybajaj', apiBaseUrl: process.env.API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2) + '\\n');"
+          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = { edition: 'standard', packageName: 'com.quantaedge.luckybajaj', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
       - name: Upload installable debug APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
