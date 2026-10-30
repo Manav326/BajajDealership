@@ -51,6 +51,8 @@ async function installStudioFixture(page: Page) {
 }
 
 async function openNewStudio(page: Page) {
+  const mobileToggle = page.locator('.mobile-nav-toggle');
+  if (await mobileToggle.isVisible()) await page.getByRole('button', { name: 'Open navigation menu' }).click();
   await page.locator('button[title="Social Media Studio (New)"]').click();
   await expect(page.getByRole('navigation', { name: 'Creative workspace' })).toBeVisible();
 }
@@ -95,20 +97,22 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
   await page.getByRole('button', { name: 'Add heading' }).click();
-  const text = page.getByLabel('Text');
+  const text = page.getByRole('textbox', { name: 'Text' });
   await expect(text).toHaveValue('Your text here');
   await text.fill('Ride into your next journey');
-  await page.getByLabel('Element fill').fill('#ffffff');
 
   await page.getByRole('button', { name: 'Resize' }).click();
   await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
   await expect(page.locator('.editorFooter')).toContainText('1080 × 1440');
+  await page.getByRole('button', { name: 'Create variant 1080 by 1080' }).click();
+  await expect(page.locator('.timelinePage,.timelinePageActive')).toHaveCount(2);
+  await expect(page.locator('.editorFooter')).toContainText('1080 × 1080');
 
   await page.getByRole('button', { name: 'Pages' }).click();
-  await page.getByRole('button', { name: 'Add page' }).click();
-  await expect(page.locator('.timelinePage')).toHaveCount(1);
+  await page.locator('.pageTools').getByRole('button', { name: 'Add page' }).click();
+  await expect(page.locator('.timelinePage,.timelinePageActive')).toHaveCount(3);
   await expect(page.locator('.timelinePageActive')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Page 1' }).click();
+  await page.locator('.timelinePage').filter({ hasText: 'Portrait feed 3:4' }).click();
 
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
@@ -124,7 +128,7 @@ test('exports artwork into the independent local resource library and supports r
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
   await page.getByRole('button', { name: 'Add heading' }).click();
-  await page.getByLabel('Text').fill('Lucky Bajaj creative export');
+  await page.getByRole('textbox', { name: 'Text' }).fill('Lucky Bajaj creative export');
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export PNG' }).click();
   const download = await downloadPromise;

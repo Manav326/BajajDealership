@@ -30,3 +30,19 @@
 .starterMusicList small{color:#8491a3;font-size:8px}
 .starterMusicList a{flex:none;color:#b2571a;font-size:9px;font-weight:800;text-decoration:none}
 .starterMusicList a:hover{text-decoration:underline}
+
+.resizePreset{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;align-items:stretch;padding:5px;border:1px solid #e2e8f0;border-radius:9px;background:white}
+.resizePresetMain{display:grid;gap:3px;min-width:0;padding:4px;border:0;background:transparent;color:#4a5b74;text-align:left}
+.resizePresetMain span{color:#8b96a8;font-size:8px}
+.resizePresetMain strong{font-size:10px}
+.resizePresetMain small{color:#8490a2;font-size:9px}
+.resizeVariantButton{display:flex;align-items:center;gap:4px;padding:0 8px;border:1px solid #e7ebf1;border-radius:6px;background:#f8fafc;color:#6a7b92;font-size:8px;font-weight:800}
+.resizeVariantButton:hover{border-color:#f1c39e;background:#fff6ef;color:#a64d13}
+.customDimensions{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto auto}
+.audioResourceRow{display:flex;align-items:center;gap:4px;min-width:0}
+.audioResourceRow>.audioTrack,.audioResourceRow>.audioSelected{flex:1;min-width:0}
+.audioResourceRow>button:last-child{display:grid;place-items:center;flex:none;width:29px;height:30px;border:1px solid #e1e7ef;border-radius:7px;background:white;color:#a65a20;font-size:15px}
+.audioResourceRow>button:last-child[aria-pressed=true]{border-color:#f0c5a5;background:#fff4eb;color:#b4510d}
+.audioPreview{width:100%;height:34px;margin:3px 0 5px}
+.starterMusicList>div>div{display:flex;align-items:center;gap:7px;flex:none}
+.starterMusicList>div>div button{display:grid;place-items:center;width:24px;height:24px;border:1px solid #e3e9f1;border-radius:6px;background:white;color:#a65a20}

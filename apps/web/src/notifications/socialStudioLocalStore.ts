@@ -1,3 +1,6 @@
+import { ARTWORK_ASSET_LIMIT, ARTWORK_ASSET_MAX_BYTES, STARTER_ARTWORK_ASSETS } from './artworkAssets';
+import { ARTWORK_MUSIC_LIMIT, ARTWORK_MUSIC_LIBRARY_MAX_BYTES, ARTWORK_MUSIC_MAX_BYTES, MUSIC_CLIP_MIN_SECONDS, STARTER_MUSIC_CATALOG } from './artworkMusic';
+
 export type StudioResourceKind = 'image' | 'audio' | 'video' | 'export';
 export type StudioResource = {
   id: string;
@@ -84,6 +87,7 @@ const SETTINGS_STORE = 'settings';
 const PROJECTS_STORE = 'projects';
 const RESOURCES_STORE = 'resources';
 const ROOT_HANDLE_KEY = 'workspace-directory-handle';
+const BROWSER_STORAGE_KEY = 'browser-storage-only';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -154,11 +158,13 @@ export async function getWorkspaceDirectory(): Promise<DirectoryHandleLike | nul
 
 export async function getWorkspacePermission(): Promise<PermissionState | 'missing'> {
   const root = await getWorkspaceDirectory();
-  if (!root) return 'missing';
+  if (!root) return (await readValue<boolean>(SETTINGS_STORE, BROWSER_STORAGE_KEY)) ? 'granted' : 'missing';
   if (!root.queryPermission) return 'denied';
   try { return await root.queryPermission({ mode: 'readwrite' }); }
   catch { return 'denied'; }
 }
+
+export async function useBrowserStorage(): Promise<void> { await writeValue(SETTINGS_STORE, true, BROWSER_STORAGE_KEY); }
 
 export async function chooseWorkspaceDirectory(): Promise<string> {
   const picker = (window as unknown as {
@@ -171,6 +177,7 @@ export async function chooseWorkspaceDirectory(): Promise<string> {
     if (permission !== 'granted') throw new Error('Folder access was not granted.');
   }
   await writeValue(SETTINGS_STORE, root, ROOT_HANDLE_KEY);
+  await deleteValue(SETTINGS_STORE, BROWSER_STORAGE_KEY);
   await ensureWorkspaceFolders(root);
   return root.name;
 }
@@ -261,13 +268,48 @@ export async function removeProject(id: string): Promise<void> {
   }
 }
 
-export async function saveResource(blob: Blob, name: string, kind: StudioResourceKind): Promise<StudioResource> {
+async function validateImageBlob(blob: Blob): Promise<void> {
+  if (!['image/jpeg', 'image/png'].includes(blob.type)) throw new Error('Only JPEG and PNG images are supported.');
+  if (blob.size > ARTWORK_ASSET_MAX_BYTES) throw new Error('Images are limited to 4.5 MB each.');
+  if (typeof createImageBitmap === 'function') {
+    const bitmap = await createImageBitmap(blob);
+    try { if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 20_000_000) throw new Error('Images must be 20 megapixels or smaller.'); }
+    finally { bitmap.close(); }
+  }
+}
+async function validateAudioBlob(blob: Blob): Promise<void> {
+  if (blob.size > ARTWORK_MUSIC_MAX_BYTES) throw new Error('Audio files are limited to 25 MB each.');
+  if (typeof Audio === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+  const url = URL.createObjectURL(blob);
+  try {
+    const duration = await new Promise<number>((resolve, reject) => {
+      const audio = new Audio(); audio.preload = 'metadata';
+      audio.onloadedmetadata = () => resolve(audio.duration);
+      audio.onerror = () => reject(new Error('Audio duration could not be read. Use a supported audio file.'));
+      audio.src = url;
+    });
+    if (!Number.isFinite(duration) || duration < MUSIC_CLIP_MIN_SECONDS) throw new Error('Audio tracks must be at least 20 seconds long.');
+  } finally { URL.revokeObjectURL(url); }
+}
+export async function saveResource(blob: Blob, name: string, kind: StudioResourceKind, exported = false): Promise<StudioResource> {
   if (!blob.size) throw new Error('The selected file is empty.');
+  const existing = await listValues<StudioResource>(RESOURCES_STORE);
+  if (kind === 'image') {
+    if (existing.filter((item) => item.kind === 'image').length + STARTER_ARTWORK_ASSETS.length >= ARTWORK_ASSET_LIMIT) throw new Error('The image library is full. The maximum is 50 including starter images.');
+    await validateImageBlob(blob);
+  }
+  if (kind === 'audio') {
+    const audio = existing.filter((item) => item.kind === 'audio');
+    if (audio.length + STARTER_MUSIC_CATALOG.length >= ARTWORK_MUSIC_LIMIT) throw new Error('The music library is full. The maximum is 50 including curated entries.');
+    if (audio.reduce((sum, item) => sum + item.size, 0) + blob.size > ARTWORK_MUSIC_LIBRARY_MAX_BYTES) throw new Error('The music library total is limited to 250 MB.');
+    await validateAudioBlob(blob);
+  }
   const id = globalThis.crypto?.randomUUID?.() ?? 'resource-' + Date.now() + '-' + Math.random().toString(16).slice(2);
   const extension = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
   const safeName = safeFileName(name.replace(/\.[^.]+$/, ''));
   const folder = kind === 'image' ? 'Images' : kind === 'audio' ? 'Audio' : kind === 'video' ? 'Videos' : 'Images';
-  const relativePath = 'Assets/' + folder + '/' + id + '__' + safeName + (extension ? '.' + safeFileName(extension) : '');
+  const rootFolder = kind === 'export' ? 'Exports/Images' : kind === 'video' && exported ? 'Exports/Videos' : 'Assets/' + folder;
+  const relativePath = rootFolder + '/' + id + '__' + safeName + (extension ? '.' + safeFileName(extension) : '');
   await deleteValue(SETTINGS_STORE, 'deleted-resource:' + id);
   const resource: StudioResource = {
     id, name: name.slice(0, 140), kind, mimeType: blob.type || 'application/octet-stream',
@@ -334,7 +376,8 @@ export async function saveExport(blob: Blob, name: string, kind: 'image' | 'vide
 }
 
 export async function persistHandleName(): Promise<string | null> {
-  return (await getWorkspaceDirectory())?.name ?? null;
+  const root = await getWorkspaceDirectory();
+  return root?.name ?? ((await readValue<boolean>(SETTINGS_STORE, BROWSER_STORAGE_KEY)) ? 'Browser storage' : null);
 }
 
 export function downloadBlob(blob: Blob, name: string): void {

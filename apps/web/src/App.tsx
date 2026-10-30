@@ -428,6 +428,7 @@ function App() {
                 className={activePage === item.label ? 'nav-item active' : 'nav-item'}
                 aria-current={activePage === item.label ? 'page' : undefined}
                 title={item.label}
+                aria-label={item.label === 'Social Media Studio (New)' ? 'New Creative Studio' : undefined}
                 onClick={() => { navigateToPage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
                 <span className="nav-icon" aria-hidden="true">{item.icon}</span>
                 <span className="nav-text">{item.label === 'Social Media Studio (New)' ? 'Social Media Studio' : item.label}</span>

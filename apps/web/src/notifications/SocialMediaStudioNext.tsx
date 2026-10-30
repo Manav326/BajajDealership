@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
 import { apiFetch } from './apiClient';
 import { ARTWORK_TEMPLATES, STARTER_ARTWORK_ASSETS } from './artworkAssets';
-import { STARTER_MUSIC_CATALOG } from './artworkMusic';
+import { MUSIC_CLIP_MIN_SECONDS, STARTER_MUSIC_CATALOG } from './artworkMusic';
 import {
-  chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources,
-  removeProject, removeResource, requestSavedFolderPermission, saveExport,
-  saveProject, saveResource, supportsLocalDirectoryAccess,
+  chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources, persistHandleName,
+  removeProject, removeResource, requestSavedFolderPermission, saveProject, saveResource, supportsLocalDirectoryAccess, useBrowserStorage,
   type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
 } from './socialStudioLocalStore';
 import styles from './SocialMediaStudioNext.module.css';
@@ -244,7 +243,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   async function openDirectoryPicker() {
     setPermissionBusy(true);
     try {
-      if (!supportsLocalDirectoryAccess()) { setDirectoryName('Browser storage'); setPermission('granted'); notify('Browser-local storage is ready.'); return; }
+      if (!supportsLocalDirectoryAccess()) { await useBrowserStorage(); setDirectoryName('Browser storage'); setPermission('granted'); notify('Browser-local storage is ready.'); return; }
       const name = await chooseWorkspaceDirectory();
       setDirectoryName(name);
       setPermission('granted');
@@ -306,6 +305,8 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     await refreshLibrary();
   }
   async function deleteResource(resource: StudioResource) {
+    const references = projects.filter((item) => item.pages.some((savedPage) => savedPage.elements.some((element) => element.resourceId === resource.id)));
+    if (references.length) { notify('This resource is used by: ' + references.map((item) => item.name).join(', ')); return; }
     if (!window.confirm('Remove this resource from the studio library?')) return;
     await removeResource(resource.id);
     if (selectedResourceId === resource.id) setSelectedResourceId(null);
@@ -509,6 +510,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
   const [selectedAudio, setSelectedAudio] = useState(project.selectedAudioId ?? '');
+  const [favoriteMusicIds, setFavoriteMusicIds] = useState<string[]>(() => { try { return JSON.parse(window.localStorage.getItem('lucky-bajaj-studio-music-favourites') ?? '[]') as string[]; } catch { return []; } });
   const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [exporting, setExporting] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -524,6 +526,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
+  const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
+  useEffect(() => { try { window.localStorage.setItem('lucky-bajaj-studio-music-favourites', JSON.stringify(favoriteMusicIds)); } catch { /* Session-only favourites remain usable. */ } }, [favoriteMusicIds]);
+  function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   const mutate = (updater: (current: StudioProject) => StudioProject, addHistory = true) => {
     if (addHistory) {
@@ -726,9 +731,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   }
 
   async function addUploadedFile(file: File, kind: StudioResourceKind) {
-    const resource = await saveResource(file, file.name, kind);
-    await onResourceAdded(resource);
-    onNotify('Resource saved to the local library.');
+    try {
+      const resource = await saveResource(file, file.name, kind);
+      await onResourceAdded(resource);
+      onNotify('Resource saved to the local library.');
+    } catch (cause) { onNotify(cause instanceof Error ? cause.message : 'Resource could not be saved.'); }
   }
   async function addStarterImage(assetId: string) {
     const asset = STARTER_ARTWORK_ASSETS.find((item) => item.id === assetId);
@@ -758,7 +765,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       const blob = await renderPageBlob(page, urls, mime);
       const extension = mime === 'image/png' ? 'png' : 'jpg';
       const filename = slug(project.name) + '-' + slug(page.name) + '.' + extension;
-      await saveExport(blob, filename, 'image');
       const resource = await saveResource(blob, filename, 'export');
       await onResourceAdded(resource);
       downloadBlob(blob, filename);
@@ -774,6 +780,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     }
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
+    if (totalDuration < MUSIC_CLIP_MIN_SECONDS) { onNotify('Story video must be at least ' + MUSIC_CLIP_MIN_SECONDS + ' seconds long.'); return; }
     if (totalDuration > maxDuration) { onNotify('This destination supports up to ' + maxDuration + ' seconds. Shorten the scene timeline first.'); return; }
     setExporting(true);
     let recorder: MediaRecorder | null = null;
@@ -839,8 +846,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       if (!blob.size) throw new Error('Video export is empty.');
       const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
       const filename = slug(project.name) + '-video.' + extension;
-      await saveExport(blob, filename, 'video');
-      await saveResource(blob, filename, 'video');
+      await saveResource(blob, filename, 'video', true);
       downloadBlob(blob, filename);
       onNotify('Video saved and downloaded (' + extension.toUpperCase() + ').');
       frames.forEach((item) => URL.revokeObjectURL(item.url));
@@ -920,10 +926,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         </div>}
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
-          {resources.filter((item) => item.kind === 'audio').map((resource) => <button key={resource.id} type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}>
-            <Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}
-          </button>)}
-          <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small></span><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div>)}</div>
+          {resources.filter((item) => item.kind === 'audio' && item.name.toLowerCase().includes(panelSearch.toLowerCase())).map((resource) => <div className={styles.audioResourceRow} key={resource.id}>
+            <button type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}><Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}</button>
+            <button type="button" title={favoriteMusicIds.includes(resource.id) ? 'Remove favourite' : 'Add favourite'} aria-label={favoriteMusicIds.includes(resource.id) ? 'Remove favourite ' + resource.name : 'Favourite ' + resource.name} aria-pressed={favoriteMusicIds.includes(resource.id)} onClick={() => toggleMusicFavourite(resource.id)}>{favoriteMusicIds.includes(resource.id) ? '★' : '☆'}</button>
+          </div>)}
+          {selectedAudioResource && urls[selectedAudioResource.id] && <audio className={styles.audioPreview} controls preload="metadata" src={urls[selectedAudioResource.id]} aria-label="Preview selected audio"/>}
+          <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
           <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => changeProject({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
           <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
           <label className={styles.panelField}>Story destination<select aria-label="Story destination" value={storyTarget} onChange={(event) => setStoryTarget(event.target.value as StoryTarget)}><option value="whatsapp-status">WhatsApp Status · 90s</option><option value="instagram-story">Instagram Story · 60s</option><option value="facebook-story">Facebook Story · 60s</option><option value="social-reel">Instagram / Facebook Reel · 120s</option></select></label>
@@ -1023,7 +1031,4 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   </div>;
 }
 
-async function getWorkspaceDirectoryName() {
-  const { getWorkspaceDirectory } = await import('./socialStudioLocalStore');
-  return (await getWorkspaceDirectory())?.name ?? null;
-}
+async function getWorkspaceDirectoryName() { return persistHandleName(); }
