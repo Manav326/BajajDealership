@@ -341,7 +341,7 @@ test('short audio under twenty seconds imports, trims and renders with video', a
   await page.getByLabel('Import audio').setInputFiles({
     name: 'short-cue.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2),
   });
-  const audioTrack = page.getByRole('button', { name: /short-cue\.wav/ });
+  const audioTrack = page.getByRole('button', { name: 'short-cue.wav', exact: true });
   await expect(audioTrack).toBeVisible();
   await audioTrack.click();
   const audioEnd = page.getByRole('spinbutton', { name: 'Audio end position' });
