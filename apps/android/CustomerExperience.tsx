@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator, Alert, BackHandler, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
-  RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput,
+  RefreshControl, SafeAreaView, ScrollView, Share, StatusBar, StyleSheet, Text, TextInput,
   useWindowDimensions, View, type StyleProp, type ViewStyle,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -15,6 +15,8 @@ import Constants from 'expo-constants';
 WebBrowser.maybeCompleteAuthSession();
 
 const API_BASE_URL = String(Constants.expoConfig?.extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/').trim().replace(/\/+$/, '');
+const CUSTOMER_WEB_URL = String(Constants.expoConfig?.extra?.customerWebUrl || process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || 'https://lucky-bajaj-customer-web.onrender.com').trim().replace(/\/+$/, '');
+const PARTS_CART_KEY_PREFIX = 'lucky_bajaj_parts_cart_v1:';
 const TOKEN_KEY = 'lucky_bajaj_customer_access_token';
 const PENDING_KEY = 'lucky_bajaj_pending_showroom_intent';
 const C = { ink: '#202D43', muted: '#65748B', quiet: '#8996A8', orange: '#E87536', darkOrange: '#B95220', border: '#DCE4EF', canvas: '#F1F5FB', white: '#FFFFFF', green: '#20784D', red: '#B63F3B', pale: '#FFF0E5', navy: '#22344E' };
@@ -228,6 +230,7 @@ export default function CustomerExperience() {
   const [partSort, setPartSort] = useState<'CATEGORY' | 'NAME' | 'PRICE_LOW' | 'PRICE_HIGH'>('CATEGORY');
   const [fitmentModel, setFitmentModel] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [cartHydratedFor, setCartHydratedFor] = useState<string | null>(null);
   const [orderNote, setOrderNote] = useState('');
   const [fulfilment, setFulfilment] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -245,6 +248,40 @@ export default function CustomerExperience() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    const owner = customer?.publicId;
+    if (!token || !owner) {
+      setCart([]);
+      setCartHydratedFor(null);
+      return;
+    }
+    let active = true;
+    setCartHydratedFor(null);
+    void AsyncStorage.getItem(PARTS_CART_KEY_PREFIX + owner)
+      .then(raw => {
+        let restored: CartLine[] = [];
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            restored = parsed.filter((item): item is CartLine =>
+              typeof item?.partPublicId === 'string'
+              && Number.isInteger(item?.quantity)
+              && item.quantity > 0);
+          }
+        }
+        if (active) setCart(restored);
+      })
+      .catch(() => { if (active) setCart([]); })
+      .finally(() => { if (active) setCartHydratedFor(owner); });
+    return () => { active = false; };
+  }, [token, customer?.publicId]);
+
+  useEffect(() => {
+    const owner = customer?.publicId;
+    if (!token || !owner || cartHydratedFor !== owner) return;
+    void AsyncStorage.setItem(PARTS_CART_KEY_PREFIX + owner, JSON.stringify(cart)).catch(() => undefined);
+  }, [cart, cartHydratedFor, token, customer?.publicId]);
 
   const notify = useCallback((message: string, good = false) => { setError(good ? '' : message); setSuccess(good ? message : ''); }, []);
 
@@ -601,6 +638,20 @@ export default function CustomerExperience() {
     finally { setSaving(false); }
   }
 
+  async function sharePromotion(promotion: Promotion) {
+    const offerId = encodeURIComponent(promotion.publicId);
+    const offerUrl = CUSTOMER_WEB_URL + '/?offer=' + offerId + '#showroom-offer-' + offerId;
+    try {
+      await Share.share({
+        title: promotion.title,
+        message: promotion.title + '\n' + promotion.summary + '\n' + offerUrl,
+        url: offerUrl,
+      });
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'The offer could not be shared.');
+    }
+  }
+
   const renderBike = (bike: Bike) => (
     <Card key={bike.modelCode} style={[S.bikeCard, { width: wide ? '48.5%' : '100%' }]}>
       {bike.heroImageUrl ? <Image source={{ uri: bike.heroImageUrl.startsWith('http') ? bike.heroImageUrl : path(bike.heroImageUrl) }} resizeMode="contain" style={S.bikeImage} /> : <View style={S.imageFallback}><Text style={S.heroMark}>LB</Text></View>}
@@ -622,7 +673,7 @@ export default function CustomerExperience() {
       {compared.length ? <Card><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>Compare motorcycles</Text><Text style={S.meta}>{compared.length} of 3 selected · full specification comparison below</Text></View><Button label="Clear" secondary small onPress={() => setCompare([])}/></View><ScrollView horizontal showsHorizontalScrollIndicator={false}>{compared.map(b => <View key={b.modelCode} style={S.compareCard}><Text style={S.cardTitle}>{b.modelName}</Text><Text style={S.body}>{b.engineCc} cc</Text><Text style={S.body}>Power: {b.maxPower || 'Not published'}</Text><Text style={S.body}>Torque: {b.maxTorque || 'Not published'}</Text><Text style={S.price}>{money(b.exShowroomPrice)}</Text><Button label="Remove" small secondary onPress={() => setCompare(v => v.filter(x => x !== b.modelCode))}/></View>)}</ScrollView></Card> : null}
       {compared.length >= 2 ? <Card><Heading title="Specification comparison" subtitle="The same sourced values used by the customer website."/>{comparisonRows.map(row => <View key={row.label} style={{ gap: 6, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}><Text style={S.label}>{row.label}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}><View style={S.wrapRow}>{compared.map(bike => <View key={bike.modelCode} style={{ minWidth: 150, maxWidth: 220, padding: 10, borderRadius: 11, backgroundColor: '#F5F8FC', gap: 4 }}><Text style={S.meta}>{bike.modelName}</Text><Text style={S.cardTitle}>{row.value(bike)}</Text></View>)}</View></ScrollView></View>)}</Card> : null}
       {catalogueLoading ? <Card><ActivityIndicator color={C.orange}/><Text style={S.meta}>Loading published models…</Text></Card> : filteredBikes.length ? <View style={[S.bikeGrid, wide && S.bikeGridWide]}>{filteredBikes.map(renderBike)}</View> : <Card><Empty title="No matching motorcycles" copy="Try a different search or category."/><Button label="Reload showroom" secondary onPress={() => void loadCatalogue()}/></Card>}
-      {promotions.length ? <><Heading title="Current offers" subtitle="Only active published offers with source information are shown."/>{promotions.map(p => <Card key={p.publicId}><Text style={S.cardTitle}>{p.title}</Text>{p.modelName ? <Text style={S.meta}>{p.modelName}</Text> : null}<Text style={S.body}>{p.summary}</Text>{p.terms ? <Text style={S.meta}>Terms: {p.terms}</Text> : null}<Text style={S.meta}>Valid from {date(p.startsOn)}{p.endsOn ? ' to ' + date(p.endsOn) : ''}</Text><Button label="Read offer source ↗" secondary small onPress={() => void Linking.openURL(p.sourceUrl)}/></Card>)}</> : null}
+      {promotions.length ? <><Heading title="Current offers" subtitle="Only active published offers with source information are shown."/>{promotions.map(p => <Card key={p.publicId}><Text style={S.cardTitle}>{p.title}</Text>{p.modelName ? <Text style={S.meta}>{p.modelName}</Text> : null}<Text style={S.body}>{p.summary}</Text>{p.terms ? <Text style={S.meta}>Terms: {p.terms}</Text> : null}<Text style={S.meta}>Valid from {date(p.startsOn)}{p.endsOn ? ' to ' + date(p.endsOn) : ''}</Text><View style={S.wrapRow}><Button label="Read offer source ↗" secondary small onPress={() => void Linking.openURL(p.sourceUrl)}/><Button label="Share offer ↗" small onPress={() => void sharePromotion(p)}/></View></Card>)}</> : null}
     </>;
 
     if (screen === 'bike' && selectedBike) return <>
