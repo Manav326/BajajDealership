@@ -754,6 +754,10 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await expect(consent).toBeVisible();
   await expect(consent).toContainText('Meta will show the exact permissions requested');
   await expect(consent).toContainText('Connecting an account does not publish anything');
+  await consent.getByText('See the exact Meta permissions being requested').click();
+  for (const scope of ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'instagram_basic', 'instagram_content_publish']) {
+    await expect(consent).toContainText(scope);
+  }
   const notNow = consent.getByRole('button', { name: 'Not now' });
   const continueToMeta = consent.getByRole('button', { name: 'Continue to Meta' });
   await expect(notNow).toBeFocused();
