@@ -626,7 +626,17 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           <li>Connecting an account does not publish anything. Every post remains subject to the separate LuckyBajaj publishing approval workflow.</li>
           <li>Provider authorization credentials are handled by the dealership backend and are not stored in this browser.</li>
         </ul>
-        <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. You can cancel here or decline on Meta's authorization screen.</p>
+        <details className={styles.consentPermissions}>
+          <summary>See the exact Meta permissions being requested</summary>
+          <ul>
+            <li><code>pages_show_list</code> — find the Facebook Pages available to the authorized account.</li>
+            <li><code>pages_read_engagement</code> — read Page information and engagement needed to verify publishing destinations.</li>
+            <li><code>pages_manage_posts</code> — manage posts on the selected Facebook Pages.</li>
+            <li><code>instagram_basic</code> — read basic details for linked Instagram professional accounts.</li>
+            <li><code>instagram_content_publish</code> — publish eligible Instagram feed content after LuckyBajaj approval.</li>
+          </ul>
+        </details>
+        <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. Meta will ask you to approve its permissions separately. You can cancel here or decline on Meta's authorization screen.</p>
         <div className={styles.consentActions}>
           <button type="button" autoFocus onClick={closeMetaConsent}>Not now</button>
           <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
