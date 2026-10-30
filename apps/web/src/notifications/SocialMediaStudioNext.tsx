@@ -589,7 +589,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [exporting, setExporting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [panelSearch, setPanelSearch] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
   const [lastSavedName, setLastSavedName] = useState(project.name);
   const [nameSaving, setNameSaving] = useState(false);
