@@ -1317,12 +1317,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <div className={styles.videoClipLane}>
             <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
             <div className={styles.videoClipTrack}>
-              {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0),start=offset+(clip.startSeconds??0),duration=Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-(clip.startSeconds??0));return <button type="button" key={clip.id} className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip} style={{left:start/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,duration/Math.max(1,totalSceneDuration)*100)+'%'}} title={clip.name+' · '+formatTime(start)+' – '+formatTime(start+duration)} onClick={()=>{setTimelinePlaying(false);Object.values(videoElementsRef.current).forEach(video=>video.pause());mutate(current=>({...current,selectedPageId:scene.id}),false);setSelectedIds([clip.id]);setTool('layers');}}><Icon name="video"/><span>{clip.name}</span></button>;}))}
-            </div>
-          </div>
-          <div className={styles.videoClipLane}>
-            <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
-            <div className={styles.videoClipTrack}>
               {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{
                 const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
                 const clipStart=offset+(clip.startSeconds??0);
@@ -1348,7 +1342,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               <button type="button" className={styles.audioRangeHandle} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%'}} aria-label="Audio trim start" onPointerDown={event=>beginAudioRangeDrag(event,'start')}/>
               <button type="button" className={styles.audioRangeHandle} style={{left:(project.audioStartSeconds+audioClipLength)/audioTrackDuration*100+'%'}} aria-label="Audio trim end" onPointerDown={event=>beginAudioRangeDrag(event,'end')}/>
             </div><span className={styles.audioRangeDuration}>{audioClipLength.toFixed(1)}s</span></>:<span className={styles.audioRangeEmpty}>Add an audio track to trim it here.</span>}</div>
-        </div>      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
+        </div>
+      </main>
+      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>Audio properties</strong></div>
         <div className={styles.audioInspectorTrack}><Icon name="audio"/><span>{selectedAudioResource.name}</span></div>
         <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-1)} step="0.1" value={Number(project.audioStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),project.audioStartSeconds+audioClipLength-Number(event.target.value))}/></label>
