@@ -1404,6 +1404,76 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
   background: linear-gradient(145deg, rgba(18,29,42,.91), rgba(10,17,26,.92));
   box-shadow: inset 0 1px rgba(255,255,255,.035), 0 12px 34px rgba(0,0,0,.08);
 }
+.retail-catalogue-filters:not(.is-expanded) {
+  display: block;
+  gap: 0;
+  padding: 0;
+}
+.retail-catalogue-filter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.retail-catalogue-filter-toggle-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.retail-catalogue-filter-toggle-copy strong {
+  color: #f2f6fb;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+}
+.retail-catalogue-filter-toggle-copy small {
+  color: #8f9eb0;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.retail-catalogue-filter-toggle-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid rgba(122,240,220,.26);
+  border-radius: 999px;
+  background: rgba(122,240,220,.055);
+  color: #a8f5e8;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: background .18s, border-color .18s;
+}
+.retail-catalogue-filter-toggle-action > span { font-size: 13px; line-height: 1; }
+.retail-catalogue-filter-toggle:hover .retail-catalogue-filter-toggle-action {
+  border-color: rgba(122,240,220,.58);
+  background: rgba(122,240,220,.13);
+}
+.retail-catalogue-filter-toggle:focus-visible {
+  outline: 2px solid #8ef5df;
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.retail-catalogue-filters.is-expanded .retail-catalogue-filter-toggle {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+}
+.retail-catalogue-filter-controls {
+  display: grid;
+  gap: 15px;
+}
+.retail-catalogue-filter-controls[hidden] { display: none; }
+
 .retail-catalogue-search,
 .retail-catalogue-filter-grid > label {
   display: grid;
