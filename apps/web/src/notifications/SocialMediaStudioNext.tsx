@@ -580,6 +580,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const undoRef = useRef<StudioProject[]>([]);
   const redoRef = useRef<StudioProject[]>([]);
   const saveTimer = useRef<number | null>(null);
+  const editVersionRef = useRef(0);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
   const audioClipLength = Math.max(1,Math.min(project.audioDurationSeconds??30,Math.max(1,audioTrackDuration-project.audioStartSeconds),Math.max(1,totalSceneDuration)));
@@ -588,6 +589,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setTimelinePreviewVisible(false);timelineTimeRef.current=0;setTimelineTime(0);Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
     setRenderedPhoto(null);setRenderedVideo(null);setPhotoPreviewOpen(false);setVideoPreviewOpen(false);setDownloadOpen(false);setRenderStage('idle');setRenderProgress(0);
+    editVersionRef.current += 1;
     onProjectChange(next);setDirty(true);
   };
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
@@ -630,10 +632,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   useEffect(() => {
     if (!dirty) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    const saveVersion = editVersionRef.current;
     saveTimer.current = window.setTimeout(() => {
       setSaving(true); setSaveStatus('saving');
-      void saveProject(project).then(() => { setSaving(false); setSaveStatus('saved'); }).catch((cause) => { setSaving(false); setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Autosave failed.'); });
-      setDirty(false);
+      void saveProject(project).then(() => {
+        setSaving(false); setSaveStatus('saved');
+        if (editVersionRef.current === saveVersion) setDirty(false);
+      }).catch((cause) => { setSaving(false); setSaveStatus('error'); onNotify(cause instanceof Error ? cause.message : 'Autosave failed.'); });
     }, 900);
     return () => { if (saveTimer.current) window.clearTimeout(saveTimer.current); };
   }, [project, dirty, onNotify]);
@@ -655,9 +660,19 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
 
   async function leaveEditor() {
     if (dirty || saving) {
+      if (saveTimer.current) { window.clearTimeout(saveTimer.current); saveTimer.current = null; }
+      const saveVersion = editVersionRef.current;
       setSaving(true); setSaveStatus('saving');
-      try { await saveProject(project); setDirty(false); setSaveStatus('saved'); setSaving(false); }
-      catch (cause) {
+      try {
+        await saveProject(project);
+        setSaving(false);
+        if (editVersionRef.current !== saveVersion) {
+          setSaveStatus('saving');
+          onNotify('A new edit was made while saving. Save it before leaving the editor.');
+          return;
+        }
+        setDirty(false); setSaveStatus('saved');
+      } catch (cause) {
         setSaving(false); setSaveStatus('error');
         onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
         if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
