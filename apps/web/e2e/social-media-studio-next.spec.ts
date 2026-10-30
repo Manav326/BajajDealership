@@ -754,9 +754,24 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await expect(consent).toBeVisible();
   await expect(consent).toContainText('Meta will show the exact permissions requested');
   await expect(consent).toContainText('Connecting an account does not publish anything');
+  const notNow = consent.getByRole('button', { name: 'Not now' });
+  const continueToMeta = consent.getByRole('button', { name: 'Continue to Meta' });
+  await expect(notNow).toBeFocused();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   expect(connectRequests).toHaveLength(0);
 
-  await consent.getByRole('button', { name: 'Not now' }).click();
+  await page.keyboard.press('Shift+Tab');
+  await expect(continueToMeta).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(notNow).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(consent).toHaveCount(0);
+  await expect(connect).toBeFocused();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
+  expect(connectRequests).toHaveLength(0);
+
+  await connect.click();
+  await page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' }).getByRole('button', { name: 'Not now' }).click();
   await expect(consent).toHaveCount(0);
   expect(connectRequests).toHaveLength(0);
 
