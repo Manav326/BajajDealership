@@ -1,5 +1,7 @@
 package com.quantaedge.bajaj.security;
 
+import com.quantaedge.bajaj.system.DealershipLicenseService;
+
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -26,11 +28,14 @@ public class StaffAccessManagementService {
   private static final Duration INVITATION_LIFETIME = Duration.ofHours(24);
   private final JdbcTemplate jdbc;
   private final PasswordEncoder passwordEncoder;
+  private final DealershipLicenseService licenses;
   private final SecureRandom secureRandom = new SecureRandom();
 
-  public StaffAccessManagementService(JdbcTemplate jdbc, PasswordEncoder passwordEncoder) {
+  public StaffAccessManagementService(
+      JdbcTemplate jdbc, PasswordEncoder passwordEncoder, DealershipLicenseService licenses) {
     this.jdbc = jdbc;
     this.passwordEncoder = passwordEncoder;
+    this.licenses = licenses;
   }
 
   public List<RoleOption> roleOptions(StaffPrincipal actor) {
@@ -54,6 +59,7 @@ public class StaffAccessManagementService {
       StaffPrincipal actor, String fullName, String email, String phone,
       List<String> roleCodes, String reason) {
     requireOwner(actor);
+    licenses.requireStaffSeatAvailable(actor.dealershipId());
     String name = requiredText(fullName, "Full name", 160);
     String normalizedEmail = cleanOptional(email);
     String normalizedPhone = cleanOptional(phone);

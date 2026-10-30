@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { apiRequestUrl } from '../apiClient';
+import { apiRequestUrl, desktopRequestHeaders } from '../apiClient';
 
 type StaffSummary = {
   staffPublicId: string;
@@ -113,7 +113,7 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
     try {
       const response = await fetch(apiRequestUrl('/api/v1/auth/staff/login'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...desktopRequestHeaders() },
         body: JSON.stringify({ dealershipCode, login, password }),
       });
       const payload = await readResponseBody(response);
@@ -373,7 +373,10 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
         </button>}
         <div className="auth-footnote"><span className="secure-mark">✓</span> Access is protected by your assigned dealership role.</div>
       </section>
-      <div className="auth-footer">Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.</div>
+      <div className="auth-footer">
+        Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.
+        <a className="desktop-download-link" href="/download.html">Download Windows desktop app</a>
+      </div>
     </main>
   );
 }
