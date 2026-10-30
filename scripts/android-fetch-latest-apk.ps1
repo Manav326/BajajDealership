@@ -19,6 +19,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $targetDir = Join-Path $repoRoot "artifacts"
 $targetApk = Join-Path $targetDir "lucky-bajaj-latest.apk"
 $metadataPath = Join-Path $targetDir "lucky-bajaj-latest.apk.json"
+$metadataTempPath = Join-Path $targetDir "lucky-bajaj-latest.apk.json.tmp"
 $script:LogPath = Join-Path $targetDir "android-install-history.log"
 $tempDir = Join-Path $env:TEMP ("lucky-bajaj-apk-" + [guid]::NewGuid().ToString("N"))
 $script:ApkSignerPath = $null
@@ -297,7 +298,6 @@ try {
         signingCertificateSha1 = $signingSha1
     }
 
-    $metadataTempPath = "$metadataPath.tmp"
     $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataTempPath -Encoding UTF8
     Move-Item -LiteralPath $stagedApk -Destination $targetApk -Force
     Move-Item -LiteralPath $metadataTempPath -Destination $metadataPath -Force
@@ -366,7 +366,7 @@ try {
     if (Test-Path -LiteralPath (Join-Path $targetDir "lucky-bajaj-latest.staged.apk")) {
         Remove-Item -LiteralPath (Join-Path $targetDir "lucky-bajaj-latest.staged.apk") -Force -ErrorAction SilentlyContinue
     }
-    if (Test-Path -LiteralPath "$metadataPath.tmp") {
-        Remove-Item -LiteralPath "$metadataPath.tmp" -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $metadataTempPath) {
+        Remove-Item -LiteralPath $metadataTempPath -Force -ErrorAction SilentlyContinue
     }
 }
