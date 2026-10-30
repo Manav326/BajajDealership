@@ -422,9 +422,9 @@ The Windows build registers an installation UUID on staff login. The API stores 
 
 ## Windows desktop client
 
-The staff portal is packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and uploads them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`; it becomes a public installer download once a reviewed, signed release is published.
+The staff portal is packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and uploads them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`; once a reviewed public release is published, it exposes the intentionally unsigned direct-download EXE/MSI with security-warning guidance and SHA-256 checksums.
 
-To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with `LuckyBajajDesktopSetup.exe` and `LuckyBajajDesktop.msi` so a maintainer can verify and sign installers before making them public. No public release should be published until code signing is configured and the installers are verified on a clean Windows machine.
+To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with the intentionally unsigned EXE/MSI and Store MSIX, plus SHA-256 checksums. The EXE/MSI can be published without a paid certificate, with expected Windows trust warnings; clean-Windows install, login, licensing, upgrade and uninstall checks are still required.
 
 The Tauri app registers a persistent random installation UUID at sign-in. The server stores the UUID's digest and binds the session to that device registration. This is an installation identity and device cap, not hardware attestation; device IDs can be copied by a determined user. Active registrations can be reviewed or revoked from the license console. Expired dealerships retain read-only access and allowed exports from existing registered devices; new desktop activation is blocked after grace expires.
 
@@ -447,3 +447,18 @@ Before a Store release, reserve Lucky Bajaj Desktop in Microsoft Partner Center 
 The stable release workflow stops if any identity value is missing. It creates a draft GitHub release with unsigned direct EXE/MSI, unsigned Store MSIX and SHA256SUMS.txt. Review the draft and test installation, sign-in, server-side licensing, upgrades and uninstall on clean Windows 10/11 devices before publishing the direct-download release or submitting the MSIX to Partner Center.
 
 For pull-request validation, CI produces a development-identity MSIX solely as a packaging smoke-test artifact. It is not valid for Microsoft Store submission. The Store package must be rebuilt from a stable desktop-vX.Y.Z tag using exact Partner Center identity values.
+
+
+### Desktop API connectivity — local Docker vs hosted customer build
+
+The installed Tauri executable is a desktop frontend only. It does not contain PostgreSQL, the Spring Boot API or a second database. It sends requests to the API URL compiled into the frontend bundle, using the configured staff authentication and desktop-installation headers.
+
+There are two different Windows build targets, and they must not be mixed:
+
+- **Local Docker test installer** (the `lucky-bajaj-windows-local-docker-*` CI artifact): compiled with `VITE_API_BASE_URL=http://127.0.0.1:8080/`. On the same Windows PC, Docker Compose publishes the API container's port 8080 to host port 8080 (`API_PORT` defaults to 8080). Start the Docker stack first and verify `http://127.0.0.1:8080/actuator/health` reports `UP`; then install and run this local-only EXE. The installed desktop process is on Windows, outside the Docker network, so it must use the host loopback address—not the Docker service DNS name `http://api:8080`.
+
+- **Hosted customer installer** (the normal `windows-desktop` build and tagged release): compiled with `VITE_API_BASE_URL` set from the repository Actions variable `BAJAJ_API_BASE_URL`, defaulting to the currently deployed Lucky Bajaj API URL. It connects to that remote API over HTTPS; the customer does not need Docker or a local API container. Change the Actions variable before building when the API moves to its production hostname.
+
+The Docker staff website at `http://localhost:3001` uses its Nginx/Vite `/api` reverse proxy. A packaged Tauri desktop app bypasses that staff-web reverse proxy and talks directly to the API base URL above. The Tauri Content Security Policy explicitly permits the local loopback API as well as the hosted API. The backend CORS configuration already permits the Tauri Windows app origins and the `X-Desktop-Installation-Id` / `X-Desktop-App-Version` headers used for device registration and session binding.
+
+Keep the two artifacts clearly labelled. Never give the local-Docker build to a customer on a different PC: `127.0.0.1` always means that customer's own computer. For a customer installer, use the hosted API build.
