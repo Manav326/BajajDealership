@@ -96,9 +96,21 @@ test('customer website loads its own bundled Inter font', async ({ page }) => {
   const response = await fontResponse;
   expect(response.ok()).toBe(true);
 
+  await expect(page.locator('.bajaj-showroom')).toBeVisible();
   const loaded = await page.evaluate(async () => {
     const faces = await document.fonts.load('500 14px Inter');
-    return faces.some((face) => face.status === 'loaded');
+    const hindiFaces = await document.fonts.load('500 14px "Noto Sans Devanagari"', 'नमस्ते');
+    const copy = document.querySelector<HTMLElement>('.showroom-hero-copy > p');
+    const copyStyle = copy ? getComputedStyle(copy) : null;
+    return {
+      inter: faces.some((face) => face.status === 'loaded'),
+      devanagari: hindiFaces.some((face) => face.status === 'loaded'),
+      copyColor: copyStyle?.color ?? null,
+      copySize: copyStyle ? Number.parseFloat(copyStyle.fontSize) : 0,
+    };
   });
-  expect(loaded).toBe(true);
+  expect(loaded.inter).toBe(true);
+  expect(loaded.devanagari).toBe(true);
+  expect(loaded.copyColor).toBe('rgb(192, 202, 214)');
+  expect(loaded.copySize).toBeGreaterThanOrEqual(14);
 });
