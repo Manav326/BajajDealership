@@ -11,14 +11,15 @@ export default defineConfig({
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:3001',
+    // Use a dedicated dev port so the Docker-hosted staff portal can stay running on 3001.
+    baseURL: 'http://127.0.0.1:3101',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
   webServer: [
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 3001 --strictPort',
-      url: 'http://127.0.0.1:3001',
+      command: 'npm run dev -- --host 127.0.0.1 --port 3101 --strictPort',
+      url: 'http://127.0.0.1:3101',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },
