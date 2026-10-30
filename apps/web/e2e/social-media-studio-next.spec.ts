@@ -233,3 +233,19 @@ for (const width of [390, 768, 1280]) {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 }
+
+test('uploaded video media becomes a timed, selectable timeline clip', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Uploads' }).click();
+  await page.locator('input[type="file"][accept*="video"]').setInputFiles({
+    name: 'scene-video.mp4',
+    mimeType: 'video/mp4',
+    buffer: Buffer.from([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50]),
+  });
+  const videoAsset = page.getByRole('button', { name: /scene-video\.mp4/ });
+  await expect(videoAsset).toBeVisible();
+  await videoAsset.click();
+  await expect(page.getByRole('button', { name: 'scene-video.mp4' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Video clip duration' })).toBeVisible();
+});
