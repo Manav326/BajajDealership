@@ -218,6 +218,41 @@ jobs:
         run: docker compose -f compose.yaml down --volumes --remove-orphans
 
 
+
+  windows-desktop:
+    name: Build Lucky Bajaj Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      VITE_APP_VERSION: "0.1.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install staff portal dependencies
+        working-directory: apps/web
+        run: npm install
+      - name: Build NSIS and MSI installers
+        working-directory: apps/web
+        run: npm run tauri:build
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: lucky-bajaj-windows-installers-${{ github.sha }}
+          path: |
+            apps/web/src-tauri/target/release/bundle/nsis/*.exe
+            apps/web/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
   android:
     name: Build Lucky Bajaj Android APK
     needs: [android-changes]
