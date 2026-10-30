@@ -111,7 +111,8 @@ function DesktopDownloadPage() {
           <p className="desktop-download-managed-hint">
             Right-click the file and choose <strong>Run with PowerShell</strong>. If Windows says scripts are disabled, use the process-only command below; it does not change your saved Windows policy.
             It opens the new installer folder and writes a full <strong>INSTALL.txt</strong> guide.
-            If artifact access asks for authentication, use GitHub CLI sign-in or set GH_TOKEN locally with Actions: read access.
+            One-time prerequisite: install GitHub CLI, then run <code>gh auth login --hostname github.com --web</code>.
+            The script uses that sign-in to download Actions artifacts. It also accepts GH_TOKEN or GITHUB_TOKEN with Actions: read permission.
           </p>
         </section>
 

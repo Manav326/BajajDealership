@@ -28,9 +28,10 @@ function Get-GitHubHeaders {
       if ($token) { $token = $token.Trim() }
     }
   }
-  if (-not [string]::IsNullOrWhiteSpace($token)) {
-    $headers.Authorization = "Bearer $token"
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    throw "GitHub Actions artifacts require an authenticated download. Install GitHub CLI with 'winget install --id GitHub.cli --exact', run 'gh auth login --hostname github.com --web', then rerun this script. Alternatively set GH_TOKEN or GITHUB_TOKEN with Actions: read permission."
   }
+  $headers.Authorization = "Bearer $token"
   return $headers
 }
 

@@ -24,8 +24,12 @@ $verify = Join-Path $temp 'verify'
 $out = [System.IO.Path]::GetFullPath($OutputPath)
 New-Item -ItemType Directory -Force -Path $extract,$stage,$verify,(Split-Path -Parent $out) | Out-Null
 
-& msiexec.exe /a $msi /qn "TARGETDIR=$extract"
-if ($LASTEXITCODE -notin @(0,3010)) { throw "MSI administrative extraction failed: $LASTEXITCODE" }
+$msiexec = Join-Path $env:WINDIR 'System32\msiexec.exe'
+$extractArguments = '/a "{0}" /qn "TARGETDIR={1}"' -f $msi, $extract
+$extractProcess = Start-Process -FilePath $msiexec -ArgumentList $extractArguments -Wait -PassThru -NoNewWindow
+if ($extractProcess.ExitCode -notin @(0,3010)) {
+  throw "MSI administrative extraction failed: $($extractProcess.ExitCode)"
+}
 
 $exeName = 'lucky-bajaj-desktop.exe'
 $exe = Get-ChildItem -LiteralPath $extract -Filter $exeName -File -Recurse | Select-Object -First 1
@@ -87,10 +91,12 @@ $makeAppx = Get-ChildItem -LiteralPath $sdkRoot -Filter 'MakeAppx.exe' -File -Re
  Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
  Select-Object -First 1
 if (-not $makeAppx) { throw 'Windows SDK MakeAppx.exe was not found.' }
-& $makeAppx.FullName pack /d $stage /p $out /o
-if ($LASTEXITCODE -ne 0) { throw "MakeAppx pack failed: $LASTEXITCODE" }
-& $makeAppx.FullName unpack /p $out /d $verify /o
-if ($LASTEXITCODE -ne 0) { throw "MakeAppx unpack verification failed: $LASTEXITCODE" }
+$packArguments = 'pack /d "{0}" /p "{1}" /o' -f $stage, $out
+$packProcess = Start-Process -FilePath $makeAppx.FullName -ArgumentList $packArguments -Wait -PassThru -NoNewWindow
+if ($packProcess.ExitCode -ne 0) { throw "MakeAppx pack failed: $($packProcess.ExitCode)" }
+$unpackArguments = 'unpack /p "{0}" /d "{1}" /o' -f $out, $verify
+$unpackProcess = Start-Process -FilePath $makeAppx.FullName -ArgumentList $unpackArguments -Wait -PassThru -NoNewWindow
+if ($unpackProcess.ExitCode -ne 0) { throw "MakeAppx unpack verification failed: $($unpackProcess.ExitCode)" }
 if (-not (Test-Path (Join-Path $verify 'AppxManifest.xml')) -or -not (Test-Path (Join-Path $verify $exeName))) { throw 'MSIX verification did not find manifest and executable.' }
 Write-Host "Created unsigned Store-submission MSIX: $out"
 Write-Host 'Do not distribute this unsigned MSIX directly. Submit it through Partner Center so Microsoft can sign it.'
