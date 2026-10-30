@@ -219,6 +219,14 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
   await page.getByRole('button', { name: 'Close video preview' }).click();
   await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
+  await page.getByRole('button', { name: 'Resize' }).click();
+  await page.getByRole('button', { name: 'Portrait feed 3:4' }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
+  await page.getByRole('button', { name: 'Render video' }).click();
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1440);
+  await page.getByRole('button', { name: 'Close video preview' }).click();
 });
 
 test('renders a photo first, then downloads it only after an explicit choice', async ({ page }) => {
@@ -230,6 +238,11 @@ test('renders a photo first, then downloads it only after an explicit choice', a
   await page.getByRole('button', { name: 'Render photo' }).click();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 15000 });
   await page.getByRole('button', { name: 'Download rendered outputs' }).click();
+  await page.getByRole('button', { name: 'Preview rendered photo' }).click();
+  const squarePhoto = page.getByRole('img', { name: 'Rendered photo output' });
+  await expect.poll(async () => squarePhoto.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(1080);
+  await expect.poll(async () => squarePhoto.evaluate(image => (image as HTMLImageElement).naturalHeight)).toBe(1080);
+  await page.getByRole('button', { name: 'Close photo preview' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download selected' }).click();
   const download = await downloadPromise;
@@ -507,6 +520,8 @@ test('short audio under twenty seconds imports, trims and renders with video', a
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
   await expect(preview).toBeVisible({ timeout: 30000 });
   await expect(preview.locator('video')).toHaveAttribute('controls', '');
+  await expect.poll(async () => preview.locator('video').evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => preview.locator('video').evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1080);
 });
 
 test('audio timeline selects and moves a 35–95 second range from a 125-second track', async ({ page }) => {
