@@ -339,19 +339,51 @@ test('short audio under twenty seconds imports, trims and renders with video', a
   await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
   await page.getByRole('button', { name: 'Audio' }).click();
   await page.getByLabel('Import audio').setInputFiles({
-    name: 'short-cue.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2),
+    name: 'short-cue.wav', mimeType: 'audio/wav', buffer: makeSilentWav(.5),
   });
   const audioTrack = page.getByRole('button', { name: 'short-cue.wav', exact: true });
   await expect(audioTrack).toBeVisible();
   await audioTrack.click();
   const audioEnd = page.getByRole('spinbutton', { name: 'Audio end position' });
-  await expect.poll(async () => audioEnd.inputValue()).toBe('2');
-  await audioEnd.fill('1.5');
-  await expect(page.getByText('Duration · 1.5 seconds')).toBeVisible();
+  await expect.poll(async () => Number(await audioEnd.inputValue())).toBeCloseTo(.5,1);
+  await audioEnd.fill('0.3');
+  await expect(page.getByText('Duration · 0.3 seconds')).toBeVisible();
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
   await expect(preview).toBeVisible({ timeout: 30000 });
   await expect(preview.locator('video')).toHaveAttribute('controls', '');
+});
+
+test('audio timeline selects and moves a 35–95 second range from a 125-second track', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('60');
+  await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('60');
+  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'full-track.wav', mimeType: 'audio/wav', buffer: makeSilentWav(125),
+  });
+  const audioTrack = page.getByRole('button', { name: 'full-track.wav', exact: true });
+  await expect(audioTrack).toBeVisible();
+  await audioTrack.click();
+  const start = page.getByRole('spinbutton', { name: 'Audio start position' });
+  const end = page.getByRole('spinbutton', { name: 'Audio end position' });
+  await start.fill('35');
+  await end.fill('95');
+  await expect.poll(async () => Number(await start.inputValue())).toBe(35);
+  await expect.poll(async () => Number(await end.inputValue())).toBe(95);
+  await expect(page.getByText('Duration · 60.0 seconds')).toBeVisible();
+  const selectedRange = page.getByRole('group', { name: 'Audio trim range' }).locator('span').nth(1);
+  const rangeBox = await selectedRange.boundingBox();
+  if (!rangeBox) throw new Error('Audio selected-range body was not visible.');
+  await page.mouse.move(rangeBox.x + rangeBox.width/2, rangeBox.y + rangeBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(rangeBox.x + rangeBox.width/2 - 12, rangeBox.y + rangeBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await start.inputValue())).toBeLessThan(35);
+  await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
 });
 
 test('publishing caption and hashtags live in the dedicated Publishing tool', async ({ page }) => {

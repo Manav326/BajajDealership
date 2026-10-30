@@ -7,7 +7,7 @@
 export const ARTWORK_MUSIC_LIMIT = 50;
 export const ARTWORK_MUSIC_MAX_BYTES = 25 * 1024 * 1024;
 export const ARTWORK_MUSIC_LIBRARY_MAX_BYTES = 250 * 1024 * 1024;
-export const MUSIC_CLIP_MIN_SECONDS = 1;
+export const MUSIC_CLIP_MIN_SECONDS = 0.1;
 export const MUSIC_CLIP_MAX_SECONDS = 120;
 export const MUSIC_CLIP_DEFAULT_SECONDS = 30;
 export const MUSIC_DB_NAME = 'bajaj-social-media-artwork';
