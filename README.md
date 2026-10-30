@@ -467,10 +467,17 @@ Keep the two desktop artifacts clearly labelled. Never give the local-Docker bui
 
 ## Download and install the local Windows test build
 
-Open `/download.html` from the staff portal and download `Download-LuckyBajajDesktop.ps1`. Right-click the downloaded script and choose **Run with PowerShell**. The helper reads the current PR #37 branch head, waits for that exact commit's Windows desktop CI job to succeed, downloads the `lucky-bajaj-windows-local-docker-*` Actions artifact, verifies its GitHub SHA-256 archive digest and checks that the ZIP contains exactly one EXE and one MSI. It does not fall back to an older CI build.
+Open \`/download.html\` from the staff portal and download \`Download-LuckyBajajDesktop.ps1\`. While PR #37 is open, the helper follows \`feature/dealership-licensing-readonly\`; once PR #37 is merged, it automatically follows \`main\`. It requires a successful Windows desktop build for the exact current branch commit, downloads only the corresponding \`lucky-bajaj-windows-local-docker-<sha>\` Actions artifact, verifies the GitHub SHA-256 digest and archive size, and confirms the ZIP contains exactly one EXE and one MSI. It does not fall back to an older build.
 
-The installers are saved under `%USERPROFILE%\\Downloads\\LuckyBajajDesktopLocalDocker` in a folder named for the source commit. After both installers are validated, the helper deletes only older version folders created by this helper in that dedicated location. It does not uninstall the installed app, change Docker data, or delete unrelated files. It also opens the folder and writes `INSTALL.txt` with the precise build source and installation steps.
+Right-click the script and choose **Run with PowerShell**. If Windows blocks scripts under the local execution policy, open PowerShell and run this process-scoped command (it does not change the saved machine or user policy):
 
-This local test build is compiled to use `http://127.0.0.1:8080` and must be installed on the same computer as Docker Desktop. Before installation, check out `feature/dealership-licensing-readonly` in this repository, then run `docker compose build api`, `docker compose up -d --no-build api`, and verify `Invoke-RestMethod http://127.0.0.1:8080/actuator/health` reports `UP`. Do not use the current `main`/GHCR latest API for this PR build until PR #37 is merged and the updated image is published. Do not delete the existing PostgreSQL volume. Choose either the EXE or MSI installer; do not run both.
+\`\`\`powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& "$env:USERPROFILE\Downloads\Download-LuckyBajajDesktop.ps1"
+\`\`\`
 
-If GitHub requires authentication to read workflow artifacts, sign in with GitHub CLI or set `GH_TOKEN` in the PowerShell session to a fine-grained token with Actions read access. Never put the token in the downloaded script or share it in chat. Local-Docker installers are for same-machine testing only and must not be distributed to customers.
+If your administrator enforces a policy that prevents scripts from running, do not try to override it; ask the administrator for an approved installer workflow. GitHub artifact access may also require GitHub CLI sign-in or a fine-grained \`GH_TOKEN\` with Actions read access.
+
+The installers are saved beneath \`%USERPROFILE%\\Downloads\\LuckyBajajDesktopLocalDocker\` in a folder named for the source commit. Only after both installers pass validation does the helper remove older version folders created by this helper in that dedicated location. It never uninstalls the app, modifies Docker data, or deletes unrelated files. It opens the new folder and writes \`INSTALL.txt\` with the exact source commit and setup steps.
+
+This local test build is compiled to use \`http://127.0.0.1:8080\` and must be installed on the same computer as Docker Desktop. Follow the backend branch and health-check commands printed in \`INSTALL.txt\`; do not delete the existing PostgreSQL volume. Choose either the EXE or MSI, not both, and keep using the same installer type for later upgrades. The cleanup removes old downloaded installer files only; it does not uninstall the application. Local-Docker builds are for same-machine testing and must not be distributed to customers.
