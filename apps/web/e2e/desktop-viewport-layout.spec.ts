@@ -9,7 +9,7 @@ const viewports = [
 test('Tauri desktop keeps the app frame fixed and scrolls the workspace and sidebar independently', async ({ page }) => {
   await page.setViewportSize(viewports[0]);
   await page.addInitScript(() => {
-    document.documentElement.classList.add('tauri-desktop');
+    // Set auth before application startup; documentElement may not exist at init-script time.
     window.sessionStorage.setItem('qe_staff_token', 'desktop-viewport-e2e-session');
   });
 
@@ -39,6 +39,7 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
 
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
+  await page.locator('html').evaluate((element) => element.classList.add('tauri-desktop'));
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
@@ -104,6 +105,7 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
       sidebarCanScroll: sidebar.scrollHeight > sidebar.clientHeight,
       workspaceCanScroll: workspace.scrollHeight > workspace.clientHeight,
       workspaceOverflowX: getComputedStyle(workspace).overflowX,
+      topbarTop: document.querySelector<HTMLElement>('.main-content > .topbar')!.getBoundingClientRect().top,
     };
   });
 

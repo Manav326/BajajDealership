@@ -8,6 +8,7 @@ import SalesWorkspace from './sales/SalesWorkspace';
 import NotificationStudio from './notifications/NotificationStudio';
 import NotificationInbox from './notifications/NotificationInbox';
 import SocialMediaArtworkStudio from './notifications/SocialMediaArtworkStudio';
+import SocialMediaStudioNext from './notifications/SocialMediaStudioNext';
 import GlobalNotificationHost from './notifications/GlobalNotificationHost';
 import StaffLogin, { type LoginResult, type StaffSummary } from './auth/StaffLogin';
 import StaffDirectoryWorkspace from './staff/StaffDirectoryWorkspace';
@@ -49,6 +50,7 @@ const navigation = [
   { label: 'Team & access', group: 'Business control', icon: '♙', permission: 'staff.read' },
   { label: 'Notification Studio', group: 'Engagement', icon: '✳', permission: 'notification.read' },
   { label: 'Social Media Studio', group: 'Engagement', icon: '▧', permission: 'social_media.read' },
+  { label: 'Social Media Studio (New)', group: 'Engagement', icon: '✦', permission: 'social_media.read' },
   { label: 'Reports', group: 'Engagement', icon: '▥', permission: 'report.read' },
 ];
 
@@ -61,6 +63,7 @@ const descriptions: Record<string, string> = {
   'Team & access': 'Staff accounts, role permissions, assignments and accountable change history.',
   'Notification Studio': 'Design rich Hindi/English messages, preview eligible customers, schedule campaigns and review delivery.',
   'Social Media Studio': 'Create dealership campaigns, edit artwork and video, connect social accounts, and manage publishing and messaging.',
+  'Social Media Studio (New)': 'New full-screen creative editor and local resource library.',
   Reports: 'Sales, workshop, collections, expenses and stock reports based on saved transactions.',
 };
 
@@ -76,6 +79,7 @@ const pageRoutes: Record<string, string> = {
   'Team & access': 'team',
   'Notification Studio': 'notification-studio',
   'Social Media Studio': 'social-media-studio',
+  'Social Media Studio (New)': 'social-media-studio-new',
   Reports: 'reports',
 };
 
@@ -398,10 +402,12 @@ function App() {
                 className={activePage === item.label ? 'nav-item active' : 'nav-item'}
                 aria-current={activePage === item.label ? 'page' : undefined}
                 title={item.label}
+                aria-label={item.label === 'Social Media Studio (New)' ? 'New Creative Studio' : undefined}
                 onClick={() => { navigateToPage(item.label); setMobileNavOpen(false); setShowInbox(false); }}>
                 <span className="nav-icon" aria-hidden="true">{item.icon}</span>
-                <span className="nav-text">{item.label}</span>
+                <span className="nav-text">{item.label === 'Social Media Studio (New)' ? 'Social Media Studio' : item.label}</span>
                 {item.label === 'Notification Studio' && <span className="nav-new">STUDIO</span>}
+                {item.label === 'Social Media Studio (New)' && <span className="nav-new">NEW</span>}
               </button>
             ))}
           </nav>
@@ -462,7 +468,9 @@ function App() {
 
         <div className="page-wrap">
           {logoutError && <div className="notice notice-error" role="status">{logoutError}</div>}
-          {activePage === 'Social Media Studio' ? (
+          {activePage === 'Social Media Studio (New)' ? (
+            <SocialMediaStudioNext canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} canReadWhatsapp={staff.permissions.includes('social_media.whatsapp.read')} canManageWhatsapp={staff.permissions.includes('social_media.whatsapp.manage')} canSendWhatsapp={staff.permissions.includes('social_media.whatsapp.send')} />
+          ) : activePage === 'Social Media Studio' ? (
             <SocialMediaArtworkStudio onClose={() => navigateToPage('Notification Studio')} canManage={staff.permissions.includes('social_media.manage')} canPublish={staff.permissions.includes('social_media.publish')} canReadWhatsapp={staff.permissions.includes('social_media.whatsapp.read')} canManageWhatsapp={staff.permissions.includes('social_media.whatsapp.manage')} canSendWhatsapp={staff.permissions.includes('social_media.whatsapp.send')} />
           ) : activePage === 'Customers' ? (
             <CustomerWorkspace token={token} staff={staff} />
