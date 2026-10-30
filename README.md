@@ -427,3 +427,23 @@ The staff portal is packaged as a Tauri 2 Windows desktop app. CI builds both an
 To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with `LuckyBajajDesktopSetup.exe` and `LuckyBajajDesktop.msi` so a maintainer can verify and sign installers before making them public. No public release should be published until code signing is configured and the installers are verified on a clean Windows machine.
 
 The Tauri app registers a persistent random installation UUID at sign-in. The server stores the UUID's digest and binds the session to that device registration. This is an installation identity and device cap, not hardware attestation; device IDs can be copied by a determined user. Active registrations can be reviewed or revoked from the license console. Expired dealerships retain read-only access and allowed exports from existing registered devices; new desktop activation is blocked after grace expires.
+
+
+### Windows desktop distribution packages
+
+The Windows desktop release builds two distinct distribution paths from the same Tauri staff application.
+
+- Direct customer download: LuckyBajajDesktopSetup.exe and LuckyBajajDesktop.msi are intentionally unsigned. No paid certificate or signing secret is used. Windows may show an Unknown Publisher or SmartScreen warning. The download page publishes SHA-256 checksums. Customers must download only from the official release and must not disable Windows Defender or SmartScreen.
+- Microsoft Store: LuckyBajajDesktopStore.msix is a separate MSIX package with the runFullTrust capability for the Tauri desktop process. It is unsigned at upload time; Microsoft signs Store-distributed MSIX packages after certification. Never provide this unsigned MSIX as a direct download.
+
+Tauri natively builds EXE and MSI installers. The Store MSIX is assembled from the MSI application payload with Windows SDK MakeAppx.exe and unpacked again to verify its manifest and executable. The package is x64 and targets Windows 10 version 1809 or later. Store acceptance and runtime behavior must still be verified using the Windows App Certification Kit and clean Windows devices, especially WebView2 runtime availability and package identity.
+
+Before a Store release, reserve Lucky Bajaj Desktop in Microsoft Partner Center and copy the exact values from the app's Package/Identity section into repository Actions → Variables:
+
+- MSIX_PACKAGE_IDENTITY_NAME — exact Package/Identity Name assigned by Partner Center.
+- MSIX_PUBLISHER — exact Publisher distinguished name from Partner Center (not a guessed company name).
+- MSIX_PUBLISHER_DISPLAY_NAME — approved publisher display name shown to customers.
+
+The stable release workflow stops if any identity value is missing. It creates a draft GitHub release with unsigned direct EXE/MSI, unsigned Store MSIX and SHA256SUMS.txt. Review the draft and test installation, sign-in, server-side licensing, upgrades and uninstall on clean Windows 10/11 devices before publishing the direct-download release or submitting the MSIX to Partner Center.
+
+For pull-request validation, CI produces a development-identity MSIX solely as a packaging smoke-test artifact. It is not valid for Microsoft Store submission. The Store package must be rebuilt from a stable desktop-vX.Y.Z tag using exact Partner Center identity values.
