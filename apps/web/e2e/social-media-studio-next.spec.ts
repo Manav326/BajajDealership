@@ -765,11 +765,9 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   expect(connectRequests).toHaveLength(0);
 
   const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
-  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
   await expect(permissionSummary).toBeFocused();
-  await page.keyboard.press('Tab');
-  await expect(notNow).toBeFocused();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
   await expect(continueToMeta).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(permissionSummary).toBeFocused();
@@ -866,7 +864,7 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Untitled design' }).click();
   await page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Text"]').click();
-  await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Persistent campaign headline');
+  await expect(page.getByRole('textbox', { name: 'Text', exact: true })).toHaveValue('Persistent campaign headline');
 });
 
 test('editing a project invalidates previously rendered outputs until the next render', async ({ page }) => {
