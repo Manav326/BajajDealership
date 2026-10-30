@@ -43,25 +43,25 @@ type CartLine = { partPublicId: string; quantity: number };
 type Intent = { action: Action; modelCode: string; modelName: string; selectedAt: string; idempotencyKey: string; preferredAt: string | null };
 type ProfileDraft = { fullName: string; phone: string; alternatePhone: string; email: string; preferredLanguage: Customer['preferredLanguage'] };
 const PRIVACY_SECTIONS = [
-  { title: 'Information used by the customer website', paragraphs: [
+  { title: 'Information used by the customer app', paragraphs: [
     'Depending on the features you use, this may include your name and contact details, customer code or username, dealership association, linked motorcycle and vehicle identifiers, service history, appointment requests, sales or test-ride enquiries, spare-parts orders and customer notifications.',
     'Information may be supplied by you, recorded by authorised Lucky Bajaj Agency staff, or created when you use a customer-portal feature.',
   ]},
   { title: 'How the information is used', paragraphs: [
-    'The website uses these records to verify your access, show the customer information linked to your account, handle vehicle and service enquiries, manage appointments and spare-parts requests, send relevant updates, protect the service and maintain operational records.',
+    'The app uses these records to verify your access, show the customer information linked to your account, handle vehicle and service enquiries, manage appointments and spare-parts requests, send relevant updates, protect the service and maintain operational records.',
   ]},
   { title: 'Access and service providers', paragraphs: [
-    'Your customer records are intended for Lucky Bajaj Agency workflows and are available to dealership staff according to their access permissions. QuantaEdge provides the software that operates this customer website. When you choose Google sign-in, Google processes the sign-in interaction and provides the verified identity information used by the login flow.',
+    'Your customer records are intended for Lucky Bajaj Agency workflows and are available to dealership staff according to their access permissions. QuantaEdge provides the software that operates this customer app. When you choose Google sign-in, Google processes the sign-in interaction and provides the verified identity information used by the login flow.',
     'Links to Bajaj Auto or other third-party websites open services operated by those parties and are governed by their own policies.',
   ]},
   { title: 'Sessions and record retention', paragraphs: [
-    'The browser keeps the customer portal session token in session storage so it can be used during the current browser session. Customer, vehicle, service and transaction-related records are stored by the application on behalf of the dealership and are retained as needed for customer service, operational records and applicable legal obligations.',
+    'The app stores the customer access token in secure device storage and sends it only with authenticated requests to the Lucky Bajaj API. Customer, vehicle, service and transaction-related records are stored by the application on behalf of the dealership and are retained as needed for customer service, operational records and applicable legal obligations.',
   ]},
   { title: 'Your questions and requests', paragraphs: [
     'For a question about your information or to request access or correction, contact Lucky Bajaj Agency through the dealership channel that manages your customer or service record. Please do not send your password, sign-in code or Google authentication credentials when asking for help.',
   ]},
   { title: 'Updates', paragraphs: [
-    'This notice describes the customer website and its currently implemented features. It may be updated when the service or applicable requirements change. Check this page for the latest version.',
+    'This notice describes the Lucky Bajaj customer app and its currently implemented features. It may be updated when the service or applicable requirements change. Check this page for the latest version.',
   ]},
 ];
 const TERMS_SECTIONS = [
@@ -113,10 +113,10 @@ function LegalScreen({ kind, onNavigate }: { kind: 'privacy' | 'terms'; onNaviga
   const sections = isPrivacy ? PRIVACY_SECTIONS : TERMS_SECTIONS;
   return <Card>
     <Text style={S.eyebrow}>LUCKY BAJAJ AGENCY · CUSTOMER APP</Text>
-    <Heading title={isPrivacy ? 'Privacy policy' : 'Terms & conditions'} subtitle="Customer website information · Updated 29 October 2026"/>
+    <Heading title={isPrivacy ? 'Privacy policy' : 'Terms & conditions'} subtitle="Customer app information · Updated 30 October 2026"/>
     <Text style={S.body}>{isPrivacy
       ? 'This page explains the customer information used when you browse the Lucky Bajaj showroom or use its customer portal. Lucky Bajaj Agency operates the dealership workflows; QuantaEdge provides the software.'
-      : 'These terms explain the limits of the public catalogue and the request-based customer features provided through the Lucky Bajaj website.'}</Text>
+      : 'These terms explain the limits of the public catalogue and the request-based customer features provided through the Lucky Bajaj Android app.'}</Text>
     {sections.map(section => <View key={section.title} style={{ gap: 7, paddingTop: 10 }}>
       <Text style={S.cardTitle}>{section.title}</Text>
       {section.paragraphs.map(paragraph => <Text key={paragraph} style={S.body}>{paragraph}</Text>)}
@@ -219,8 +219,12 @@ export default function CustomerExperience() {
   const [photoVersion, setPhotoVersion] = useState(0);
   const [partSearch, setPartSearch] = useState('');
   const [partCategory, setPartCategory] = useState('ALL');
+  const [partBikeType, setPartBikeType] = useState('');
   const [partAvailability, setPartAvailability] = useState('ALL');
   const [partModel, setPartModel] = useState('');
+  const [partMinPrice, setPartMinPrice] = useState('');
+  const [partMaxPrice, setPartMaxPrice] = useState('');
+  const [partSort, setPartSort] = useState<'CATEGORY' | 'NAME' | 'PRICE_LOW' | 'PRICE_HIGH'>('CATEGORY');
   const [fitmentModel, setFitmentModel] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderNote, setOrderNote] = useState('');
@@ -404,9 +408,58 @@ export default function CustomerExperience() {
 
   const filteredBikes = useMemo(() => (catalogue?.bikes || []).filter(b => (category === 'ALL' || b.category === category) && (!search.trim() || [b.modelName, b.family, b.category, b.rideCharacter].some(s => s.toLowerCase().includes(search.trim().toLowerCase())))), [catalogue, category, search]);
   const compared = useMemo(() => (catalogue?.bikes || []).filter(b => compare.includes(b.modelCode)), [catalogue, compare]);
-  const filteredParts = useMemo(() => parts.filter(p => (!partSearch.trim() || (p.partName + ' ' + p.skuCode + ' ' + (p.partNumber || '') + ' ' + (p.description || '')).toLowerCase().includes(partSearch.trim().toLowerCase())) && (partCategory === 'ALL' || p.category === partCategory) && (partAvailability === 'ALL' || (partAvailability === 'AVAILABLE' ? p.available : !p.available)) && (!partModel || !p.fitmentModelCodes.length || p.fitmentModelCodes.includes(partModel))).sort((a, b) => a.partName.localeCompare(b.partName)), [parts, partSearch, partCategory, partAvailability, partModel]);
+  const selectedTypeModelCodes = useMemo(
+    () => new Set(partFilters.motorcycleModels
+      .filter(model => !partBikeType || model.category === partBikeType)
+      .map(model => model.modelCode)),
+    [partFilters.motorcycleModels, partBikeType],
+  );
+  const filteredParts = useMemo(() => parts.filter(part => {
+    const query = partSearch.trim().toLowerCase();
+    const matchesQuery = !query || [part.partName, part.skuCode, part.partNumber || '', part.category, part.description || '']
+      .some(value => value.toLowerCase().includes(query));
+    const matchesCategory = partCategory === 'ALL' || part.category === partCategory;
+    const matchesType = !partBikeType
+      || part.fitmentModelCodes.some(code => selectedTypeModelCodes.has(code))
+      || (part.fitmentVerified && part.fitmentModelCodes.length === 0);
+    const matchesModel = !partModel || part.fitmentModelCodes.includes(partModel)
+      || (part.fitmentVerified && part.fitmentModelCodes.length === 0);
+    const matchesAvailability = partAvailability === 'ALL' || part.availabilityStatus === partAvailability;
+    const min = partMinPrice.trim() ? Number(partMinPrice) : null;
+    const max = partMaxPrice.trim() ? Number(partMaxPrice) : null;
+    const price = part.retailPrice;
+    const matchesPrice = price == null
+      ? min == null && max == null
+      : (min == null || (Number.isFinite(min) && price >= min))
+        && (max == null || (Number.isFinite(max) && price <= max));
+    return matchesQuery && matchesCategory && matchesType && matchesModel && matchesAvailability && matchesPrice;
+  }).sort((left, right) => {
+    if (partSort === 'NAME') return left.partName.localeCompare(right.partName);
+    if (partSort === 'PRICE_LOW') return (left.retailPrice ?? Number.POSITIVE_INFINITY) - (right.retailPrice ?? Number.POSITIVE_INFINITY);
+    if (partSort === 'PRICE_HIGH') return (right.retailPrice ?? -1) - (left.retailPrice ?? -1);
+    return left.category.localeCompare(right.category) || left.partName.localeCompare(right.partName);
+  }), [parts, partSearch, partCategory, partBikeType, partAvailability, partModel, partMinPrice, partMaxPrice, partSort, selectedTypeModelCodes]);
   const cartCount = cart.reduce((n, item) => n + item.quantity, 0);
   const cartTotal = cart.reduce((n, item) => n + (parts.find(p => p.publicId === item.partPublicId)?.retailPrice || 0) * item.quantity, 0);
+  const comparisonRows: Array<{ label: string; value: (bike: Bike) => string }> = [
+    { label: 'Engine', value: bike => `${bike.engineCc} cc` },
+    { label: 'Max power', value: bike => bike.maxPower || 'Not published' },
+    { label: 'Max torque', value: bike => bike.maxTorque || 'Not published' },
+    { label: 'Gearbox', value: bike => bike.gearbox || 'Not published' },
+    { label: 'Brakes', value: bike => bike.braking || 'Not published' },
+    { label: 'Front suspension', value: bike => bike.frontSuspension || 'Not published' },
+    { label: 'Rear suspension', value: bike => bike.rearSuspension || 'Not published' },
+    { label: 'Fuel tank', value: bike => bike.fuelTankLitres == null ? 'Not published' : `${bike.fuelTankLitres} L` },
+    { label: 'Ground clearance', value: bike => bike.groundClearanceMm == null ? 'Not published' : `${bike.groundClearanceMm} mm` },
+    { label: 'Kerb weight', value: bike => bike.kerbWeightKg == null ? 'Not published' : `${bike.kerbWeightKg} kg` },
+    { label: 'Ex-showroom reference', value: bike => `${money(bike.exShowroomPrice)} · ${bike.priceCity || 'Price city not stated'}` },
+    { label: 'Price checked', value: bike => date(bike.priceVerifiedAt) },
+    { label: 'Dealership availability', value: bike => bike.availabilityStatus === 'IN_STOCK'
+      ? `${bike.availableUnits} unit(s) marked available`
+      : bike.availabilityStatus === 'EXPECTED'
+        ? (bike.expectedAvailableOn ? `Expected ${date(bike.expectedAvailableOn)}` : 'Expected; date not confirmed')
+        : 'Out of stock' },
+  ];
 
   function openBike(bike: Bike) { setSelectedBike(bike); setQuote(null); setScreen('bike'); }
   function startIntent(bike: Bike, action: Action) {
@@ -442,13 +495,13 @@ export default function CustomerExperience() {
     const form = new FormData();
     form.append('file', { uri: asset.uri, name: asset.fileName || 'profile-photo.jpg', type: mime } as unknown as Blob);
     setSaving(true);
-    try { await api('/api/v1/customer/profile/photo', token, { method: 'POST', body: form }); setCustomer(v => v ? { ...v, profilePhotoAvailable: true } : v); notify('Profile photo updated.', true); }
+    try { await api('/api/v1/customer/profile/photo', token, { method: 'POST', body: form }); setCustomer(v => v ? { ...v, profilePhotoAvailable: true } : v); setPhotoVersion(v => v + 1); notify('Profile photo updated.', true); }
     catch (cause) { notify(cause instanceof Error ? cause.message : 'Photo upload failed.'); }
     finally { setSaving(false); }
   }
 
   function removePhoto() {
-    Alert.alert('Remove profile photo?', 'Your initials will be shown instead.', [{ text: 'Keep photo', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { setSaving(true); void api('/api/v1/customer/profile/photo', token, { method: 'DELETE' }).then(() => { setCustomer(v => v ? { ...v, profilePhotoAvailable: false } : v); notify('Profile photo removed.', true); }).catch(cause => notify(cause instanceof Error ? cause.message : 'Photo could not be removed.')).finally(() => setSaving(false)); } }]);
+    Alert.alert('Remove profile photo?', 'Your initials will be shown instead.', [{ text: 'Keep photo', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { setSaving(true); void api('/api/v1/customer/profile/photo', token, { method: 'DELETE' }).then(() => { setCustomer(v => v ? { ...v, profilePhotoAvailable: false } : v); setPhotoVersion(v => v + 1); notify('Profile photo removed.', true); }).catch(cause => notify(cause instanceof Error ? cause.message : 'Photo could not be removed.')).finally(() => setSaving(false)); } }]);
   }
 
   function editAddress(address?: Address) {
@@ -559,7 +612,8 @@ export default function CustomerExperience() {
       <Heading title="Explore Bajaj motorcycles" subtitle={(catalogue?.bikes.length || 0) + ' published models · sourced catalogue and dealership availability'} right={<Button label="Refresh" secondary small onPress={() => void loadCatalogue()}/>}/>
       <Field label="Search motorcycles" value={search} onChangeText={setSearch} placeholder="Try Pulsar, Dominar, commuter…" autoCapitalize="none"/>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chips}>{['ALL','SPORT','STREET','COMMUTER','TOURING','CRUISER','RUGGED'].map(c => <Pressable key={c} onPress={() => setCategory(c)} style={[S.chip, category === c && S.chipSelected]}><Text style={[S.chipText, category === c && S.chipTextSelected]}>{c === 'ALL' ? 'All bikes' : pretty(c)}</Text></Pressable>)}</ScrollView>
-      {compared.length ? <Card><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>Compare motorcycles</Text><Text style={S.meta}>{compared.length} of 3 selected</Text></View><Button label="Clear" secondary small onPress={() => setCompare([])}/></View><ScrollView horizontal showsHorizontalScrollIndicator={false}>{compared.map(b => <View key={b.modelCode} style={S.compareCard}><Text style={S.cardTitle}>{b.modelName}</Text><Text style={S.body}>{b.engineCc} cc</Text><Text style={S.body}>Power: {b.maxPower || 'Not listed'}</Text><Text style={S.body}>Torque: {b.maxTorque || 'Not listed'}</Text><Text style={S.price}>{money(b.exShowroomPrice)}</Text><Button label="Remove" small secondary onPress={() => setCompare(v => v.filter(x => x !== b.modelCode))}/></View>)}</ScrollView></Card> : null}
+      {compared.length ? <Card><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>Compare motorcycles</Text><Text style={S.meta}>{compared.length} of 3 selected · full specification comparison below</Text></View><Button label="Clear" secondary small onPress={() => setCompare([])}/></View><ScrollView horizontal showsHorizontalScrollIndicator={false}>{compared.map(b => <View key={b.modelCode} style={S.compareCard}><Text style={S.cardTitle}>{b.modelName}</Text><Text style={S.body}>{b.engineCc} cc</Text><Text style={S.body}>Power: {b.maxPower || 'Not published'}</Text><Text style={S.body}>Torque: {b.maxTorque || 'Not published'}</Text><Text style={S.price}>{money(b.exShowroomPrice)}</Text><Button label="Remove" small secondary onPress={() => setCompare(v => v.filter(x => x !== b.modelCode))}/></View>)}</ScrollView></Card> : null}
+      {compared.length >= 2 ? <Card><Heading title="Specification comparison" subtitle="The same sourced values used by the customer website."/>{comparisonRows.map(row => <View key={row.label} style={{ gap: 6, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}><Text style={S.label}>{row.label}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}><View style={S.wrapRow}>{compared.map(bike => <View key={bike.modelCode} style={{ minWidth: 150, maxWidth: 220, padding: 10, borderRadius: 11, backgroundColor: '#F5F8FC', gap: 4 }}><Text style={S.meta}>{bike.modelName}</Text><Text style={S.cardTitle}>{row.value(bike)}</Text></View>)}</View></ScrollView></View>)}</Card> : null}
       {catalogueLoading ? <Card><ActivityIndicator color={C.orange}/><Text style={S.meta}>Loading published models…</Text></Card> : filteredBikes.length ? <View style={[S.bikeGrid, wide && S.bikeGridWide]}>{filteredBikes.map(renderBike)}</View> : <Card><Empty title="No matching motorcycles" copy="Try a different search or category."/><Button label="Reload showroom" secondary onPress={() => void loadCatalogue()}/></Card>}
       {promotions.length ? <><Heading title="Current offers" subtitle="Only active published offers with source information are shown."/>{promotions.map(p => <Card key={p.publicId}><Text style={S.cardTitle}>{p.title}</Text>{p.modelName ? <Text style={S.meta}>{p.modelName}</Text> : null}<Text style={S.body}>{p.summary}</Text>{p.terms ? <Text style={S.meta}>Terms: {p.terms}</Text> : null}<Text style={S.meta}>Valid from {date(p.startsOn)}{p.endsOn ? ' to ' + date(p.endsOn) : ''}</Text><Button label="Read offer source ↗" secondary small onPress={() => void Linking.openURL(p.sourceUrl)}/></Card>)}</> : null}
     </>;
@@ -639,7 +693,23 @@ export default function CustomerExperience() {
 
     if (screen === 'requests') return <><Heading title="Test rides & purchase enquiries" subtitle="Follow your request through enquiry, test ride, booking, invoice and delivery records." right={<Button label="Refresh" secondary small onPress={() => token ? void api<SalesRequest[]>('/api/v1/customer/sales-requests', token).then(setRequests).catch(c => notify(c instanceof Error ? c.message : 'Requests could not refresh.')) : undefined}/>}/>{requests.length ? requests.map(r => <Card key={r.publicId}><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>{r.modelName}</Text><Text style={S.meta}>{r.requestCode} · {pretty(r.requestType)}</Text></View><Pill label={pretty(r.status)} tone={r.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.meta}>Submitted {dateTime(r.createdAt)}</Text>{r.preferredAt ? <Text style={S.body}>Preferred test ride · {dateTime(r.preferredAt)}</Text> : null}{r.notes ? <Text style={S.body}>{r.notes}</Text> : null}<View style={S.stepList}>{[['Enquiry',r.enquiryCode,r.enquiryStatus],['Test ride',r.testRideCode,r.testRideStatus],['Booking',r.bookingCode,r.bookingStatus],['Invoice',r.invoiceNumber,r.invoiceStatus]].map(([label,code,status]) => <View key={label} style={S.stepRow}><View style={S.stepDot}/><View style={S.flex}><Text style={S.cardTitle}>{label}</Text><Text style={S.meta}>{code || 'Not recorded'}{status ? ' · ' + pretty(status) : ''}</Text></View></View>)}</View>{r.invoiceTotal != null ? <><Text style={S.price}>{money(r.invoiceTotal)}</Text><Text style={S.meta}>Paid {money(r.paidAmount)} · Balance {money(r.balanceDue)}</Text></> : null}{r.deliveredAt ? <Text style={S.meta}>Delivered {dateTime(r.deliveredAt)}</Text> : null}{r.status === 'REQUESTED' ? <Button label="Cancel request" secondary small onPress={() => Alert.alert('Cancel request?', 'This will request cancellation of ' + r.requestCode + '.', [{text:'Keep',style:'cancel'},{text:'Cancel',style:'destructive',onPress:()=>{setSaving(true);void api('/api/v1/customer/sales-requests/' + r.publicId + '/cancel', token, {method:'POST'}).then(()=>api<SalesRequest[]>('/api/v1/customer/sales-requests', token)).then(setRequests).then(()=>notify('Request cancelled.',true)).catch(c=>notify(c instanceof Error ? c.message : 'Request could not be cancelled.')).finally(()=>setSaving(false));}}])}/> : null}</Card>) : <Card><Empty title="No enquiries yet" copy="Choose a motorcycle in the showroom to send a purchase enquiry or test-ride request."/></Card>}</>;
 
-    if (screen === 'parts') return <><Heading title="Genuine parts & accessories" subtitle="Browse the dealership's published catalogue. Availability and fitment must be verified." right={<Button label={'Cart ' + cartCount} onPress={() => setScreen('cart')} small/>}/><Field label="Search parts" value={partSearch} onChangeText={setPartSearch} placeholder="Part name, SKU or part number" autoCapitalize="none"/><View style={[S.fieldGrid, wide && S.fieldGridWide]}><View style={{width:wide?'48%':'100%'}}><Text style={S.label}>Category</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['ALL', ...partFilters.categories].map(k => <Pressable key={k} style={[S.chip, partCategory === k && S.chipSelected]} onPress={() => setPartCategory(k)}><Text style={S.chipText}>{k === 'ALL' ? 'All' : pretty(k)}</Text></Pressable>)}</ScrollView></View><View style={{width:wide?'48%':'100%'}}><Text style={S.label}>Availability</Text><View style={S.wrapRow}>{[['ALL','All'],['AVAILABLE','In stock'],['OUT','Unavailable']].map(([k,l]) => <Pressable key={k} style={[S.chip, partAvailability === (k === 'OUT' ? 'OUT' : k) && S.chipSelected]} onPress={() => setPartAvailability(k)}><Text style={S.chipText}>{l}</Text></Pressable>)}</View></View></View><Text style={S.label}>Fitment model (optional until checkout)</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chips}>{[{modelCode:'',modelName:'All motorcycles'},...partFilters.motorcycleModels].map(m => <Pressable key={m.modelCode || 'all'} onPress={() => { setPartModel(m.modelCode); setFitmentModel(m.modelCode); }} style={[S.chip, partModel === m.modelCode && S.chipSelected]}><Text style={S.chipText}>{m.modelName}</Text></Pressable>)}</ScrollView>
+    if (screen === 'parts') return <><Heading title="Genuine parts & accessories" subtitle="Browse the dealership's published catalogue. Availability and fitment must be verified." right={<Button label={'Cart ' + cartCount} onPress={() => setScreen('cart')} small/>}/><Field label="Search parts" value={partSearch} onChangeText={setPartSearch} placeholder="Part name, SKU or part number" autoCapitalize="none"/><Card style={{ gap: 10 }}>
+      <Text style={S.label}>Part category</Text>
+      <View style={S.wrapRow}>{['ALL', ...partFilters.categories].map(k => <Pressable key={k} style={[S.chip, partCategory === k && S.chipSelected]} onPress={() => setPartCategory(k)}><Text style={S.chipText}>{k === 'ALL' ? 'All categories' : pretty(k)}</Text></Pressable>)}</View>
+      <Text style={S.label}>Motorcycle type</Text>
+      <View style={S.wrapRow}>{['', ...Array.from(new Set(partFilters.motorcycleModels.map(m => m.category))).sort()].map(k => <Pressable key={k || 'all-types'} style={[S.chip, partBikeType === k && S.chipSelected]} onPress={() => { setPartBikeType(k); setPartModel(''); }}><Text style={S.chipText}>{k ? pretty(k) : 'All types'}</Text></Pressable>)}</View>
+      <Text style={S.label}>Motorcycle model</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chips}>{[{modelCode:'',modelName:'All models'},...partFilters.motorcycleModels.filter(m => !partBikeType || m.category === partBikeType)].map(m => <Pressable key={m.modelCode || 'all-models'} onPress={() => { setPartModel(m.modelCode); if (m.modelCode) setFitmentModel(m.modelCode); }} style={[S.chip, partModel === m.modelCode && S.chipSelected]}><Text style={S.chipText}>{m.modelName}</Text></Pressable>)}</ScrollView>
+      <Text style={S.label}>Availability</Text>
+      <View style={S.wrapRow}>{[['ALL','Any status'],['AVAILABLE','In stock'],['OUT_OF_STOCK','Out of stock'],['CHECK_WITH_DEALER','Check with dealership']].map(([k,l]) => <Pressable key={k} style={[S.chip, partAvailability === k && S.chipSelected]} onPress={() => setPartAvailability(k)}><Text style={S.chipText}>{l}</Text></Pressable>)}</View>
+      <View style={[S.fieldGrid, wide && S.fieldGridWide]}>
+        <View style={{ width: wide ? '48%' : '100%' }}><Field label="Minimum price (₹)" value={partMinPrice} onChangeText={setPartMinPrice} keyboardType="numeric" placeholder="No minimum"/></View>
+        <View style={{ width: wide ? '48%' : '100%' }}><Field label="Maximum price (₹)" value={partMaxPrice} onChangeText={setPartMaxPrice} keyboardType="numeric" placeholder="No maximum"/></View>
+      </View>
+      <Text style={S.label}>Sort by</Text>
+      <View style={S.wrapRow}>{[['CATEGORY','Category'],['NAME','Name'],['PRICE_LOW','Price: low to high'],['PRICE_HIGH','Price: high to low']].map(([k,l]) => <Pressable key={k} style={[S.chip, partSort === k && S.chipSelected]} onPress={() => setPartSort(k as typeof partSort)}><Text style={S.chipText}>{l}</Text></Pressable>)}</View>
+      <View style={S.rowBetween}><Text style={S.meta}>{filteredParts.length} matching item(s)</Text><Button label="Clear filters" secondary small onPress={() => { setPartSearch(''); setPartCategory('ALL'); setPartBikeType(''); setPartModel(''); setPartAvailability('ALL'); setPartMinPrice(''); setPartMaxPrice(''); setPartSort('CATEGORY'); }}/></View>
+    </Card>
       {filteredParts.length ? <View style={[S.partsGrid, wide && S.partsGridWide]}>{filteredParts.map(p => <Card key={p.publicId} style={{width:wide?'48.5%':'100%'}}>{p.imageUrl ? <Image source={{uri:p.imageUrl.startsWith('http')?p.imageUrl:path(p.imageUrl)}} style={S.partImage} resizeMode="contain"/> : <View style={S.imageFallback}><Text style={S.heroMark}>LB</Text></View>}<Text style={S.cardTitle}>{p.partName}</Text><Text style={S.meta}>SKU {p.skuCode}{p.partNumber ? ' · Part no. ' + p.partNumber : ''}</Text><Text style={S.body}>{p.description || 'Dealership-listed spare part.'}</Text><Text style={S.price}>{money(p.retailPrice)}</Text><View style={S.wrapRow}><Pill label={p.available ? 'Available' : pretty(p.availabilityStatus)} tone={p.available ? 'success' : 'warning'}/>{p.fitmentVerified ? <Pill label="Fitment verified" tone="success"/> : <Pill label="Fitment to confirm"/>}</View><Text style={S.meta}>{p.available ? p.quantityAvailable + ' ' + p.unitOfMeasure + ' recorded available' : 'Availability must be confirmed by the dealership'}</Text><Button label="Add to cart" disabled={!p.available || !p.retailPrice} onPress={() => addCart(p, 1)}/></Card>)}</View> : <Card><Empty title="No parts match these filters" copy="Change the search or filters, or ask the dealership about a part that is not listed."/></Card>}</>;
 
     if (screen === 'cart') return <><Heading title="Shopping cart" subtitle={cartCount + ' units · parts order request only'}/>{cart.length ? <Card>{cart.map(line => { const p = parts.find(v => v.publicId === line.partPublicId); if (!p) return null; return <View key={line.partPublicId} style={S.listRow}><View style={S.flex}><Text style={S.cardTitle}>{p.partName}</Text><Text style={S.meta}>{money(p.retailPrice)} each · {p.unitOfMeasure}</Text><Text style={S.cardTitle}>{money((p.retailPrice || 0) * line.quantity)}</Text></View><View style={S.qty}><Button label="−" secondary small onPress={() => addCart(p, -1)}/><Text style={S.cardTitle}>{line.quantity}</Text><Button label="+" secondary small onPress={() => addCart(p, 1)}/></View></View>; })}<View style={S.rowBetween}><Text style={S.cardTitle}>Estimated parts subtotal</Text><Text style={S.price}>{money(cartTotal)}</Text></View><Text style={S.meta}>Delivery fees and final availability are confirmed by Lucky Bajaj. No online payment is taken here.</Text><Text style={S.label}>Motorcycle for fitment checking</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{partFilters.motorcycleModels.map(m => <Pressable key={m.modelCode} onPress={() => setFitmentModel(m.modelCode)} style={[S.chip, fitmentModel === m.modelCode && S.chipSelected]}><Text style={S.chipText}>{m.modelName}</Text></Pressable>)}</ScrollView><Text style={S.label}>Fulfilment</Text><View style={S.wrapRow}><Button label="Pickup" secondary={fulfilment !== 'PICKUP'} onPress={() => setFulfilment('PICKUP')} small/><Button label="Delivery" secondary={fulfilment !== 'DELIVERY'} onPress={() => setFulfilment('DELIVERY')} small/></View>{fulfilment === 'DELIVERY' ? <><Text style={S.label}>Saved delivery address</Text>{addresses.map(a => <Pressable key={a.publicId} onPress={() => setDeliveryAddress(addressText(a))} style={[S.option, deliveryAddress === addressText(a) && S.optionActive]}><Text style={S.cardTitle}>{a.label}{a.isDefaultDelivery ? ' · Default' : ''}</Text><Text style={S.meta}>{addressText(a)}</Text></Pressable>)}<Field label="Or enter a delivery address" value={deliveryAddress} onChangeText={setDeliveryAddress} multiline/></> : null}<Field label="Note to dealership (optional)" value={orderNote} onChangeText={setOrderNote} multiline placeholder="Anything the parts team should know?"/><Button label={saving ? 'Placing request…' : 'Place parts order'} disabled={saving || !cart.length} onPress={() => void placeOrder()}/></Card> : <Card><Empty title="Your cart is empty" copy="Add available parts to build your order, then confirm pickup or delivery."/><Button label="Browse parts" onPress={() => setScreen('parts')}/></Card>}</>;
@@ -653,6 +723,7 @@ export default function CustomerExperience() {
   };
 
   useEffect(() => {
+    if (Platform.OS !== 'android') return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (screen === 'bike' || screen === 'signin' || screen === 'signup' || screen === 'privacy' || screen === 'terms') {
         setScreen('showroom');
