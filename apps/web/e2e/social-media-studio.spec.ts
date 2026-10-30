@@ -100,7 +100,7 @@ test('image and music catalogues open as independent pickers and can be searched
   const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
   await expect(imagePicker).toBeVisible();
   await expect(imagePicker.getByText('Diwali · Diyas & warm lights').first()).toBeVisible();
-  await imagePicker.getByText('Diwali · Diyas & warm lights').hover();
+  await imagePicker.getByText('Diwali · Diyas & warm lights').first().hover();
   await expect(imagePicker.getByRole('img', { name: 'Diwali · Diyas & warm lights' })).toBeVisible();
   await imagePicker.getByRole('searchbox', { name: 'Search image assets' }).fill('Chhath');
   await expect(imagePicker.getByText('Chhath Puja · Arghya at sunrise')).toBeVisible();
@@ -137,7 +137,10 @@ test('canvas tools create and persist editable text and shape objects in a saved
   await page.getByLabel('Draft name').fill('Browser studio object round-trip');
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved in this browser' })).toBeVisible();
-  await page.getByLabel('Open saved draft').selectOption({ label: /Browser studio object round-trip/ });
+  const savedDraftPicker = page.getByLabel('Open saved draft');
+  const savedDraftOptionId = await savedDraftPicker.locator('option').nth(1).getAttribute('value');
+  expect(savedDraftOptionId).toBeTruthy();
+  await savedDraftPicker.selectOption(savedDraftOptionId!);
   await expect(page.getByText(/2 editable object/)).toBeVisible();
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await expect(page.getByText(/0 editable object/)).toBeVisible();
