@@ -1,4 +1,4 @@
-appId: com.quantaedge.luckybajajlg
+appId: com.quantaedge.luckybajaj
 name: Parts cart persists after app restart
 tags:
   - authenticated
@@ -9,6 +9,13 @@ tags:
 - extendedWaitUntil:
     visible: "Genuine parts & accessories"
     timeout: 20000
+- assertVisible: "Show filters"
+- assertNotVisible: "Part category"
+- tapOn: "Show filters"
+- assertVisible: "Part category"
+- assertVisible: "Motorcycle type"
+- tapOn: "Hide filters"
+- assertNotVisible: "Part category"
 - extendedWaitUntil:
     visible: "Add to cart"
     timeout: 20000
