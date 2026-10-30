@@ -17,7 +17,8 @@ The Android customer app uses the shared Spring Boot customer API and authentica
 - Profile/contact/language editing and native photo picker for profile image upload/removal.
 - Saved address book with add/edit/remove and default delivery address.
 - Motorcycle purchase history, test-ride/purchase request progress and sales pipeline records when present.
-- Spare-parts catalogue search, category/availability/fitment filtering, cart, pickup/delivery order requests, delivery quote acceptance/decline and cancellation.
+- Spare-parts catalogue search, category/type/model/availability/price filters and sorting, a customer-specific cart that survives app restarts, pickup/delivery order requests, delivery quote acceptance/decline, cancellation and return-state explanations.
+- Android share sheet for the same published-offer deep links available on the customer website.
 - Customer notification inbox with mark-read/unread/dismiss, plus privacy policy and terms.
 - Pull-to-refresh, responsive phone/tablet layout, keyboard-aware authentication and native confirmations for destructive actions.
 
@@ -25,9 +26,9 @@ All prices, inventory state, orders, ownership and appointment status come from 
 
 ## API configuration
 
-The app and Expo Android manifest use one effective API address. Default: `https://lucky-bajaj-api.onrender.com/`.
+The app and Expo Android manifest use one effective API address. Default API: `https://lucky-bajaj-api.onrender.com/`. Default customer website share target: `https://lucky-bajaj-customer-web.onrender.com/`.
 
-Set `EXPO_PUBLIC_API_BASE_URL` at build time to target a local API:
+Set `EXPO_PUBLIC_API_BASE_URL` at build time to target a local API and `EXPO_PUBLIC_CUSTOMER_WEB_URL` to change the customer website used by offer sharing:
 - Physical Android phone on the same Wi-Fi: `http://YOUR_COMPUTER_LAN_IP:8080/`
 - Android Studio emulator: `http://10.0.2.2:8080/`
 - Hosted preview: `https://lucky-bajaj-api.onrender.com/`
