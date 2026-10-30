@@ -201,6 +201,74 @@ class DealershipLicenseIntegrationTest {
   }
 
   @Test
+  void desktopSessionIsBoundToRegisteredInstallationAndCanBeRevoked() throws Exception {
+    String installationId = UUID.randomUUID().toString();
+    MvcResult desktopLogin = mvc.perform(post("/api/v1/auth/staff/login")
+            .header("X-Desktop-Installation-Id", installationId)
+            .header("X-Desktop-App-Version", "0.1.0")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(new LoginRequest(dealershipCode, email, PASSWORD))))
+        .andExpect(status().isOk())
+        .andReturn();
+    String desktopToken = mapper.readTree(desktopLogin.getResponse().getContentAsString())
+        .path("accessToken").asText();
+    assertThat(desktopToken).isNotBlank();
+
+    String installationHash = com.quantaedge.bajaj.security.TokenDigests.sha256(installationId);
+    String devicePublicId = jdbc.queryForObject("""
+        select public_id::text from dealership_license_device
+        where dealership_id = ? and installation_hash = ?
+        """, String.class, dealershipId, installationHash);
+    assertThat(devicePublicId).isNotBlank();
+
+    mvc.perform(get("/api/v1/admin/staff/roles")
+            .header("Authorization", "Bearer " + desktopToken)
+            .header("X-Desktop-Installation-Id", installationId))
+        .andExpect(status().isOk());
+
+    // A device-bound session cannot silently become an ordinary browser session.
+    mvc.perform(get("/api/v1/admin/staff/roles")
+            .header("Authorization", "Bearer " + desktopToken))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("LICENSE_DEVICE_REVOKED"));
+
+    mvc.perform(put("/api/v1/system/license/admin/licenses/" + dealershipCode
+            + "/devices/" + devicePublicId)
+            .header("X-License-Admin-Token", ADMIN_TOKEN)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(new DeviceStatusUpdateRequest(
+                "REVOKED", "Device reported lost during integration test"))))
+        .andExpect(status().isOk());
+
+    mvc.perform(get("/api/v1/admin/staff/roles")
+            .header("Authorization", "Bearer " + desktopToken)
+            .header("X-Desktop-Installation-Id", installationId))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("LICENSE_DEVICE_REVOKED"));
+  }
+
+  @Test
+  void desktopInstallationLimitPreventsAdditionalActivation() throws Exception {
+    jdbc.update("update dealership_license set max_desktop_devices = 1 where dealership_id = ?", dealershipId);
+
+    String firstInstallation = UUID.randomUUID().toString();
+    mvc.perform(post("/api/v1/auth/staff/login")
+            .header("X-Desktop-Installation-Id", firstInstallation)
+            .header("X-Desktop-App-Version", "0.1.0")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(new LoginRequest(dealershipCode, email, PASSWORD))))
+        .andExpect(status().isOk());
+
+    mvc.perform(post("/api/v1/auth/staff/login")
+            .header("X-Desktop-Installation-Id", UUID.randomUUID().toString())
+            .header("X-Desktop-App-Version", "0.1.0")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(new LoginRequest(dealershipCode, email, PASSWORD))))
+        .andExpect(status().isPaymentRequired())
+        .andExpect(jsonPath("$.code").value("LICENSE_DEVICE_LIMIT"));
+  }
+
+  @Test
   void adminConsoleRejectsMissingOrIncorrectToken() throws Exception {
     mvc.perform(get("/api/v1/system/license/admin/licenses"))
         .andExpect(status().isUnauthorized());
@@ -220,4 +288,5 @@ class DealershipLicenseIntegrationTest {
   private record LicenseUpdateRequest(
       String planCode, String status, Instant startsAt, Instant expiresAt,
       int gracePeriodDays, int maxStaffSeats, int maxDesktopDevices, String reason) {}
+  private record DeviceStatusUpdateRequest(String status, String reason) {}
 }
