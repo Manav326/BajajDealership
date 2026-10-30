@@ -616,6 +616,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const timelineFramesRef = useRef<Record<string, HTMLImageElement>>({});
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
   const timelineTimeRef = useRef(0);
+  const timelineClipTrackRef = useRef<HTMLDivElement | null>(null);
+  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;sceneDuration:number;mode:'move'|'start'|'end';changed:boolean}|null>(null);
+  const [timelineClipPreview,setTimelineClipPreview] = useState<{clipId:string;startSeconds:number;durationSeconds:number}|null>(null);
   const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
   const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
   const cancelRenderRef = useRef<(()=>void)|null>(null);
@@ -769,6 +772,42 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   function setAudioRange(start:number,duration:number){const s=Math.max(0,Math.min(audioTrackDuration-1,start)),max=Math.max(1,Math.min(audioTrackDuration-s,totalSceneDuration));changeProject({...project,audioStartSeconds:s,audioDurationSeconds:Math.max(1,Math.min(max,duration))});}
   function beginAudioRangeDrag(event:ReactPointerEvent<HTMLElement>,request:'auto'|'start'|'end'|'move'){const track=audioRangeTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();const rect=track.getBoundingClientRect(),pos=rect.width?(event.clientX-rect.left)/rect.width*audioTrackDuration:0;let mode=request;const start=project.audioStartSeconds,end=start+audioClipLength;if(mode==='auto')mode=pos>=start&&pos<=end?'move':Math.abs(pos-start)<=Math.abs(pos-end)?'start':'end';track.setPointerCapture(event.pointerId);audioRangeDragRef.current={mode,pointerX:event.clientX,start,duration:audioClipLength};}
   function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){const drag=audioRangeDragRef.current,track=audioRangeTrackRef.current;if(!drag||!track)return;const rect=track.getBoundingClientRect();if(!rect.width)return;const delta=(event.clientX-drag.pointerX)/rect.width*audioTrackDuration;if(drag.mode==='move'){const max=Math.max(0,Math.min(audioTrackDuration-drag.duration,totalSceneDuration-drag.duration));setAudioRange(Math.max(0,Math.min(max,drag.start+delta)),drag.duration);}else if(drag.mode==='start'){const end=drag.start+drag.duration,next=Math.max(0,Math.min(end-1,drag.start+delta));setAudioRange(next,end-next);}else{const max=Math.max(1,Math.min(audioTrackDuration-drag.start,totalSceneDuration));setAudioRange(drag.start,Math.max(1,Math.min(max,drag.duration+delta)));}}
+  function selectTimelineVideoClip(scene:StudioPage,clip:StudioElement) {
+    setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());
+    if(project.selectedPageId!==scene.id)mutate(current=>({...current,selectedPageId:scene.id}),false);
+    setSelectedIds([clip.id]);setTool('layers');
+  }
+  function beginTimelineClipDrag(event:ReactPointerEvent<HTMLElement>,scene:StudioPage,clip:StudioElement,mode:'move'|'start'|'end') {
+    if(clip.locked){onNotify('Unlock this video clip before changing its timeline position or trim.');return;}
+    const track=timelineClipTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();
+    const rect=track.getBoundingClientRect();if(!rect.width)return;
+    const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
+    track.setPointerCapture(event.pointerId);
+    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,sceneDuration:scene.durationSeconds,mode,changed:false};
+    selectTimelineVideoClip(scene,clip);
+  }
+  function moveTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
+    const drag=timelineClipDragRef.current;if(!drag||drag.pointerId!==event.pointerId)return;
+    const delta=(event.clientX-drag.pointerX)/drag.trackWidth*totalSceneDuration;
+    let startSeconds=drag.startSeconds,durationSeconds=drag.durationSeconds;
+    if(drag.mode==='move')startSeconds=Math.max(0,Math.min(drag.sceneDuration-durationSeconds,drag.startSeconds+delta));
+    else if(drag.mode==='start'){const end=drag.startSeconds+drag.durationSeconds;startSeconds=Math.max(0,Math.min(end-1,drag.startSeconds+delta));durationSeconds=end-startSeconds;}
+    else durationSeconds=Math.max(1,Math.min(drag.sceneDuration-drag.startSeconds,drag.durationSeconds+delta));
+    drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;
+    drag.changed=Math.abs(startSeconds-drag.startSeconds)>.04||Math.abs(durationSeconds-drag.durationSeconds)>.04;
+    setTimelineClipPreview({clipId:drag.clipId,startSeconds,durationSeconds});
+  }
+  function endTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
+    const drag=timelineClipDragRef.current;if(!drag||drag.pointerId!==event.pointerId)return;
+    const track=timelineClipTrackRef.current;
+    if(drag.changed){
+      const nextStart=drag.previewStartSeconds,nextDuration=drag.previewDurationSeconds;
+      mutate(current=>({...current,selectedPageId:drag.pageId,pages:current.pages.map(scene=>scene.id===drag.pageId?{...scene,elements:scene.elements.map(clip=>clip.id===drag.clipId?{...clip,startSeconds:nextStart,durationSeconds:nextDuration}:clip)}:scene)}));
+      setSelectedIds([drag.clipId]);setTool('layers');
+    }
+    if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);
+    timelineClipDragRef.current=null;setTimelineClipPreview(null);
+  }
   function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){const track=audioRangeTrackRef.current;if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;}
   function updateAudioPlayback(){const audio=audioPlayerRef.current;if(!audio)return;setAudioPreviewTime(audio.currentTime);const t=Math.max(0,audio.currentTime-project.audioStartSeconds),fadeIn=Math.max(0,project.audioFadeInSeconds??0),fadeOut=Math.max(0,project.audioFadeOutSeconds??0);let volume=project.audioVolume/100;if(fadeIn>0&&t<fadeIn)volume*=t/fadeIn;if(fadeOut>0&&t>audioClipLength-fadeOut)volume*=Math.max(0,(audioClipLength-t)/fadeOut);audio.volume=Math.max(0,Math.min(1,volume));if(!audio.paused&&t>=audioClipLength)audio.pause();}
 
@@ -1430,18 +1469,29 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
           <div className={styles.videoClipLane}>
             <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
-            <div className={styles.videoClipTrack}>
+            <div ref={timelineClipTrackRef} className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
               {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{
                 const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
-                const clipStart=offset+(clip.startSeconds??0);
-                const clipDuration=Math.max(0,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-(clip.startSeconds??0)));
-                return <button type="button" key={clip.id} className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
-                  style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(1.5,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}
-                  title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
-                  aria-label={'Select timeline video clip ' + clip.name}
-                  onClick={()=>{setTimelinePlaying(false);Object.values(videoElementsRef.current).forEach(video=>video.pause());mutate(current=>({...current,selectedPageId:scene.id}),false);setSelectedIds([clip.id]);setTool('layers');}}>
-                  <Icon name="video"/><span>{clip.name}</span>
-                </button>;
+                const effectiveStart=timelineClipPreview?.clipId===clip.id?timelineClipPreview.startSeconds:(clip.startSeconds??0);
+                const effectiveDuration=timelineClipPreview?.clipId===clip.id?timelineClipPreview.durationSeconds:(clip.durationSeconds??scene.durationSeconds);
+                const clipStart=offset+effectiveStart;
+                const clipDuration=Math.max(0,Math.min(effectiveDuration,scene.durationSeconds-effectiveStart));
+                return <div key={clip.id} role="group" aria-label={'Video timeline clip '+clip.name} className={styles.videoClipItem}
+                  style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
+                  <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
+                    title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
+                    aria-label={'Select timeline video clip '+clip.name}
+                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
+                    onClick={()=>selectTimelineVideoClip(scene,clip)}><Icon name="video"/><span>{clip.name}</span></button>
+                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
+                    aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
+                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
+                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
+                    aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
+                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
+                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                </div>;
               }))}
             </div>
           </div>
