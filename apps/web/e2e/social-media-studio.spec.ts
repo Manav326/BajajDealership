@@ -104,8 +104,11 @@ test('image and music catalogues open as independent pickers and can be searched
   await expect(imagePicker.getByRole('img', { name: 'Diwali · Diyas & warm lights' })).toBeVisible();
   await imagePicker.getByRole('searchbox', { name: 'Search image assets' }).fill('Chhath');
   await expect(imagePicker.getByText('Chhath Puja · Arghya at sunrise')).toBeVisible();
-  await imagePicker.getByRole('button', { name: 'Hide library' }).click();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  await page.keyboard.press('Escape');
   await expect(imagePicker).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Photos & assets/ })).toBeFocused();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
 
   await page.getByRole('button', { name: /Music & sound/ }).click();
   const musicPicker = page.getByRole('dialog', { name: 'Choose background music' });

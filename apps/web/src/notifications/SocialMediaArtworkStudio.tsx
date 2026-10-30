@@ -320,6 +320,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
   const [assetPreviewId, setAssetPreviewId] = useState<string | null>(null);
+  const pickerDialogRef = useRef<HTMLDivElement | null>(null);
+  const pickerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(true);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
   const [musicAssets, setMusicAssets] = useState<ArtworkMusicAsset[]>([]);
@@ -372,6 +374,56 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     if (pickerAudioUrlRef.current) URL.revokeObjectURL(pickerAudioUrlRef.current);
   }, []);
 
+
+
+  useEffect(() => {
+    const dialog = pickerDialogRef.current;
+    if ((!assetLibraryOpen && !musicLibraryOpen) || !dialog) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusableElements = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+
+    (focusableElements()[0] ?? dialog).focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setAssetLibraryOpen(false);
+        setMusicLibraryOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableElements();
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const active = document.activeElement;
+      const outside = !(active instanceof Node) || !dialog.contains(active);
+      if (event.shiftKey && (active === first || outside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || outside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      const trigger = pickerTriggerRef.current;
+      if (trigger?.isConnected) trigger.focus();
+      else previousFocus?.focus();
+    };
+  }, [assetLibraryOpen, musicLibraryOpen]);
 
   const selectedFormat = formats.find((format) => format.id === formatId) ?? formats[0];
   const selectedMusicTrack = musicAssets.find((track) => track.id === selectedMusicId) ?? null;
@@ -1753,8 +1805,8 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         <div className={styles.content} style={{ display: activeStudioTab === 'create' ? 'grid' : 'none' }}>
           <aside className={styles.controls}>
             <div className={styles.pickerLaunchers}>
-              <button type="button" className={styles.pickerLaunchButton} onClick={() => { setAssetSearch(''); setAssetLibraryOpen(true); }}><span>▧</span><strong>Photos & assets</strong><small>{artworkAssets.length} images · browse library</small></button>
-              <button type="button" className={styles.pickerLaunchButton} onClick={() => { setMusicSearch(''); setMusicLibraryOpen(true); }}><span>♫</span><strong>Music & sound</strong><small>{musicAssets.length} tracks · choose audio</small></button>
+              <button type="button" className={styles.pickerLaunchButton} onClick={(event) => { pickerTriggerRef.current = event.currentTarget; setAssetPreviewId(artworkAssets[0]?.id ?? null); setAssetSearch(''); setAssetLibraryOpen(true); }}><span>▧</span><strong>Photos & assets</strong><small>{artworkAssets.length} images · browse library</small></button>
+              <button type="button" className={styles.pickerLaunchButton} onClick={(event) => { pickerTriggerRef.current = event.currentTarget; setMusicSearch(''); setMusicLibraryOpen(true); }}><span>♫</span><strong>Music & sound</strong><small>{musicAssets.length} tracks · choose audio</small></button>
             </div>
             <div className={styles.draftPanel}>
               <div className={styles.draftPanelTitle}>Saved drafts <span>Browser only</span></div>
@@ -1797,7 +1849,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <p className={styles.panelFootnote}>Choose a design, then edit its headline, message, colours, image and call to action. Confirm text and any offer details before export.</p>
             </section>
             {assetLibraryOpen && <div className={styles.pickerBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setAssetLibraryOpen(false); }}>
-              <div className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose an artwork image">
+              <div ref={pickerDialogRef} className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose an artwork image" tabIndex={-1}>
             <section className={styles.assetPanel} aria-label="Artwork asset library">
               <div className={styles.panelHeading}>
                 <div><strong>Asset library</strong><small>{artworkAssets.length} / {ARTWORK_ASSET_LIMIT} images · JPEG or PNG</small></div>
@@ -1812,7 +1864,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               <input className={styles.pickerSearch} type="search" aria-label="Search image assets" placeholder="Search images and categories" value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} />
               {assetPreviewId && artworkAssets.find((item) => item.id === assetPreviewId) && <div className={styles.assetFocusPreview}><img src={assetPreviewSources[assetPreviewId] || artworkAssets.find((item) => item.id === assetPreviewId)?.sourceUrl || ''} alt={artworkAssets.find((item) => item.id === assetPreviewId)?.name || 'Artwork image preview'} /><div><strong>{artworkAssets.find((item) => item.id === assetPreviewId)?.name}</strong><small>{artworkAssets.find((item) => item.id === assetPreviewId)?.category}</small></div></div>}
               {assetLibraryOpen && <div className={styles.assetGrid}>
-                {artworkAssets.filter((asset) => (asset.name + ' ' + asset.category).toLowerCase().includes(assetSearch.toLowerCase())).map((asset) => <article key={asset.id} className={styles.assetTile} onMouseEnter={() => setAssetPreviewId(asset.id)}>
+                {artworkAssets.filter((asset) => (asset.name + ' ' + asset.category).toLowerCase().includes(assetSearch.toLowerCase())).map((asset) => <article key={asset.id} className={styles.assetTile} onMouseEnter={() => setAssetPreviewId(asset.id)} onFocus={() => setAssetPreviewId(asset.id)} onClick={() => setAssetPreviewId(asset.id)}>
                   {assetPreviewSources[asset.id]
                     ? <img src={assetPreviewSources[asset.id]} alt="" loading="lazy" />
                     : <div className={styles.templatePlaceholder}>Image preview</div>}
@@ -1838,7 +1890,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
               </div>
             </div>}
             {musicLibraryOpen && <div className={styles.pickerBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setMusicLibraryOpen(false); }}>
-              <div className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose background music">
+              <div ref={pickerDialogRef} className={styles.pickerDialog} role="dialog" aria-modal="true" aria-label="Choose background music" tabIndex={-1}>
             <section className={styles.musicPanel} aria-label="Music asset library">
               <div className={styles.panelHeading}>
                 <div><strong>Music library</strong><small>{musicAssets.length} / {ARTWORK_MUSIC_LIMIT} tracks · separate from image assets</small></div>
