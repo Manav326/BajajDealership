@@ -1074,7 +1074,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       </aside>}
     </div>
     <div className={styles.editorFooter}><button type="button" onClick={() => setCaptionOpen((value) => !value)} aria-expanded={captionOpen}>Caption / hashtags</button>
-      <span>{page.width} × {page.height}</span><span>{saving ? 'Saving…' : ' '}</span><button type="button" onClick={onClose}><Icon name="check"/> Done</button></div>
+      <span data-testid="active-page-size">{page.width} × {page.height}</span><span>{saving ? 'Saving…' : ' '}</span><button type="button" onClick={onClose}><Icon name="check"/> Done</button></div>
     {captionOpen && <div className={styles.captionPopover}><label>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label><label>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label></div>}
     {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> Rendering…</div></div>}
   </div>;
