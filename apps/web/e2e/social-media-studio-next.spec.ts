@@ -294,6 +294,22 @@ test('resource import, filter and delete remain in the resource library', async 
 });
 
 
+test('video resource cards play and show the decoded media duration', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Resources', exact: true }).click();
+  const upload = page.locator('input[type="file"][multiple]').first();
+  await upload.setInputFiles({
+    name: 'library-preview.webm', mimeType: 'video/webm',
+    buffer: Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAPREU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggO77AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIBQqxoaDkAoicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgTC6gTCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIBQqxoaDkAohnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QhLngQCjwYEAAIBwAwCdASowADAAAEcIhYWImYSIAgICdaoD+AP6AgdqCOecuLQA/v1u8//kb+PnRv/I4//8Sp7jieP//EaAo7KBAGQAMQIABRCsABgMUUvbO5RwHhcckwD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQDIABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQEsABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQGQABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQH0ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQJYABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQK8ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQMgABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=', 'base64'),
+  });
+  const card = page.locator('[data-testid="studio-resource-card"]').filter({ hasText: 'library-preview.webm' });
+  const player = card.locator('video[aria-label="Preview library-preview.webm"]');
+  await expect(player).toBeVisible();
+  await expect(player).toHaveAttribute('controls', '');
+  await expect.poll(async () => card.locator('span').last().textContent()).toContain('00:01');
+  await expect.poll(async () => player.evaluate(element => (element as HTMLVideoElement).duration)).toBeGreaterThan(0);
+});
+
 test('project-name save button is enabled only after a name change', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
