@@ -33,13 +33,26 @@ function Assert-Node {
     }
 }
 
-function Ensure-NpmDependencies([string]$Directory, [string]$Marker, [string]$Label) {
-    if (Test-Path $Marker) { return }
-    Write-Step "Installing $Label dependencies (without creating a lockfile)"
+function Ensure-NpmDependencies([string]$Directory, [string]$Label) {
+    $packageFile = Join-Path $Directory 'package.json'
+    $nodeModules = Join-Path $Directory 'node_modules'
+    $installedManifestStamp = Join-Path $nodeModules '.qe-package-json.sha256'
+    $expectedHash = (Get-FileHash -Path $packageFile -Algorithm SHA256).Hash
+    $installedHash = if (Test-Path $installedManifestStamp) {
+        (Get-Content $installedManifestStamp -Raw).Trim()
+    } else {
+        ''
+    }
+
+    # node_modules is ignored by Git. Reinstall only when this app's manifest changes.
+    if ((Test-Path $nodeModules) -and $installedHash -eq $expectedHash) { return }
+
+    Write-Step "Installing or updating $Label dependencies (without creating a lockfile)"
     Push-Location $Directory
     try {
-        & npm.cmd install --no-package-lock --no-audit --no-fund
+        & npm.cmd install --no-package-lock --no-audit --no-fund --prefer-offline
         Assert-LastExit "npm install for $Label"
+        Set-Content -Path $installedManifestStamp -Value $expectedHash -Encoding ascii
     }
     finally {
         Pop-Location
@@ -48,8 +61,8 @@ function Ensure-NpmDependencies([string]$Directory, [string]$Marker, [string]$La
 
 function Initialize-WebTesting {
     Assert-Node
-    Ensure-NpmDependencies $webDir (Join-Path $webDir 'node_modules/@playwright/test/package.json') 'staff portal / Playwright'
-    Ensure-NpmDependencies $customerWebDir (Join-Path $customerWebDir 'node_modules/vite/package.json') 'customer website'
+    Ensure-NpmDependencies $webDir 'staff portal / Playwright'
+    Ensure-NpmDependencies $customerWebDir 'customer website'
 
     Write-Step 'Checking the Playwright Chromium browser'
     Push-Location $webDir
@@ -270,7 +283,7 @@ function Run-AndroidTesting {
     Assert-LastExit 'Maestro flow syntax validation'
 
     $device = Get-ReadyAndroidDevice $sdkInfo
-    Ensure-NpmDependencies $androidDir (Join-Path $androidDir 'node_modules/expo/package.json') 'Android app / Expo'
+    Ensure-NpmDependencies $androidDir 'Android app / Expo'
 
     Write-Step 'Building and installing the Android app for a native UI test'
     # Respect an explicit shell override first, then apps/android/.env, then the preview API default.
