@@ -17,3 +17,11 @@ service-account*.json
 .DS_Store
 .gradle/
 build/
+
+# Generated native project created by Expo for local Maestro testing
+apps/android/android/
+apps/android/ios/
+
+apps/web/playwright-report/
+apps/web/test-results/
+.expo/
