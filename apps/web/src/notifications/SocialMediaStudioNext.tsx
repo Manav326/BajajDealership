@@ -368,17 +368,6 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     setActiveProject(clone(project));
     setEditorOpen(true);
   }
-  async function saveAndOpenResources(project: StudioProject) {
-    try {
-      await saveProject(project);
-      setActiveProject(null);
-      setEditorOpen(false);
-      setHubPage('resources');
-      await refreshLibrary();
-      notify('Design saved to the resource library.');
-    } catch (cause) { notify(cause instanceof Error ? cause.message : 'Design could not be saved.'); }
-  }
-
   async function uploadResources(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = '';
@@ -575,7 +564,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
       onProjectChange={setActiveProject} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
-      onNotify={notify} onOpenLibrary={() => void saveAndOpenResources(activeProject)}/>}
+      onNotify={notify} onOpenLibrary={() => { setActiveProject(null); setEditorOpen(false); setHubPage('resources'); void refreshLibrary(); }}/>}
   </div>;
 }
 
@@ -716,24 +705,22 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   });
 
   async function leaveEditor() {
-    if (dirty || saving) {
-      if (saveTimer.current) { window.clearTimeout(saveTimer.current); saveTimer.current = null; }
-      const saveVersion = editVersionRef.current;
-      setSaving(true); setSaveStatus('saving');
-      try {
-        await saveProject(project);
-        setSaving(false);
-        if (editVersionRef.current !== saveVersion) {
-          setSaveStatus('saving');
-          onNotify('A new edit was made while saving. Save it before leaving the editor.');
-          return;
-        }
-        setDirty(false); setSaveStatus('saved');
-      } catch (cause) {
-        setSaving(false); setSaveStatus('error');
-        onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
-        if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
+    if (saveTimer.current) { window.clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const saveVersion = editVersionRef.current;
+    setSaving(true); setSaveStatus('saving');
+    try {
+      await saveProject(project);
+      setSaving(false);
+      if (editVersionRef.current !== saveVersion) {
+        setSaveStatus('saving');
+        onNotify('A new edit was made while saving. Save it before leaving the editor.');
+        return;
       }
+      setDirty(false); setSaveStatus('saved');
+    } catch (cause) {
+      setSaving(false); setSaveStatus('error');
+      onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
+      if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
     }
     onOpenLibrary();
   }

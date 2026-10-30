@@ -244,6 +244,15 @@ test('adds sticker presets and exposes editable text spacing and save state', as
   await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 1' })).toHaveValue('1.5');
 });
 
+test('Back saves a new blank design before returning to the resource library', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });
