@@ -369,7 +369,7 @@ Run local web and native Android UI tests using the repository helper; see [docs
 .\scripts\test-ui.ps1 -Target Both    # Visible web suite, then native Android smoke test
 ```
 
-The web test scenarios use synthetic fixtures where configured. The current Maestro flow verifies the Android authentication/activation screens without submitting customer credentials or changing backend data. A green UI smoke test is not, by itself, acceptance evidence for every business workflow.
+The web test scenarios use synthetic fixtures where configured. Maestro preserves app state and checks the auth/activation UI when signed out or the home shell when signed in; it does not submit credentials or write backend data. A green UI smoke test is not, by itself, acceptance evidence for every business workflow.
 
 ## Notification Studio design reference
 
