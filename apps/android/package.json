@@ -1,7 +1,7 @@
 {
   "name": "@quantaedge/lucky-bajaj-android",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -14,6 +14,11 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "~9.1.0",
     "expo": "~57.0.31",
+    "expo-auth-session": "~57.0.16",
+    "expo-crypto": "~57.0.4",
+    "expo-image-picker": "~57.0.20",
+    "expo-secure-store": "~57.0.1",
+    "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },
