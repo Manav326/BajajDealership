@@ -18,6 +18,8 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Keep both APK pipelines verified together whenever the CI workflow itself changes.
+  # Dedicated source/script filters still avoid Android rebuilds for unrelated web/backend edits.
   android-changes:
     name: Detect Android source changes
     if: github.event_name != 'workflow_dispatch'
