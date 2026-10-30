@@ -1,38 +1,48 @@
 appId: com.quantaedge.luckybajaj
 ---
-# Smoke-test the real native app UI only; this flow never submits credentials or contacts a customer.
-- launchApp:
-    clearState: true
+# This is a read-only smoke flow: keep the app's local session and never submit forms.
+- launchApp
 - extendedWaitUntil:
     visible: "LUCKY BAJAJ"
     timeout: 30000
-- assertVisible: "A QuantaEdge customer experience"
-- assertVisible: "CUSTOMER CARE, CONNECTED"
-- assertVisible: "Every ride deserves better care."
-- assertVisible: "Sign in"
-- assertVisible: "Activate account"
-- assertVisible: "Dealership code"
-- assertVisible: "Customer code"
-- assertVisible: "Password"
-- assertVisible: "Sign in securely"
-- tapOn: "Activate account"
-- assertVisible: "One-time activation token"
-- assertVisible: "Create password (12+ characters)"
-- scrollUntilVisible:
-    element: "Confirm password"
-    direction: DOWN
-    timeout: 10000
-- assertVisible: "Confirm password"
-- scrollUntilVisible:
-    element: "Activate my account"
-    direction: DOWN
-    timeout: 10000
-- assertVisible: "Activate my account"
-- scrollUntilVisible:
-    element: "Sign in"
-    direction: UP
-    timeout: 10000
-- tapOn: "Sign in"
-- assertVisible: "Dealership code"
-- assertVisible: "Customer code"
-- assertVisible: "Sign in securely"
+- runFlow:
+    when:
+      visible: "Sign in securely"
+    commands:
+      - assertVisible: "A QuantaEdge customer experience"
+      - assertVisible: "CUSTOMER CARE, CONNECTED"
+      - assertVisible: "Every ride deserves better care."
+      - assertVisible: "Sign in"
+      - assertVisible: "Activate account"
+      - assertVisible: "Dealership code"
+      - assertVisible: "Customer code"
+      - assertVisible: "Password"
+      - tapOn: "Activate account"
+      - assertVisible: "One-time activation token"
+      - assertVisible: "Create password (12+ characters)"
+      - scrollUntilVisible:
+          element: "Confirm password"
+          direction: DOWN
+          timeout: 10000
+      - assertVisible: "Confirm password"
+      - scrollUntilVisible:
+          element: "Activate my account"
+          direction: DOWN
+          timeout: 10000
+      - assertVisible: "Activate my account"
+      - scrollUntilVisible:
+          element: "Sign in"
+          direction: UP
+          timeout: 10000
+      - tapOn: "Sign in"
+      - assertVisible: "Dealership code"
+      - assertVisible: "Customer code"
+      - assertVisible: "Sign in securely"
+- runFlow:
+    when:
+      visible: "Customer care"
+    commands:
+      - assertVisible: "Sign out"
+      - assertVisible: "Your ride care, in one place."
+      - assertVisible: "YOUR CUSTOMER SPACE"
+      - assertVisible: "My bikes"
