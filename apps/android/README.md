@@ -111,6 +111,7 @@ The customer notification fixture flows intentionally do not create or send camp
 
 - A rich-content campaign with a hero, a PNG/JPEG image block uploaded by the Studio, and a CTA whose target is `/appointments`.
 - A separate campaign with title matching `MAESTRO_NOTIFICATION_ACTION_TITLE`, so read → unread → dismiss is tested without deleting the rich-content fixture.
+- A campaign with title matching `MAESTRO_NOTIFICATION_UNSAFE_TARGET_TITLE` containing a CTA labelled `MAESTRO_UNSAFE_CTA_LABEL` that targets an unsupported internal route such as `/admin`; the app must not display that CTA.
 - At least 26 total sent notifications, with the value in `MAESTRO_NOTIFICATION_PAGE_TWO_TITLE` on page 2 (items 26–50), to exercise real pagination.
 
 The local test customer also needs one currently linked motorcycle whose displayed model name exactly matches `MAESTRO_CUSTOMER_VEHICLE_NAME`, and at least one available, priced parts-catalogue item for the cart test. The service appointment test creates a short-lived request and then cancels it; use a dedicated test customer and ensure it has no conflicting appointment at the app's default future slot.
