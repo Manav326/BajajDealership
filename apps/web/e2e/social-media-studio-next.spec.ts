@@ -118,8 +118,18 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   const project = page.getByRole('button', { name: 'Open Untitled design' });
   await expect(project).toBeVisible();
   await project.click();
-  await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Ride into your next journey');
+  await expect(page.getByRole('img', { name: 'Editable design canvas' }).locator('text')).toHaveText('Ride into your next journey');
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1440');
+});
+
+test('exports a short promotional video without requiring a soundtrack', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export video' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/\\.(mp4|webm)$/);
+  await expect(page.getByRole('status').filter({ hasText: 'Video saved and downloaded' })).toBeVisible();
 });
 
 test('exports artwork into the independent local resource library and supports re-download', async ({ page }) => {
