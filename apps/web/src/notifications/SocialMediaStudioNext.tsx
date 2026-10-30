@@ -1306,12 +1306,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           }}><Icon name="text"/>{String(name)}</button>)}
 
         </div>}
-        {tool === 'uploads' && <div className={styles.uploadPanel}>        {tool === 'publishing' && <div className={styles.toolTiles}>
+        {tool === 'publishing' && <div className={styles.toolTiles}>
           <div className={styles.toolPanelHeading}><strong>Publishing settings</strong><span>These details are included with approval requests, not drawn on the artwork.</span></div>
           <label className={styles.panelField}>Publishing caption<textarea aria-label="Publishing caption" rows={5} value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
           <label className={styles.panelField}>Publishing hashtags<input aria-label="Publishing hashtags" value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
         </div>}
-
+        {tool === 'uploads' && <div className={styles.uploadPanel}>
           <label className={styles.uploadDrop}><Icon name="upload"/><span>Import media</span><input type="file" multiple accept="image/*,audio/*,video/*" onChange={(event) => {
             const files = Array.from(event.target.files ?? []); event.target.value = '';
             void (async () => { for (const file of files) { const kind: StudioResourceKind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'export'; const resource = await saveResource(file, file.name, kind); await onResourceAdded(resource); } onNotify('Media imported.'); })();
