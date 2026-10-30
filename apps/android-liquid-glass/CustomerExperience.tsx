@@ -1043,7 +1043,7 @@ export default function CustomerExperience() {
   const authScreen = !token && ['signin','signup'].includes(screen);
   return <SafeAreaView style={S.safe}><EditionBackdrop style={S.backdrop}>
     <StatusBar barStyle="dark-content" backgroundColor={C.canvas}/>
-    <View style={S.topBar}><View style={S.brandMarkSmall}><Text style={S.brandMarkText}>LB</Text></View><View style={S.flex}><Text testID="customer-brand-name" style={S.brandName}>LUCKY BAJAJ</Text><Text style={S.brandCaption}>{customer?.dealershipName || 'A QuantaEdge customer experience'}</Text></View>
+    <View style={S.topBar}><View style={S.brandMarkSmall}><Text style={S.brandMarkText}>LB</Text></View><View style={S.flex} testID="customer-brand-name" collapsable={false}><Text style={S.brandName}>LUCKY BAJAJ</Text><Text style={S.brandCaption}>{customer?.dealershipName || 'A QuantaEdge customer experience'}</Text></View>
       {token ? <Pressable onPress={() => setScreen('more')} style={S.headerButton}><Text style={S.headerButtonText}>{(customer?.fullName || 'You').split(' ')[0]}</Text></Pressable> : <Pressable onPress={() => setScreen('signin')} style={S.headerButton}><Text style={S.headerButtonText}>Sign in</Text></Pressable>}
     </View>
     <EditionContentTarget style={S.contentTarget}>
