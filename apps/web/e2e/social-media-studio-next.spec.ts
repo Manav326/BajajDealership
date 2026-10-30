@@ -108,10 +108,39 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await expect(page.getByRole('button', { name: /2 Square feed/ })).toBeVisible();
   await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1080');
 
+  await page.getByRole('button', { name: 'Landscape feed' }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 566');
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(page.getByRole('button', { name: 'Preview rendered photo' })).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Preview rendered photo' }).click();
+  const landscapeOutput = page.getByRole('img', { name: 'Rendered photo output' });
+  await expect.poll(async () => landscapeOutput.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1080);
+  await expect.poll(async () => landscapeOutput.evaluate((image) => (image as HTMLImageElement).naturalHeight)).toBe(566);
+  await page.getByRole('button', { name: 'Close photo preview' }).click();
+
+  await page.getByLabel('Custom width').fill('1234');
+  await page.getByLabel('Custom height').fill('987');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1234 × 987');
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(page.getByRole('button', { name: 'Preview rendered photo' })).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Preview rendered photo' }).click();
+  const customOutput = page.getByRole('img', { name: 'Rendered photo output' });
+  await expect.poll(async () => customOutput.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1234);
+  await expect.poll(async () => customOutput.evaluate((image) => (image as HTMLImageElement).naturalHeight)).toBe(987);
+  await page.getByRole('button', { name: 'Close photo preview' }).click();
+
   await page.getByRole('button', { name: 'Pages' }).click();
   await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
   await expect(page.getByRole('button', { name: /3 Page 3/ })).toBeVisible();
   await page.getByRole('button', { name: /1 Portrait feed 3:4/ }).click();
+  await page.getByLabel('Page 1 name').fill('Opening scene');
+  await page.getByRole('button', { name: 'Duplicate page' }).click();
+  await expect(page.getByLabel('Page 4 name')).toHaveValue('Opening scene — Copy');
+  await page.getByRole('combobox', { name: 'Transition after page 1' }).selectOption('fade');
+  await page.getByRole('spinbutton', { name: 'Fade duration after page 1' }).fill('1.5');
+  await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 1' })).toHaveValue('1.5');
+  await page.getByRole('button', { name: /1 Opening scene/ }).click();
 
   await page.getByRole('button', { name: 'Back to resources' }).click();
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
