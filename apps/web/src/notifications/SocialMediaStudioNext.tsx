@@ -347,7 +347,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       if (event.key !== 'Tab') return;
       const dialog = document.getElementById('meta-consent-dialog');
       const focusable = dialog?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), summary, a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
       if (!focusable?.length) return;
       const first = focusable[0];
