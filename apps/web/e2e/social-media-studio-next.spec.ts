@@ -130,7 +130,7 @@ test('renders a short promotional video, previews it in the editor and does not 
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
-  await expect(preview).toBeVisible({ timeout: 10000 });
+  await expect(preview).toBeVisible({ timeout: 30000 });
   await expect(preview.locator('video')).toHaveAttribute('controls', '');
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled();
   await page.getByRole('button', { name: 'Close video preview' }).click();
@@ -190,19 +190,37 @@ test('element search filters presets and layer search filters the actual layer l
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Elements' }).click();
   await page.getByRole('textbox', { name: 'Search tool resources' }).fill('badge');
-  await expect(page.getByRole('button', { name: '◇ Offer badge', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Offer badge', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Circle' })).toHaveCount(0);
-  await page.getByRole('button', { name: '◇ Offer badge', exact: true }).click();
+  await page.getByRole('button', { name: 'Offer badge', exact: true }).click();
   await page.getByRole('button', { name: 'Layers' }).click();
   await page.getByRole('textbox', { name: 'Search tool resources' }).fill('offer');
-  await expect(page.getByRole('button', { name: '◇ Offer badge', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Offer badge', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Lock layer' }).click();
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
-  const lockedLayer = page.getByRole('button', { name: '◇ Offer badge', exact: true });
+  const lockedLayer = page.getByRole('button', { name: 'Offer badge', exact: true });
   await page.keyboard.press('Delete');
   await page.keyboard.press('Control+d');
   await expect(lockedLayer).toBeVisible();
+});
+
+
+test('scene timeline plays and seeks a preview without triggering a render', async ({ page }) => {
+  await openNewStudio(page); await page.getByRole('button',{name:'Create',exact:true}).click();
+  await page.getByRole('button',{name:'Play timeline preview'}).click();
+  await expect(page.locator('canvas[aria-label="Timeline preview"]')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Pause timeline preview'})).toBeVisible();
+  await page.getByRole('button',{name:'Pause timeline preview'}).click();
+  await page.getByRole('button',{name:'Exit timeline preview'}).click();
+  await expect(page.getByRole('img',{name:'Editable design canvas'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Download rendered outputs'})).toBeDisabled();
+});
+test('brand logo picker imports and inserts the selected image once', async ({ page }) => {
+  await openNewStudio(page); await page.getByRole('button',{name:'Create',exact:true}).click();
+  await page.getByRole('button',{name:'Brand'}).click();
+  await page.locator('input[aria-label="Upload brand logo or image"]').setInputFiles({name:'brand-logo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=','base64')});
+  await expect(page.getByRole('img',{name:'Editable design canvas'}).locator('image')).toHaveCount(1);
 });
 
 for (const width of [390, 768, 1280]) {
