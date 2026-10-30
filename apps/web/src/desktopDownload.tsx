@@ -87,10 +87,10 @@ function DesktopDownloadPage() {
           <strong> 127.0.0.1:8080</strong>. It is intended for local testing, not customer distribution.
         </p>
         <div className="desktop-download-notice" role="status">
-          <strong>PR #37 · current-commit build only</strong>
+          <strong>Current source commit only</strong>
           <span>
-            The downloader checks the latest PR branch commit and its Windows desktop build job.
-            It proceeds only after that exact job succeeds; it never quietly gives you an older installer.
+            While PR #37 is open, the downloader follows its feature branch. After the PR merges, it automatically follows main.
+            It proceeds only after the Windows build for that exact source commit succeeds; it never substitutes an older installer.
           </span>
         </div>
 
@@ -109,26 +109,30 @@ function DesktopDownloadPage() {
             Download local-test downloader (.ps1)
           </a>
           <p className="desktop-download-managed-hint">
-            After downloading, right-click the file and choose <strong>Run with PowerShell</strong>.
+            Right-click the file and choose <strong>Run with PowerShell</strong>. If Windows says scripts are disabled, use the process-only command below; it does not change your saved Windows policy.
             It opens the new installer folder and writes a full <strong>INSTALL.txt</strong> guide.
             If artifact access asks for authentication, use GitHub CLI sign-in or set GH_TOKEN locally with Actions: read access.
           </p>
         </section>
 
+          <p className="desktop-download-managed-hint">
+            When Windows blocks the script under your local execution policy, open PowerShell and run:
+            <br />
+            <code>Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; &amp; "$env:USERPROFILE\Downloads\Download-LuckyBajajDesktop.ps1"</code>
+            <br />
+            This affects only the current PowerShell process. If an administrator-enforced policy blocks scripts, do not override it; ask your administrator.
+          </p>
         <section className="desktop-download-install-guide">
           <h3>Before installing the desktop app</h3>
           <ol>
-            <li>Open PowerShell in your local BajajDealership repository folder and switch to <strong>feature/dealership-licensing-readonly</strong>.</li>
+            <li>Open PowerShell in your local BajajDealership repository folder and switch to the branch named in the generated <strong>INSTALL.txt</strong> guide.</li>
             <li>Build the API from that branch: <code>docker compose build api</code>.</li>
             <li>Start the API and dependencies: <code>docker compose up -d --no-build api</code>.</li>
             <li>Check the API: <code>Invoke-RestMethod http://127.0.0.1:8080/actuator/health</code>. Continue only when it reports <strong>UP</strong>.</li>
-            <li>Choose one downloaded installer: EXE for guided setup or MSI for Windows Installer. Do not run both. Then launch Lucky Bajaj Desktop from the Start menu.</li>
+            <li>Choose one downloaded installer: EXE for guided setup or MSI for Windows Installer. Do not run both. Keep using the same installer type for later upgrades, then launch Lucky Bajaj Desktop from the Start menu.</li>
           </ol>
           <p className="desktop-download-security">
-            The main/GHCR latest API is not yet compatible with this unmerged PR build. Use the API
-            source from PR #37 for this test. Do not delete the existing PostgreSQL Docker volume.
-            The installer targets this computer's loopback address and will not connect to the right
-            backend on another PC.
+            Follow the backend branch and health-check instructions generated for the exact installer commit. Do not delete your existing PostgreSQL Docker volume. This installer targets this computer's loopback address and will not connect to the right 
           </p>
         </section>
 
