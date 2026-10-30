@@ -627,7 +627,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const projectRef = useRef(project);
   useEffect(() => { projectRef.current = project; }, [project]);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
-  const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const canvasViewportRef = useRef<HTMLElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ mode: 'move' | 'resize' | 'rotate'; ids: string[]; start: { x: number; y: number }; items: StudioElement[]; handle?: string; center?: { x: number; y: number } } | null>(null);
   const undoRef = useRef<StudioProject[]>([]);
@@ -1483,7 +1483,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <div className={styles.customDimensions}><input aria-label="Custom width" value={customWidth} onChange={(event) => setCustomWidth(event.target.value)} inputMode="numeric"/><span>×</span><input aria-label="Custom height" value={customHeight} onChange={(event) => setCustomHeight(event.target.value)} inputMode="numeric"/><button type="button" onClick={applyCustomSize}>Apply</button><button type="button" onClick={() => { const width = Number(customWidth), height = Number(customHeight); if (width >= 100 && height >= 100 && width <= 6000 && height <= 6000) createSizeVariant({ id: 'custom', label: 'Custom variant', platform: 'Custom', width, height, group: 'Custom' }); else onNotify('Enter dimensions between 100 and 6000 pixels.'); }}>+</button></div>
         </div>}
       </aside>}
-      <main className={styles.canvasWorkspace}>
+      <main ref={canvasViewportRef} className={styles.canvasWorkspace}>
         <div className={styles.contextToolbar}>
           <button type="button" title="Fit page" aria-label="Fit page" onClick={() => setZoom(80)}><Icon name="resize"/></button>
           <button type="button" title={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-label={canvasFullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'} aria-pressed={canvasFullscreen} onClick={toggleCanvasFullscreen}><Icon name="expand"/></button>
@@ -1515,7 +1515,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => setZoom((v) => Math.min(200, v + 10))}><Icon name="plus"/></button>
           
         </div>
-        <div ref={canvasViewportRef} className={styles.canvasViewport} onPointerUp={endPointer} onPointerCancel={endPointer}>
+        <div className={styles.canvasViewport} onPointerUp={endPointer} onPointerCancel={endPointer}>
           <canvas ref={timelineCanvasRef} className={styles.timelinePreviewCanvas} aria-label="Timeline preview" style={{display:timelinePreviewVisible?'block':'none'}}/>
           <svg ref={svgRef} className={styles.designCanvas} style={{display:timelinePreviewVisible?'none':'block'}} viewBox={`${page.width * (1 - 100 / zoom) / 2} ${page.height * (1 - 100 / zoom) / 2} ${page.width * 100 / zoom} ${page.height * 100 / zoom}`}
             role="img" aria-label="Editable design canvas" onPointerMove={movePointer} onPointerUp={endPointer}>

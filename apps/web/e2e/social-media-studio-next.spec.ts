@@ -623,24 +623,24 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
 
   const beforeStartTrim = Number(await start.inputValue());
   const beforeEndTrim = Number(await end.inputValue());
-  const startHandle = page.getByRole('button', { name: 'Audio trim start' });
-  const startHandleBox = await startHandle.boundingBox();
-  if (!startHandleBox) throw new Error('Audio start trim handle is not visible.');
-  await page.mouse.move(startHandleBox.x + startHandleBox.width/2, startHandleBox.y + startHandleBox.height/2);
+  const independentStartHandle = page.getByRole('button', { name: 'Audio trim start' });
+  const independentStartHandleBox = await independentStartHandle.boundingBox();
+  if (!independentStartHandleBox) throw new Error('Audio start trim handle is not visible.');
+  await page.mouse.move(independentStartHandleBox.x + independentStartHandleBox.width/2, independentStartHandleBox.y + independentStartHandleBox.height/2);
   await page.mouse.down();
-  await page.mouse.move(startHandleBox.x + startHandleBox.width/2 + 12, startHandleBox.y + startHandleBox.height/2, { steps: 4 });
+  await page.mouse.move(independentStartHandleBox.x + independentStartHandleBox.width/2 + 12, independentStartHandleBox.y + independentStartHandleBox.height/2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Number(await start.inputValue())).toBeGreaterThan(beforeStartTrim);
   await expect.poll(async () => Number(await end.inputValue())).toBeCloseTo(beforeEndTrim, 1);
 
   const afterStartTrim = Number(await start.inputValue());
   const beforeEndHandle = Number(await end.inputValue());
-  const endHandle = page.getByRole('button', { name: 'Audio trim end' });
-  const endHandleBox = await endHandle.boundingBox();
-  if (!endHandleBox) throw new Error('Audio end trim handle is not visible.');
-  await page.mouse.move(endHandleBox.x + endHandleBox.width/2, endHandleBox.y + endHandleBox.height/2);
+  const independentEndHandle = page.getByRole('button', { name: 'Audio trim end' });
+  const independentEndHandleBox = await independentEndHandle.boundingBox();
+  if (!independentEndHandleBox) throw new Error('Audio end trim handle is not visible.');
+  await page.mouse.move(independentEndHandleBox.x + independentEndHandleBox.width/2, independentEndHandleBox.y + independentEndHandleBox.height/2);
   await page.mouse.down();
-  await page.mouse.move(endHandleBox.x + endHandleBox.width/2 + 12, endHandleBox.y + endHandleBox.height/2, { steps: 4 });
+  await page.mouse.move(independentEndHandleBox.x + independentEndHandleBox.width/2 + 12, independentEndHandleBox.y + independentEndHandleBox.height/2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Number(await end.inputValue())).toBeGreaterThan(beforeEndHandle);
   await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(afterStartTrim, 1);
