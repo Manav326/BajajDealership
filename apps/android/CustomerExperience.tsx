@@ -114,9 +114,9 @@ function NotificationContent({ raw, token, onNavigate }: { raw: string; token: s
   const resolveTarget = (value: string): (() => void) | null => {
     const target = value.trim();
     if (!target) return null;
-    if (target.startsWith('/') && !target.startsWith('//') && !target.includes('\\\\')
+    if (target.startsWith('/') && !target.startsWith('//') && !target.includes('\\')
       && !target.split('/').some(segment => segment === '..')) {
-      const routePath = (target.split(/[?#]/, 1)[0] || '/').replace(/\\/+$/, '') || '/';
+      const routePath = (target.split(/[?#]/, 1)[0] || '/').replace(/\/+$/, '') || '/';
       const routes: Record<string, Screen> = {
         '/': 'home',
         '/home': 'home',
@@ -352,7 +352,9 @@ export default function CustomerExperience() {
   const [loading, setLoading] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);\n  const [loadingMoreNotices, setLoadingMoreNotices] = useState(false);\n  const [noticeUnreadOnly, setNoticeUnreadOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMoreNotices, setLoadingMoreNotices] = useState(false);
+  const [noticeUnreadOnly, setNoticeUnreadOnly] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
