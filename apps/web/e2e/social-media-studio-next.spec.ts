@@ -865,6 +865,7 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await openNewStudio(page);
   await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Text"]').click();
   await expect(page.getByRole('textbox', { name: 'Text' })).toHaveValue('Persistent campaign headline');
 });
 
