@@ -249,7 +249,7 @@ test('element search filters presets and layer search filters the actual layer l
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
   const lockedLayer = page.getByRole('button', { name: 'Offer badge', exact: true });
-  const lockedCanvasObject = page.locator('svg.designCanvas g[aria-label="Select Offer badge, locked"]');
+  const lockedCanvasObject = page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Offer badge, locked"]');
   await expect(lockedCanvasObject).toHaveCount(1);
   const lockedBefore = await lockedCanvasObject.boundingBox();
   if (!lockedBefore) throw new Error('Locked canvas object is not visible.');
@@ -271,7 +271,7 @@ test('layer visibility hides and restores the selected canvas object', async ({ 
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Elements' }).click();
   await page.getByRole('button', { name: 'Offer badge', exact: true }).click();
-  const canvasObject = page.locator('svg.designCanvas g[aria-label="Select Offer badge"]');
+  const canvasObject = page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Offer badge"]');
   await expect(canvasObject).toHaveCount(1);
   await page.getByRole('button', { name: 'Layers' }).click();
   const hide = page.getByRole('button', { name: 'Hide layer' });
