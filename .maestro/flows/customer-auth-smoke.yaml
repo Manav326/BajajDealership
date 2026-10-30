@@ -8,7 +8,7 @@ appId: com.quantaedge.luckybajaj
     timeout: 30000
 - assertVisible: "A QuantaEdge customer experience"
 - assertVisible: "CUSTOMER CARE, CONNECTED"
-- assertVisible: "Every ride deserves"
+- assertVisible: "Every ride deserves better care."
 - assertVisible: "Sign in"
 - assertVisible: "Activate account"
 - assertVisible: "Dealership code"
