@@ -67,7 +67,7 @@ type DirectoryHandleLike = {
   requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
   getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<DirectoryHandleLike>;
   getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FileHandleLike>;
-  entries?: () => AsyncIterable<[string, DirectoryHandleLike | FileHandleLike]>;
+  entries: () => AsyncIterable<[string, DirectoryHandleLike | FileHandleLike]>;
   removeEntry?: (name: string) => Promise<void>;
   kind?: string;
 };

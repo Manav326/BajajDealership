@@ -466,13 +466,13 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           {publishPreviews[item.publicId] && <img className={styles.queuePreview} src={publishPreviews[item.publicId]} alt="Submitted artwork preview"/>}
         </article>)}</div>
       </section>}
-      <section className={styles.whatsappHost} style={{ display: hubPage === 'whatsapp' ? 'block' : 'none' }} aria-hidden={hubPage !== 'whatsapp'}>
+      {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <section className={styles.whatsappHost} style={{ display: hubPage === 'whatsapp' ? 'block' : 'none' }} aria-hidden={hubPage !== 'whatsapp'}>
         <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp}
           getArtworkJpeg={async () => {
             if (!activeProject) throw new Error('Open a saved design from Projects first.');
             return getProjectJpeg(activeProject);
           }}/>
-      </section>
+      </section>}
     </main>
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
@@ -517,7 +517,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     if (addHistory) {
       undoRef.current = [...undoRef.current.slice(-39), clone(project)];
       redoRef.current = [];
-      setHistoryVersion((v) => v + 1);
     }
     const next = updater(project);
     changeProject({ ...next, updatedAt: new Date().toISOString() });
