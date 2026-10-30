@@ -101,6 +101,19 @@ function Get-AndroidSdk {
 function Assert-Java17 {
     $java = Get-Command java -ErrorAction SilentlyContinue
     if (-not $java) {
+        $jdkCandidates = @(
+            (Join-Path $env:ProgramFiles 'Android/Android Studio/jbr'),
+            (Join-Path $env:ProgramFiles 'Eclipse Adoptium/jdk-21'),
+            (Join-Path $env:ProgramFiles 'Java/jdk-21'),
+            (Join-Path $env:LOCALAPPDATA 'Programs/Eclipse Adoptium/jdk-21')
+        ) | Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin/java.exe')) }
+        if ($jdkCandidates.Count -gt 0) {
+            $env:JAVA_HOME = $jdkCandidates[0]
+            $env:PATH = "$(Join-Path $env:JAVA_HOME 'bin');$env:PATH"
+            $java = Get-Command java -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not $java) {
         throw 'Java 17+ is required by Android builds and Maestro. Install JDK 17 or 21, set JAVA_HOME, reopen PowerShell, and retry.'
     }
     $versionText = (& java -version 2>&1 | Out-String)
@@ -218,11 +231,26 @@ function Run-AndroidTesting {
     Ensure-NpmDependencies $androidDir (Join-Path $androidDir 'node_modules/expo/package.json') 'Android app / Expo'
 
     Write-Step 'Building and installing the Android app for a native UI test'
+    # Respect an explicit shell override first, then apps/android/.env, then the preview API default.
     $oldApiUrl = $env:EXPO_PUBLIC_API_BASE_URL
-    $env:EXPO_PUBLIC_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/'
+    $apiBaseUrl = $oldApiUrl
+    if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+        $androidEnvFile = Join-Path $androidDir '.env'
+        if (Test-Path $androidEnvFile) {
+            $apiLine = Get-Content $androidEnvFile |
+                Where-Object { $_ -match '^\s*EXPO_PUBLIC_API_BASE_URL\s*=' } |
+                Select-Object -First 1
+            if ($apiLine) { $apiBaseUrl = ($apiLine -split '=', 2)[1].Trim().Trim('"').Trim("'") }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
+        $apiBaseUrl = 'https://lucky-bajaj-api.onrender.com/'
+    }
+    $env:EXPO_PUBLIC_API_BASE_URL = $apiBaseUrl
+    Write-Host "Android API target: $apiBaseUrl"
     Push-Location $androidDir
     try {
-        & npx.cmd expo run:android --variant release --device $device
+        & npx.cmd expo run:android --variant release --device $device --no-bundler
         Assert-LastExit 'Expo Android release build/install'
     }
     finally {
@@ -236,7 +264,7 @@ function Run-AndroidTesting {
     }
 
     Write-Step 'Running the native Android Maestro smoke flow'
-    & maestro test $maestroFlow
+    & maestro --device $device test $maestroFlow
     Assert-LastExit 'Maestro Android tests'
 }
 
