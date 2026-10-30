@@ -1009,6 +1009,12 @@ test('signed-in customer filters spare parts by category, model/type, availabili
   await expect(page.getByRole('heading', { name: 'Namaste, Manav.' })).toBeVisible();
   await page.getByRole('button', { name: /Spare parts/ }).click();
   await expect(page.locator('.retail-part-card')).toHaveCount(3);
+  const filtersToggle = page.getByRole('button', { name: /Show filters/ });
+  await expect(filtersToggle).toBeVisible();
+  await expect(page.getByLabel('Part category')).toBeHidden();
+  await filtersToggle.click();
+  await expect(page.getByRole('button', { name: /Hide filters/ })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel('Part category')).toBeVisible();
 
   await page.getByLabel('Part category').selectOption('BRAKES');
   await expect(page.locator('.retail-part-card')).toHaveCount(1);
@@ -1031,6 +1037,12 @@ test('signed-in customer filters spare parts by category, model/type, availabili
   await page.getByLabel('Maximum price (₹)').fill('250');
   await expect(page.locator('.retail-part-card')).toHaveCount(1);
   await expect(page.getByRole('heading', { name: 'Front brake pad' })).toBeVisible();
+
+  await page.getByRole('button', { name: /Hide filters/ }).click();
+  await expect(page.getByLabel('Minimum price (₹)')).toBeHidden();
+  await page.getByRole('button', { name: /Show filters/ }).click();
+  await expect(page.getByLabel('Minimum price (₹)')).toHaveValue('100');
+  await expect(page.getByLabel('Maximum price (₹)')).toHaveValue('250');
 });
 
 test('signed-in customer explores the shared Bajaj catalogue and sends an enquiry through the existing sales-request flow', async ({ page }) => {
