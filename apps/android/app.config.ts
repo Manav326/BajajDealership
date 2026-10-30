@@ -7,21 +7,22 @@ const baseConfig: ExpoConfig = {
   name: 'Lucky Bajaj',
   slug: 'lucky-bajaj-customer',
   scheme: 'luckybajaj',
-  version: '0.1.0',
+  version: '0.2.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
-  plugins: ['@react-native-community/datetimepicker'],
+  plugins: [
+    '@react-native-community/datetimepicker',
+    'expo-image-picker',
+    'expo-secure-store',
+  ],
   android: {
     package: 'com.quantaedge.luckybajaj',
-    versionCode: 1,
+    versionCode: 2,
   },
-  extra: {
-    apiBaseUrl,
-  },
+  extra: { apiBaseUrl },
 };
 
-// Permit cleartext only for a configured local-development URL; production must use HTTPS.
-// Default builds use the deployed Bajaj API. Override with the mPAY-style LAN URL only for local-device testing.
+// Permit cleartext HTTP only when an explicit local development URL is supplied.
 const withConfiguredCleartext = withAndroidManifest(baseConfig, (config) => {
   const application = config.modResults.manifest.application?.[0];
   if (application) {
