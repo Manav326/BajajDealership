@@ -44,7 +44,7 @@ The app is built in release mode so the test does not depend on a persistent Met
 ## Test safety and current coverage
 
 - The Playwright scenarios use synthetic UI fixtures and intercepted API responses where defined in the tests. They do not require the local PostgreSQL/database stack and must not be treated as proof that live backend business flows work.
-- The Maestro smoke flow `.maestro/flows/customer-auth-smoke.yaml` launches the real Android app, checks the sign-in screen, switches to account activation and back, and checks the expected fields. It does **not** submit credentials, activate an account, send notifications, or write customer data.
+- The Maestro flow `.maestro/flows/customer-auth-smoke.yaml` preserves the app's existing local session. When signed out, it checks the sign-in screen and switches to account activation and back; when signed in, it checks the customer home shell. It does **not** submit credentials, activate an account, send notifications, clear local app data, or write customer data. On a signed-in device, the app may issue its normal read-only customer API requests.
 - A passing smoke test proves only the covered UI checks. Extend the flow and acceptance suite as each native customer workflow is validated.
 
 ## Web test ports
