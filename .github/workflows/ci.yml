@@ -18,6 +18,8 @@ permissions:
   pull-requests: read
 
 jobs:
+  # Keep both APK pipelines verified together whenever the CI workflow itself changes.
+  # Dedicated source/script filters still avoid Android rebuilds for unrelated web/backend edits.
   android-changes:
     name: Detect Android source changes
     if: github.event_name != 'workflow_dispatch'
@@ -36,9 +38,14 @@ jobs:
           filters: |
             android:
               - 'apps/android/**'
+              - 'scripts/test-android-maestro.ps1'
+              - 'scripts/android-fetch-latest-apk.ps1'
               - '.github/workflows/ci.yml'
             liquid_glass:
               - 'apps/android-liquid-glass/**'
+              - 'scripts/test-android-liquid-glass-maestro.ps1'
+              - 'scripts/android-lg-fetch-latest-apk.ps1'
+              - '.github/workflows/ci.yml'
 
   backend:
     name: Backend tests and PostgreSQL migrations
@@ -412,8 +419,8 @@ jobs:
     if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.android-changes.outputs.android == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    # Build the APK against the deployed Bajaj API by default.
-    # Set BAJAJ_API_BASE_URL for LAN/emulator or staging builds.
+    # Build a self-contained release variant so Maestro does not need a Metro server.
+    # This is a device-test APK, not a Play Store release.
     env:
       EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -454,20 +461,28 @@ jobs:
         with:
           # PR builds restore main's cache; only main updates the shared cache.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Build debug APK
+      - name: Build self-contained Maestro APK
         working-directory: apps/android/android
-        run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
+        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel
+      - name: Verify standalone JavaScript bundle is packaged
+        shell: bash
+        run: |
+          apk="apps/android/android/app/build/outputs/apk/release/app-release.apk"
+          if ! unzip -Z1 "$apk" | grep -Fxq 'assets/index.android.bundle'; then
+            echo "The APK does not contain assets/index.android.bundle; it would require Metro at runtime."
+            exit 1
+          fi
       - name: Record Android APK build metadata
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/debug/build-metadata.json'; const metadata = { edition: 'standard', packageName: 'com.quantaedge.luckybajaj', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
-      - name: Upload installable debug APK
+          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'standard', buildType: 'release', packageName: 'com.quantaedge.luckybajaj', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+      - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
         with:
-          name: lucky-bajaj-android-debug-apk-${{ github.sha }}
+          name: lucky-bajaj-android-maestro-apk-${{ github.sha }}
           path: |
-            apps/android/android/app/build/outputs/apk/debug/app-debug.apk
-            apps/android/android/app/build/outputs/apk/debug/build-metadata.json
+            apps/android/android/app/build/outputs/apk/release/app-release.apk
+            apps/android/android/app/build/outputs/apk/release/build-metadata.json
           if-no-files-found: error
           retention-days: 14
 
@@ -479,9 +494,9 @@ jobs:
         run: |
           {
             echo "### Lucky Bajaj Android app"
-            echo "- [Download the installable debug APK ZIP]($ARTIFACT_URL)"
-            echo "- API base compiled into this APK: `$API_BASE_URL`"
-            echo "- This is a debug build, not a signed Play Store release."
+            echo "- [Download the self-contained Maestro APK ZIP]($ARTIFACT_URL)"
+            echo "- API base compiled into this APK: ${API_BASE_URL}"
+            echo "- Release-variant test build with embedded JavaScript; not a Play Store release."
           } >> "$GITHUB_STEP_SUMMARY"
 
   android-liquid-glass:
@@ -492,8 +507,8 @@ jobs:
     if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.android-changes.outputs.liquid_glass == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    # Build the APK against the deployed Bajaj API by default.
-    # Set BAJAJ_API_BASE_URL for LAN/emulator or staging builds.
+    # Build a self-contained release variant so Maestro does not need a Metro server.
+    # This is a device-test APK, not a Play Store release.
     env:
       EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -534,15 +549,31 @@ jobs:
         with:
           # PR builds restore main's cache; only main updates the shared cache.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Build debug APK
+      - name: Build self-contained Maestro APK
         working-directory: apps/android-liquid-glass/android
-        run: ./gradlew assembleDebug --no-daemon --build-cache --parallel
-      - name: Upload installable debug APK
+        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel
+      - name: Verify standalone JavaScript bundle is packaged
+        shell: bash
+        run: |
+          apk="apps/android-liquid-glass/android/app/build/outputs/apk/release/app-release.apk"
+          if ! unzip -Z1 "$apk" | grep -Fxq 'assets/index.android.bundle'; then
+            echo "The Liquid Glass APK does not contain assets/index.android.bundle; it would require Metro at runtime."
+            exit 1
+          fi
+      - name: Record Android APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'liquid-glass', buildType: 'release', packageName: 'com.quantaedge.luckybajajlg', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+      - name: Validate Liquid Glass APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
+      - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
         with:
-          name: lucky-bajaj-android-liquid-glass-debug-apk-${{ github.sha }}
-          path: apps/android-liquid-glass/android/app/build/outputs/apk/debug/app-debug.apk
+          name: lucky-bajaj-android-liquid-glass-maestro-apk-${{ github.sha }}
+          path: |
+            apps/android-liquid-glass/android/app/build/outputs/apk/release/app-release.apk
+            apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json
           if-no-files-found: error
           retention-days: 14
 
@@ -554,9 +585,9 @@ jobs:
         run: |
           {
             echo "### Lucky Bajaj Liquid Glass Android app"
-            echo "- [Download the installable debug APK ZIP]($ARTIFACT_URL)"
-            echo "- API base compiled into this APK: `$API_BASE_URL`"
-            echo "- This is a debug build, not a signed Play Store release."
+            echo "- [Download the self-contained Maestro APK ZIP]($ARTIFACT_URL)"
+            echo "- API base compiled into this APK: ${API_BASE_URL}"
+            echo "- Release-variant test build with embedded JavaScript; not a Play Store release."
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-images:

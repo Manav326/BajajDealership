@@ -57,7 +57,7 @@ npm run typecheck
 npx expo run:android
 ```
 
-CI builds an installable Android debug APK whenever `apps/android/**` changes. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions). The APK is a debug artifact and is not a signed Play Store release.
+CI builds a self-contained, release-variant Android Maestro test APK whenever `apps/android/**` changes. Its JavaScript bundle is embedded, so Metro does not need to run on the PC during device tests. This is an installable test build, not a signed Play Store release. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions).
 
 ### Download and install the latest CI APK (Windows)
 
@@ -121,13 +121,13 @@ The normal test target is a **physical Android phone on the same Wi-Fi/LAN as th
 .\scripts\test-android-maestro.ps1 -AllowNonLocalApi -Suite Public
 ```
 
-The runner detects the single connected physical Android device, downloads the newest successful Standard Edition APK artifact from the GitHub Actions `main` workflow, verifies its recorded package/API metadata, installs it with `adb install -r` and runs the selected Maestro flows. It does **not** run npm install, Expo prebuild or Gradle by default. Reports and screenshots/debug output are saved under `apps/android/maestro-results/<timestamp>/`.
+The runner detects the single connected physical Android device, downloads the newest successful Standard Edition self-contained Maestro APK artifact from the GitHub Actions `main` workflow, verifies its release build type, embedded JavaScript bundle and package/API metadata, then installs it with `adb install -r` and runs the selected Maestro flows. It does **not** run npm install, Expo prebuild or Gradle by default. Reports and screenshots/debug output are saved under `apps/android/maestro-results/<timestamp>/`.
 
 For local-LAN testing, the APK must have been **built by CI with the local API URL embedded**. In GitHub, open **Settings → Secrets and variables → Actions → Variables** and set the repository variable `BAJAJ_API_BASE_URL` to `http://192.168.31.47:8080/` (or your current PC LAN IP). The workflow records this URL beside the APK, and the Maestro runner refuses a mismatch rather than pretending that the `-LanIp` parameter can change an already-built APK. A successful Android CI run must exist after changing this variable. The runner then checks that embedded API's `/actuator/health` endpoint before installing and testing.
 
 When you intentionally want to test the API already embedded in a hosted CI APK, pass `-AllowNonLocalApi`; ensure that the selected test account and fixture data are safe for that environment. `-LanIp` is used to validate the expected local endpoint, not to rewrite the downloaded binary.
 
-A local Gradle build is still available explicitly with `-BuildLocalApk`. It discovers the Android SDK from the ADB executable, sets `ANDROID_HOME` / `ANDROID_SDK_ROOT` and writes the generated project's ignored `android/local.properties`, avoiding the SDK-location error shown by a machine that has ADB installed but no SDK environment variables. When multiple phones are connected, pass `-DeviceId <adb-serial>`.
+A local Gradle build is still available explicitly with `-BuildLocalApk`. It builds the self-contained `release` variant (not `assembleDebug`) and discovers the Android SDK from the ADB executable, sets `ANDROID_HOME` / `ANDROID_SDK_ROOT` and writes the generated project's ignored `android/local.properties`, avoiding the SDK-location error shown by a machine that has ADB installed but no SDK environment variables. When multiple phones are connected, pass `-DeviceId <adb-serial>`.
 
 ### Notification test data
 

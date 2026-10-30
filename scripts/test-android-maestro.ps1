@@ -15,7 +15,7 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $appRoot = Join-Path $projectRoot "apps/android"
 $maestroRoot = Join-Path $appRoot ".maestro"
 $localEnvFile = Join-Path $maestroRoot "local.env"
-$localBuildApkPath = Join-Path $appRoot "android/app/build/outputs/apk/debug/app-debug.apk"
+$localBuildApkPath = Join-Path $appRoot "android/app/build/outputs/apk/release/app-release.apk"
 $ciApkPath = Join-Path $projectRoot "artifacts/lucky-bajaj-latest.apk"
 $useExistingLocalApk = $SkipBuild -and (Test-Path -LiteralPath $localBuildApkPath -PathType Leaf) -and -not $BuildLocalApk
 $apkPath = if ($BuildLocalApk -or $useExistingLocalApk) { $localBuildApkPath } else { $ciApkPath }
@@ -290,6 +290,10 @@ if ($BuildLocalApk) {
   if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
     Fail "The APK metadata does not record apiBaseUrl. Re-run after a successful CI Android build."
   }
+  if ($apkMetadata.buildType -ne "release") {
+    Fail "The selected APK is not a self-contained release-variant Maestro build. Debug APKs require Metro on port 8081."
+  }
+
   if ($apkMetadata.packageName -and $apkMetadata.packageName -ne "com.quantaedge.luckybajaj") {
     Fail ("The downloaded APK metadata describes package '{0}', not the Standard Edition package 'com.quantaedge.luckybajaj'." -f $apkMetadata.packageName)
   }
@@ -360,9 +364,9 @@ if ($BuildLocalApk) {
 
     Push-Location $androidProjectRoot
     try {
-      Write-Host ([Environment]::NewLine + "Building installable debug APK...")
-      & .\gradlew.bat assembleDebug --no-daemon --build-cache --parallel
-      if ($LASTEXITCODE -ne 0) { Fail "Android debug APK build failed." }
+      Write-Host ([Environment]::NewLine + "Building self-contained release-variant Maestro APK...")
+      & .\gradlew.bat assembleRelease --no-daemon --build-cache --parallel
+      if ($LASTEXITCODE -ne 0) { Fail "Self-contained Android Maestro APK build failed." }
     } finally {
       Pop-Location
     }
@@ -375,12 +379,24 @@ if ($BuildLocalApk) {
     apiBaseUrl = $apiBaseUrl
     headSha = "local"
     buildSource = "local"
+    buildType = "release"
   }
   $localMetadata | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $apkMetadataPath -Encoding UTF8
 }
 
 if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) {
   Fail "Android APK was not found: $apkPath"
+}
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$apkArchive = [System.IO.Compression.ZipFile]::OpenRead($apkPath)
+try {
+  $bundleEntry = $apkArchive.GetEntry("assets/index.android.bundle")
+  if (-not $bundleEntry -or $bundleEntry.Length -le 0) {
+    Fail "The APK is missing its embedded JavaScript bundle (assets/index.android.bundle). It would require Metro on port 8081."
+  }
+} finally {
+  $apkArchive.Dispose()
 }
 
 Write-Host ([Environment]::NewLine + "Installing APK on the selected physical phone...")

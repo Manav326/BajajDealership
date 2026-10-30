@@ -4,7 +4,7 @@
 param(
     [string]$Repository = "Manav326/BajajDealership",
     [string]$Branch = "main",
-    [string]$ArtifactPattern = "lucky-bajaj-android-liquid-glass-debug-apk-*",
+    [string]$ArtifactPattern = "lucky-bajaj-android-liquid-glass-maestro-apk-*",
     [string]$PackageName = "com.quantaedge.luckybajajlg",
     [string]$DeviceSerial = "",
     [switch]$DownloadOnly
@@ -133,7 +133,7 @@ function Select-Device($Devices, [string]$RequestedSerial) {
     }
 
     do {
-        $raw = Read-Host "Enter the number of the phone to install Lucky Bajaj Liquid Glass on (Q to cancel)"
+        $raw = Read-Host "Enter the number of the phone to install Lucky Bajaj on (Q to cancel)"
         if ($raw -match '^(q|quit)$') {
             Write-Status ("Installation cancelled. The downloaded APK is saved at {0}." -f $targetApk) "Yellow"
             return $null
@@ -204,25 +204,44 @@ try {
 
     $downloadedApk = $null
     $sourceRun = $null
+    $sourceRunDir = $null
     foreach ($run in $candidates) {
         $runDir = Join-Path $tempDir ([string]$run.databaseId)
         $null = New-Item -ItemType Directory -Path $runDir -Force
         Write-Status ("Checking CI run {0}, commit {1}, created {2}..." -f $run.databaseId, $run.headSha, $run.createdAt) "Cyan"
 
-        $downloadOutput = @(& gh run download ([string]$run.databaseId) --repo $Repository --pattern $ArtifactPattern --dir $runDir 2>&1)
-        $downloadExit = $LASTEXITCODE
+        # A successful CI run may not have built Android (the Android job is
+        # conditional on Android source/workflow changes). GitHub CLI writes its
+        # "no artifact matches" message to stderr; with PowerShell's Stop policy
+        # that can become a terminating NativeCommandError. Catch it per-run so
+        # the search continues to older successful runs that actually have an APK.
+        $downloadOutput = @()
+        $downloadExit = 1
+        try {
+            $downloadOutput = @(& gh run download ([string]$run.databaseId) --repo $Repository --pattern $ArtifactPattern --dir $runDir 2>&1)
+            $downloadExit = $LASTEXITCODE
+        } catch {
+            $downloadOutput += $_.Exception.Message
+            $downloadExit = 1
+        }
         if ($downloadExit -eq 0) {
-            $apkFiles = @(Get-ChildItem -LiteralPath $runDir -Filter "app-debug.apk" -File -Recurse -ErrorAction SilentlyContinue |
+            $apkFiles = @(Get-ChildItem -LiteralPath $runDir -Filter "app-release.apk" -File -Recurse -ErrorAction SilentlyContinue |
                 Where-Object { $_.Length -gt 1MB } |
                 Sort-Object Length -Descending)
             if ($apkFiles.Count -eq 1) {
                 $downloadedApk = $apkFiles[0]
                 $sourceRun = $run
+                $sourceRunDir = $runDir
                 break
             }
-            Write-Status ("Run {0} did not contain exactly one plausible app-debug.apk; checking an older successful run." -f $run.databaseId) "Yellow"
+            Write-Status ("Run {0} did not contain exactly one plausible app-release.apk; checking an older successful run." -f $run.databaseId) "Yellow"
         } else {
-            Write-Status ("No matching, downloadable APK artifact in run {0}; checking an older successful run." -f $run.databaseId) "Yellow"
+            $reason = ($downloadOutput | ForEach-Object { [string]$_ } | Where-Object { $_.Trim() }) -join " "
+            if ($reason) {
+                Write-Status ("No matching APK artifact in run {0}; checking an older successful run. GitHub CLI: {1}" -f $run.databaseId, $reason) "Yellow"
+            } else {
+                Write-Status ("No matching APK artifact in run {0}; checking an older successful run." -f $run.databaseId) "Yellow"
+            }
         }
     }
 
@@ -247,6 +266,16 @@ try {
     }
 
     $apkInfo = Get-Item -LiteralPath $stagedApk
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $apkArchive = [System.IO.Compression.ZipFile]::OpenRead($stagedApk)
+    try {
+        $bundleEntry = $apkArchive.GetEntry("assets/index.android.bundle")
+        if (-not $bundleEntry -or $bundleEntry.Length -le 0) {
+            throw "The APK is missing assets/index.android.bundle and would require Metro. The previous APK was not changed."
+        }
+    } finally {
+        $apkArchive.Dispose()
+    }
     $apkHash = (Get-FileHash -LiteralPath $stagedApk -Algorithm SHA256).Hash
     $signingSha1 = $null
 
@@ -279,7 +308,39 @@ try {
         }
     }
 
-    $artifactName = "lucky-bajaj-android-liquid-glass-debug-apk-$($sourceRun.headSha)"
+    # CI places this sidecar beside the APK so consumers can verify which backend
+    # was compiled into the application. Older retained artifacts may not have it.
+    $buildMetadata = $null
+    $buildMetadataFiles = @(
+        Get-ChildItem -LiteralPath $sourceRunDir -Filter "build-metadata.json" -File -Recurse -ErrorAction SilentlyContinue
+    )
+    if ($buildMetadataFiles.Count -gt 1) {
+        Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+        throw "The downloaded CI artifact contains more than one build-metadata.json file."
+    }
+    if ($buildMetadataFiles.Count -eq 1) {
+        try {
+            $buildMetadata = Get-Content -LiteralPath $buildMetadataFiles[0].FullName -Raw | ConvertFrom-Json
+        } catch {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw ("The Android CI build metadata is invalid: {0}" -f $_.Exception.Message)
+        }
+        if ($buildMetadata.packageName -and $buildMetadata.packageName -ne $PackageName) {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw ("The build metadata package is '{0}', expected '{1}'." -f $buildMetadata.packageName, $PackageName)
+        }
+        if ($buildMetadata.commitSha -and $buildMetadata.commitSha -ne $sourceRun.headSha) {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw "The Android APK and build metadata refer to different source commits."
+        }
+    }
+    if (-not $buildMetadata -or $buildMetadata.buildType -ne "release") {
+        Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+        throw "The downloaded artifact is not marked as a self-contained release-variant Maestro APK. Debug APKs require Metro."
+    }
+    $compiledApiBaseUrl = [string]$buildMetadata.apiBaseUrl
+
+    $artifactName = "lucky-bajaj-android-liquid-glass-maestro-apk-$($sourceRun.headSha)"
     $metadata = [ordered]@{
         repository = $Repository
         branch = [string]$sourceRun.headBranch
@@ -293,6 +354,8 @@ try {
         runCreatedAt = [string]$sourceRun.createdAt
         downloadedAtUtc = [DateTime]::UtcNow.ToString("o")
         packageName = $PackageName
+        apiBaseUrl = $compiledApiBaseUrl
+        buildType = [string]$buildMetadata.buildType
         sizeBytes = [long]$apkInfo.Length
         sha256 = $apkHash
         signingCertificateSha1 = $signingSha1
@@ -353,7 +416,7 @@ try {
         throw ("ADB reported install success, but package '{0}' could not be verified on device {1}." -f $PackageName, $selectedSerial)
     }
 
-    Write-Status ("SUCCESS: Lucky Bajaj Liquid Glass is installed on {0}. App data was retained by the -r update." -f $selectedSerial) "Green"
+    Write-Status ("SUCCESS: Lucky Bajaj is installed on {0}. App data was retained by the -r update." -f $selectedSerial) "Green"
     Write-Status ("Installed package: {0}" -f $PackageName)
     Write-Status ("History log: {0}" -f $script:LogPath)
 } catch {
