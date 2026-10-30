@@ -272,6 +272,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [projects, setProjects] = useState<StudioProject[]>([]);
   const [resources, setResources] = useState<StudioResource[]>([]);
   const [resourceUrls, setResourceUrls] = useState<Record<string, string>>({});
+  const [resourceDurations, setResourceDurations] = useState<Record<string, number>>({});
   const [directoryName, setDirectoryName] = useState('');
   const [permission, setPermission] = useState<PermissionState | 'missing'>('missing');
   const [permissionBusy, setPermissionBusy] = useState(false);
@@ -514,8 +515,8 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         <div className={styles.resourceFilters}><label><Icon name="search"/><input aria-label="Search resources" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search"/></label>
           <select aria-label="Resource type" value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}><option value="all">All</option><option value="image">Images</option><option value="audio">Audio</option><option value="video">Video</option><option value="export">Exports</option></select></div>
         <div className={styles.resourceGrid}>{filteredResources.map((resource) => <article key={resource.id} className={styles.resourceCard} data-testid="studio-resource-card">
-          <div className={styles.resourcePreview}>{resource.kind === 'image' || resource.kind === 'export' ? <img src={resourceUrls[resource.id]} alt={resource.name}/> : resource.kind === 'video' && resourceUrls[resource.id] ? <video src={resourceUrls[resource.id]} controls preload="metadata" aria-label={'Preview ' + resource.name}/> : <Icon name={resource.kind === 'audio' ? 'audio' : 'video'}/>}</div>
-          <div className={styles.projectMeta}><strong>{resource.name}</strong><span>{resource.kind} · {formatBytes(resource.size)}</span></div>
+          <div className={styles.resourcePreview}>{resource.kind === 'image' || resource.kind === 'export' ? <img src={resourceUrls[resource.id]} alt={resource.name}/> : resource.kind === 'video' && resourceUrls[resource.id] ? <video src={resourceUrls[resource.id]} controls preload="metadata" aria-label={'Preview ' + resource.name} onLoadedMetadata={event=>{const duration=event.currentTarget.duration;if(Number.isFinite(duration)&&duration>0)setResourceDurations(current=>({...current,[resource.id]:duration}));}}/> : <Icon name={resource.kind === 'audio' ? 'audio' : 'video'}/>}</div>
+          <div className={styles.projectMeta}><strong>{resource.name}</strong><span>{resource.kind} · {formatBytes(resource.size)}{resource.kind==='video'?(resourceDurations[resource.id]?' · '+formatTime(resourceDurations[resource.id]):' · Reading duration…'):''}</span></div>
           <div className={styles.cardActions}><button type="button" aria-label={'Download ' + resource.name} title="Download" onClick={() => downloadBlob(resource.blob, resource.name)}><Icon name="download"/></button>
             <button type="button" aria-label={'Delete ' + resource.name} title="Remove" onClick={() => void deleteResource(resource)}><Icon name="trash"/></button></div>
         </article>)}</div>
