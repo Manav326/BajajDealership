@@ -366,6 +366,7 @@ export default function App() {
   const [partMinPrice, setPartMinPrice] = useState('');
   const [partMaxPrice, setPartMaxPrice] = useState('');
   const [partSort, setPartSort] = useState('CATEGORY');
+  const [partFiltersExpanded, setPartFiltersExpanded] = useState(false);
   const [retailOrders, setRetailOrders] = useState<RetailOrder[]>([]);
   const [retailCart, setRetailCart] = useState<CartLine[]>([]);
   const [fitmentModelCode, setFitmentModelCode] = useState('');
@@ -422,6 +423,7 @@ export default function App() {
     setPartAvailabilityFilter('ALL');
     setPartMinPrice('');
     setPartMaxPrice('');
+    setPartFiltersExpanded(false);
     setRetailOrders([]);
     setRetailCart([]);
     setRetailFulfillmentMethod('PICKUP');
@@ -1156,6 +1158,10 @@ export default function App() {
     );
   }
 
+  const activePartFilterCount = [
+    Boolean(partSearch.trim()), partCategoryFilter !== 'ALL', Boolean(partBikeTypeFilter),
+    Boolean(partModelFilter), partAvailabilityFilter !== 'ALL', Boolean(partMinPrice.trim()), Boolean(partMaxPrice.trim()),
+  ].filter(Boolean).length;
   const selectedTypeModelCodes = new Set(
     retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter)
       .map((model) => model.modelCode),
@@ -1366,17 +1372,35 @@ export default function App() {
               <div><h2>Bajaj spare-parts shop</h2><p>Browse common spare-part references across categories. Prices, exact OEM numbers and motorcycle compatibility are confirmed by Lucky Bajaj; items can only be ordered when the matching stock SKU is linked and sellable inventory is available.</p></div>
               <span className="section-mark">{displayedRetailParts.length} OF {retailParts.length} PARTS</span>
             </div>
-            <section className="retail-catalogue-filters glass-panel" aria-label="Filter spare parts">
-              <div className="retail-catalogue-search"><label htmlFor="retail-parts-search">Search by name or part reference</label><input id="retail-parts-search" value={partSearch} onChange={(event) => setPartSearch(event.target.value)} placeholder="e.g. brake shoe, oil filter, BGP-0001" /></div>
-              <div className="retail-catalogue-filter-grid">
-                <label>Part category<select value={partCategoryFilter} onChange={(event) => setPartCategoryFilter(event.target.value)}><option value="ALL">All categories</option>{retailPartFilters.categories.map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
-                <label>Motorcycle type<select value={partBikeTypeFilter} onChange={(event) => { setPartBikeTypeFilter(event.target.value); setPartModelFilter(''); }}><option value="">All motorcycle types</option>{[...new Set(retailPartFilters.motorcycleModels.map((model) => model.category))].sort().map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
-                <label>Motorcycle model<select value={partModelFilter} onChange={(event) => setPartModelFilter(event.target.value)}><option value="">All models</option>{retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter).map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}</select></label>
-                <label>Availability<select value={partAvailabilityFilter} onChange={(event) => setPartAvailabilityFilter(event.target.value)}><option value="ALL">Any status</option><option value="AVAILABLE">In stock and orderable</option><option value="OUT_OF_STOCK">Out of stock</option><option value="CHECK_WITH_DEALER">Check with dealership</option></select></label>
-                <label>Minimum price (₹)<input type="number" min="0" step="1" value={partMinPrice} onChange={(event) => setPartMinPrice(event.target.value)} placeholder="No minimum" /></label>
-                <label>Maximum price (₹)<input type="number" min="0" step="1" value={partMaxPrice} onChange={(event) => setPartMaxPrice(event.target.value)} placeholder="No maximum" /></label>
-                <label>Sort by<select value={partSort} onChange={(event) => setPartSort(event.target.value)}><option value="CATEGORY">Category, then name</option><option value="NAME">Name</option><option value="PRICE_LOW">Price: low to high</option><option value="PRICE_HIGH">Price: high to low</option></select></label>
-                <div className="retail-catalogue-filter-actions"><span>{displayedRetailParts.length} matching item(s)</span><button type="button" className="text-link" onClick={() => { setPartSearch(''); setPartCategoryFilter('ALL'); setPartModelFilter(''); setPartBikeTypeFilter(''); setPartAvailabilityFilter('ALL'); setPartMinPrice(''); setPartMaxPrice(''); setPartSort('CATEGORY'); }}>Clear filters</button></div>
+            <section className={`retail-catalogue-filters glass-panel${partFiltersExpanded ? ' is-expanded' : ''}`} aria-label="Filter spare parts">
+              <button
+                type="button"
+                className="retail-catalogue-filter-toggle"
+                aria-expanded={partFiltersExpanded}
+                aria-controls="retail-catalogue-filter-controls"
+                onClick={() => setPartFiltersExpanded((expanded) => !expanded)}
+              >
+                <span className="retail-catalogue-filter-toggle-copy">
+                  <strong>Filters &amp; sort</strong>
+                  <small>{activePartFilterCount ? `${activePartFilterCount} active · ` : 'All parts · '}{displayedRetailParts.length} matching</small>
+                </span>
+                <span className="retail-catalogue-filter-toggle-action">
+                  {partFiltersExpanded ? 'Hide filters' : 'Show filters'}
+                  <span aria-hidden="true">{partFiltersExpanded ? '−' : '+'}</span>
+                </span>
+              </button>
+              <div id="retail-catalogue-filter-controls" className="retail-catalogue-filter-controls" hidden={!partFiltersExpanded}>
+                <div className="retail-catalogue-search"><label htmlFor="retail-parts-search">Search by name or part reference</label><input id="retail-parts-search" value={partSearch} onChange={(event) => setPartSearch(event.target.value)} placeholder="e.g. brake shoe, oil filter, BGP-0001" /></div>
+                <div className="retail-catalogue-filter-grid">
+                  <label>Part category<select value={partCategoryFilter} onChange={(event) => setPartCategoryFilter(event.target.value)}><option value="ALL">All categories</option>{retailPartFilters.categories.map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                  <label>Motorcycle type<select value={partBikeTypeFilter} onChange={(event) => { setPartBikeTypeFilter(event.target.value); setPartModelFilter(''); }}><option value="">All motorcycle types</option>{[...new Set(retailPartFilters.motorcycleModels.map((model) => model.category))].sort().map((category) => <option key={category} value={category}>{pretty(category)}</option>)}</select></label>
+                  <label>Motorcycle model<select value={partModelFilter} onChange={(event) => setPartModelFilter(event.target.value)}><option value="">All models</option>{retailPartFilters.motorcycleModels.filter((model) => !partBikeTypeFilter || model.category === partBikeTypeFilter).map((model) => <option key={model.modelCode} value={model.modelCode}>{model.modelName}</option>)}</select></label>
+                  <label>Availability<select value={partAvailabilityFilter} onChange={(event) => setPartAvailabilityFilter(event.target.value)}><option value="ALL">Any status</option><option value="AVAILABLE">In stock and orderable</option><option value="OUT_OF_STOCK">Out of stock</option><option value="CHECK_WITH_DEALER">Check with dealership</option></select></label>
+                  <label>Minimum price (₹)<input type="number" min="0" step="1" value={partMinPrice} onChange={(event) => setPartMinPrice(event.target.value)} placeholder="No minimum" /></label>
+                  <label>Maximum price (₹)<input type="number" min="0" step="1" value={partMaxPrice} onChange={(event) => setPartMaxPrice(event.target.value)} placeholder="No maximum" /></label>
+                  <label>Sort by<select value={partSort} onChange={(event) => setPartSort(event.target.value)}><option value="CATEGORY">Category, then name</option><option value="NAME">Name</option><option value="PRICE_LOW">Price: low to high</option><option value="PRICE_HIGH">Price: high to low</option></select></label>
+                  <div className="retail-catalogue-filter-actions"><span>{displayedRetailParts.length} matching item(s)</span><button type="button" className="text-link" onClick={() => { setPartSearch(''); setPartCategoryFilter('ALL'); setPartModelFilter(''); setPartBikeTypeFilter(''); setPartAvailabilityFilter('ALL'); setPartMinPrice(''); setPartMaxPrice(''); setPartSort('CATEGORY'); }}>Clear filters</button></div>
+                </div>
               </div>
             </section>
             <div className="retail-shop-layout">
