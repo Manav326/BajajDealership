@@ -36,6 +36,8 @@ jobs:
           filters: |
             android:
               - 'apps/android/**'
+              - 'scripts/test-android-maestro.ps1'
+              - 'scripts/android-fetch-latest-apk.ps1'
               - '.github/workflows/ci.yml'
             liquid_glass:
               - 'apps/android-liquid-glass/**'
