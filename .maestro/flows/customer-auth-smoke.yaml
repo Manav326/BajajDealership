@@ -1,0 +1,26 @@
+appId: com.quantaedge.luckybajaj
+---
+# Smoke-test the real native app UI only; this flow never submits credentials or contacts a customer.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "LUCKY BAJAJ"
+    timeout: 30000
+- assertVisible: "A QuantaEdge customer experience"
+- assertVisible: "CUSTOMER CARE, CONNECTED"
+- assertVisible: "Every ride deserves"
+- assertVisible: "Sign in"
+- assertVisible: "Activate account"
+- assertVisible: "Dealership code"
+- assertVisible: "Customer code"
+- assertVisible: "Password"
+- assertVisible: "Sign in securely"
+- tapOn: "Activate account"
+- assertVisible: "One-time activation token"
+- assertVisible: "Create password (12+ characters)"
+- assertVisible: "Confirm password"
+- assertVisible: "Activate my account"
+- tapOn: "Sign in"
+- assertVisible: "Dealership code"
+- assertVisible: "Customer code"
+- assertVisible: "Sign in securely"
