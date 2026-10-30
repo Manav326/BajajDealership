@@ -204,6 +204,7 @@ try {
 
     $downloadedApk = $null
     $sourceRun = $null
+    $sourceRunDir = $null
     foreach ($run in $candidates) {
         $runDir = Join-Path $tempDir ([string]$run.databaseId)
         $null = New-Item -ItemType Directory -Path $runDir -Force
@@ -218,6 +219,7 @@ try {
             if ($apkFiles.Count -eq 1) {
                 $downloadedApk = $apkFiles[0]
                 $sourceRun = $run
+                $sourceRunDir = $runDir
                 break
             }
             Write-Status ("Run {0} did not contain exactly one plausible app-debug.apk; checking an older successful run." -f $run.databaseId) "Yellow"
@@ -279,6 +281,34 @@ try {
         }
     }
 
+    # CI places this sidecar beside the APK so consumers can verify which backend
+    # was compiled into the application. Older retained artifacts may not have it.
+    $buildMetadata = $null
+    $buildMetadataFiles = @(
+        Get-ChildItem -LiteralPath $sourceRunDir -Filter "build-metadata.json" -File -Recurse -ErrorAction SilentlyContinue
+    )
+    if ($buildMetadataFiles.Count -gt 1) {
+        Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+        throw "The downloaded CI artifact contains more than one build-metadata.json file."
+    }
+    if ($buildMetadataFiles.Count -eq 1) {
+        try {
+            $buildMetadata = Get-Content -LiteralPath $buildMetadataFiles[0].FullName -Raw | ConvertFrom-Json
+        } catch {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw ("The Android CI build metadata is invalid: {0}" -f $_.Exception.Message)
+        }
+        if ($buildMetadata.packageName -and $buildMetadata.packageName -ne $PackageName) {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw ("The build metadata package is '{0}', expected '{1}'." -f $buildMetadata.packageName, $PackageName)
+        }
+        if ($buildMetadata.commitSha -and $buildMetadata.commitSha -ne $sourceRun.headSha) {
+            Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+            throw "The Android APK and build metadata refer to different source commits."
+        }
+    }
+    $compiledApiBaseUrl = if ($buildMetadata) { [string]$buildMetadata.apiBaseUrl } else { $null }
+
     $artifactName = "lucky-bajaj-android-debug-apk-$($sourceRun.headSha)"
     $metadata = [ordered]@{
         repository = $Repository
@@ -293,6 +323,7 @@ try {
         runCreatedAt = [string]$sourceRun.createdAt
         downloadedAtUtc = [DateTime]::UtcNow.ToString("o")
         packageName = $PackageName
+        apiBaseUrl = $compiledApiBaseUrl
         sizeBytes = [long]$apkInfo.Length
         sha256 = $apkHash
         signingCertificateSha1 = $signingSha1
