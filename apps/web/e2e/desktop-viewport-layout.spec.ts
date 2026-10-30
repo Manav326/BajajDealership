@@ -115,5 +115,5 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
   expect(scrollState.windowX).toBe(0);
   expect(scrollState.windowY).toBe(0);
   expect(scrollState.workspaceOverflowX).toBe('hidden');
-  expect(scrollState.topbarTop).toBe(0);
+  expect(geometry.topbarTop).toBe(0);
 });
