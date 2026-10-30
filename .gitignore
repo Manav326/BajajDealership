@@ -25,3 +25,7 @@ apps/android/ios/
 apps/web/playwright-report/
 apps/web/test-results/
 .expo/
+
+# Local physical-device Maestro credentials and generated reports
+apps/android/.maestro/local.env
+apps/android/maestro-results/

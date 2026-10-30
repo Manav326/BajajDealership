@@ -1,0 +1,13 @@
+appId: com.quantaedge.luckybajaj
+name: Notification rich content image and CTA
+tags:
+  - authenticated
+  - notification-fixture
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Updates"
+- assertVisible: "Dealership updates"
+- assertVisible: ${MAESTRO_NOTIFICATION_TITLE}
+- assertVisible: ${MAESTRO_NOTIFICATION_IMAGE_ALT}
+- tapOn: ${MAESTRO_NOTIFICATION_CTA_LABEL}
+- assertVisible: ${MAESTRO_NOTIFICATION_DESTINATION_HEADING}

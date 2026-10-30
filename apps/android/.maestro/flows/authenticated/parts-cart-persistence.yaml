@@ -1,0 +1,27 @@
+appId: com.quantaedge.luckybajaj
+name: Parts cart persists after app restart
+tags:
+  - authenticated
+  - parts
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Parts"
+- extendedWaitUntil:
+    visible: "Genuine parts & accessories"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "Add to cart"
+    timeout: 20000
+- tapOn: "Add to cart"
+- tapOn: "More"
+- tapOn: "Shopping cart"
+- assertVisible: "Shopping cart"
+- assertVisible: "Estimated parts subtotal"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Your motorcycles, service visits, requests and dealership updates—all in one place."
+    timeout: 30000
+- tapOn: "More"
+- tapOn: "Shopping cart"
+- assertVisible: "Estimated parts subtotal"

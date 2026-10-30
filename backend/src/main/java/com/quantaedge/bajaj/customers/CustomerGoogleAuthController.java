@@ -28,8 +28,13 @@ public class CustomerGoogleAuthController {
   @GetMapping("/google/config")
   public ResponseEntity<Map<String, Object>> config() {
     String clientId = identities.publicClientId();
+    String androidClientId = identities.publicAndroidClientId();
     return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-        .body(Map.of("configured", !clientId.isBlank(), "clientId", clientId));
+        .body(Map.of(
+            "configured", !clientId.isBlank(),
+            "clientId", clientId,
+            "androidConfigured", !androidClientId.isBlank(),
+            "androidClientId", androidClientId));
   }
 
   @PostMapping("/google")

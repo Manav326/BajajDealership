@@ -1,0 +1,15 @@
+appId: com.quantaedge.luckybajaj
+name: Customer notification read unread and dismiss
+tags:
+  - authenticated
+  - notification-fixture
+---
+- runFlow: ../../subflows/customer-login.yaml
+- tapOn: "Updates"
+- assertVisible: ${MAESTRO_NOTIFICATION_ACTION_TITLE}
+- tapOn: "Mark read"
+- assertVisible: "Mark unread"
+- tapOn: "Mark unread"
+- assertVisible: "Mark read"
+- tapOn: "Dismiss"
+- assertNotVisible: ${MAESTRO_NOTIFICATION_ACTION_TITLE}

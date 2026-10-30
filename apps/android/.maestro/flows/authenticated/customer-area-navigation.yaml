@@ -1,0 +1,24 @@
+appId: com.quantaedge.luckybajaj
+name: Authenticated customer area navigation
+tags:
+  - authenticated
+  - regression
+---
+- runFlow: ../../subflows/customer-login.yaml
+- assertVisible: "Your motorcycles, service visits, requests and dealership updates—all in one place."
+- tapOn: "My bikes"
+- assertVisible: "My motorcycles"
+- tapOn: "Parts"
+- assertVisible: "Genuine parts & accessories"
+- tapOn: "Updates"
+- assertVisible: "Dealership updates"
+- tapOn: "More"
+- assertVisible: "More customer features"
+- tapOn: "My profile"
+- assertVisible: "My profile"
+- tapOn: "More"
+- tapOn: "Saved addresses"
+- assertVisible: "Saved addresses"
+- tapOn: "More"
+- tapOn: "Service history"
+- assertVisible: "Service history"
