@@ -36,6 +36,15 @@ public class StaffAuthenticationService {
     this.dummyPasswordHash = passwordEncoder.encode("unused-dummy-password-" + java.util.UUID.randomUUID());
   }
 
+  /**
+   * Preserve the service API used by browser clients and existing integration tests.
+   * Only the packaged desktop client supplies an installation identity.
+   */
+  public IssuedSession login(
+      String dealershipCode, String loginIdentifier, String password, String remoteAddress, String userAgent) {
+    return login(dealershipCode, loginIdentifier, password, remoteAddress, userAgent, null, null);
+  }
+
   public IssuedSession login(
       String dealershipCode, String loginIdentifier, String password, String remoteAddress, String userAgent,
       String desktopInstallationId, String desktopAppVersion) {
