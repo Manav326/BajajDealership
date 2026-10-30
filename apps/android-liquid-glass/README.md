@@ -64,12 +64,12 @@ CI builds an independent installable Liquid Glass debug APK whenever `apps/andro
 Run this from the repository root after `git pull origin main`:
 
 ```powershell
-.\scripts\android-fetch-latest-apk.ps1
+.\scripts\android-lg-fetch-latest-apk.ps1
 ```
 
-Prerequisites: GitHub CLI (`gh auth login`), Android SDK Platform-Tools (`adb`), and an authorized USB or Wireless debugging connection. The script finds the newest successful `main` CI run containing an APK, downloads it to `artifacts/lucky-bajaj-latest.apk`, then prompts before installing. It skips successful runs without a new Android artifact, so commits that only change the web/backend do not stop APK downloads.
+Prerequisites: GitHub CLI (`gh auth login`), Android SDK Platform-Tools (`adb`), and an authorized USB or Wireless debugging connection. The script finds the newest successful `main` CI run containing an APK, downloads it to `artifacts/lucky-bajaj-liquid-glass-latest.apk`, then prompts before installing. It skips successful runs without a new Android artifact, so commits that only change the web/backend do not stop APK downloads.
 
-Use `-DownloadOnly` to download without installing, or `-DeviceSerial <adb-serial>` to choose a specific phone. It installs with `adb install -r`, which updates the app without clearing its local data. It never uninstalls automatically after a signature mismatch.
+Use `-DownloadOnly` to download without installing, or `-DeviceSerial <adb-serial>` to choose a specific phone. It installs with `adb install -r`, which updates the app without clearing its local data. It never uninstalls automatically after a signature mismatch. The download/install script targets only package `com.quantaedge.luckybajajlg`; the Standard Edition remains installed separately. The local Maestro runner rebuilds with this PC's Android debug keystore. Android cannot update an installation signed by a different key; the runner will not uninstall automatically, because that would erase this edition's local app data.
 
 
 ## Release limitations
@@ -101,22 +101,22 @@ The normal test target is a **physical Android phone on the same Wi-Fi/LAN as th
 
 ```powershell
 # Public showroom + login/activation entry screens
-.\scripts\test-android-maestro.ps1 -Suite Public
+.\scripts\test-android-liquid-glass-maestro.ps1 -Suite Public
 
 # Authenticated account navigation + customer inbox
-.\scripts\test-android-maestro.ps1 -Suite Authenticated
+.\scripts\test-android-liquid-glass-maestro.ps1 -Suite Authenticated
 
 # Authenticated notification tests; requires the notification fixtures below
-.\scripts\test-android-maestro.ps1 -Suite Notifications
+.\scripts\test-android-liquid-glass-maestro.ps1 -Suite Notifications
 
 # All suites
-.\scripts\test-android-maestro.ps1 -Suite All
+.\scripts\test-android-liquid-glass-maestro.ps1 -Suite All
 
 # Override the saved LAN address if the PC/router IP changes
-.\scripts\test-android-maestro.ps1 -LanIp 192.168.31.47 -Suite All
+.\scripts\test-android-liquid-glass-maestro.ps1 -LanIp 192.168.31.47 -Suite All
 ```
 
-The runner detects the single connected physical Android device, verifies the local API health endpoint, installs or updates a debug APK built with `http://192.168.31.47:8080/`, runs the selected Maestro flows and saves JUnit XML plus screenshots/debug output under `apps/android/maestro-results/<timestamp>/`. It refuses to silently test an emulator or hosted API. When multiple phones are connected, pass `-DeviceId <adb-serial>`.
+The runner detects the single connected physical Android device, verifies the local API health endpoint, installs or updates a debug APK built with `http://192.168.31.47:8080/`, runs the selected Maestro flows and saves JUnit XML plus screenshots/debug output under `apps/android-liquid-glass/maestro-results/<timestamp>/`. It refuses to silently test an emulator or hosted API. When multiple phones are connected, pass `-DeviceId <adb-serial>`.
 
 ### Notification test data
 
@@ -135,7 +135,7 @@ The notification title, image alt text, CTA label and destination heading must m
 
 Maestro is end-to-end UI coverage, not source-code line coverage. The current suite contains 10 runnable flows plus one shared login subflow. It exercises the public showroom and search, login/activation entry, authenticated navigation, profile/address/service screens, service appointment request and cancellation, parts cart persistence across app restart, portrait/landscape layout adaptation, inbox unread filtering, rich notification rendering, CTA navigation, notification read/unread/dismiss, customer-authorized image loading and page-2 pagination. Three notification fixture flows require the sent campaigns described above. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
 
-The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
+The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination. The Liquid Glass runner installs and tests only package `com.quantaedge.luckybajajlg`; reports and screenshots are saved under `apps/android-liquid-glass/maestro-results/`.
 
 
 ## Liquid Glass implementation
