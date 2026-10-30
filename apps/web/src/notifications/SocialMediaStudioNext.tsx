@@ -305,6 +305,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [scheduleAt, setScheduleAt] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const metaConnectButtonRef = useRef<HTMLButtonElement | null>(null);
+  const metaConsentDialogRef = useRef<HTMLElement | null>(null);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -339,7 +340,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const focusFrame = window.requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>('#meta-consent-dialog [data-consent-initial-focus]')?.focus({ preventScroll: true });
+      metaConsentDialogRef.current?.focus({ preventScroll: true });
     });
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -355,10 +356,10 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       if (!focusable?.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
         event.preventDefault();
         first.focus();
       }
@@ -619,7 +620,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       </section>}
     </main>
     {metaConsentOpen && <div className={styles.consentBackdrop}>
-      <section className={styles.consentDialog} id="meta-consent-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description">
+      <section ref={metaConsentDialogRef} className={styles.consentDialog} id="meta-consent-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description" tabIndex={-1}>
         <div className={styles.consentHeading}>
           <span className={styles.consentMark} aria-hidden="true"><Icon name="link"/></span>
           <div><h2 id="meta-consent-title">Connect Facebook and Instagram?</h2><p>Authorize the dealership's social accounts</p></div>
@@ -642,7 +643,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         </details>
         <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. Meta will ask you to approve its permissions separately. You can cancel here or decline on Meta's authorization screen.</p>
         <div className={styles.consentActions}>
-          <button type="button" data-consent-initial-focus autoFocus onClick={closeMetaConsent}>Not now</button>
+          <button type="button" onClick={closeMetaConsent}>Not now</button>
           <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
         </div>
       </section>
