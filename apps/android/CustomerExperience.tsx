@@ -87,29 +87,134 @@ const TERMS_SECTIONS = [
     'For help with a request, vehicle record, service appointment or order, contact Lucky Bajaj Agency through the dealership channel handling that request. These terms do not remove rights that apply under relevant law.',
   ]},
 ];
-function NotificationContent({ raw }: { raw: string }) {
+function NotificationContent({ raw, token, onNavigate }: { raw: string; token: string; onNavigate: (screen: Screen) => void }) {
   let blocks: Array<Record<string, unknown>> = [];
   try {
-    const doc = JSON.parse(raw || '{}') as { blocks?: unknown; content?: unknown };
+    const doc = JSON.parse(raw || '{}') as { version?: unknown; blocks?: unknown; content?: unknown };
     const source = Array.isArray(doc.blocks) ? doc.blocks : Array.isArray(doc.content) ? doc.content : [];
     blocks = source.filter((block): block is Record<string, unknown> => typeof block === 'object' && block !== null);
   } catch { return <Text style={S.meta}>This update contains a message from the dealership.</Text>; }
-  return <View style={{ gap: 8 }}>
-    {blocks.map((block, index) => {
+
+  const textOf = (block: Record<string, unknown>, key: string, fallback = '') =>
+    typeof block[key] === 'string' ? String(block[key]) : fallback;
+  const imageFor = (block: Record<string, unknown>, key: string, height = 180) => {
+    const assetId = textOf(block, 'assetId').trim();
+    if (!assetId || !token) return null;
+    return <Image
+      accessible
+      accessibilityLabel={textOf(block, 'alt', textOf(block, 'title', 'Dealership image'))}
+      source={{
+        uri: path('/api/v1/customer/notifications/media/' + encodeURIComponent(assetId)),
+        headers: { Authorization: 'Bearer ' + token },
+      }}
+      resizeMode="cover"
+      style={{ width: '100%', height, borderRadius: 12, backgroundColor: C.canvas }}
+    />;
+  };
+  const resolveTarget = (value: string): (() => void) | null => {
+    const target = value.trim();
+    if (!target) return null;
+    if (target.startsWith('/') && !target.startsWith('//') && !target.includes('\\\\')
+      && !target.split('/').some(segment => segment === '..')) {
+      const routePath = (target.split(/[?#]/, 1)[0] || '/').replace(/\\/+$/, '') || '/';
+      const routes: Record<string, Screen> = {
+        '/': 'home',
+        '/home': 'home',
+        '/vehicles': 'garage',
+        '/garage': 'garage',
+        '/service-history': 'service',
+        '/service': 'service',
+        '/appointments': 'appointments',
+        '/profile': 'profile',
+        '/addresses': 'addresses',
+        '/purchases': 'purchases',
+        '/orders': 'purchases',
+        '/requests': 'requests',
+        '/test-rides': 'requests',
+        '/parts': 'parts',
+        '/cart': 'cart',
+        '/notifications': 'updates',
+        '/updates': 'updates',
+      };
+      const route = routes[routePath];
+      return route ? () => onNavigate(route) : null;
+    }
+    try {
+      const url = new URL(target);
+      if (url.protocol === 'https:' && !url.username && !url.password) {
+        return () => { void Linking.openURL(url.toString()).catch(() => undefined); };
+      }
+    } catch { /* Unsupported destination: never pass an unsafe URL to Linking. */ }
+    return null;
+  };
+
+  const renderBlocks = (items: Array<Record<string, unknown>>, parentKey = 'notice'): ReactNode[] =>
+    items.map((block, index) => {
+      const key = parentKey + '-' + index;
       const type = String(block.type || '');
-      const text = (key: string) => typeof block[key] === 'string' ? String(block[key]) : '';
-      if (type === 'hero') return <View key={index} style={S.innerCard}><Text style={S.eyebrow}>{text('eyebrow')}</Text><Text style={S.cardTitle}>{text('title')}</Text><Text style={S.body}>{text('subtitle')}</Text></View>;
-      if (type === 'richText' || ['paragraph','text','heading','title','quote','listItem'].includes(type)) return text('text') || text('body') ? <Text key={index} style={type === 'heading' || type === 'title' ? S.cardTitle : S.body}>{text('text') || text('body')}</Text> : null;
-      if (type === 'serviceCard' || type === 'vehicleCard' || type === 'icon') return <View key={index} style={S.innerCard}><Text style={S.cardTitle}>{[text('icon'), text('title')].filter(Boolean).join(' ')}</Text><Text style={S.body}>{text('description') || text('text')}</Text></View>;
-      if (type === 'highlight') return <View key={index} style={S.innerCard}><Text style={S.meta}>{text('label')}</Text><Text style={S.price}>{text('value')}</Text><Text style={S.body}>{text('description')}</Text></View>;
-      if (type === 'badge') return <Pill key={index} label={text('text') || 'Dealership update'} tone="warning"/>;
-      if (type === 'image') return <View key={index} style={S.innerCard}><Text style={S.meta}>{text('caption') || text('alt') || 'Image included in dealership update'}</Text></View>;
-      if (type === 'footer') return <Text key={index} style={S.meta}>{text('text')}</Text>;
-      if (type === 'divider') return <View key={index} style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }}/>;
-      if (type === 'button' && text('url')) return <Button key={index} small secondary label={text('text') || 'Open update link'} onPress={() => { const url = text('url'); if (/^https:\/\//i.test(url)) void Linking.openURL(url); }}/>;
-      return null;
-    })}
-  </View>;
+      const text = (name: string, fallback = '') => textOf(block, name, fallback);
+      const action = resolveTarget(text('target'));
+      const childrenSource = Array.isArray(block.blocks) ? block.blocks : Array.isArray(block.items) ? block.items : [];
+      const children = childrenSource.filter((item): item is Record<string, unknown> =>
+        typeof item === 'object' && item !== null);
+
+      if (type === 'hero') return <View key={key} style={S.innerCard}>
+        {text('eyebrow') ? <Text style={S.eyebrow}>{text('eyebrow')}</Text> : null}
+        {imageFor(block, key, 190)}
+        <Text style={S.cardTitle}>{text('title', 'Your dealership update')}</Text>
+        {text('subtitle') ? <Text style={S.body}>{text('subtitle')}</Text> : null}
+      </View>;
+      if (type === 'richText' || ['paragraph', 'text', 'heading', 'title', 'quote', 'listItem'].includes(type)) {
+        const body = text('text') || text('body');
+        if (!body) return null;
+        return <Text key={key} style={type === 'heading' || type === 'title' ? S.cardTitle : S.body}>{body}</Text>;
+      }
+      if (type === 'image' || type === 'animation') return <View key={key} style={S.innerCard}>
+        {imageFor(block, key, 200) || <Text style={S.meta}>Image will appear when it is available to your customer account.</Text>}
+        {text('caption') ? <Text style={S.meta}>{text('caption')}</Text> : null}
+      </View>;
+      if (type === 'video') return <View key={key} style={S.innerCard}>
+        <Text style={S.meta}>{text('caption') || 'Video content is not available in this app version.'}</Text>
+      </View>;
+      if (type === 'serviceCard' || type === 'vehicleCard' || type === 'courseCard' || type === 'eventCard') {
+        const title = text('title', text('modelName', text('courseName', 'Details')));
+        return <View key={key} style={S.innerCard}>
+          <Text style={S.eyebrow}>{type === 'vehicleCard' ? 'VEHICLE' : type === 'serviceCard' ? 'SERVICE UPDATE' : type === 'eventCard' ? 'APPOINTMENT' : 'DETAILS'}</Text>
+          <Text style={S.cardTitle}>{title}</Text>
+          {text('description') ? <Text style={S.body}>{text('description')}</Text> : null}
+          {text('buttonLabel') && action ? <Button small secondary label={text('buttonLabel')} onPress={action}/> : null}
+        </View>;
+      }
+      if (type === 'cta') return action
+        ? <Button key={key} label={text('label', 'Open details')} onPress={action}/>
+        : null;
+      if (type === 'button') {
+        const buttonAction = resolveTarget(text('url'));
+        return buttonAction ? <Button key={key} small secondary label={text('text', 'Open update link')} onPress={buttonAction}/> : null;
+      }
+      if (type === 'highlight') return <View key={key} style={S.innerCard}>
+        <Text style={S.meta}>{text('label')}</Text>
+        <Text style={S.price}>{text('value')}</Text>
+        {text('description') ? <Text style={S.body}>{text('description')}</Text> : null}
+      </View>;
+      if (type === 'badge') return <Pill key={key} label={text('text', 'Dealership update')} tone="warning"/>;
+      if (type === 'icon') return <View key={key} style={S.innerCard}>
+        <Text style={S.cardTitle}>{[text('icon'), text('title')].filter(Boolean).join(' ')}</Text>
+        {text('text') ? <Text style={S.body}>{text('text')}</Text> : null}
+      </View>;
+      if (type === 'spacer') {
+        const height = Math.min(96, Math.max(4, Number(block.height) || 16));
+        return <View key={key} style={{ height }}/>;
+      }
+      if (type === 'divider') return <View key={key} style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }}/>;
+      if (type === 'footer') return <Text key={key} style={S.meta}>{text('text')}</Text>;
+      if (type === 'container' || type === 'carousel') return <View key={key} style={S.innerCard}>
+        <View style={{ gap: 8 }}>{renderBlocks(children, key)}</View>
+      </View>;
+      return <Text key={key} style={S.meta}>This update contains a content type that this app version cannot display.</Text>;
+    });
+
+  return <View style={{ gap: 8 }}>{renderBlocks(blocks)}</View>;
 }
 function LegalScreen({ kind, onNavigate }: { kind: 'privacy' | 'terms'; onNavigate: (screen: Screen) => void }) {
   const isPrivacy = kind === 'privacy';
@@ -209,7 +314,7 @@ export default function CustomerExperience() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [history, setHistory] = useState<Service[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [notifications, setNotifications] = useState<NoticePage>({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+  const [notifications, setNotifications] = useState<NoticePage>({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
   const [requests, setRequests] = useState<SalesRequest[]>([]);
   const [pendingIntent, setPendingIntent] = useState<Intent | null>(null);
   const [pendingIntentError, setPendingIntentError] = useState('');
@@ -247,7 +352,7 @@ export default function CustomerExperience() {
   const [loading, setLoading] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);\n  const [loadingMoreNotices, setLoadingMoreNotices] = useState(false);\n  const [noticeUnreadOnly, setNoticeUnreadOnly] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -305,7 +410,7 @@ export default function CustomerExperience() {
     await AsyncStorage.removeItem(TOKEN_KEY).catch(() => undefined);
     await AsyncStorage.removeItem(PENDING_KEY).catch(() => undefined);
     setToken(''); setCustomer(null); setVehicles([]); setHistory([]); setAppointments([]);
-    setNotifications({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
+    setNotifications({ items: [], page: 0, pageSize: 25, total: 0, unreadCount: 0 });
     setRequests([]); setPendingIntent(null); setPendingIntentError(''); setParts([]); setOrders([]); setPurchases([]); setAddresses([]); setCart([]);
   }, []);
 
@@ -314,7 +419,7 @@ export default function CustomerExperience() {
     const routes = [
       ['/api/v1/customer/auth/me', 'customer'], ['/api/v1/customer/vehicles', 'vehicles'],
       ['/api/v1/customer/service-history', 'history'], ['/api/v1/customer/appointments', 'appointments'],
-      ['/api/v1/customer/notifications?page=0&pageSize=50', 'notifications'], ['/api/v1/customer/sales-requests', 'requests'],
+      ['/api/v1/customer/notifications?page=0&pageSize=25', 'notifications'], ['/api/v1/customer/sales-requests', 'requests'],
       ['/api/v1/customer/parts', 'parts'], ['/api/v1/customer/parts/orders', 'orders'],
       ['/api/v1/customer/parts/filters', 'filters'], ['/api/v1/customer/addresses', 'addresses'],
       ['/api/v1/customer/purchase-history/motorcycles', 'purchases'],
@@ -651,8 +756,52 @@ export default function CustomerExperience() {
   }
 
   async function updateNotice(item: Notice, action: 'read' | 'unread' | 'dismiss') {
-    try { await api('/api/v1/customer/notifications/' + item.recipientPublicId + '/' + action, token, { method: 'POST' }); setNotifications(await api<NoticePage>('/api/v1/customer/notifications?page=0&pageSize=50', token)); notify(action === 'dismiss' ? 'Update dismissed.' : action === 'read' ? 'Marked as read.' : 'Marked as unread.', true); }
-    catch (cause) { notify(cause instanceof Error ? cause.message : 'Update could not be changed.'); }
+    try {
+      await api('/api/v1/customer/notifications/' + item.recipientPublicId + '/' + action, token, { method: 'POST' });
+      const wasUnread = !item.readAt;
+      const removeFromList = action === 'dismiss' || (noticeUnreadOnly && action === 'read');
+      setNotifications(current => ({
+        ...current,
+        items: removeFromList
+          ? current.items.filter(notice => notice.recipientPublicId !== item.recipientPublicId)
+          : current.items.map(notice => notice.recipientPublicId === item.recipientPublicId
+            ? { ...notice, readAt: action === 'read' ? new Date().toISOString() : null, status: action === 'read' ? 'READ' : 'IN_APP_CREATED' }
+            : notice),
+        total: removeFromList ? Math.max(0, current.total - 1) : current.total,
+        unreadCount: Math.max(0, current.unreadCount + (action === 'dismiss' ? (wasUnread ? -1 : 0) : action === 'read' ? -1 : 1)),
+      }));
+      notify(action === 'dismiss' ? 'Update dismissed.' : action === 'read' ? 'Marked as read.' : 'Marked as unread.', true);
+    } catch (cause) { notify(cause instanceof Error ? cause.message : 'Update could not be changed.'); }
+  }
+
+  async function loadMoreNotices() {
+    if (loadingMoreNotices || notifications.items.length >= notifications.total) return;
+    setLoadingMoreNotices(true);
+    try {
+      const nextPage = notifications.page + 1;
+      const query = '/api/v1/customer/notifications?page=' + nextPage
+        + '&pageSize=' + notifications.pageSize + '&unreadOnly=' + String(noticeUnreadOnly);
+      const next = await api<NoticePage>(query, token);
+      setNotifications(current => ({
+        ...next,
+        items: [...current.items, ...next.items.filter(item =>
+          !current.items.some(existing => existing.recipientPublicId === item.recipientPublicId))],
+      }));
+    } catch (cause) { notify(cause instanceof Error ? cause.message : 'More updates could not be loaded.'); }
+    finally { setLoadingMoreNotices(false); }
+  }
+
+  async function toggleNoticeFilter() {
+    const nextFilter = !noticeUnreadOnly;
+    setNoticeUnreadOnly(nextFilter);
+    try {
+      const page = await api<NoticePage>(
+        '/api/v1/customer/notifications?page=0&pageSize=25&unreadOnly=' + String(nextFilter), token);
+      setNotifications(page);
+    } catch (cause) {
+      setNoticeUnreadOnly(!nextFilter);
+      notify(cause instanceof Error ? cause.message : 'The inbox filter could not be changed.');
+    }
   }
 
   function addCart(part: Part, delta: number) {
@@ -835,7 +984,24 @@ export default function CustomerExperience() {
 
     if (screen === 'cart') return <><Heading title="Shopping cart" subtitle={cartCount + ' units · parts order request only'}/>{cart.length ? <Card>{cart.map(line => { const p = parts.find(v => v.publicId === line.partPublicId); if (!p) return null; return <View key={line.partPublicId} style={S.listRow}><View style={S.flex}><Text style={S.cardTitle}>{p.partName}</Text><Text style={S.meta}>{money(p.retailPrice)} each · {p.unitOfMeasure}</Text><Text style={S.cardTitle}>{money((p.retailPrice || 0) * line.quantity)}</Text></View><View style={S.qty}><Button label="−" secondary small onPress={() => addCart(p, -1)}/><Text style={S.cardTitle}>{line.quantity}</Text><Button label="+" secondary small onPress={() => addCart(p, 1)}/></View></View>; })}<View style={S.rowBetween}><Text style={S.cardTitle}>Estimated parts subtotal</Text><Text style={S.price}>{money(cartTotal)}</Text></View><Text style={S.meta}>Delivery fees and final availability are confirmed by Lucky Bajaj. No online payment is taken here.</Text><Text style={S.label}>Motorcycle for fitment checking</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{partFilters.motorcycleModels.map(m => <Pressable key={m.modelCode} onPress={() => setFitmentModel(m.modelCode)} style={[S.chip, fitmentModel === m.modelCode && S.chipSelected]}><Text style={S.chipText}>{m.modelName}</Text></Pressable>)}</ScrollView><Text style={S.label}>Fulfilment</Text><View style={S.wrapRow}><Button label="Pickup" secondary={fulfilment !== 'PICKUP'} onPress={() => setFulfilment('PICKUP')} small/><Button label="Delivery" secondary={fulfilment !== 'DELIVERY'} onPress={() => setFulfilment('DELIVERY')} small/></View>{fulfilment === 'DELIVERY' ? <><Text style={S.label}>Saved delivery address</Text>{addresses.map(a => <Pressable key={a.publicId} onPress={() => setDeliveryAddress(addressText(a))} style={[S.option, deliveryAddress === addressText(a) && S.optionActive]}><Text style={S.cardTitle}>{a.label}{a.isDefaultDelivery ? ' · Default' : ''}</Text><Text style={S.meta}>{addressText(a)}</Text></Pressable>)}<Field label="Or enter a delivery address" value={deliveryAddress} onChangeText={setDeliveryAddress} multiline/></> : null}<Field label="Note to dealership (optional)" value={orderNote} onChangeText={setOrderNote} multiline placeholder="Anything the parts team should know?"/><Button label={saving ? 'Placing request…' : 'Place parts order'} disabled={saving || !cart.length} onPress={() => void placeOrder()}/></Card> : <Card><Empty title="Your cart is empty" copy="Add available parts to build your order, then confirm pickup or delivery."/><Button label="Browse parts" onPress={() => setScreen('parts')}/></Card>}</>;
 
-    if (screen === 'updates') return <><Heading title="Dealership updates" subtitle={notifications.unreadCount + ' unread updates'}/>{notifications.items.length ? notifications.items.map(n => <Card key={n.recipientPublicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{n.title}</Text>{!n.readAt ? <Pill label="NEW" tone="warning"/> : null}</View><Text style={S.body}>{n.summary}</Text><Text style={S.meta}>{n.senderName} · {dateTime(n.createdAt)}</Text><NotificationContent raw={n.contentDocumentJson}/><View style={S.wrapRow}><Button label={n.readAt ? 'Mark unread' : 'Mark read'} secondary small onPress={() => void updateNotice(n, n.readAt ? 'unread' : 'read')}/><Button label="Dismiss" secondary small onPress={() => void updateNotice(n, 'dismiss')}/></View></Card>) : <Card><Empty title="No notifications yet" copy="Service reminders and messages sent to your customer account will appear here."/></Card>}</>;
+    if (screen === 'updates') return <>
+      <Heading title="Dealership updates" subtitle={notifications.unreadCount + ' unread updates'}/>
+      <View style={S.wrapRow}>
+        <Button small secondary label={noticeUnreadOnly ? 'Show all updates' : 'Unread only'} onPress={() => void toggleNoticeFilter()}/>
+        <Text style={S.meta}>{notifications.items.length} of {notifications.total} loaded</Text>
+      </View>
+      {notifications.items.length ? notifications.items.map(n => <Card key={n.recipientPublicId}>
+        <View style={S.rowBetween}><Text style={S.cardTitle}>{n.title}</Text>{!n.readAt ? <Pill label="NEW" tone="warning"/> : null}</View>
+        <Text style={S.body}>{n.summary}</Text>
+        <Text style={S.meta}>{n.senderName} · {dateTime(n.createdAt)}</Text>
+        <NotificationContent raw={n.contentDocumentJson} token={token} onNavigate={setScreen}/>
+        <View style={S.wrapRow}>
+          <Button label={n.readAt ? 'Mark unread' : 'Mark read'} secondary small onPress={() => void updateNotice(n, n.readAt ? 'unread' : 'read')}/>
+          <Button label="Dismiss" secondary small onPress={() => void updateNotice(n, 'dismiss')}/>
+        </View>
+      </Card>) : <Card><Empty title="No notifications yet" copy="Service reminders and messages sent to your customer account will appear here."/></Card>}
+      {notifications.items.length < notifications.total ? <Button label={loadingMoreNotices ? 'Loading more updates…' : 'Load more updates'} secondary disabled={loadingMoreNotices} onPress={() => void loadMoreNotices()}/> : null}
+    </>;
 
     if (screen === 'more') return <><Heading title="More customer features" subtitle="Your account, requests, saved records and support information."/><View style={[S.moreGrid, wide && S.moreGridWide]}>{MORE.map(item => <View key={item.key} style={{width:wide?'48.5%':'100%'}}><ScreenButton title={item.title} copy={item.copy} icon={item.icon} onPress={() => setScreen(item.key)}/></View>)}</View><Card><Text style={S.cardTitle}>Account security</Text><Text style={S.body}>Sign out to clear this device's customer session. Your dealership records remain preserved.</Text><Button label="Sign out" secondary onPress={() => void logout()}/></Card></>;
     if (screen === 'privacy') return <LegalScreen kind="privacy" onNavigate={setScreen}/>;
@@ -879,7 +1045,7 @@ export default function CustomerExperience() {
       {!loading ? renderContent() : null}
       <View style={S.footer}><Text style={S.meta}>YOUR DETAILS STAY WITH YOUR VERIFIED CUSTOMER RECORD</Text><Text style={S.meta}>Powered by QuantaEdge for Lucky Bajaj Agency</Text></View>
     </ScrollView>
-    {authScreen ? <View style={S.authBottom}><Button label="Return to showroom" secondary onPress={() => { setScreen('showroom'); setError(''); setSuccess(''); }}/></View> : <View style={S.bottomNav}>{(token ? NAV : [{key:'showroom' as Screen,label:'Bikes',icon:'◈'},{key:'signin' as Screen,label:'Sign in',icon:'↗'},{key:'privacy' as Screen,label:'Privacy',icon:'⌑'}]).map(item => <Pressable key={item.key} accessibilityRole="tab" accessibilityState={{selected:screen === item.key}} onPress={() => { setError(''); setSuccess(''); setScreen(item.key); }} style={[S.navItem, screen === item.key && S.navActive]}><Text style={[S.navIcon, screen === item.key && S.navTextActive]}>{item.icon}</Text><Text numberOfLines={1} style={[S.navLabel, screen === item.key && S.navTextActive]}>{item.label}</Text>{item.key === 'updates' && notifications.unreadCount > 0 ? <View style={S.dot}/> : null}{item.key === 'parts' && cartCount > 0 ? <View style={S.dot}/> : null}</Pressable>)}</View>}
+    {authScreen ? <View style={S.authBottom}><Button label="Return to showroom" secondary onPress={() => { setScreen('showroom'); setError(''); setSuccess(''); }}/></View> : <View style={S.bottomNav}>{(token ? NAV : [{key:'showroom' as Screen,label:'Bikes',icon:'◈'},{key:'signin' as Screen,label:'Sign in',icon:'↗'},{key:'privacy' as Screen,label:'Privacy',icon:'⌑'}]).map(item => <Pressable key={item.key} accessibilityRole="tab" accessibilityLabel={item.label} accessibilityState={{selected:screen === item.key}} onPress={() => { setError(''); setSuccess(''); setScreen(item.key); }} style={[S.navItem, screen === item.key && S.navActive]}><Text style={[S.navIcon, screen === item.key && S.navTextActive]}>{item.icon}</Text><Text numberOfLines={1} style={[S.navLabel, screen === item.key && S.navTextActive]}>{item.label}</Text>{item.key === 'updates' && notifications.unreadCount > 0 ? <View style={S.dot}/> : null}{item.key === 'parts' && cartCount > 0 ? <View style={S.dot}/> : null}</Pressable>)}</View>}
   </SafeAreaView>;
 }
 
