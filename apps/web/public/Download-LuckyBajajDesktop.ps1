@@ -14,7 +14,7 @@ $apiRoot = "https://api.github.com/repos/$repository"
 $desktopJobName = 'Build unsigned direct installers and local-Docker test installer'
 $artifactPrefix = 'lucky-bajaj-windows-local-docker-'
 $webRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$repoRoot = Split-Path -Parent (Split-Path -Parent $webRoot)
 $resolvedRoot = [System.IO.Path]::GetFullPath($DownloadRoot)
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $stagingName = '.LuckyBajajDesktop-staging-' + [Guid]::NewGuid().ToString('N')
@@ -244,13 +244,13 @@ function Build-LocalDockerInstaller {
     Push-Location $webRoot
     try {
       Write-Host 'Installing staff web and Tauri dependencies...' -ForegroundColor Cyan
-      & npm.cmd install --no-package-lock --prefer-offline --no-audit --no-fund
+      & npm.cmd install --no-package-lock --prefer-offline --no-audit --no-fund 2>&1 | Out-Host
       if ($LASTEXITCODE -ne 0) {
         throw "npm install failed with exit code $LASTEXITCODE."
       }
 
       Write-Host 'Building unsigned NSIS EXE and MSI installers...' -ForegroundColor Cyan
-      & npm.cmd run tauri:build
+      & npm.cmd run tauri:build 2>&1 | Out-Host
       if ($LASTEXITCODE -ne 0) {
         throw "Tauri desktop build failed with exit code $LASTEXITCODE."
       }
