@@ -174,6 +174,15 @@ if ($suites -contains "fixtures") {
 }
 
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
+
+Write-Host ([Environment]::NewLine + "Validating Maestro flow syntax...")
+$flowFiles = @(Get-ChildItem -Path (Join-Path $maestroRoot "flows") -Filter "*.yaml" -Recurse -File)
+if ($flowFiles.Count -eq 0) { Fail "No Maestro flow files were found under $maestroRoot." }
+foreach ($flowFile in $flowFiles) {
+  & maestro check-syntax $flowFile.FullName
+  if ($LASTEXITCODE -ne 0) { Fail ("Maestro syntax validation failed for {0}." -f $flowFile.FullName) }
+}
+
 $maestroEnv = @()
 foreach ($name in @(
   "MAESTRO_DEALERSHIP_CODE", "MAESTRO_CUSTOMER_CODE", "MAESTRO_CUSTOMER_PASSWORD", "MAESTRO_CUSTOMER_VEHICLE_NAME",
