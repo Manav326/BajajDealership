@@ -369,32 +369,6 @@ function App() {
   return (
     <div className="app-shell">
       <GlobalNotificationHost />
-      {licenseStatus?.state === 'READ_ONLY' && (
-        <div className="license-status-banner license-status-banner--readonly" role="status">
-          <strong>Read-only mode: license expired.</strong>
-          <span> Existing records and permitted exports remain available. Creating or changing records is disabled. Contact licensing support to renew.</span>
-          {licenseStatus.expiresAt && <small> Expired {new Date(licenseStatus.expiresAt).toLocaleDateString()}.</small>}
-          {staff.roles.includes('OWNER') && (
-            <button type="button" className="license-export-button" onClick={() => void downloadBusinessData()} disabled={exportBusy}>
-              {exportBusy ? 'Preparing export…' : 'Download business data'}
-            </button>
-          )}
-          {exportMessage && <span className="license-export-status" role="status">{exportMessage}</span>}
-        </div>
-      )}
-      {licenseStatus?.state === 'GRACE' && (
-        <div className="license-status-banner license-status-banner--grace" role="status">
-          <strong>License renewal required.</strong>
-          <span> Your dealership is in its grace period. Renew before it ends to avoid read-only access.</span>
-          {licenseStatus.gracePeriodEndsAt && <small> Grace period ends {new Date(licenseStatus.gracePeriodEndsAt).toLocaleDateString()}.</small>}
-        </div>
-      )}
-      {licenseStatus?.state === 'ACTIVE' && licenseStatus.daysUntilExpiry >= 0 && licenseStatus.daysUntilExpiry <= 14 && (
-        <div className="license-status-banner license-status-banner--grace" role="status">
-          <strong>License expires soon.</strong>
-          <span> {licenseStatus.daysUntilExpiry} day(s) remaining. Contact licensing support to renew.</span>
-        </div>
-      )}
       {mobileNavOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation menu" tabIndex={-1} onClick={() => setMobileNavOpen(false)} />}
       <aside id="primary-navigation" ref={mobileNavRef}
         role={mobileNavOpen ? 'dialog' : undefined}
@@ -440,6 +414,32 @@ function App() {
       </aside>
 
       <main className="main-content" aria-hidden={mobileNavOpen ? true : undefined}>
+      {licenseStatus?.state === 'READ_ONLY' && (
+        <div className="license-status-banner license-status-banner--readonly" role="status">
+          <strong>Read-only mode: license expired.</strong>
+          <span> Existing records and permitted exports remain available. Creating or changing records is disabled. Contact licensing support to renew.</span>
+          {licenseStatus.expiresAt && <small> Expired {new Date(licenseStatus.expiresAt).toLocaleDateString()}.</small>}
+          {staff.roles.includes('OWNER') && (
+            <button type="button" className="license-export-button" onClick={() => void downloadBusinessData()} disabled={exportBusy}>
+              {exportBusy ? 'Preparing export…' : 'Download business data'}
+            </button>
+          )}
+          {exportMessage && <span className="license-export-status" role="status">{exportMessage}</span>}
+        </div>
+      )}
+      {licenseStatus?.state === 'GRACE' && (
+        <div className="license-status-banner license-status-banner--grace" role="status">
+          <strong>License renewal required.</strong>
+          <span> Your dealership is in its grace period. Renew before it ends to avoid read-only access.</span>
+          {licenseStatus.gracePeriodEndsAt && <small> Grace period ends {new Date(licenseStatus.gracePeriodEndsAt).toLocaleDateString()}.</small>}
+        </div>
+      )}
+      {licenseStatus?.state === 'ACTIVE' && licenseStatus.daysUntilExpiry >= 0 && licenseStatus.daysUntilExpiry <= 14 && (
+        <div className="license-status-banner license-status-banner--grace" role="status">
+          <strong>License expires soon.</strong>
+          <span> {licenseStatus.daysUntilExpiry} day(s) remaining. Contact licensing support to renew.</span>
+        </div>
+      )}
         <header className="topbar">
           <button type="button" className="desktop-nav-toggle" aria-label={desktopNavCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-controls="primary-navigation" aria-expanded={!desktopNavCollapsed} title={desktopNavCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}>{desktopNavCollapsed ? '›' : '‹'}</button>
           <button ref={mobileNavToggleRef} type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} aria-controls="primary-navigation" onClick={() => setMobileNavOpen((open) => !open)}>{mobileNavOpen ? '×' : '☰'}</button>
