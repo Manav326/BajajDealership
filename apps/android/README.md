@@ -88,7 +88,7 @@ The normal test target is a **physical Android phone on the same Wi-Fi/LAN as th
 - QuantaEdge's documented physical-device LAN API address: `http://192.168.31.47:8080/`.
 - The customer website share target in the local Android build is `http://192.168.31.47:3000`.
 - The phone must be able to reach the PC on TCP port 8080. Start the local Docker stack first, allow inbound TCP 8080 on the Windows Private firewall profile, and disable Wi-Fi client/AP isolation if the router enables it.
-- This local HTTP configuration is compiled only by the dedicated test runner. Normal Expo / production builds continue to default to the hosted HTTPS API.
+- Cleartext HTTP is enabled only when an explicit local-development API URL is supplied. The dedicated local build runner or a CI build with the repository variable `BAJAJ_API_BASE_URL` can embed this address; normal builds default to the hosted HTTPS API.
 
 ### One-time Windows setup
 
