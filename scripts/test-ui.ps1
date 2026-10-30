@@ -174,7 +174,15 @@ function Ensure-Maestro {
     $maestroBin = Join-Path $maestroHome 'bin'
     if (Test-Path $maestroBin) {
         $env:PATH = "$maestroBin;$env:PATH"
-        if (Get-Command maestro -ErrorAction SilentlyContinue) { return }
+        if (Get-Command maestro -ErrorAction SilentlyContinue) {
+            $localVersionText = (& maestro --version 2>&1 | Out-String)
+            $localVersionMatch = [regex]::Match($localVersionText, '(?<version>\d+\.\d+\.\d+)')
+            if ($LASTEXITCODE -eq 0 -and $localVersionMatch.Success -and
+                [version]$localVersionMatch.Groups['version'].Value -ge $minimumVersion) {
+                return
+            }
+        }
+        Write-Host 'The existing user-local Maestro copy is too old or could not be verified; replacing it.' -ForegroundColor Yellow
     }
 
     Write-Step 'Installing the free Maestro CLI into your Windows user tools folder'
