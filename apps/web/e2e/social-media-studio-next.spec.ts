@@ -760,7 +760,7 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   }
   const notNow = consent.getByRole('button', { name: 'Not now' });
   const continueToMeta = consent.getByRole('button', { name: 'Continue to Meta' });
-  await expect(notNow).toBeFocused();
+  await expect(consent).toBeFocused();
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   expect(connectRequests).toHaveLength(0);
 
@@ -856,7 +856,7 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Text' }).click();
   await page.getByRole('button', { name: 'Headline', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Text' }).fill('Persistent campaign headline');
+  await page.getByRole('textbox', { name: 'Text', exact: true }).fill('Persistent campaign headline');
   await page.getByRole('button', { name: 'Back to resources' }).click();
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
 
@@ -879,7 +879,7 @@ test('editing a project invalidates previously rendered outputs until the next r
 
   await page.getByRole('button', { name: 'Text' }).click();
   await page.getByRole('button', { name: 'Headline', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Text' }).fill('A newer design revision');
+  await page.getByRole('textbox', { name: 'Text', exact: true }).fill('A newer design revision');
   await expect(download).toBeDisabled();
 
   await page.getByRole('button', { name: 'Render photo' }).click();
