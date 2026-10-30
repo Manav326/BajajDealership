@@ -18,8 +18,20 @@ appId: com.quantaedge.luckybajaj
 - tapOn: "Activate account"
 - assertVisible: "One-time activation token"
 - assertVisible: "Create password (12+ characters)"
+- scrollUntilVisible:
+    element: "Confirm password"
+    direction: DOWN
+    timeout: 10000
 - assertVisible: "Confirm password"
+- scrollUntilVisible:
+    element: "Activate my account"
+    direction: DOWN
+    timeout: 10000
 - assertVisible: "Activate my account"
+- scrollUntilVisible:
+    element: "Sign in"
+    direction: UP
+    timeout: 10000
 - tapOn: "Sign in"
 - assertVisible: "Dealership code"
 - assertVisible: "Customer code"
