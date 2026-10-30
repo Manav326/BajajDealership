@@ -19,7 +19,14 @@ if (Compare-Object -ReferenceObject $leftFiles -DifferenceObject $rightFiles) { 
 foreach ($relative in $leftFiles) {
   $leftContent = Get-Content -Raw -LiteralPath (Join-Path $standardFlows $relative)
   $rightContent = Get-Content -Raw -LiteralPath (Join-Path $liquidFlows $relative)
-  if ($leftContent -match '(?m)^appId:\\s*com\\.quantaedge\\.luckybajajlg\\s*
+  if (-not $leftContent.Contains('appId: com.quantaedge.luckybajaj')) { throw "Standard Maestro flow does not target the Standard package in $relative." }
+  if ($leftContent.Contains('appId: com.quantaedge.luckybajajlg')) { throw "Standard Maestro flow targets Liquid Glass in $relative." }
+  if (-not $rightContent.Contains('appId: com.quantaedge.luckybajajlg')) { throw "Liquid Glass Maestro flow does not target the Liquid Glass package in $relative." }
+  if ($rightContent.Contains('appId: com.quantaedge.luckybajaj' + "`n") -or $rightContent.Contains('appId: com.quantaedge.luckybajaj' + "`r`n")) { throw "Liquid Glass Maestro flow still targets Standard in $relative." }
+  $leftNormalized = $leftContent.Replace('appId: com.quantaedge.luckybajaj', 'appId: __EDITION_PACKAGE__')
+  $rightNormalized = $rightContent.Replace('appId: com.quantaedge.luckybajajlg', 'appId: __EDITION_PACKAGE__')
+  if ($leftNormalized -cne $rightNormalized) { throw "Maestro workflow logic drift in $relative. Only the appId may differ between editions." }
+}
 $standardPackage = Get-Content -Raw -LiteralPath (Join-Path $standard 'package.json') | ConvertFrom-Json
 $liquidPackage = Get-Content -Raw -LiteralPath (Join-Path $liquid 'package.json') | ConvertFrom-Json
 foreach ($scope in @('dependencies','devDependencies')) { $a=$standardPackage.$scope; $b=$liquidPackage.$scope; foreach ($name in $a.PSObject.Properties.Name) { if (-not $b.PSObject.Properties.Name.Contains($name)) { throw "Liquid Glass is missing shared dependency '$name'." }; if ([string]$a.$name -ne [string]$b.$name) { throw "Dependency version drift for '$name'." } } }
