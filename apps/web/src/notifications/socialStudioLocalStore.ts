@@ -67,8 +67,13 @@ type DirectoryHandleLike = {
   requestPermission?: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
   getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<DirectoryHandleLike>;
   getFileHandle: (name: string, options?: { create?: boolean }) => Promise<FileHandleLike>;
+  entries?: () => AsyncIterable<[string, DirectoryHandleLike | FileHandleLike]>;
+  removeEntry?: (name: string) => Promise<void>;
+  kind?: string;
 };
 type FileHandleLike = {
+  name?: string;
+  kind?: string;
   getFile: () => Promise<File>;
   createWritable: () => Promise<{ write: (data: Blob | string) => Promise<void>; close: () => Promise<void> }>;
 };
@@ -216,13 +221,29 @@ export async function saveProject(project: StudioProject): Promise<void> {
   await writeValue(PROJECTS_STORE, saved);
   const root = await getWorkspaceDirectory();
   if (root) {
-    const filename = safeFileName(saved.name) + '-' + saved.id + '.json';
+    const filename = saved.id + '.json';
     await writeLocalFile('Projects/' + filename, new Blob([JSON.stringify(saved, null, 2)], { type: 'application/json' }));
   }
 }
 
 export async function listProjects(): Promise<StudioProject[]> {
-  return (await listValues<StudioProject>(PROJECTS_STORE)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const indexed = await listValues<StudioProject>(PROJECTS_STORE);
+  const byId = new Map(indexed.map((item) => [item.id, item]));
+  const root = await getWorkspaceDirectory();
+  if (root?.entries) {
+    try {
+      const folder = await root.getDirectoryHandle('Projects');
+      for await (const [name, handle] of folder.entries()) {
+        if (!name.toLowerCase().endsWith('.json') || handle.kind === 'directory' || !('getFile' in handle)) continue;
+        try {
+          const file = await (handle as FileHandleLike).getFile();
+          const parsed = JSON.parse(await file.text()) as StudioProject;
+          if (parsed?.id && Array.isArray(parsed.pages)) { byId.set(parsed.id, parsed); await writeValue(PROJECTS_STORE, parsed); }
+        } catch { /* Ignore incomplete or externally edited project files. */ }
+      }
+    } catch { /* An unavailable Projects folder does not hide IndexedDB projects. */ }
+  }
+  return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function removeProject(id: string): Promise<void> {
@@ -230,16 +251,8 @@ export async function removeProject(id: string): Promise<void> {
   await deleteValue(PROJECTS_STORE, id);
   const root = await getWorkspaceDirectory();
   if (root && project) {
-    const filename = safeFileName(project.name) + '-' + project.id + '.json';
-    try {
-      const dir = await directoryAt(root, ['Projects'], false);
-      const db = await openDb();
-      db.close();
-      const handle = await dir.getFileHandle(filename);
-      const writable = await handle.createWritable();
-      await writable.write('');
-      await writable.close();
-    } catch { /* The indexed project is already removed; stale local files can be cleaned manually. */ }
+    try { const dir = await directoryAt(root, ['Projects'], false); await dir.removeEntry?.(project.id + '.json'); }
+    catch { /* The indexed project is removed; a stale local copy can be cleaned manually. */ }
   }
 }
 
@@ -249,7 +262,7 @@ export async function saveResource(blob: Blob, name: string, kind: StudioResourc
   const extension = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
   const safeName = safeFileName(name.replace(/\.[^.]+$/, ''));
   const folder = kind === 'image' ? 'Images' : kind === 'audio' ? 'Audio' : kind === 'video' ? 'Videos' : 'Images';
-  const relativePath = 'Assets/' + folder + '/' + id + '-' + safeName + (extension ? '.' + safeFileName(extension) : '');
+  const relativePath = 'Assets/' + folder + '/' + id + '__' + safeName + (extension ? '.' + safeFileName(extension) : '');
   const resource: StudioResource = {
     id, name: name.slice(0, 140), kind, mimeType: blob.type || 'application/octet-stream',
     size: blob.size, createdAt: new Date().toISOString(), relativePath, blob,
@@ -260,7 +273,33 @@ export async function saveResource(blob: Blob, name: string, kind: StudioResourc
 }
 
 export async function listResources(): Promise<StudioResource[]> {
-  return (await listValues<StudioResource>(RESOURCES_STORE)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const indexed = await listValues<StudioResource>(RESOURCES_STORE);
+  const byId = new Map(indexed.map((item) => [item.id, item]));
+  const root = await getWorkspaceDirectory();
+  if (root?.entries) {
+    const locations: Array<[string[], StudioResourceKind]> = [
+      [['Assets', 'Images'], 'image'], [['Assets', 'Audio'], 'audio'], [['Assets', 'Videos'], 'video'],
+      [['Exports', 'Images'], 'export'], [['Exports', 'Videos'], 'video'],
+    ];
+    for (const [parts, kind] of locations) {
+      try {
+        const folder = await directoryAt(root, parts, false);
+        for await (const [name, handle] of folder.entries()) {
+          if (handle.kind === 'directory' || !('getFile' in handle)) continue;
+          const id = name.split('__')[0];
+          if (!id || byId.has(id)) continue;
+          try {
+            const blob = await (handle as FileHandleLike).getFile();
+            const resource: StudioResource = { id, name: name.includes('__') ? name.slice(name.indexOf('__') + 2) : name,
+              kind, mimeType: blob.type || 'application/octet-stream', size: blob.size,
+              createdAt: new Date(blob.lastModified).toISOString(), relativePath: parts.join('/') + '/' + name, blob };
+            byId.set(id, resource); await writeValue(RESOURCES_STORE, resource);
+          } catch { /* Skip unreadable resources and continue indexing the library. */ }
+        }
+      } catch { /* Optional resource folders may not exist yet. */ }
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function readResource(id: string): Promise<StudioResource | undefined> {
@@ -268,7 +307,13 @@ export async function readResource(id: string): Promise<StudioResource | undefin
 }
 
 export async function removeResource(id: string): Promise<void> {
+  const resource = await readValue<StudioResource>(RESOURCES_STORE, id);
   await deleteValue(RESOURCES_STORE, id);
+  const root = await getWorkspaceDirectory();
+  if (root && resource?.relativePath) {
+    try { const parts = resource.relativePath.split('/'); const filename = parts.pop(); if (filename) await directoryAt(root, parts, false).then((folder) => folder.removeEntry?.(filename)); }
+    catch { /* A stale file can be cleaned manually if the folder is unavailable. */ }
+  }
 }
 
 export async function saveExport(blob: Blob, name: string, kind: 'image' | 'video'): Promise<void> {

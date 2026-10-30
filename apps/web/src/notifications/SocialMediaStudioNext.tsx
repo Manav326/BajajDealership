@@ -4,7 +4,7 @@ import { apiFetch } from './apiClient';
 import { ARTWORK_TEMPLATES, STARTER_ARTWORK_ASSETS } from './artworkAssets';
 import {
   chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources,
-  readResource, removeProject, removeResource, requestSavedFolderPermission, saveExport,
+  removeProject, removeResource, requestSavedFolderPermission, saveExport,
   saveProject, saveResource, supportsLocalDirectoryAccess,
   type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
 } from './socialStudioLocalStore';
@@ -243,6 +243,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   async function openDirectoryPicker() {
     setPermissionBusy(true);
     try {
+      if (!supportsLocalDirectoryAccess()) { setDirectoryName('Browser storage'); setPermission('granted'); notify('Browser-local storage is ready.'); return; }
       const name = await chooseWorkspaceDirectory();
       setDirectoryName(name);
       setPermission('granted');
@@ -277,6 +278,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       await saveProject(project);
       setActiveProject(null);
       setEditorOpen(false);
+      setHubPage('projects');
       await refreshLibrary();
       notify('Design saved.');
     } catch (cause) { notify(cause instanceof Error ? cause.message : 'Design could not be saved.'); }
@@ -300,6 +302,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
 
   async function getProjectJpeg(project: StudioProject): Promise<Blob> {
     const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
+  const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
     if (!page) throw new Error('The design has no page to publish.');
     return renderPageBlob(page, resourceUrls, 'image/jpeg');
   }
@@ -388,7 +391,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       <nav className={styles.hubNav} aria-label="Creative workspace">
         {([
           ['projects', 'Projects', 'grid'], ['resources', 'Resources', 'folder'], ['publish', 'Publishing', 'publish'],
-          ['whatsapp', 'WhatsApp', 'audio'], ['connections', 'Connections', 'link'],
+          ...(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp ? [['whatsapp', 'WhatsApp', 'audio'] as [HubPage, string, string]] : []), ['connections', 'Connections', 'link'],
         ] as Array<[HubPage, string, string]>).map(([id, label, icon]) => <button key={id} type="button" title={label} aria-label={label}
           className={hubPage === id ? styles.hubNavActive : styles.hubNavButton} onClick={() => setHubPage(id)}><Icon name={icon}/><span>{label}</span></button>)}
       </nav>
@@ -463,18 +466,18 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           {publishPreviews[item.publicId] && <img className={styles.queuePreview} src={publishPreviews[item.publicId]} alt="Submitted artwork preview"/>}
         </article>)}</div>
       </section>}
-      {hubPage === 'whatsapp' && <section className={styles.whatsappHost}>
+      <section className={styles.whatsappHost} style={{ display: hubPage === 'whatsapp' ? 'block' : 'none' }} aria-hidden={hubPage !== 'whatsapp'}>
         <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp}
           getArtworkJpeg={async () => {
             if (!activeProject) throw new Error('Open a saved design from Projects first.');
             return getProjectJpeg(activeProject);
           }}/>
-      </section>}
+      </section>
     </main>
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
       onProjectChange={setActiveProject} onClose={() => void saveAndClose(activeProject)} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
-      onNotify={notify} onOpenLibrary={() => { setEditorOpen(false); setHubPage('resources'); void refreshLibrary(); }}/>}
+      onNotify={notify} onOpenLibrary={() => void saveAndClose(activeProject)}/>}
   </div>;
 }
 
@@ -505,7 +508,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const undoRef = useRef<StudioProject[]>([]);
   const redoRef = useRef<StudioProject[]>([]);
   const saveTimer = useRef<number | null>(null);
-  const [historyVersion, setHistoryVersion] = useState(0);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
@@ -518,7 +520,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       setHistoryVersion((v) => v + 1);
     }
     const next = updater(project);
-    onProjectChange({ ...next, updatedAt: new Date().toISOString() });
+    changeProject({ ...next, updatedAt: new Date().toISOString() });
     setDirty(true);
   };
   const replacePage = (nextPage: StudioPage, history = true) =>
@@ -557,13 +559,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const prior = undoRef.current.pop();
     if (!prior) return;
     redoRef.current.push(clone(project));
-    onProjectChange(prior); setSelectedIds([]); setDirty(true); setHistoryVersion((v) => v + 1);
+    changeProject(prior); setSelectedIds([]); setDirty(true);
   }
   function redo() {
     const next = redoRef.current.pop();
     if (!next) return;
     undoRef.current.push(clone(project));
-    onProjectChange(next); setSelectedIds([]); setDirty(true); setHistoryVersion((v) => v + 1);
+    changeProject(next); setSelectedIds([]); setDirty(true);
   }
   function addObject(type: StudioElement['type']) {
     const item = makeElement(type, page);
@@ -579,7 +581,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const start = pointFromEvent(event);
     const items = page.elements.filter((item) => nextIds.includes(item.id));
     dragRef.current = { mode: 'move', ids: nextIds, start, items: clone(items) };
-    undoRef.current = [...undoRef.current.slice(-39), clone(project)]; redoRef.current = []; setHistoryVersion((v) => v + 1);
+    undoRef.current = [...undoRef.current.slice(-39), clone(project)]; redoRef.current = [];
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
   function pointFromEvent(event: { clientX: number; clientY: number }): { x: number; y: number } {
@@ -597,7 +599,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const point = pointFromEvent(event);
     dragRef.current = { mode, ids: [item.id], start: point, items: [clone(item)], handle,
       center: { x: item.x + item.width / 2, y: item.y + item.height / 2 } };
-    undoRef.current = [...undoRef.current.slice(-39), clone(project)]; redoRef.current = []; setHistoryVersion((v) => v + 1);
+    undoRef.current = [...undoRef.current.slice(-39), clone(project)]; redoRef.current = [];
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
   function movePointer(event: ReactPointerEvent<SVGSVGElement>) {
@@ -764,8 +766,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     let context: AudioContext | null = null;
     let audioSource: AudioBufferSourceNode | null = null;
     let frameId = 0;
-    let tracks: MediaStreamTrack[] = [];
-    try {
+      try {
       const frames = await Promise.all(project.pages.map(async (item) => {
         const blob = new Blob([makeSvg(item, urls)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -853,7 +854,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   return <div className={styles.editorOverlay} role="dialog" aria-modal="true" aria-label="Creative editor">
     <header className={styles.editorTopbar}>
       <button type="button" title="Back to resources" aria-label="Back to resources" onClick={onOpenLibrary}><Icon name="back"/></button>
-      <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => onProjectChange({ ...project, name: event.target.value })}/>
+      <input className={styles.projectName} aria-label="Design name" value={project.name} onChange={(event) => changeProject({ ...project, name: event.target.value })}/>
       <span className={styles.saveState} title={saving ? 'Saving' : 'Saved'}><Icon name="save"/></span>
       <button type="button" title="Undo" aria-label="Undo" disabled={!undoRef.current.length} onClick={undo}><Icon name="undo"/></button>
       <button type="button" title="Redo" aria-label="Redo" disabled={!redoRef.current.length} onClick={redo}><Icon name="redo"/></button>
@@ -883,8 +884,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
         {tool === 'text' && <div className={styles.toolTiles}>
           <button type="button" onClick={() => addObject('text')}><Icon name="text"/>Add heading</button>
           <button type="button" onClick={() => { const next = makeElement('text', page); next.fontSize = 36; next.text = 'Subheading'; next.name = 'Subheading'; mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, next] } : entry) })); setSelectedIds([next.id]); }}><Icon name="text"/>Add subheading</button>
-          <label className={styles.panelField}>Caption<textarea value={project.caption} onChange={(event) => onProjectChange({ ...project, caption: event.target.value })}/></label>
-          <label className={styles.panelField}>Hashtags<input value={project.hashtags} onChange={(event) => onProjectChange({ ...project, hashtags: event.target.value })}/></label>
+          <label className={styles.panelField}>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label>
+          <label className={styles.panelField}>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label>
         </div>}
         {tool === 'uploads' && <div className={styles.uploadPanel}>
           <label className={styles.uploadDrop}><Icon name="upload"/><span>Import media</span><input type="file" multiple accept="image/*,audio/*,video/*" onChange={(event) => {
@@ -897,18 +898,18 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
           {STARTER_ARTWORK_ASSETS.filter((item) => item.name.toLowerCase().includes(panelSearch.toLowerCase())).map((item) => <button type="button" key={item.id} className={styles.libraryAsset} onClick={() => void addStarterImage(item.id)}><Icon name="image"/><span>{item.name}</span></button>)}
         </div>}
         {tool === 'brand' && <div className={styles.toolTiles}>
-          <label className={styles.panelField}>Primary colour<input type="color" value={project.primaryColor} onChange={(event) => onProjectChange({ ...project, primaryColor: event.target.value })}/></label>
-          <label className={styles.panelField}>Accent colour<input type="color" value={project.accentColor} onChange={(event) => onProjectChange({ ...project, accentColor: event.target.value })}/></label>
+          <label className={styles.panelField}>Primary colour<input type="color" value={project.primaryColor} onChange={(event) => changeProject({ ...project, primaryColor: event.target.value })}/></label>
+          <label className={styles.panelField}>Accent colour<input type="color" value={project.accentColor} onChange={(event) => changeProject({ ...project, accentColor: event.target.value })}/></label>
           <label className={styles.panelField}>Page background<input type="color" value={page.background} onChange={(event) => replacePage({ ...page, background: event.target.value })}/></label>
           <button type="button" onClick={() => addObject('image')}><Icon name="image"/>Add logo / image</button>
         </div>}
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
-          {resources.filter((item) => item.kind === 'audio').map((resource) => <button key={resource.id} type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); onProjectChange({ ...project, selectedAudioId: resource.id }); }}>
+          {resources.filter((item) => item.kind === 'audio').map((resource) => <button key={resource.id} type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}>
             <Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}
           </button>)}
-          <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => onProjectChange({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
-          <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => onProjectChange({ ...project, audioVolume: Number(event.target.value) })}/></label>
+          <label className={styles.panelField}>Start <input type="number" min="0" step=".5" value={project.audioStartSeconds} onChange={(event) => changeProject({ ...project, audioStartSeconds: Math.max(0, Number(event.target.value)) })}/></label>
+          <label className={styles.panelField}>Volume <input type="range" min="0" max="100" value={project.audioVolume} onChange={(event) => changeProject({ ...project, audioVolume: Number(event.target.value) })}/></label>
           <label className={styles.panelField}>Scene duration <input type="number" min="1" max="60" value={page.durationSeconds} onChange={(event) => replacePage({ ...page, durationSeconds: Math.max(1, Math.min(60, Number(event.target.value))) })}/></label>
         </div>}
         {tool === 'layers' && <div className={styles.layerList}>{[...page.elements].reverse().map((item) => <div className={styles.layerRow} key={item.id} data-selected={selectedIds.includes(item.id)}>
@@ -1001,7 +1002,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     {contextMenu && <button type="button" className={styles.contextDismiss} onClick={() => setContextMenu(null)} aria-label="Close context menu"/>}
     <div className={styles.editorFooter}><button type="button" onClick={() => setCaptionOpen((value) => !value)} aria-expanded={captionOpen}>Caption / hashtags</button>
       <span>{page.width} × {page.height}</span><span>{saving ? 'Saving…' : ' '}</span><button type="button" onClick={onClose}><Icon name="check"/> Done</button></div>
-    {captionOpen && <div className={styles.captionPopover}><label>Caption<textarea value={project.caption} onChange={(event) => onProjectChange({ ...project, caption: event.target.value })}/></label><label>Hashtags<input value={project.hashtags} onChange={(event) => onProjectChange({ ...project, hashtags: event.target.value })}/></label></div>}
+    {captionOpen && <div className={styles.captionPopover}><label>Caption<textarea value={project.caption} onChange={(event) => changeProject({ ...project, caption: event.target.value })}/></label><label>Hashtags<input value={project.hashtags} onChange={(event) => changeProject({ ...project, hashtags: event.target.value })}/></label></div>}
     {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> Rendering…</div></div>}
   </div>;
 }
