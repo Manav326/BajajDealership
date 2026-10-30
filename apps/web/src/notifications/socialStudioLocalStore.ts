@@ -252,7 +252,17 @@ export async function listProjects(): Promise<StudioProject[]> {
         try {
           const file = await (handle as FileHandleLike).getFile();
           const parsed = JSON.parse(await file.text()) as StudioProject;
-          if (parsed?.id && Array.isArray(parsed.pages) && !(await readValue<boolean>(SETTINGS_STORE, 'deleted-project:' + parsed.id))) { byId.set(parsed.id, parsed); await writeValue(PROJECTS_STORE, parsed); }
+          if (parsed?.id && Array.isArray(parsed.pages) && !(await readValue<boolean>(SETTINGS_STORE, 'deleted-project:' + parsed.id))) {
+            const indexed = byId.get(parsed.id);
+            const diskUpdatedAt = Date.parse(parsed.updatedAt ?? '');
+            const indexedUpdatedAt = Date.parse(indexed?.updatedAt ?? '');
+            // A failed folder write can leave an older file beside a newer IndexedDB
+            // autosave. Reconcile to the newest valid project instead of clobbering it.
+            if (!indexed || (Number.isFinite(diskUpdatedAt) && (!Number.isFinite(indexedUpdatedAt) || diskUpdatedAt > indexedUpdatedAt))) {
+              byId.set(parsed.id, parsed);
+              await writeValue(PROJECTS_STORE, parsed);
+            }
+          }
         } catch { /* Ignore incomplete or externally edited project files. */ }
       }
     } catch { /* An unavailable Projects folder does not hide IndexedDB projects. */ }
