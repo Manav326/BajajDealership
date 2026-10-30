@@ -92,10 +92,12 @@ The normal test target is a **physical Android phone on the same Wi-Fi/LAN as th
 
 ### One-time Windows setup
 
-1. Install Node.js 24, JDK 17+, Android Studio / Android SDK platform-tools and make sure `adb` is on PATH.
-2. Enable Developer options and USB debugging on the physical phone. Connect it by USB and accept the RSA debugging prompt. Verify with `adb devices -l`.
-3. Install Maestro CLI for native Windows from its [official releases](https://github.com/mobile-dev-inc/Maestro/releases/latest): download `maestro.zip`, extract it to a stable directory such as `C:\\maestro`, add `C:\\maestro\\bin` to PATH, then reopen PowerShell. Maestro requires Java 17 or newer.
-4. Copy `.maestro/local.env.example` to `.maestro/local.env`. Use a dedicated **local test customer**, not a real customer's account. Fill in the credentials and notification fixture values. This private file is ignored by Git.
+1. Install GitHub CLI and authenticate once with `gh auth login`; install JDK 17+ (Maestro requires Java).
+2. Install Android SDK Platform-Tools. The runner detects `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe` automatically, or it can use `adb` from PATH.
+3. Enable Developer options and USB debugging on the physical phone. Connect it by USB and accept the RSA debugging prompt. Verify with `adb devices -l`.
+4. Maestro CLI is bootstrapped into a user-local tools directory automatically when the runner cannot find it; no global PATH change is required.
+5. Only when using `-BuildLocalApk`, also install Node.js 24 and the full Android SDK/build-tools. The runner derives the SDK root from ADB and writes the generated project's ignored `android/local.properties`.
+6. Copy `.maestro/local.env.example` to `.maestro/local.env`. Use a dedicated **local test customer**, not a real customer's account. Fill in the credentials and notification fixture values. This private file is ignored by Git.
 
 ### Run tests from the repository root (PowerShell)
 
