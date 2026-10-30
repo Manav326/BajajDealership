@@ -211,6 +211,8 @@ export default function CustomerExperience() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [notifications, setNotifications] = useState<NoticePage>({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
   const [requests, setRequests] = useState<SalesRequest[]>([]);
+  const [pendingIntent, setPendingIntent] = useState<Intent | null>(null);
+  const [pendingIntentError, setPendingIntentError] = useState('');
   const [parts, setParts] = useState<Part[]>([]);
   const [partFilters, setPartFilters] = useState<PartFilters>({ categories: [], motorcycleModels: [] });
   const [orders, setOrders] = useState<RetailOrder[]>([]);
@@ -304,7 +306,7 @@ export default function CustomerExperience() {
     await AsyncStorage.removeItem(PENDING_KEY).catch(() => undefined);
     setToken(''); setCustomer(null); setVehicles([]); setHistory([]); setAppointments([]);
     setNotifications({ items: [], page: 0, pageSize: 50, total: 0, unreadCount: 0 });
-    setRequests([]); setParts([]); setOrders([]); setPurchases([]); setAddresses([]); setCart([]);
+    setRequests([]); setPendingIntent(null); setPendingIntentError(''); setParts([]); setOrders([]); setPurchases([]); setAddresses([]); setCart([]);
   }, []);
 
   const loadPortal = useCallback(async (sessionToken: string) => {
@@ -346,17 +348,46 @@ export default function CustomerExperience() {
   }, [clearSession, notify]);
 
   const submitPending = useCallback(async (sessionToken: string): Promise<boolean | null> => {
-    const raw = await AsyncStorage.getItem(PENDING_KEY);
-    if (!raw) return null;
+    let raw: string | null;
+    try { raw = await AsyncStorage.getItem(PENDING_KEY); }
+    catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'The saved showroom selection could not be read.';
+      setPendingIntentError(message);
+      notify(message);
+      setScreen('requests');
+      return false;
+    }
+    if (!raw) { setPendingIntent(null); setPendingIntentError(''); return null; }
+    let intent: Intent | null = null;
     try {
-      const intent = JSON.parse(raw) as Intent;
-      if (!['TEST_RIDE', 'PURCHASE'].includes(intent.action) || !intent.modelCode || !intent.idempotencyKey) throw new Error('Saved selection is incomplete. Choose the motorcycle again.');
+      const parsed = JSON.parse(raw) as Partial<Intent>;
+      if ((parsed.action !== 'TEST_RIDE' && parsed.action !== 'PURCHASE')
+        || typeof parsed.modelCode !== 'string' || !parsed.modelCode.trim()
+        || typeof parsed.modelName !== 'string' || !parsed.modelName.trim()
+        || typeof parsed.idempotencyKey !== 'string' || !parsed.idempotencyKey.trim()
+        || (parsed.preferredAt != null && (typeof parsed.preferredAt !== 'string' || !Number.isFinite(Date.parse(parsed.preferredAt))))) {
+        throw new Error('The saved showroom selection is incomplete. Discard it and choose the motorcycle again.');
+      }
+      intent = parsed as Intent;
+      setPendingIntent(intent);
+      setPendingIntentError('');
       await api<SalesRequest>('/api/v1/customer/sales-requests', sessionToken, { method: 'POST', body: JSON.stringify({ requestType: intent.action, modelCode: intent.modelCode, preferredAt: intent.action === 'TEST_RIDE' ? intent.preferredAt : null, notes: 'Request started from the Lucky Bajaj Android showroom.', idempotencyKey: intent.idempotencyKey }) });
-      setRequests(await api<SalesRequest[]>('/api/v1/customer/sales-requests', sessionToken));
-      await AsyncStorage.removeItem(PENDING_KEY); setScreen('requests');
+      const refreshed = await api<SalesRequest[]>('/api/v1/customer/sales-requests', sessionToken);
+      await AsyncStorage.removeItem(PENDING_KEY);
+      setRequests(refreshed);
+      setPendingIntent(null);
+      setPendingIntentError('');
+      setScreen('requests');
       notify((intent.action === 'TEST_RIDE' ? 'Test-ride request for ' : 'Purchase enquiry for ') + intent.modelName + ' sent. Dealership confirmation is still required.', true);
       return true;
-    } catch (cause) { notify((cause instanceof Error ? cause.message : 'Request could not be sent.') + ' Your selection is saved so you can retry.'); setScreen('requests'); return false; }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Request could not be sent.';
+      setPendingIntent(intent);
+      setPendingIntentError(message);
+      notify(message + (intent ? ' Your selected bike is saved; retry this request or discard it.' : ' Discard the invalid saved selection and choose a motorcycle again.'));
+      setScreen('requests');
+      return false;
+    }
   }, [notify]);
 
   const saveSession = useCallback(async (session: Session, greeting: string) => {
@@ -384,13 +415,21 @@ export default function CustomerExperience() {
       if (!secureToken && legacyToken) await SecureStore.setItemAsync(TOKEN_KEY, legacyToken).catch(() => undefined);
       await loadCatalogue();
       if (saved) {
-        try { await api<Customer>('/api/v1/customer/auth/me', saved); if (live) { setToken(saved); await loadPortal(saved); setScreen('home'); } }
-        catch { await clearSession(); }
+        try {
+          await api<Customer>('/api/v1/customer/auth/me', saved);
+          if (live) {
+            setToken(saved);
+            await loadPortal(saved);
+            const pending = await submitPending(saved);
+            if (pending === null) setScreen('home');
+            else setScreen('requests');
+          }
+        } catch { await clearSession(); }
       }
       if (live) setLoading(false);
     })();
     return () => { live = false; };
-  }, [clearSession, loadCatalogue, loadPortal]);
+  }, [clearSession, loadCatalogue, loadPortal, submitPending]);
 
   useEffect(() => {
     if (googleResponse?.type !== 'success') return;
@@ -503,7 +542,30 @@ export default function CustomerExperience() {
   function startIntent(bike: Bike, action: Action) {
     const intent: Intent = { action, modelCode: bike.modelCode, modelName: bike.modelName, selectedAt: new Date().toISOString(), idempotencyKey: 'android-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9), preferredAt: action === 'TEST_RIDE' ? rideAt.toISOString() : null };
     if (action === 'TEST_RIDE' && rideAt.getTime() < Date.now()) { notify('Choose a future preferred time for the test ride.'); return; }
-    AsyncStorage.setItem(PENDING_KEY, JSON.stringify(intent)).then(() => { if (token) void submitPending(token); else { setScreen('signin'); setAuthMode('login'); notify('Sign in or activate your account to send this request. Your selection is saved.'); } }).catch(() => notify('The motorcycle selection could not be saved.'));
+    AsyncStorage.setItem(PENDING_KEY, JSON.stringify(intent)).then(() => {
+      setPendingIntent(intent);
+      setPendingIntentError('');
+      if (token) void submitPending(token);
+      else { setScreen('signin'); setAuthMode('login'); notify('Sign in or activate your account to send this request. Your selection is saved.'); }
+    }).catch(() => notify('The motorcycle selection could not be saved.'));
+  }
+
+  async function retryPendingRequest() {
+    if (!token || saving || !pendingIntent) return;
+    setSaving(true);
+    try { await submitPending(token); }
+    finally { setSaving(false); }
+  }
+
+  async function discardPendingRequest() {
+    try {
+      await AsyncStorage.removeItem(PENDING_KEY);
+      setPendingIntent(null);
+      setPendingIntentError('');
+      notify('Saved showroom selection discarded.', true);
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'The saved selection could not be discarded.');
+    }
   }
 
   async function fetchQuote() {
@@ -750,7 +812,7 @@ export default function CustomerExperience() {
     if (screen === 'purchases') return <><Heading title="Purchases & orders" subtitle="Motorcycle purchase records and spare-parts orders, including cancelled or returned orders." right={<Button label="Refresh" secondary small onPress={() => void refreshOrders()}/>}/><Heading title="Motorcycles purchased" subtitle={purchases.length + ' records'}/>{purchases.length ? purchases.map(p => <Card key={p.publicId}><Text style={S.cardTitle}>{p.modelName}{p.variantName ? ' · ' + p.variantName : ''}</Text><Text style={S.meta}>Invoice · {p.invoiceNumber}</Text><Text style={S.price}>{money(p.invoiceTotal)}</Text><View style={S.rowBetween}><Text style={S.body}>Recorded paid</Text><Text style={S.cardTitle}>{money(p.paidAmount)}</Text></View><View style={S.rowBetween}><Text style={S.body}>Balance</Text><Text style={S.cardTitle}>{money(p.balanceDue)}</Text></View><Text style={S.meta}>Delivered {date(p.deliveredAt)} · {p.deliveredToName}</Text></Card>) : <Card><Empty title="No motorcycle purchases linked" copy="Completed deliveries will appear when the dealership links them to your customer record."/></Card>}
       <Heading title="Spare-parts orders" subtitle={orders.length + ' orders'}/>{orders.length ? orders.map(o => <Card key={o.publicId}><View style={S.rowBetween}><Text style={S.cardTitle}>{o.orderCode}</Text><Pill label={pretty(o.status)} tone={o.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.price}>{money(o.orderTotal)}</Text><Text style={S.meta}>{pretty(o.fulfillmentMethod)} · Payment {pretty(o.paymentStatus)} · {date(o.createdAt)}</Text>{o.lines.map((l,i) => <Text key={i} style={S.body}>{l.quantity} × {l.partName} — {money(l.lineTotal)}</Text>)}<Text style={S.meta}>{o.status === 'CANCELLED' ? 'Order cancelled; reserved stock released' : o.paymentStatus === 'PAID_AT_PICKUP' ? 'Payment recorded at pickup (staff-attested)' : o.paymentStatus === 'PAID_ON_DELIVERY' ? 'Payment recorded on delivery (staff-attested)' : o.paymentStatus === 'REFUND_REVIEW_REQUIRED' ? 'Return recorded; refund review required (no automatic refund)' : o.fulfillmentMethod === 'DELIVERY' ? (o.deliveryQuoteStatus === 'ACCEPTED' ? 'Pay on delivery when it arrives' : 'Pay on delivery after accepting the quoted fee') : 'Pay at dealership pickup'}</Text>{o.fulfillmentMethod === 'DELIVERY' ? <><Text style={S.meta}>Delivery address: {o.deliveryAddress || 'Not recorded'}</Text><Text style={S.meta}>Delivery quote: {pretty(o.deliveryQuoteStatus)}{o.deliveryFee ? ' · ' + money(o.deliveryFee) : ''}</Text>{o.deliveryQuoteNote ? <Text style={S.body}>Quote note: {o.deliveryQuoteNote}</Text> : null}{o.status === 'PLACED' && o.deliveryQuoteStatus === 'AWAITING_STAFF_QUOTE' ? <Text style={S.meta}>Awaiting Lucky Bajaj delivery quote. Current total is the parts subtotal only; delivery fee is not set yet.</Text> : null}{o.status === 'PLACED' && o.deliveryQuoteStatus === 'AWAITING_CUSTOMER_CONFIRMATION' ? <><Text style={S.body}>Review the delivery fee. Accept to proceed or decline to cancel and release reserved stock.</Text><View style={S.wrapRow}><Button label="Accept delivery quote" small onPress={() => void quoteResponse(o, true)}/><Button label="Decline and cancel" secondary small onPress={() => void quoteResponse(o, false)}/></View></> : null}{o.status === 'PLACED' && o.deliveryQuoteStatus === 'ACCEPTED' ? <Text style={S.meta}>Delivery fee accepted: {money(o.deliveryFee)}. Lucky Bajaj can arrange delivery; pay when it arrives.</Text> : null}{o.status === 'CANCELLED' ? <Text style={S.meta}>Delivery request cancelled; stock reservation was released.</Text> : null}</> : null}{o.status === 'RETURNED' && o.returnReason ? <Text style={S.meta}>Return reason: {o.returnReason}. Returned quantity {o.restockedOnReturn ? 'was restocked after inspection' : 'remains excluded from sellable stock'}.</Text> : null}{o.status === 'PLACED' ? <Button label="Cancel and release stock" secondary small onPress={() => cancelOrder(o)}/> : null}</Card>) : <Card><Empty title="No parts orders yet" copy="Orders you submit from the Parts tab will appear here. Online payment is not initiated by this app."/></Card>}</>;
 
-    if (screen === 'requests') return <><Heading title="Test rides & purchase enquiries" subtitle="Follow your request through enquiry, test ride, booking, invoice and delivery records." right={<Button label="Refresh" secondary small onPress={() => token ? void api<SalesRequest[]>('/api/v1/customer/sales-requests', token).then(setRequests).catch(c => notify(c instanceof Error ? c.message : 'Requests could not refresh.')) : undefined}/>}/>{requests.length ? requests.map(r => <Card key={r.publicId}><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>{r.modelName}</Text><Text style={S.meta}>{r.requestCode} · {pretty(r.requestType)}</Text></View><Pill label={pretty(r.status)} tone={r.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.meta}>Submitted {dateTime(r.createdAt)}</Text>{r.preferredAt ? <Text style={S.body}>Preferred test ride · {dateTime(r.preferredAt)}</Text> : null}{r.notes ? <Text style={S.body}>{r.notes}</Text> : null}<View style={S.stepList}>{[['Enquiry',r.enquiryCode,r.enquiryStatus],['Test ride',r.testRideCode,r.testRideStatus],['Booking',r.bookingCode,r.bookingStatus],['Invoice',r.invoiceNumber,r.invoiceStatus]].map(([label,code,status]) => <View key={label} style={S.stepRow}><View style={S.stepDot}/><View style={S.flex}><Text style={S.cardTitle}>{label}</Text><Text style={S.meta}>{code || 'Not recorded'}{status ? ' · ' + pretty(status) : ''}</Text></View></View>)}</View>{r.invoiceTotal != null ? <><Text style={S.price}>{money(r.invoiceTotal)}</Text><Text style={S.meta}>Paid {money(r.paidAmount)} · Balance {money(r.balanceDue)}</Text></> : null}{r.deliveredAt ? <Text style={S.meta}>Delivered {dateTime(r.deliveredAt)}</Text> : null}{r.status === 'REQUESTED' ? <Button label="Cancel request" secondary small onPress={() => Alert.alert('Cancel request?', 'This will request cancellation of ' + r.requestCode + '.', [{text:'Keep',style:'cancel'},{text:'Cancel',style:'destructive',onPress:()=>{setSaving(true);void api('/api/v1/customer/sales-requests/' + r.publicId + '/cancel', token, {method:'POST'}).then(()=>api<SalesRequest[]>('/api/v1/customer/sales-requests', token)).then(setRequests).then(()=>notify('Request cancelled.',true)).catch(c=>notify(c instanceof Error ? c.message : 'Request could not be cancelled.')).finally(()=>setSaving(false));}}])}/> : null}</Card>) : <Card><Empty title="No enquiries yet" copy="Choose a motorcycle in the showroom to send a purchase enquiry or test-ride request."/></Card>}</>;
+    if (screen === 'requests') return <><Heading title="Test rides & purchase enquiries" subtitle="Follow your request through enquiry, test ride, booking, invoice and delivery records." right={<Button label="Refresh" secondary small onPress={() => token ? void api<SalesRequest[]>('/api/v1/customer/sales-requests', token).then(setRequests).catch(c => notify(c instanceof Error ? c.message : 'Requests could not refresh.')) : undefined}/>}/>{pendingIntent || pendingIntentError ? <Card><Heading title="Saved showroom selection" subtitle="Your selected motorcycle is saved on this device until you retry or discard it."/>{pendingIntent ? <Text style={S.body}>{pretty(pendingIntent.action)} · {pendingIntent.modelName}{pendingIntent.preferredAt ? ' · Preferred ' + dateTime(pendingIntent.preferredAt) : ''}</Text> : null}{pendingIntentError ? <Text style={S.meta}>{pendingIntentError}</Text> : null}<View style={S.wrapRow}><Button label={saving ? 'Retrying…' : 'Retry saved request'} disabled={saving || !pendingIntent} onPress={() => void retryPendingRequest()}/><Button label="Discard saved selection" secondary disabled={saving} onPress={() => void discardPendingRequest()}/></View></Card> : null}{requests.length ? requests.map(r => <Card key={r.publicId}><View style={S.rowBetween}><View style={S.flex}><Text style={S.cardTitle}>{r.modelName}</Text><Text style={S.meta}>{r.requestCode} · {pretty(r.requestType)}</Text></View><Pill label={pretty(r.status)} tone={r.status === 'CANCELLED' ? 'danger' : 'warning'}/></View><Text style={S.meta}>Submitted {dateTime(r.createdAt)}</Text>{r.preferredAt ? <Text style={S.body}>Preferred test ride · {dateTime(r.preferredAt)}</Text> : null}{r.notes ? <Text style={S.body}>{r.notes}</Text> : null}<View style={S.stepList}>{[['Enquiry',r.enquiryCode,r.enquiryStatus],['Test ride',r.testRideCode,r.testRideStatus],['Booking',r.bookingCode,r.bookingStatus],['Invoice',r.invoiceNumber,r.invoiceStatus]].map(([label,code,status]) => <View key={label} style={S.stepRow}><View style={S.stepDot}/><View style={S.flex}><Text style={S.cardTitle}>{label}</Text><Text style={S.meta}>{code || 'Not recorded'}{status ? ' · ' + pretty(status) : ''}</Text></View></View>)}</View>{r.invoiceTotal != null ? <><Text style={S.price}>{money(r.invoiceTotal)}</Text><Text style={S.meta}>Paid {money(r.paidAmount)} · Balance {money(r.balanceDue)}</Text></> : null}{r.deliveredAt ? <Text style={S.meta}>Delivered {dateTime(r.deliveredAt)}</Text> : null}{r.status === 'REQUESTED' ? <Button label="Cancel request" secondary small onPress={() => Alert.alert('Cancel request?', 'This will request cancellation of ' + r.requestCode + '.', [{text:'Keep',style:'cancel'},{text:'Cancel',style:'destructive',onPress:()=>{setSaving(true);void api('/api/v1/customer/sales-requests/' + r.publicId + '/cancel', token, {method:'POST'}).then(()=>api<SalesRequest[]>('/api/v1/customer/sales-requests', token)).then(setRequests).then(()=>notify('Request cancelled.',true)).catch(c=>notify(c instanceof Error ? c.message : 'Request could not be cancelled.')).finally(()=>setSaving(false));}}])}/> : null}</Card>) : <Card><Empty title="No enquiries yet" copy="Choose a motorcycle in the showroom to send a purchase enquiry or test-ride request."/></Card>}</>;
 
     if (screen === 'parts') return <><Heading title="Genuine parts & accessories" subtitle="Browse the dealership's published catalogue. Availability and fitment must be verified." right={<Button label={'Cart ' + cartCount} onPress={() => setScreen('cart')} small/>}/><Field label="Search parts" value={partSearch} onChangeText={setPartSearch} placeholder="Part name, SKU or part number" autoCapitalize="none"/><Card style={{ gap: 10 }}>
       <Text style={S.label}>Part category</Text>
