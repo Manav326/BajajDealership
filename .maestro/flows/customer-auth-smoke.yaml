@@ -1,0 +1,61 @@
+appId: com.quantaedge.luckybajaj
+---
+# This is a read-only smoke flow: keep the app's local session and never submit forms.
+- launchApp
+- extendedWaitUntil:
+    visible: "LUCKY BAJAJ"
+    timeout: 90000
+- runFlow:
+    when:
+      visible: "CUSTOMER CARE, CONNECTED"
+    commands:
+      - assertVisible: "A QuantaEdge customer experience"
+      - assertVisible: "CUSTOMER CARE, CONNECTED"
+      - assertVisible: "Every ride deserves better care."
+      - assertVisible: "Sign in"
+      - assertVisible: "Activate account"
+      - assertVisible: "Dealership code"
+      - assertVisible: "Customer code"
+      - assertVisible: "Password"
+      - tapOn: "Activate account"
+      - assertVisible: "One-time activation token"
+      - assertVisible: "Create password (12+ characters)"
+      - scrollUntilVisible:
+          element: "Confirm password"
+          direction: DOWN
+          timeout: 10000
+      - assertVisible: "Confirm password"
+      - scrollUntilVisible:
+          element: "Activate my account"
+          direction: DOWN
+          timeout: 10000
+      - assertVisible: "Activate my account"
+      - scrollUntilVisible:
+          element: "Sign in"
+          direction: UP
+          timeout: 10000
+      - tapOn: "Sign in"
+      - assertVisible: "Dealership code"
+      - assertVisible: "Customer code"
+      - scrollUntilVisible:
+          element: "Sign in securely"
+          direction: DOWN
+          timeout: 10000
+      - assertVisible: "Sign in securely"
+- runFlow:
+    when:
+      visible: "Customer care"
+    commands:
+      - assertVisible: "Sign out"
+      - assertVisible: "Your ride care, in one place."
+      - extendedWaitUntil:
+          visible: "YOUR CUSTOMER SPACE"
+          timeout: 90000
+      - tapOn: "Service"
+      - assertVisible: "Service history"
+      - tapOn: "Visits"
+      - assertVisible: "Service visits"
+      - tapOn: "Updates"
+      - assertVisible: "Dealership updates"
+      - tapOn: "Home"
+      - assertVisible: "YOUR CUSTOMER SPACE"
