@@ -1735,3 +1735,89 @@ body { color: var(--qe-text-primary); font-weight: 500; -webkit-font-smoothing: 
   color: #586981;
   opacity: 1;
 }
+
+
+/* Keep variable glass surfaces readable even in screens that use token fallbacks. */
+:root {
+  --muted: #586981;
+  --glass-blur: 14px;
+  --glass-surface: rgba(255,255,255,.94);
+  --glass-surface-strong: rgba(255,255,255,.97);
+  --glass-inner: rgba(255,255,255,.92);
+  --glass-inner-strong: rgba(255,255,255,.96);
+}
+/* Supporting text in account, vehicle, service, profile and purchase screens. */
+.portal-app .mini-vehicle-copy span,
+.portal-app .mini-vehicle-copy small,
+.portal-app .recent-service-copy span,
+.portal-app .recent-service-copy small,
+.portal-app .next-visit-bike span,
+.portal-app .next-visit-concern,
+.portal-app .vehicle-card-facts small,
+.portal-app .history-timeline small,
+.portal-app .service-invoice-summary small,
+.portal-app .service-invoice-summary span,
+.portal-app .customer-appointment-copy > span,
+.portal-app .customer-notification-heading > div > span,
+.portal-app .purchase-history-amount span {
+  color: #586981;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.portal-app .next-visit-date span,
+.portal-app .vehicle-overline,
+.portal-app .history-job-code,
+.portal-app .customer-appointment-top > strong {
+  font-size: 10px;
+  font-weight: 750;
+}
+.portal-app .portal-footer,
+.portal-app .portal-footer a { color: #586981; font-size: 11px; }
+.portal-app .section-mark { color: #45566f; font-size: 10px; }
+
+/* The dark showroom is kept dark, but its supporting copy and tiny labels are clearer. */
+.bajaj-showroom .showroom-brand small { color: #aebbc9; font-size: 9px; }
+.bajaj-showroom .showroom-links > a { color: #c5cfdb; font-size: 12px; }
+.bajaj-showroom .showroom-login { font-size: 11px; }
+.bajaj-showroom .showroom-overline,
+.bajaj-showroom .showroom-eyebrow { color: #b8c4d0; font-size: 11px; }
+.bajaj-showroom .showroom-hero-copy > p { color: #c0cad6; }
+.bajaj-showroom .showroom-hero-proof { color: #e7edf4; font-size: 10px; }
+.bajaj-showroom .showroom-stage-label span,
+.bajaj-showroom .showroom-stage-label small { color: #c1cbd7; font-size: 9px; }
+.bajaj-showroom .showroom-stage-index { color: #a8b5c4; }
+.bajaj-showroom .showroom-scroll-cue { color: #aebbc9; font-size: 9px; }
+.bajaj-showroom .showroom-marquee-track span { color: #9eacbd; }
+.bajaj-showroom .showroom-section-top p,
+.bajaj-showroom .showroom-experience-copy > p,
+.bajaj-showroom .showroom-offer-copy > p { color: #b5c1ce; font-size: 14px; line-height: 1.8; }
+.bajaj-showroom .showroom-search-wrap { color: #c2ccd8; }
+.bajaj-showroom .showroom-search-wrap input { color: #fff; font-size: 13px; }
+.bajaj-showroom .showroom-search-wrap input::placeholder { color: #aab7c5; opacity: 1; }
+.bajaj-showroom .showroom-filter { color: #c2cdd9; font-size: 11px; }
+.bajaj-showroom .showroom-filter.active { color: #d1fff7; }
+.bajaj-showroom .showroom-card-overline { color: #b4c1cf; font-size: 9px; }
+.bajaj-showroom .showroom-card-specs small,
+.bajaj-showroom .showroom-card-price small,
+.bajaj-showroom .showroom-modal-spec-grid small { color: #aebbc9; font-size: 10px; letter-spacing: .9px; }
+.bajaj-showroom .showroom-card-engine small { font-size: 9px; }
+.bajaj-showroom .showroom-stock { color: #dce4ed; font-size: 9px; }
+.bajaj-showroom .showroom-onroad-note { color: #aebbc9; font-size: 10px; line-height: 1.6; }
+.bajaj-showroom .showroom-onroad-note strong { font-size: 10px; }
+.bajaj-showroom .showroom-card-secondary,
+.bajaj-showroom .showroom-card-primary { font-size: 10px; }
+.bajaj-showroom .showroom-pricing-disclaimer { color: #aebbc9; font-size: 11px; line-height: 1.75; }
+.bajaj-showroom .showroom-load-state p,
+.bajaj-showroom .showroom-error p { color: #bdc8d4; font-size: 13px; line-height: 1.7; }
+.bajaj-showroom .showroom-comparison-header p,
+.bajaj-showroom .showroom-comparison-hint { color: #c0ccd8; font-size: 12px; }
+.bajaj-showroom .showroom-comparison-table th,
+.bajaj-showroom .showroom-comparison-table td { font-size: 12px; }
+.bajaj-showroom .showroom-footer p { color: #9fadc0; font-size: 11px; }
+
+/* Public policy pages use the same stronger reading scale without changing their dark style. */
+.public-legal-brand small { color: #aebbc9; font-size: 9px; }
+.public-legal-updated { color: #aebbc9; font-size: 12px; }
+.public-legal-intro { color: #d2dae3; font-size: 16px; line-height: 1.8; }
+.public-legal-section p { color: #bdc8d4; font-size: 14px; line-height: 1.8; }
+.customer-legal-footer .customer-footer-copyright { color: #aebbc9; font-size: 11px; }

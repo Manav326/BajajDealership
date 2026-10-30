@@ -3089,3 +3089,20 @@ body {
   color: #586981;
   opacity: 1;
 }
+
+/* Readability follow-through for common modal and notification layers. */
+.inbox-popover,.customer-profile-dialog {
+  background: linear-gradient(145deg,rgba(255,255,255,.97),rgba(248,250,253,.95));
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+.inbox-popover-header,.inbox-popover-footer { color: #586981; }
+.inbox-item-copy strong,.customer-profile-dialog h2,.customer-profile-dialog h3 { color: #1e2d45; }
+.inbox-item-copy > span,.inbox-item-copy small,
+.customer-profile-dialog p,.customer-profile-dialog small,
+.customer-profile-edit-toolbar > span,.customer-profile-edit-note {
+  color: #586981;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.customer-profile-dialog label { color: #35465f; font-size: 12px; font-weight: 650; }
