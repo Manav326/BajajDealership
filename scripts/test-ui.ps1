@@ -248,6 +248,11 @@ function Run-AndroidTesting {
     Assert-Java17
     $sdkInfo = Get-AndroidSdk
     Ensure-Maestro
+
+    Write-Step 'Validating the Maestro flow YAML'
+    & maestro check-syntax $maestroFlow
+    Assert-LastExit 'Maestro flow syntax validation'
+
     $device = Get-ReadyAndroidDevice $sdkInfo
     Ensure-NpmDependencies $androidDir (Join-Path $androidDir 'node_modules/expo/package.json') 'Android app / Expo'
 
@@ -283,10 +288,6 @@ function Run-AndroidTesting {
             $env:EXPO_PUBLIC_API_BASE_URL = $oldApiUrl
         }
     }
-
-    Write-Step 'Validating the Maestro flow YAML'
-    & maestro check-syntax $maestroFlow
-    Assert-LastExit 'Maestro flow syntax validation'
 
     Write-Step 'Running the native Android Maestro smoke flow'
     & maestro --device $device test $maestroFlow
