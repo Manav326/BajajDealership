@@ -9,6 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quantaedge.bajaj.security.StaffPrincipal;
+import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +44,8 @@ class DealershipLicenseIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private ObjectMapper mapper;
+  @Autowired private DealershipDataExportService dataExports;
+  @Autowired private com.quantaedge.bajaj.security.StaffAuthenticationService staffAuthentication;
   @Autowired private DealershipLicenseService licenses;
 
   private long dealershipId;
@@ -198,6 +207,54 @@ class DealershipLicenseIntegrationTest {
           and entity_type = 'DEALERSHIP_LICENSE'
         """, Integer.class, dealershipId);
     assertThat(audited).isEqualTo(1);
+  }
+
+  @Test
+  void ownerCanExportBusinessRecordsWithoutCredentialColumnsAfterLicenseExpiry() throws Exception {
+    jdbc.update("""
+        update dealership_license
+        set starts_at = now() - interval '38 days',
+            expires_at = now() - interval '8 days', grace_period_days = 7
+        where dealership_id = ?
+        """, dealershipId);
+
+    StaffPrincipal actor = staffAuthentication.login(
+        dealershipCode, email, PASSWORD, "127.0.0.1", "export-test").principal();
+    java.util.UUID exportId = java.util.UUID.randomUUID();
+    dataExports.recordExportRequested(actor, exportId);
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    var counts = dataExports.writeExport(actor, exportId, output);
+    dataExports.recordExportCompleted(actor, exportId, counts);
+
+    assertThat(output.size()).isGreaterThan(50);
+    assertThat(counts.getOrDefault("staff_user", 0L)).isGreaterThanOrEqualTo(1L);
+
+    boolean foundStaffData = false;
+    String staffData = "";
+    try (ZipInputStream zip = new ZipInputStream(
+        new ByteArrayInputStream(output.toByteArray()), StandardCharsets.UTF_8)) {
+      ZipEntry entry;
+      while ((entry = zip.getNextEntry()) != null) {
+        byte[] bytes = zip.readAllBytes();
+        if ("staff_user.jsonl".equals(entry.getName())) {
+          foundStaffData = true;
+          staffData = new String(bytes, StandardCharsets.UTF_8);
+        }
+        if ("manifest.json".equals(entry.getName())) {
+          String manifest = new String(bytes, StandardCharsets.UTF_8);
+          assertThat(manifest).contains("dealershipCode").contains(dealershipCode);
+        }
+      }
+    }
+    assertThat(foundStaffData).isTrue();
+    assertThat(staffData).contains("Test Owner");
+    assertThat(staffData).doesNotContain("password_hash").doesNotContain("token_hash");
+    assertThat(jdbc.queryForObject("""
+        select count(*) from audit_event
+        where dealership_id = ? and action in
+          ('DEALERSHIP_DATA_EXPORT_REQUESTED', 'DEALERSHIP_DATA_EXPORT_COMPLETED')
+          and entity_id = ?
+        """, Integer.class, dealershipId, exportId.toString())).isEqualTo(2);
   }
 
   @Test
