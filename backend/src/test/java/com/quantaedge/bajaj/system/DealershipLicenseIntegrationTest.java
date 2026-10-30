@@ -140,7 +140,7 @@ class DealershipLicenseIntegrationTest {
     Instant startsAt = Instant.now().minusSeconds(3600);
     Instant expiresAt = Instant.now().plusSeconds(60L * 60 * 24 * 45);
     String body = mapper.writeValueAsString(new LicenseUpdateRequest(
-        "STANDARD", "ACTIVE", startsAt, expiresAt, 5, 12, "Renewed subscription for integration test"));
+        "STANDARD", "ACTIVE", startsAt, expiresAt, 5, 12, 5, "Renewed subscription for integration test"));
 
     mvc.perform(put("/api/v1/system/license/admin/licenses/" + dealershipCode)
             .header("X-License-Admin-Token", ADMIN_TOKEN)
@@ -149,6 +149,7 @@ class DealershipLicenseIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.planCode").value("STANDARD"))
         .andExpect(jsonPath("$.maxStaffSeats").value(12))
+        .andExpect(jsonPath("$.maxDesktopDevices").value(5))
         .andExpect(jsonPath("$.state").value("ACTIVE"));
 
     Integer audited = jdbc.queryForObject("""
@@ -178,5 +179,5 @@ class DealershipLicenseIntegrationTest {
       String fullName, String email, String phone, List<String> roleCodes, String reason) {}
   private record LicenseUpdateRequest(
       String planCode, String status, Instant startsAt, Instant expiresAt,
-      int gracePeriodDays, int maxStaffSeats, String reason) {}
+      int gracePeriodDays, int maxStaffSeats, int maxDesktopDevices, String reason) {}
 }

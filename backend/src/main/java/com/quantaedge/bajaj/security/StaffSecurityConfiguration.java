@@ -104,7 +104,7 @@ public class StaffSecurityConfiguration {
     configuration.setAllowedOrigins(allowedOrigins.stream().distinct().toList());
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(Arrays.asList(
-        "Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key", "X-Bootstrap-Token", "X-License-Admin-Token"));
+        "Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key", "X-Bootstrap-Token", "X-License-Admin-Token", "X-Desktop-Installation-Id", "X-Desktop-App-Version"));
     configuration.setExposedHeaders(List.of("Retry-After"));
     configuration.setAllowCredentials(false);
     configuration.setMaxAge(3600L);

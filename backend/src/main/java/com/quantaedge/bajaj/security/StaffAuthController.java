@@ -28,7 +28,9 @@ public class StaffAuthController {
   public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
     StaffAuthenticationService.IssuedSession issued = authenticationService.login(
         request.dealershipCode(), request.login(), request.password(),
-        httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"));
+        httpRequest.getRemoteAddr(), httpRequest.getHeader("User-Agent"),
+        httpRequest.getHeader("X-Desktop-Installation-Id"),
+        httpRequest.getHeader("X-Desktop-App-Version"));
     StaffPrincipal principal = issued.principal();
     return new LoginResponse(issued.accessToken(), "Bearer", issued.expiresAt(),
         new StaffSummary(principal.staffPublicId(), principal.fullName(),

@@ -1,5 +1,7 @@
 package com.quantaedge.bajaj.security;
 
+import com.quantaedge.bajaj.system.DealershipLicenseService;
+
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -22,17 +24,21 @@ public class StaffAuthenticationService {
   private static final Duration SESSION_LIFETIME = Duration.ofHours(8);
   private final JdbcTemplate jdbc;
   private final PasswordEncoder passwordEncoder;
+  private final DealershipLicenseService licenses;
   private final SecureRandom secureRandom = new SecureRandom();
   private final String dummyPasswordHash;
 
-  public StaffAuthenticationService(JdbcTemplate jdbc, PasswordEncoder passwordEncoder) {
+  public StaffAuthenticationService(
+      JdbcTemplate jdbc, PasswordEncoder passwordEncoder, DealershipLicenseService licenses) {
     this.jdbc = jdbc;
     this.passwordEncoder = passwordEncoder;
+    this.licenses = licenses;
     this.dummyPasswordHash = passwordEncoder.encode("unused-dummy-password-" + java.util.UUID.randomUUID());
   }
 
   public IssuedSession login(
-      String dealershipCode, String loginIdentifier, String password, String remoteAddress, String userAgent) {
+      String dealershipCode, String loginIdentifier, String password, String remoteAddress, String userAgent,
+      String desktopInstallationId, String desktopAppVersion) {
     String code = clean(dealershipCode);
     String identifier = clean(loginIdentifier);
     String normalizedLoginKey = (code + ":" + identifier.toLowerCase(java.util.Locale.ROOT));
@@ -77,15 +83,21 @@ public class StaffAuthenticationService {
     Instant expiresAt = now.plus(SESSION_LIFETIME);
     long staffId = number(candidate.get("id"));
     long dealershipId = number(candidate.get("dealership_id"));
+    String desktopInstallationHash = null;
+    if (desktopInstallationId != null && !desktopInstallationId.isBlank()) {
+      desktopInstallationHash = licenses.activateDesktopDevice(
+          dealershipId, desktopInstallationId, desktopAppVersion);
+    }
 
     Long sessionId = jdbc.queryForObject("""
         insert into staff_session(
           dealership_id, staff_user_id, token_hash, issued_at, expires_at, last_seen_at,
-          user_agent, remote_address_hash)
-        values (?, ?, ?, ?, ?, ?, ?, ?)
+          user_agent, remote_address_hash, desktop_installation_hash)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?)
         returning id
         """, Long.class, dealershipId, staffId, tokenHash, Timestamp.from(now),
-        Timestamp.from(expiresAt), Timestamp.from(now), truncate(userAgent, 300), remoteHash);
+        Timestamp.from(expiresAt), Timestamp.from(now), truncate(userAgent, 300), remoteHash,
+        desktopInstallationHash);
     jdbc.update("update staff_user set last_login_at = now(), updated_at = now() where id = ? and dealership_id = ?",
         staffId, dealershipId);
     recordAttempt(loginKeyHash, remoteHash, true);
