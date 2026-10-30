@@ -284,6 +284,10 @@ function Run-AndroidTesting {
         }
     }
 
+    Write-Step 'Validating the Maestro flow YAML'
+    & maestro check-syntax $maestroFlow
+    Assert-LastExit 'Maestro flow syntax validation'
+
     Write-Step 'Running the native Android Maestro smoke flow'
     & maestro --device $device test $maestroFlow
     Assert-LastExit 'Maestro Android tests'
