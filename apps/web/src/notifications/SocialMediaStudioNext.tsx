@@ -624,6 +624,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
   const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
   const cancelRenderRef = useRef<(()=>void)|null>(null);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -637,6 +639,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
   const audioClipLength = Math.max(.1,Math.min(project.audioDurationSeconds??30,Math.max(.1,audioTrackDuration-project.audioStartSeconds),Math.max(.1,totalSceneDuration)));
   const changeProject = (next:StudioProject) => {
+    projectRef.current = next;
     if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
     setTimelinePreviewVisible(false);timelineTimeRef.current=0;setTimelineTime(0);Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
@@ -653,14 +656,15 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
   useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
       if(!Number.isFinite(video.duration)||video.duration<=0)return;
-      const owner=project.pages.find(candidate=>candidate.elements.some(candidateClip=>candidateClip.id===element.id));
+      const currentProject=projectRef.current;
+      const owner=currentProject.pages.find(candidate=>candidate.elements.some(candidateClip=>candidateClip.id===element.id));
       const sourceClip=owner?.elements.find(candidateClip=>candidateClip.id===element.id);
       if(!owner||!sourceClip)return;
       const clipStart=Math.max(0,Math.min(owner.durationSeconds-.1,sourceClip.startSeconds??0));
       const sourceStart=Math.max(0,Math.min(sourceClip.sourceStartSeconds??0,Math.max(0,video.duration-.1)));
       const safeDuration=Math.max(.1,Math.min(sourceClip.durationSeconds??owner.durationSeconds,owner.durationSeconds-clipStart,video.duration-sourceStart));
       if(Math.abs(clipStart-(sourceClip.startSeconds??0))<.01&&Math.abs(sourceStart-(sourceClip.sourceStartSeconds??0))<.01&&Math.abs(safeDuration-(sourceClip.durationSeconds??owner.durationSeconds))<.01)return;
-      changeProject({...project,pages:project.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
+      changeProject({...currentProject,pages:currentProject.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
     });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
   useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
