@@ -155,7 +155,20 @@ function Assert-Java17 {
 }
 
 function Ensure-Maestro {
-    if (Get-Command maestro -ErrorAction SilentlyContinue) { return }
+    $minimumVersion = [version]'1.40.0'
+    $existingMaestro = Get-Command maestro -ErrorAction SilentlyContinue
+    if ($existingMaestro) {
+        $existingVersionText = (& maestro --version 2>&1 | Out-String)
+        $existingVersionMatch = [regex]::Match($existingVersionText, '(?<version>\d+\.\d+\.\d+)')
+        if ($LASTEXITCODE -eq 0 -and $existingVersionMatch.Success) {
+            $existingVersion = [version]$existingVersionMatch.Groups['version'].Value
+            if ($existingVersion -ge $minimumVersion) { return }
+            Write-Host "Maestro $existingVersion is too old; version $minimumVersion or newer is required. Installing a user-local update." -ForegroundColor Yellow
+        }
+        else {
+            Write-Host 'The existing Maestro CLI version could not be verified. Installing a user-local copy.' -ForegroundColor Yellow
+        }
+    }
 
     $maestroHome = Join-Path $env:LOCALAPPDATA 'QuantaEdge/tools/maestro'
     $maestroBin = Join-Path $maestroHome 'bin'
