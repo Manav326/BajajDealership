@@ -3069,3 +3069,23 @@ body {
   .page-wrap td { font-size: 12px; }
   .topbar .breadcrumbs { font-size: 12px; }
 }
+
+
+/* Keep high-traffic sign-in, notification and data-entry surfaces crisp. */
+.auth-card,.inbox-popover {
+  background: linear-gradient(145deg,rgba(255,255,255,.97),rgba(248,250,253,.95));
+  border-color: rgba(157,174,198,.42);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+.page-wrap input:not([type="checkbox"]):not([type="radio"]),
+.page-wrap select,
+.page-wrap textarea {
+  background-color: rgba(255,255,255,.97);
+  border-color: rgba(135,153,178,.50);
+}
+.page-wrap input::placeholder,
+.page-wrap textarea::placeholder {
+  color: #586981;
+  opacity: 1;
+}
