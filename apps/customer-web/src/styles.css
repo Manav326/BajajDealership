@@ -1,10 +1,38 @@
+/* Self-hosted Inter Variable (Fontsource 5.3.0, SIL Open Font License 1.1). */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Devanagari fallback: Fontsource Noto Sans Devanagari, SIL Open Font License 1.1. */
+@font-face {
+  font-family: "Noto Sans Devanagari";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/noto-sans-devanagari-wght-normal.woff2") format("woff2");
+  unicode-range: U+0900-097F,U+1CD0-1CF9,U+200C-200D,U+20A8,U+20B9,U+20F0,U+25CC,U+A830-A839,U+A8E0-A8FF,U+11B00-11B09;
+}
+
 :root {
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: Inter, "Noto Sans Devanagari", "Segoe UI", Arial, sans-serif;
   color: #1d2b42;
   background: #edf2f8;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: auto;
   --orange: #ed711d;
   --orange-deep: #c85d14;
   --ink: #17263d;
@@ -1605,3 +1633,203 @@ button:focus:not(:focus-visible),input:focus:not(:focus-visible),select:focus:no
 @media(max-width:720px){.showroom-orbital-stage{min-height:320px}.showroom-orbital-stage:before{left:0;right:0;top:13%;bottom:17%}.showroom-orbit-bike{left:calc(50% + var(--orbit-x-mobile));width:clamp(132px,41vw,215px);height:clamp(125px,38vw,185px)}.showroom-orbit-track{width:94%;height:45%;top:56%}.showroom-orbital-stage .showroom-stage-label{right:0;bottom:9%;min-width:132px}.showroom-orbit-controls{bottom:0}.showroom-orbit-bike span{font-size:8px}}
 @media(max-width:380px){.showroom-orbit-bike{width:126px;height:122px}.showroom-orbital-stage .showroom-stage-label{min-width:112px;padding:8px 10px}.showroom-orbit-bike span{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.showroom-orbit-bike,.showroom-orbit-controls button{transition:none!important}}
+
+
+/* Readability baseline for the customer portal. The motorcycle showroom remains visually independent. */
+:root {
+  --muted: #586981;
+  --glass-blur: 14px;
+  --qe-text-primary: #17243b;
+  --qe-text-secondary: #44556f;
+  --qe-text-muted: #586981;
+}
+body { color: var(--qe-text-primary); font-weight: 500; -webkit-font-smoothing: auto; }
+.portal-app { color: var(--qe-text-primary); font-weight: 500; }
+.portal-app p {
+  color: var(--qe-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+.portal-app small {
+  color: var(--qe-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.portal-app label {
+  color: #35465f;
+  font-size: 12px;
+  font-weight: 650;
+}
+.portal-app td { color: #2e4059; font-size: 12px; font-weight: 500; }
+.portal-app th { color: #45566f; font-size: 11px; font-weight: 750; }
+.portal-app .portal-tab { color: #485971; font-size: 11px; font-weight: 750; }
+.portal-app .portal-tab.active { color: #8f4315; }
+.portal-app .portal-metric small { color: #53647b; font-size: 11px; }
+.portal-app .portal-metric span:last-child { color: #586981; font-size: 10px; line-height: 1.5; }
+.portal-app .portal-section-heading h2 { color: #1e2d45; font-size: 17px; font-weight: 800; }
+.portal-app .panel-heading h3 { color: #263750; font-size: 13px; font-weight: 800; }
+.portal-app .panel-heading p,.portal-app .portal-section-heading p {
+  color: #586981;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.portal-app .portal-hero-copy p {
+  color: #dce6f2;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.portal-app .customer-identity strong { color: #263750; font-size: 11px; font-weight: 750; }
+.portal-app .customer-identity small { color: #586981; font-size: 10px; }
+.portal-app .status-pill { color: #4f6077; font-size: 10px; font-weight: 750; }
+.portal-app .text-link { color: #914413; font-size: 10px; font-weight: 800; }
+.portal-app .section-mark { color: #53647b; font-size: 9px; }
+.portal-app .portal-footer { color: #586981; font-size: 11px; }
+.portal-app .inline-empty,.portal-app .glass-empty,.portal-app .appointment-honesty-note,
+.portal-app .status-explanation,.portal-app .service-invoice-unavailable,
+.portal-app .customer-request-note,.portal-app .customer-notification-summary,
+.portal-app .retail-address-book-hint {
+  color: #586981;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+/* Glass stays translucent, but its text-bearing surfaces are no longer see-through. */
+.portal-app .portal-topbar {
+  background: linear-gradient(105deg,rgba(255,255,255,.95),rgba(246,249,253,.92));
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+.portal-app .glass-panel,.portal-app .vehicle-glass-card,
+.portal-app .portal-metric,.portal-app .portal-dealership-pill,
+.portal-app .portal-tabs,.portal-app .customer-appointment-card,
+.portal-app .customer-notification-card {
+  background: linear-gradient(145deg,rgba(255,255,255,.96),rgba(247,250,253,.92));
+  border-color: rgba(157,174,198,.42);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+.portal-auth-screen .auth-card {
+  background: linear-gradient(145deg,rgba(255,255,255,.96),rgba(247,250,253,.93));
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+.portal-auth-screen .auth-subtitle { color: #44556f; font-size: 13px; font-weight: 500; }
+.portal-auth-screen .portal-form label { color: #35465f; font-size: 12px; }
+.portal-auth-screen .portal-form input,
+.portal-auth-screen .portal-form select,
+.portal-auth-screen .portal-form textarea {
+  color: #1e2d45;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(255,255,255,.96);
+}
+.portal-auth-screen .portal-auth-footer { color: #586981; font-size: 10px; }
+
+
+/* Stronger input text and borders throughout the signed-in customer workspace. */
+.portal-app input:not([type="checkbox"]):not([type="radio"]),
+.portal-app select,
+.portal-app textarea {
+  color: #1e2d45;
+  background-color: rgba(255,255,255,.97);
+  border-color: rgba(135,153,178,.52);
+  font-size: 13px;
+  font-weight: 500;
+}
+.portal-app input::placeholder,
+.portal-app textarea::placeholder,
+.portal-auth-screen .portal-form input::placeholder,
+.portal-auth-screen .portal-form textarea::placeholder {
+  color: #586981;
+  opacity: 1;
+}
+
+
+/* Keep variable glass surfaces readable even in screens that use token fallbacks. */
+:root {
+  --muted: #586981;
+  --glass-blur: 14px;
+  --glass-surface: rgba(255,255,255,.94);
+  --glass-surface-strong: rgba(255,255,255,.97);
+  --glass-inner: rgba(255,255,255,.92);
+  --glass-inner-strong: rgba(255,255,255,.96);
+}
+/* Supporting text in account, vehicle, service, profile and purchase screens. */
+.portal-app .mini-vehicle-copy span,
+.portal-app .mini-vehicle-copy small,
+.portal-app .recent-service-copy span,
+.portal-app .recent-service-copy small,
+.portal-app .next-visit-bike span,
+.portal-app .next-visit-concern,
+.portal-app .vehicle-card-facts small,
+.portal-app .history-timeline small,
+.portal-app .service-invoice-summary small,
+.portal-app .service-invoice-summary span,
+.portal-app .customer-appointment-copy > span,
+.portal-app .customer-notification-heading > div > span,
+.portal-app .purchase-history-amount span {
+  color: #586981;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.portal-app .next-visit-date span,
+.portal-app .vehicle-overline,
+.portal-app .history-job-code,
+.portal-app .customer-appointment-top > strong {
+  font-size: 10px;
+  font-weight: 750;
+}
+.portal-app .portal-footer,
+.portal-app .portal-footer a { color: #586981; font-size: 11px; }
+.portal-app .section-mark { color: #45566f; font-size: 10px; }
+
+/* The dark showroom is kept dark, but its supporting copy and tiny labels are clearer. */
+.bajaj-showroom { font-family: Inter, "Noto Sans Devanagari", "Segoe UI", Arial, sans-serif; }
+
+.bajaj-showroom .showroom-brand small { color: #aebbc9; font-size: 9px; }
+.bajaj-showroom .showroom-links > a { color: #c5cfdb; font-size: 12px; }
+.bajaj-showroom .showroom-login { font-size: 11px; }
+.bajaj-showroom .showroom-overline,
+.bajaj-showroom .showroom-eyebrow { color: #b8c4d0; font-size: 11px; }
+.bajaj-showroom .showroom-hero-copy > p { color: #c0cad6; }
+.bajaj-showroom .showroom-hero-proof { color: #e7edf4; font-size: 10px; }
+.bajaj-showroom .showroom-stage-label span,
+.bajaj-showroom .showroom-stage-label small { color: #c1cbd7; font-size: 9px; }
+.bajaj-showroom .showroom-stage-index { color: #a8b5c4; }
+.bajaj-showroom .showroom-scroll-cue { color: #aebbc9; font-size: 9px; }
+.bajaj-showroom .showroom-marquee-track span { color: #9eacbd; }
+.bajaj-showroom .showroom-section-top p,
+.bajaj-showroom .showroom-experience-copy > p,
+.bajaj-showroom .showroom-offer-copy > p { color: #b5c1ce; font-size: 14px; line-height: 1.8; }
+.bajaj-showroom .showroom-search-wrap { color: #c2ccd8; }
+.bajaj-showroom .showroom-search-wrap input { color: #fff; font-size: 13px; }
+.bajaj-showroom .showroom-search-wrap input::placeholder { color: #aab7c5; opacity: 1; }
+.bajaj-showroom .showroom-filter { color: #c2cdd9; font-size: 11px; }
+.bajaj-showroom .showroom-filter.active { color: #d1fff7; }
+.bajaj-showroom .showroom-card-overline { color: #b4c1cf; font-size: 9px; }
+.bajaj-showroom .showroom-card-specs small,
+.bajaj-showroom .showroom-card-price small,
+.bajaj-showroom .showroom-modal-spec-grid small { color: #aebbc9; font-size: 10px; letter-spacing: .9px; }
+.bajaj-showroom .showroom-card-engine small { font-size: 9px; }
+.bajaj-showroom .showroom-stock { color: #dce4ed; font-size: 9px; }
+.bajaj-showroom .showroom-onroad-note { color: #aebbc9; font-size: 10px; line-height: 1.6; }
+.bajaj-showroom .showroom-onroad-note strong { font-size: 10px; }
+.bajaj-showroom .showroom-card-secondary,
+.bajaj-showroom .showroom-card-primary { font-size: 10px; }
+.bajaj-showroom .showroom-pricing-disclaimer { color: #aebbc9; font-size: 11px; line-height: 1.75; }
+.bajaj-showroom .showroom-load-state p,
+.bajaj-showroom .showroom-error p { color: #bdc8d4; font-size: 13px; line-height: 1.7; }
+.bajaj-showroom .showroom-comparison-header p,
+.bajaj-showroom .showroom-comparison-hint { color: #c0ccd8; font-size: 12px; }
+.bajaj-showroom .showroom-comparison-table th,
+.bajaj-showroom .showroom-comparison-table td { font-size: 12px; }
+.bajaj-showroom .showroom-footer p { color: #9fadc0; font-size: 11px; }
+
+/* Public policy pages use the same stronger reading scale without changing their dark style. */
+.public-legal-brand small { color: #aebbc9; font-size: 9px; }
+.public-legal-updated { color: #aebbc9; font-size: 12px; }
+.public-legal-intro { color: #d2dae3; font-size: 16px; line-height: 1.8; }
+.public-legal-section p { color: #bdc8d4; font-size: 14px; line-height: 1.8; }
+.customer-legal-footer .customer-footer-copyright { color: #aebbc9; font-size: 11px; }
