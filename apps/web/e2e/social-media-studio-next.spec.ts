@@ -256,7 +256,7 @@ test('Back saves a new blank design before returning to the resource library', a
 test('publishing caption and hashtags live in the dedicated Publishing tool', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await page.getByRole('button', { name: 'Publishing' }).click();
+  await page.getByRole('navigation', { name: 'Editor tools' }).getByRole('button', { name: 'Publishing', exact: true }).click();
   await page.getByLabel('Publishing caption').fill('Launch day at Lucky Bajaj.');
   await page.getByLabel('Publishing hashtags').fill('#LuckyBajaj #RideOn');
   await expect(page.getByLabel('Publishing caption')).toHaveValue('Launch day at Lucky Bajaj.');
