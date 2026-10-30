@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repository = 'Manav326/BajajDealership'
-$branch = 'feature/dealership-licensing-readonly'
+$branch = $null
 $apiRoot = "https://api.github.com/repos/$repository"
 $artifactPrefix = 'lucky-bajaj-windows-local-docker-'
 $desktopJobName = 'Build unsigned direct installers and Store MSIX package'
@@ -60,21 +60,34 @@ try {
   $null = New-Item -ItemType Directory -Path $stagingDirectory -Force
   Write-Host 'Checking the latest PR #37 Windows build…' -ForegroundColor Cyan
 
-  $branchRef = Invoke-GitHubApi -Path 'git/ref/heads/feature/dealership-licensing-readonly'
+  $pullRequest = Invoke-GitHubApi -Path 'pulls/37'
+  if ($pullRequest.state -eq 'closed' -and -not $pullRequest.merged) {
+    throw 'PR #37 was closed without merging. There is no supported current branch for this local-Docker test build.'
+  }
+  if ($pullRequest.merged -eq $true) {
+    $branch = 'main'
+    $backendCompatibilityNote = 'PR #37 has been merged. The main branch contains the required Tauri CORS/device support and V46/V47 migrations. Build the API from main, then verify its health before installing.'
+  } else {
+    $branch = 'feature/dealership-licensing-readonly'
+    $backendCompatibilityNote = 'PR #37 is still open. Main/GHCR latest does not yet contain the Tauri CORS/device support or V46/V47 migrations. Build the API from the feature branch above and do not delete your existing PostgreSQL Docker volume.'
+  }
+
+  Write-Host "Checking the latest $branch Windows build…" -ForegroundColor Cyan
+  $branchRef = Invoke-GitHubApi -Path "git/ref/heads/$branch"
   $headSha = $branchRef.object.sha
   if ([string]::IsNullOrWhiteSpace($headSha)) {
     throw 'GitHub did not return the current PR branch commit.'
   }
 
   $encodedBranch = [Uri]::EscapeDataString($branch)
-  $runResponse = Invoke-GitHubApi -Path "actions/runs?branch=$encodedBranch&event=push&per_page=100"
+  $runResponse = Invoke-GitHubApi -Path "actions/runs?branch=$encodedBranch&per_page=100"
   $matchingRuns = @(
     $runResponse.workflow_runs |
-      Where-Object { $_.head_sha -eq $headSha } |
+      Where-Object { $_.head_sha -eq $headSha -and $_.event -in @('push', 'workflow_dispatch') } |
       Sort-Object { [DateTime]$_.created_at } -Descending
   )
   if ($matchingRuns.Count -eq 0) {
-    throw "Windows CI has not produced a push run for the current PR commit ($headSha). Run this downloader again only after the current-commit CI run appears. An older build will not be substituted."
+    throw "Windows CI has not produced a push or manual run for the current source commit ($headSha). Run this downloader again only after the current-commit CI run appears. An older build will not be substituted."
   }
   $run = $matchingRuns[0]
 
@@ -153,7 +166,7 @@ STEP 1 — Start the compatible local backend
 2. Check out the PR branch and update it:
    git fetch origin
    git switch $branch
-   git pull
+   git pull origin $branch
 3. Build the API from this branch:
    docker compose build api
 4. Start the API and its dependencies:
@@ -162,7 +175,7 @@ STEP 1 — Start the compatible local backend
    Invoke-RestMethod http://127.0.0.1:8080/actuator/health
    Continue only when the response reports status UP.
 
-PR #37 contains the required Tauri CORS/device support and Flyway migrations V46/V47. Do not use the current main/GHCR latest API for this test until PR #37 is merged and the updated image has been published. Do not delete your existing PostgreSQL Docker volume.
+$backendCompatibilityNote
 
 STEP 2 — Install the desktop app
 1. Close Lucky Bajaj Desktop if it is running.
@@ -178,6 +191,7 @@ SECURITY AND UPDATE NOTES
 - Extracted EXE SHA-256: $exeHash
 - Extracted MSI SHA-256: $msiHash
 - A later run of this helper removes older local-test download folders created by this helper, only after the newer artifact has passed validation.
+- Keep using the same installer type (EXE or MSI) for later upgrades. The cleanup removes downloaded installer files only; it does not uninstall the app.
 - This cleanup does not uninstall the app, modify Docker data, or remove unrelated files.
 "@
   [System.IO.File]::WriteAllText(
