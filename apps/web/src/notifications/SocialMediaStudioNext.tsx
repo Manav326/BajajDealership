@@ -137,6 +137,26 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
 function formatTime(seconds: number): string { const v = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0)); return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0'); }
 function escapeSvg(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char] ?? char)); }
 
+async function convertImageBlob(blob: Blob, mimeType: 'image/jpeg'): Promise<Blob> {
+  if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot convert the rendered image format.');
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Image conversion is unavailable in this browser.');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0);
+    return await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+      (output) => output ? resolve(output) : reject(new Error('The rendered image could not be converted.')),
+      mimeType,
+      0.94,
+    ));
+  } finally { bitmap.close(); }
+}
+
 async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png'): Promise<Blob> {
   const svg = new Blob([makeSvg(page, urls)], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svg);
@@ -611,7 +631,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const audio = audioPlayerRef.current;
     if (!audio) return;
     if (!audio.paused) { audio.pause(); return; }
-    audio.currentTime = Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - .1));
+    const clipEnd = Math.min(audioTrackDuration, project.audioStartSeconds + audioClipLength);
+    if (audio.currentTime < project.audioStartSeconds || audio.currentTime >= clipEnd) {
+      audio.currentTime = Math.min(project.audioStartSeconds, Math.max(0, audioTrackDuration - .1));
+    }
     void audio.play().catch(() => onNotify('Audio preview could not start.'));
   }
   function updateAudioPlayback() {
@@ -629,7 +652,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const photo = downloadTarget !== 'video' && renderedPhoto;
       const video = downloadTarget !== 'photo' && renderedVideo;
       if (photo && renderedPhoto) {
-        const blob = downloadPhotoFormat === 'jpg' ? await renderPageBlob(page, urls, 'image/jpeg') : renderedPhoto.blob;
+        const blob = downloadPhotoFormat === 'jpg' ? await convertImageBlob(renderedPhoto.blob, 'image/jpeg') : renderedPhoto.blob;
         downloadBlob(blob, renderedPhoto.name.replace(/\.(png|jpe?g)$/i, '') + '.' + downloadPhotoFormat);
       }
       if (video && renderedVideo) downloadBlob(renderedVideo.blob, renderedVideo.name);
@@ -657,7 +680,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const nextIds = event.shiftKey ? Array.from(new Set([...selectedIds, ...ids])) : ids;
     setSelectedIds(nextIds);
     const start = pointFromEvent(event);
-    const items = page.elements.filter((item) => nextIds.includes(item.id));
+    const items = page.elements.filter((item) => nextIds.includes(item.id) && !item.locked);
     dragRef.current = { mode: 'move', ids: nextIds, start, items: clone(items) };
     undoRef.current = [...undoRef.current.slice(-39), clone(project)]; redoRef.current = [];
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -673,6 +696,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     return { x: result.x, y: result.y };
   }
   function startHandle(event: ReactPointerEvent<SVGCircleElement>, mode: 'resize' | 'rotate', handle: string, item: StudioElement) {
+    if (item.locked) return;
     event.stopPropagation(); event.preventDefault();
     const point = pointFromEvent(event);
     dragRef.current = { mode, ids: [item.id], start: point, items: [clone(item)], handle,
@@ -733,14 +757,17 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   }
   function endPointer() { dragRef.current = null; setSnapGuides({}); setDirty(true); }
   function deleteSelected() {
-    const ids = new Set(selectedIds);
+    const ids = new Set(selected.filter((item) => !item.locked).map((item) => item.id));
+    if (!ids.size) return;
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: entry.elements.filter((item) => !ids.has(item.id)) } : entry) }));
-    setSelectedIds([]);
+    setSelectedIds(selected.filter((item) => item.locked).map((item) => item.id));
   }
   function duplicateSelected() {
-    if (!selectedIds.length) return;
+    const editable = selected.filter((item) => !item.locked);
+    if (!editable.length) return;
+    const editableIds = new Set(editable.map((item) => item.id));
     const groupMap = new Map<string, string>();
-    const copies = page.elements.filter((item) => selectedIds.includes(item.id)).map((item) => {
+    const copies = page.elements.filter((item) => editableIds.has(item.id)).map((item) => {
       const groupId = item.groupId ? (groupMap.get(item.groupId) ?? randomId()) : undefined;
       if (item.groupId && groupId) groupMap.set(item.groupId, groupId);
       return { ...clone(item), id: randomId(), name: item.name + ' copy', x: item.x + 24, y: item.y + 24, groupId };
@@ -749,19 +776,23 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setSelectedIds(copies.map((item) => item.id));
   }
   function groupSelected() {
-    if (selectedIds.length < 2) return;
+    const editableIds = new Set(selected.filter((item) => !item.locked).map((item) => item.id));
+    if (editableIds.size < 2) return;
     const groupId = randomId();
-    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: entry.elements.map((item) => selectedIds.includes(item.id) ? { ...item, groupId } : item) } : entry) }));
+    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: entry.elements.map((item) => editableIds.has(item.id) ? { ...item, groupId } : item) } : entry) }));
   }
   function ungroupSelected() {
-    const groupIds = new Set(selected.map((item) => item.groupId).filter(Boolean));
-    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: entry.elements.map((item) => groupIds.has(item.groupId) ? { ...item, groupId: undefined } : item) } : entry) }));
+    const editable = selected.filter((item) => !item.locked);
+    const groupIds = new Set(editable.map((item) => item.groupId).filter(Boolean));
+    if (!groupIds.size) return;
+    mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: entry.elements.map((item) => !item.locked && groupIds.has(item.groupId) ? { ...item, groupId: undefined } : item) } : entry) }));
   }
   function alignSelected(position: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') {
-    if (!selected.length) return;
+    const editableIds = new Set(selected.filter((item) => !item.locked).map((item) => item.id));
+    if (!editableIds.size) return;
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id !== page.id ? entry : {
       ...entry, elements: entry.elements.map((item) => {
-        if (!selectedIds.includes(item.id)) return item;
+        if (!editableIds.has(item.id)) return item;
         if (position === 'left') return { ...item, x: 0 };
         if (position === 'center') return { ...item, x: (page.width - item.width) / 2 };
         if (position === 'right') return { ...item, x: page.width - item.width };
@@ -772,11 +803,11 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     }) }));
   }
   function reorderSelected(direction: -1 | 1) {
-    const indexes = page.elements.map((item, index) => selectedIds.includes(item.id) ? index : -1).filter((index) => index >= 0);
+    const indexes = page.elements.map((item, index) => selected.some((selectedItem) => selectedItem.id === item.id && !selectedItem.locked) ? index : -1).filter((index) => index >= 0);
     if (!indexes.length) return;
     const from = direction > 0 ? Math.max(...indexes) : Math.min(...indexes);
     const to = from + direction;
-    if (to < 0 || to >= page.elements.length) return;
+    if (to < 0 || to >= page.elements.length || page.elements[to].locked) return;
     const next = [...page.elements]; [next[from], next[to]] = [next[to], next[from]];
     replacePage({ ...page, elements: next });
   }
@@ -1188,7 +1219,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               <button type="button" title="Bold" aria-label="Bold" disabled={one.locked} aria-pressed={one.fontWeight === '800'} onClick={() => updateElement(one.id, { fontWeight: one.fontWeight === '800' ? '400' : '800' })}><b>B</b></button>
               <button type="button" title="Italic" aria-label="Italic" disabled={one.locked} aria-pressed={one.italic} onClick={() => updateElement(one.id, { italic: !one.italic })}><i>I</i></button>
             </>}
-            <input aria-label="Opacity" type="range" min="0" max="100" value={Math.round(one.opacity * 100)} onChange={(event) => updateElement(one.id, { opacity: Number(event.target.value) / 100 })}/>
+            <input disabled={one.locked} aria-label="Opacity" type="range" min="0" max="100" value={Math.round(one.opacity * 100)} onChange={(event) => updateElement(one.id, { opacity: Number(event.target.value) / 100 })}/>
             <button type="button" title="Duplicate" aria-label="Duplicate" disabled={!!one?.locked} onClick={duplicateSelected}><Icon name="copy"/></button>
             <button type="button" title="Group selected" aria-label="Group selected" disabled={selectedIds.length < 2 || !!one?.locked} onClick={groupSelected}><Icon name="group"/></button>
             <button type="button" title="Ungroup" aria-label="Ungroup" disabled={!!one?.locked} onClick={ungroupSelected}><Icon name="layers"/></button>
@@ -1239,8 +1270,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             {renderedVideo && <button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={() => setVideoPreviewOpen(true)}><Icon name="video"/></button>}
             {selectedAudioResource && <audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={(event) => {
               const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 125;
-              setAudioTrackDuration(duration); setAudioPreviewTime(project.audioStartSeconds);
-              event.currentTarget.currentTime = Math.min(project.audioStartSeconds, duration);
+              const safeStart = Math.min(project.audioStartSeconds, Math.max(0, duration - 1));
+              const safeLength = Math.max(1, Math.min(project.audioDurationSeconds ?? 30, duration - safeStart, totalSceneDuration || 1));
+              if (safeStart !== project.audioStartSeconds || safeLength !== (project.audioDurationSeconds ?? 30)) {
+                changeProject({ ...project, audioStartSeconds: safeStart, audioDurationSeconds: safeLength });
+              }
+              setAudioTrackDuration(duration); setAudioPreviewTime(safeStart);
+              event.currentTarget.currentTime = safeStart;
             }} onTimeUpdate={updateAudioPlayback} onPlay={() => setAudioPlaying(true)} onPause={() => setAudioPlaying(false)}/>}
           </div>
           {selectedAudioResource && <div className={styles.audioTimelineControls}>

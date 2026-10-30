@@ -199,6 +199,10 @@ test('element search filters presets and layer search filters the actual layer l
   await page.getByRole('button', { name: 'Lock layer' }).click();
   await expect(page.getByText('This layer is locked. Unlock it in Layers to edit.')).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'X' })).toBeDisabled();
+  const lockedLayer = page.getByRole('button', { name: 'Offer badge' });
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Control+d');
+  await expect(lockedLayer).toBeVisible();
 });
 
 for (const width of [390, 768, 1280]) {
