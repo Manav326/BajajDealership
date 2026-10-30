@@ -1786,6 +1786,8 @@ body { color: var(--qe-text-primary); font-weight: 500; -webkit-font-smoothing: 
 .portal-app .section-mark { color: #45566f; font-size: 10px; }
 
 /* The dark showroom is kept dark, but its supporting copy and tiny labels are clearer. */
+.bajaj-showroom { font-family: Inter, "Noto Sans Devanagari", "Segoe UI", Arial, sans-serif; }
+
 .bajaj-showroom .showroom-brand small { color: #aebbc9; font-size: 9px; }
 .bajaj-showroom .showroom-links > a { color: #c5cfdb; font-size: 12px; }
 .bajaj-showroom .showroom-login { font-size: 11px; }

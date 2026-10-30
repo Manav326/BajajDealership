@@ -105,12 +105,14 @@ test('customer website loads its own bundled Inter font', async ({ page }) => {
     return {
       inter: faces.some((face) => face.status === 'loaded'),
       devanagari: hindiFaces.some((face) => face.status === 'loaded'),
+      fontFamily: getComputedStyle(document.body).fontFamily,
       copyColor: copyStyle?.color ?? null,
       copySize: copyStyle ? Number.parseFloat(copyStyle.fontSize) : 0,
     };
   });
   expect(loaded.inter).toBe(true);
   expect(loaded.devanagari).toBe(true);
+  expect(loaded.fontFamily).toContain('Noto Sans Devanagari');
   expect(loaded.copyColor).toBe('rgb(192, 202, 214)');
   expect(loaded.copySize).toBeGreaterThanOrEqual(14);
 });
