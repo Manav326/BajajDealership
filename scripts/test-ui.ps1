@@ -243,6 +243,14 @@ function Ensure-Maestro {
         if (-not (Get-Command maestro -ErrorAction SilentlyContinue)) {
             throw "Maestro was extracted to '$maestroHome', but its CLI launcher was not found in bin."
         }
+
+        $installedVersionText = (& maestro --version 2>&1 | Out-String)
+        $installedVersionMatch = [regex]::Match($installedVersionText, '(?<version>\d+\.\d+\.\d+)')
+        if ($LASTEXITCODE -ne 0 -or -not $installedVersionMatch.Success -or
+            [version]$installedVersionMatch.Groups['version'].Value -lt $minimumVersion) {
+            throw "The downloaded Maestro CLI could not be verified as version $minimumVersion or newer. Output: $($installedVersionText.Trim())"
+        }
+        Write-Host "Using Maestro CLI $($installedVersionMatch.Groups['version'].Value)." -ForegroundColor Green
     }
     finally {
         if (Test-Path $tempRoot) { Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue }
