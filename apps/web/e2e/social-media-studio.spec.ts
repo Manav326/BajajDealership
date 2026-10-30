@@ -120,6 +120,26 @@ test('image and music catalogues open as independent pickers and can be searched
   await expect(musicPicker.getByText('Chhath · Hindu Festive Music')).toHaveCount(0);
 });
 
+test('asset picker adds an independent image object and drafts restore its layer', async ({ page }) => {
+  await page.route('https://images.unsplash.com/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=', 'base64') });
+  });
+  await page.getByRole('button', { name: /Photos & assets/ }).click();
+  const imagePicker = page.getByRole('dialog', { name: 'Choose an artwork image' });
+  await expect(imagePicker).toBeVisible();
+  await imagePicker.getByRole('button', { name: 'Add to canvas' }).first().click();
+  await expect(imagePicker).toHaveCount(0);
+  await expect(page.getByText(/1 editable object/)).toBeVisible();
+  await expect(page.locator('[aria-label="Object layers"]').getByRole('button', { name: /Diwali/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved in this browser' })).toBeVisible();
+  const savedDraftPicker = page.getByLabel('Open saved draft');
+  const option = await savedDraftPicker.locator('option').nth(1).getAttribute('value');
+  expect(option).toBeTruthy();
+  await savedDraftPicker.selectOption(option!);
+  await expect(page.getByText(/1 editable object/)).toBeVisible();
+});
+
 test('canvas tools create and persist editable text and shape objects in a saved draft', async ({ page }) => {
   await page.getByRole('button', { name: '＋ Text' }).click();
   await expect(page.getByText(/1 editable object/)).toBeVisible();

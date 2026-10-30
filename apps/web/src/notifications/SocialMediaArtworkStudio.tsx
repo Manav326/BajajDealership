@@ -112,7 +112,8 @@ function drawPhotoCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
 
 type CanvasObject = {
   id: string;
-  kind: 'text' | 'rectangle' | 'circle';
+  kind: 'text' | 'rectangle' | 'circle' | 'image';
+  assetId?: string;
   text: string;
   x: number;
   y: number;
@@ -514,7 +515,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     if (!canvas || !ctx) return;
 
     let cancelled = false;
-    const render = (photo?: HTMLImageElement, logo?: HTMLImageElement) => {
+    const render = (photo?: HTMLImageElement, logo?: HTMLImageElement, objectImages: Record<string, HTMLImageElement> = {}) => {
       if (cancelled) return;
       const width = selectedFormat.width;
       const height = selectedFormat.height;
@@ -668,7 +669,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         ctx.rotate((item.rotation * Math.PI) / 180);
         ctx.globalAlpha = Math.max(0, Math.min(100, item.opacity)) / 100;
         ctx.fillStyle = item.fill;
-        if (item.kind === 'rectangle') {
+        if (item.kind === 'image') {
+          const objectImage = objectImages[item.id];
+          if (objectImage) drawPhotoCover(ctx, objectImage, -objectWidth / 2, -objectHeight / 2, objectWidth, objectHeight, 8 * scale);
+          else {
+            ctx.fillStyle = '#e2e8f0';
+            roundedRect(ctx, -objectWidth / 2, -objectHeight / 2, objectWidth, objectHeight, 8 * scale);
+            ctx.fill();
+            ctx.fillStyle = '#64748b';
+            ctx.font = '600 ' + Math.max(12, 16 * scale) + 'px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Loading image…', 0, 0, objectWidth - 10);
+          }
+        } else if (item.kind === 'rectangle') {
           roundedRect(ctx, -objectWidth / 2, -objectHeight / 2, objectWidth, objectHeight, Math.min(18 * scale, objectHeight * .18));
           ctx.fill();
         } else if (item.kind === 'circle') {
@@ -690,10 +704,13 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
     let photoLoaded = !photoSource;
     let logoLoaded = !logoSource;
+    const objectAssetIds = [...new Set(canvasObjects.filter((item) => item.kind === 'image' && item.assetId).map((item) => item.assetId!))];
+    const loadedObjectImages: Record<string, HTMLImageElement> = {};
+    let objectImagesPending = objectAssetIds.length;
     let loadedPhoto: HTMLImageElement | undefined;
     let loadedLogo: HTMLImageElement | undefined;
     const renderWhenReady = () => {
-      if (!cancelled && photoLoaded && logoLoaded) render(loadedPhoto, loadedLogo);
+      if (!cancelled && photoLoaded && logoLoaded && objectImagesPending === 0) render(loadedPhoto, loadedLogo, loadedObjectImages);
     };
     if (photoSource) {
       const image = new Image();
@@ -702,6 +719,28 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
       image.onerror = () => { photoLoaded = true; renderWhenReady(); };
       image.src = photoSource;
     }
+    objectAssetIds.forEach((assetId) => {
+      const asset = artworkAssets.find((item) => item.id === assetId);
+      const source = assetPreviewSources[assetId] || asset?.sourceUrl || '';
+      const objectIds = canvasObjects.filter((item) => item.kind === 'image' && item.assetId === assetId).map((item) => item.id);
+      if (!source) {
+        objectImagesPending -= 1;
+        renderWhenReady();
+        return;
+      }
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => {
+        objectIds.forEach((id) => { loadedObjectImages[id] = image; });
+        objectImagesPending -= 1;
+        renderWhenReady();
+      };
+      image.onerror = () => {
+        objectImagesPending -= 1;
+        renderWhenReady();
+      };
+      image.src = source;
+    });
     if (logoSource) {
       const image = new Image();
       image.crossOrigin = 'anonymous';
@@ -711,7 +750,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     }
     renderWhenReady();
     return () => { cancelled = true; };
-  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms, canvasObjects]);
+  }, [selectedFormat, brandName, headline, message, callToAction, primary, accent, headlineColor, messageColor, photoSource, logoSource, layerVisibility, layerTransforms, canvasObjects, artworkAssets, assetPreviewSources]);
 
   async function refreshArtworkAssets(): Promise<ArtworkAsset[]> {
     const assets = await loadArtworkAssets();
@@ -1602,6 +1641,31 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     canvasRedoRef.current = [];
   }
 
+  async function addCanvasImageObject(asset: ArtworkAsset) {
+    setAssetBusyId(asset.id);
+    setError('');
+    setNotice('');
+    try {
+      await resolveArtworkAssetSource(asset);
+      const refreshed = await refreshArtworkAssets();
+      if (!refreshed.some((item) => item.id === asset.id)) throw new Error('The selected image could not be cached in the asset library.');
+      pushCanvasObjectHistory();
+      const next: CanvasObject = {
+        id: newDraftId(), kind: 'image', assetId: asset.id, text: '',
+        x: 32, y: 32, width: 38, height: 32, fill: '#ffffff', fontSize: 24,
+        bold: false, italic: false, fontFamily: 'Arial', align: 'left', rotation: 0, opacity: 100,
+      };
+      setCanvasObjects((current) => [...current, next]);
+      setSelectedCanvasObjectId(next.id);
+      setAssetLibraryOpen(false);
+      setNotice(asset.name + ' added as an independent canvas image layer.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The image could not be added as a canvas layer.');
+    } finally {
+      setAssetBusyId(null);
+    }
+  }
+
   function addCanvasObject(kind: CanvasObject['kind']) {
     pushCanvasObjectHistory();
     const next: CanvasObject = {
@@ -1878,6 +1942,10 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                       {assetBusyId === asset.id ? 'Importing…' : selectedAssetId === asset.id ? 'Image selected' : 'Use image'}
                     </button>
                     <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
+                      onClick={() => void addCanvasImageObject(asset)}>
+                      Add to canvas
+                    </button>
+                    <button type="button" className={styles.secondary} disabled={assetBusyId !== null}
                       onClick={() => void selectArtworkAsset(asset, 'logo')}>
                       {selectedLogoAssetId === asset.id ? 'Logo selected' : 'Use as logo'}
                     </button>
@@ -2031,6 +2099,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                 const selected = canvasObjects.find((item) => item.id === selectedCanvasObjectId)!;
                 return <div className={styles.objectInspector}>
                   {selected.kind === 'text' && <label>Text<input value={selected.text} maxLength={180} onChange={(event) => updateCanvasObject(selected.id, { text: event.target.value })} /></label>}
+                  {selected.kind === 'image' && <p className={styles.panelFootnote}>Image layer: {artworkAssets.find((asset) => asset.id === selected.assetId)?.name ?? 'Stored artwork asset'}. Add another image from the picker to place it independently.</p>}
                   <label>Colour<input type="color" value={selected.fill} onChange={(event) => updateCanvasObject(selected.id, { fill: event.target.value })} /></label>
                   {selected.kind === 'text' && <>
                     <label>Font family<select value={selected.fontFamily} onChange={(event) => updateCanvasObject(selected.id, { fontFamily: event.target.value })}><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option><option>Impact</option><option>Courier New</option></select></label>
@@ -2046,7 +2115,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
                   <div className={styles.assetActions}><button type="button" className={styles.secondary} onClick={() => reorderCanvasObject(selected.id, 1)}>Bring forward</button><button type="button" className={styles.secondary} onClick={() => reorderCanvasObject(selected.id, -1)}>Send backward</button><button type="button" className={styles.secondary} onClick={duplicateCanvasObject}>Duplicate</button><button type="button" className={styles.textButton} onClick={deleteCanvasObject}>Delete object</button></div>
                 </div>;
               })() : <p className={styles.panelFootnote}>Add text or shapes from the canvas toolbar. Existing dealership artwork layers remain editable below.</p>}
-              {canvasObjects.length > 0 && <div className={styles.objectLayerList} aria-label="Object layers">{[...canvasObjects].reverse().map((item) => <button key={item.id} type="button" className={selectedCanvasObjectId === item.id ? styles.objectLayerActive : styles.objectLayer} onClick={() => setSelectedCanvasObjectId(item.id)}>{item.kind === 'text' ? 'T' : item.kind === 'circle' ? '○' : '▭'} {item.kind === 'text' ? item.text.slice(0, 24) : item.kind}</button>)}</div>}
+              {canvasObjects.length > 0 && <div className={styles.objectLayerList} aria-label="Object layers">{[...canvasObjects].reverse().map((item) => <button key={item.id} type="button" className={selectedCanvasObjectId === item.id ? styles.objectLayerActive : styles.objectLayer} onClick={() => setSelectedCanvasObjectId(item.id)}>{item.kind === 'text' ? 'T' : item.kind === 'circle' ? '○' : item.kind === 'image' ? '▧' : '▭'} {item.kind === 'text' ? item.text.slice(0, 24) : item.kind === 'image' ? artworkAssets.find((asset) => asset.id === item.assetId)?.name ?? 'Image' : item.kind}</button>)}</div>}
             </section>
             <label>Artwork format
               <select value={formatId} onChange={(event) => setFormatId(event.target.value)}>
