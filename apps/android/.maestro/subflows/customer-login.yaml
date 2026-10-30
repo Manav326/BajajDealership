@@ -6,11 +6,14 @@
     timeout: 30000
 - tapOn: "Sign in / activate account"
 - assertVisible: "Your customer space, in your pocket."
-- tapOn: "Dealership code"
+- tapOn:
+    id: customer-login-dealership-code
 - inputText: ${MAESTRO_DEALERSHIP_CODE}
-- tapOn: "Customer code"
+- tapOn:
+    id: customer-login-customer-code
 - inputText: ${MAESTRO_CUSTOMER_CODE}
-- tapOn: "Password"
+- tapOn:
+    id: customer-login-password
 - inputText: ${MAESTRO_CUSTOMER_PASSWORD}
 - tapOn: "Sign in securely"
 - extendedWaitUntil:
