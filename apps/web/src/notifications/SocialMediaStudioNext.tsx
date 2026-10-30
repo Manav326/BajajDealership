@@ -801,108 +801,177 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     }
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-    if (totalDuration < MUSIC_CLIP_MIN_SECONDS) { onNotify('Story video must be at least ' + MUSIC_CLIP_MIN_SECONDS + ' seconds long.'); return; }
-    if (totalDuration > maxDuration) { onNotify('This destination supports up to ' + maxDuration + ' seconds. Shorten the scene timeline first.'); return; }
+    const audioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
+    if (audioResource && totalDuration < MUSIC_CLIP_MIN_SECONDS) {
+      onNotify('A soundtrack export must be at least ' + MUSIC_CLIP_MIN_SECONDS + ' seconds long.');
+      return;
+    }
+    if (totalDuration > maxDuration) {
+      onNotify('This destination supports up to ' + maxDuration + ' seconds. Shorten the scene timeline first.');
+      return;
+    }
+
     setExporting(true);
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
     let audioSource: AudioBufferSourceNode | null = null;
+    let mediaStream: MediaStream | null = null;
     let frameId = 0;
-      try {
+    let stopWatch: number | null = null;
+    const frameUrls: string[] = [];
+
+    try {
       const frames = await Promise.all(project.pages.map(async (item) => {
         const blob = new Blob([makeSvg(item, urls)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
-        const image = new Image(); image.src = url; await image.decode();
-        return { image, url, duration: Math.max(1, item.durationSeconds), transition: item.transitionAfter ?? 'cut' };
+        frameUrls.push(url);
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        return { image, duration: Math.max(1, item.durationSeconds), transition: item.transitionAfter ?? 'cut' };
       }));
+
       const canvas = document.createElement('canvas');
-      canvas.width = 1080; canvas.height = 1920;
+      canvas.width = 1080;
+      canvas.height = 1920;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Video render canvas is unavailable.');
-      const stream = canvas.captureStream(30);
-      const audioResource = resources.find((item) => item.id === selectedAudio);
+      mediaStream = canvas.captureStream(30);
+
+      let audioClipStart = 0;
+      let audioClipDuration = 0;
       if (audioResource) {
         context = new AudioContext();
         const audioDestination = context.createMediaStreamDestination();
         const decoded = await context.decodeAudioData(await audioResource.blob.arrayBuffer());
         audioSource = context.createBufferSource();
         audioSource.buffer = decoded;
-        const gain = context.createGain(); gain.gain.value = Math.max(0, Math.min(1, project.audioVolume / 100));
-        audioSource.connect(gain); gain.connect(audioDestination); gain.connect(context.destination);
-        audioDestination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+        const gain = context.createGain();
+        gain.gain.value = Math.max(0, Math.min(1, project.audioVolume / 100));
+        audioSource.connect(gain);
+        gain.connect(audioDestination);
+        audioDestination.stream.getAudioTracks().forEach((track) => mediaStream?.addTrack(track));
+
+        audioClipStart = Math.max(0, project.audioStartSeconds);
+        audioClipDuration = Math.min(
+          project.audioDurationSeconds ?? 30,
+          totalDuration,
+          Math.max(0, decoded.duration - audioClipStart),
+        );
+        if (audioClipDuration < MUSIC_CLIP_MIN_SECONDS) {
+          throw new Error('The selected audio range must contain at least 20 seconds within the video duration.');
+        }
       }
-      const mime = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm'].find((value) => MediaRecorder.isTypeSupported(value));
-      recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 3_000_000, audioBitsPerSecond: 128_000 } : undefined);
+
+      const mime = [
+        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm',
+      ].find((value) => MediaRecorder.isTypeSupported(value));
+      recorder = new MediaRecorder(mediaStream, mime
+        ? { mimeType: mime, videoBitsPerSecond: 3_000_000, audioBitsPerSecond: 128_000 }
+        : undefined);
+
       const parts: Blob[] = [];
       const stopped = new Promise<Blob>((resolve, reject) => {
         recorder!.ondataavailable = (event) => { if (event.data.size) parts.push(event.data); };
         recorder!.onerror = () => reject(new Error('Video recording failed.'));
-        recorder!.onstop = () => resolve(new Blob(parts, { type: recorder!.mimeType || 'video/webm' }));
+        recorder!.onstop = () => {
+          if (stopWatch !== null) {
+            window.clearTimeout(stopWatch);
+            stopWatch = null;
+          }
+          resolve(new Blob(parts, { type: recorder!.mimeType || 'video/webm' }));
+        };
       });
+      // Keep a rejection handler attached even when a setup error occurs before awaiting the recorder.
+      void stopped.catch(() => undefined);
+
       recorder.start(250);
       if (context && audioSource) {
         await context.resume();
-        const clipStart = Math.max(0, project.audioStartSeconds);
-        const clipDuration = Math.min(project.audioDurationSeconds ?? 30, Math.max(0, audioSource.buffer!.duration - clipStart));
-        if (clipDuration < MUSIC_CLIP_MIN_SECONDS) throw new Error('The selected audio range must contain at least 20 seconds.');
-        audioSource.start(0, clipStart, clipDuration);
+        audioSource.start(0, audioClipStart, audioClipDuration);
       }
+
       const total = frames.reduce((sum, item) => sum + item.duration, 0);
       const started = performance.now();
+      let renderFailure: Error | null = null;
+
       const draw = (now: number) => {
-        const elapsed = (now - started) / 1000;
-        let offset = elapsed;
-        let selectedFrameIndex = frames.length - 1;
-        let selectedOffset = 0;
-        for (let index = 0; index < frames.length; index += 1) {
-          if (offset <= frames[index].duration) { selectedFrameIndex = index; selectedOffset = offset; break; }
-          offset -= frames[index].duration;
+        try {
+          const elapsed = (now - started) / 1000;
+          let offset = elapsed;
+          let selectedFrameIndex = frames.length - 1;
+          let selectedOffset = 0;
+          for (let index = 0; index < frames.length; index += 1) {
+            if (offset <= frames[index].duration) {
+              selectedFrameIndex = index;
+              selectedOffset = offset;
+              break;
+            }
+            offset -= frames[index].duration;
+          }
+
+          const selectedFrame = frames[selectedFrameIndex];
+          const drawContained = (image: HTMLImageElement, alpha = 1) => {
+            const ratio = Math.min(canvas.width / image.width, canvas.height / image.height);
+            const width = image.width * ratio;
+            const height = image.height * ratio;
+            ctx.globalAlpha = alpha;
+            ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+            ctx.globalAlpha = 1;
+          };
+
+          ctx.fillStyle = '#101c35';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          drawContained(selectedFrame.image);
+          const nextFrame = frames[selectedFrameIndex + 1];
+          const transitionWindow = .5;
+          if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
+            const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
+            drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
+          }
+
+          if (elapsed >= total) {
+            if (recorder?.state === 'recording') recorder.stop();
+            return;
+          }
+          frameId = requestAnimationFrame(draw);
+        } catch (cause) {
+          renderFailure = cause instanceof Error ? cause : new Error('A video frame could not be rendered.');
+          if (recorder?.state === 'recording') recorder.stop();
         }
-        const selectedFrame = frames[selectedFrameIndex];
-        const drawContained = (image: HTMLImageElement, alpha = 1) => {
-          const ratio = Math.min(canvas.width / image.width, canvas.height / image.height);
-          const width = image.width * ratio, height = image.height * ratio;
-          ctx!.globalAlpha = alpha; ctx!.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height); ctx!.globalAlpha = 1;
-        };
-        ctx!.fillStyle = '#101c35'; ctx!.fillRect(0, 0, canvas.width, canvas.height);
-        drawContained(selectedFrame.image);
-        const nextFrame = frames[selectedFrameIndex + 1];
-        const transitionWindow = .5;
-        if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
-          const progress = 1 - Math.max(0, selectedFrame.duration - selectedOffset) / transitionWindow;
-          drawContained(nextFrame.image, Math.max(0, Math.min(1, progress)));
-        }
-        if (elapsed >= total) { recorder?.stop(); return; }
-        frameId = requestAnimationFrame(draw);
       };
-      await new Promise<void>((resolve) => {
-        const finish = () => resolve();
-        const activeRecorder = recorder!;
-        const stopWatch = window.setTimeout(finish, total * 1000 + 8000);
-        const originalStop = activeRecorder.onstop;
-        activeRecorder.onstop = (event) => { if (originalStop) originalStop.call(activeRecorder, event); window.clearTimeout(stopWatch); finish(); };
-        frameId = requestAnimationFrame(draw);
-      });
+
+      // A throttled or backgrounded animation frame must not leave MediaRecorder running forever.
+      stopWatch = window.setTimeout(() => {
+        if (recorder?.state === 'recording') recorder.stop();
+      }, total * 1000 + 8000);
+      frameId = requestAnimationFrame(draw);
+
       const blob = await stopped;
+      if (renderFailure) throw renderFailure;
       if (!blob.size) throw new Error('Video export is empty.');
+
       const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
       const filename = slug(project.name) + '-video.' + extension;
       await saveResource(blob, filename, 'video', true);
       downloadBlob(blob, filename);
       onNotify('Video saved and downloaded (' + extension.toUpperCase() + ').');
-      frames.forEach((item) => URL.revokeObjectURL(item.url));
-      stream.getTracks().forEach((track) => track.stop());
     } catch (cause) {
       if (recorder?.state === 'recording') recorder.stop();
       onNotify(cause instanceof Error ? cause.message : 'Video export failed.');
     } finally {
+      if (stopWatch !== null) window.clearTimeout(stopWatch);
       if (frameId) cancelAnimationFrame(frameId);
-      audioSource?.stop();
+      try { audioSource?.stop(); } catch { /* The source may not have started before an export error. */ }
+      mediaStream?.getTracks().forEach((track) => track.stop());
+      frameUrls.forEach((url) => URL.revokeObjectURL(url));
       await context?.close().catch(() => undefined);
       setExporting(false);
     }
   }
-
   const panelTitle: Record<Tool, string> = {
     templates: 'Templates', elements: 'Elements', text: 'Text', uploads: 'Uploads', brand: 'Brand',
     audio: 'Audio', layers: 'Layers', pages: 'Pages', resize: 'Resize',
