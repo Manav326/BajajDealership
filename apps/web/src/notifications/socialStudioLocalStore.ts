@@ -218,6 +218,7 @@ async function writeLocalFile(relativePath: string, blob: Blob): Promise<void> {
 
 export async function saveProject(project: StudioProject): Promise<void> {
   const saved = { ...project, updatedAt: new Date().toISOString() };
+  await deleteValue(SETTINGS_STORE, 'deleted-project:' + saved.id);
   await writeValue(PROJECTS_STORE, saved);
   const root = await getWorkspaceDirectory();
   if (root) {
@@ -228,7 +229,10 @@ export async function saveProject(project: StudioProject): Promise<void> {
 
 export async function listProjects(): Promise<StudioProject[]> {
   const indexed = await listValues<StudioProject>(PROJECTS_STORE);
-  const byId = new Map(indexed.map((item) => [item.id, item]));
+  const byId = new Map<string, StudioProject>();
+  for (const item of indexed) {
+    if (!(await readValue<boolean>(SETTINGS_STORE, 'deleted-project:' + item.id))) byId.set(item.id, item);
+  }
   const root = await getWorkspaceDirectory();
   if (root?.entries) {
     try {
@@ -238,7 +242,7 @@ export async function listProjects(): Promise<StudioProject[]> {
         try {
           const file = await (handle as FileHandleLike).getFile();
           const parsed = JSON.parse(await file.text()) as StudioProject;
-          if (parsed?.id && Array.isArray(parsed.pages)) { byId.set(parsed.id, parsed); await writeValue(PROJECTS_STORE, parsed); }
+          if (parsed?.id && Array.isArray(parsed.pages) && !(await readValue<boolean>(SETTINGS_STORE, 'deleted-project:' + parsed.id))) { byId.set(parsed.id, parsed); await writeValue(PROJECTS_STORE, parsed); }
         } catch { /* Ignore incomplete or externally edited project files. */ }
       }
     } catch { /* An unavailable Projects folder does not hide IndexedDB projects. */ }
@@ -248,6 +252,7 @@ export async function listProjects(): Promise<StudioProject[]> {
 
 export async function removeProject(id: string): Promise<void> {
   const project = await readValue<StudioProject>(PROJECTS_STORE, id);
+  await writeValue(SETTINGS_STORE, true, 'deleted-project:' + id);
   await deleteValue(PROJECTS_STORE, id);
   const root = await getWorkspaceDirectory();
   if (root && project) {
@@ -263,6 +268,7 @@ export async function saveResource(blob: Blob, name: string, kind: StudioResourc
   const safeName = safeFileName(name.replace(/\.[^.]+$/, ''));
   const folder = kind === 'image' ? 'Images' : kind === 'audio' ? 'Audio' : kind === 'video' ? 'Videos' : 'Images';
   const relativePath = 'Assets/' + folder + '/' + id + '__' + safeName + (extension ? '.' + safeFileName(extension) : '');
+  await deleteValue(SETTINGS_STORE, 'deleted-resource:' + id);
   const resource: StudioResource = {
     id, name: name.slice(0, 140), kind, mimeType: blob.type || 'application/octet-stream',
     size: blob.size, createdAt: new Date().toISOString(), relativePath, blob,
@@ -274,7 +280,10 @@ export async function saveResource(blob: Blob, name: string, kind: StudioResourc
 
 export async function listResources(): Promise<StudioResource[]> {
   const indexed = await listValues<StudioResource>(RESOURCES_STORE);
-  const byId = new Map(indexed.map((item) => [item.id, item]));
+  const byId = new Map<string, StudioResource>();
+  for (const item of indexed) {
+    if (!(await readValue<boolean>(SETTINGS_STORE, 'deleted-resource:' + item.id))) byId.set(item.id, item);
+  }
   const root = await getWorkspaceDirectory();
   if (root?.entries) {
     const locations: Array<[string[], StudioResourceKind]> = [
@@ -287,7 +296,7 @@ export async function listResources(): Promise<StudioResource[]> {
         for await (const [name, handle] of folder.entries()) {
           if (handle.kind === 'directory' || !('getFile' in handle)) continue;
           const id = name.split('__')[0];
-          if (!id || byId.has(id)) continue;
+          if (!id || byId.has(id) || await readValue<boolean>(SETTINGS_STORE, 'deleted-resource:' + id)) continue;
           try {
             const blob = await (handle as FileHandleLike).getFile();
             const resource: StudioResource = { id, name: name.includes('__') ? name.slice(name.indexOf('__') + 2) : name,
@@ -308,6 +317,7 @@ export async function readResource(id: string): Promise<StudioResource | undefin
 
 export async function removeResource(id: string): Promise<void> {
   const resource = await readValue<StudioResource>(RESOURCES_STORE, id);
+  await writeValue(SETTINGS_STORE, true, 'deleted-resource:' + id);
   await deleteValue(RESOURCES_STORE, id);
   const root = await getWorkspaceDirectory();
   if (root && resource?.relativePath) {

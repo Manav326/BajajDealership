@@ -75,7 +75,6 @@ function Icon({ name }: { name: string }) {
     shapes: 'M12 3 21 20H3zM18 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM4 15h7v6H4z',
     text: 'M4 5h16M12 5v14m-5 0h10', upload: 'M12 16V4m-5 5 5-5 5 5M4 17v3h16v-3',
     brand: 'M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4',
-    layers: 'm12 3 9 5-9 5-9-5 9-5zm-9 9 9 5 9-5M3 16l9 5 9-5',
     pages: 'M5 4h11l3 3v13H5zM16 4v4h4M8 12h8M8 16h8',
     resize: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
     plus: 'M12 5v14M5 12h14', minus: 'M5 12h14', zoom: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm5 12 5 5M11 8v6m-3-3h6',
@@ -315,7 +314,6 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
 
   async function getProjectJpeg(project: StudioProject): Promise<Blob> {
     const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
-  const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
     if (!page) throw new Error('The design has no page to publish.');
     return renderPageBlob(page, resourceUrls, 'image/jpeg');
   }
@@ -523,9 +521,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
   const redoRef = useRef<StudioProject[]>([]);
   const saveTimer = useRef<number | null>(null);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
+  const changeProject = (next: StudioProject) => { onProjectChange(next); setDirty(true); };
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
-  const audioResources = resources.filter((item) => item.kind === 'audio');
 
   const mutate = (updater: (current: StudioProject) => StudioProject, addHistory = true) => {
     if (addHistory) {
@@ -621,7 +619,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
     const point = pointFromEvent(event);
     const dx = point.x - drag.start.x, dy = point.y - drag.start.y;
     if (drag.mode === 'move') {
-      const selectedBase = drag.items[0];
       const moving = drag.items.map((item) => {
         let x = item.x + dx, y = item.y + dy;
         const centerX = x + item.width / 2, centerY = y + item.height / 2;
@@ -639,11 +636,12 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       replacePage({ ...page, elements: page.elements.map((item) => moving.find((next) => next.id === item.id) ?? item) }, false);
     } else if (drag.mode === 'resize') {
       const item = drag.items[0];
+      const handle = drag.handle ?? '';
       let x = item.x, y = item.y, width = item.width, height = item.height;
-      if (drag.handle.includes('e')) width = Math.max(12, item.width + dx);
-      if (drag.handle.includes('s')) height = Math.max(12, item.height + dy);
-      if (drag.handle.includes('w')) { width = Math.max(12, item.width - dx); x = item.x + item.width - width; }
-      if (drag.handle.includes('n')) { height = Math.max(12, item.height - dy); y = item.y + item.height - height; }
+      if (handle.includes('e')) width = Math.max(12, item.width + dx);
+      if (handle.includes('s')) height = Math.max(12, item.height + dy);
+      if (handle.includes('w')) { width = Math.max(12, item.width - dx); x = item.x + item.width - width; }
+      if (handle.includes('n')) { height = Math.max(12, item.height - dy); y = item.y + item.height - height; }
       updateElement(item.id, { x, y, width, height }, false);
     } else if (drag.mode === 'rotate') {
       const center = drag.center!;
@@ -831,9 +829,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onClose, onRe
       };
       await new Promise<void>((resolve) => {
         const finish = () => resolve();
+        const activeRecorder = recorder!;
         const stopWatch = window.setTimeout(finish, total * 1000 + 8000);
-        const originalStop = recorder!.onstop;
-        recorder!.onstop = (event) => { if (originalStop instanceof Function) originalStop.call(recorder, event); window.clearTimeout(stopWatch); finish(); };
+        const originalStop = activeRecorder.onstop;
+        activeRecorder.onstop = (event) => { if (originalStop) originalStop.call(activeRecorder, event); window.clearTimeout(stopWatch); finish(); };
         frameId = requestAnimationFrame(draw);
       });
       const blob = await stopped;
