@@ -224,7 +224,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      VITE_API_BASE_URL: \${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
       VITE_APP_VERSION: "0.1.0"
     steps:
       - name: Checkout
@@ -275,7 +275,7 @@ jobs:
       - name: Upload Windows build validation artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lucky-bajaj-windows-builds-\${{ github.sha }}
+          name: lucky-bajaj-windows-builds-${{ github.sha }}
           path: |
             apps/web/src-tauri/target/release/bundle/nsis/*.exe
             apps/web/src-tauri/target/release/bundle/msi/*.msi
