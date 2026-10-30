@@ -62,6 +62,8 @@ export type StudioProject = {
   audioStartSeconds: number;
   audioDurationSeconds?: number;
   audioVolume: number;
+  audioFadeInSeconds?: number;
+  audioFadeOutSeconds?: number;
   caption: string;
   hashtags: string;
   primaryColor: string;
