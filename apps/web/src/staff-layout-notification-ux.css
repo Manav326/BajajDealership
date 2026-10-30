@@ -58,7 +58,7 @@ html.tauri-desktop .app-shell > .main-content {
 
 html.tauri-desktop .main-content > .license-status-banner {
   flex: 0 0 auto;
-  margin: 10px 22px 0;
+  margin: 10px 22px 10px;
 }
 
 html.tauri-desktop .main-content > .topbar {
@@ -130,9 +130,6 @@ html.tauri-desktop .main-content > .page-wrap::-webkit-scrollbar-thumb {
     margin-bottom: 10px;
   }
 }
-
-/* Staff shell and notification preview UX fixes.
-   Keep the desktop navigation in the viewport and give each preview state a stable layout. */
 
 /* Staff shell and notification preview UX fixes.
    Keep the desktop navigation in the viewport and give each preview state a stable layout. */

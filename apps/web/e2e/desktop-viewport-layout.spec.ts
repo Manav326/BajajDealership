@@ -59,6 +59,7 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
         documentOverflowX: getComputedStyle(document.documentElement).overflowX,
         documentOverflowY: getComputedStyle(document.documentElement).overflowY,
         workspaceOverflowX: getComputedStyle(workspace).overflowX,
+      topbarTop: document.querySelector<HTMLElement>('.main-content > .topbar')!.getBoundingClientRect().top,
         workspaceOverflowY: getComputedStyle(workspace).overflowY,
       };
     });
@@ -70,6 +71,9 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
     expect(geometry.sidebar.height).toBe(viewport.height);
     expect(geometry.main.height).toBe(viewport.height);
     expect(geometry.topbar.y).toBe(0);
+    expect(geometry.workspace.y).toBe(geometry.topbar.y + geometry.topbar.height);
+    expect(geometry.main.x).toBe(geometry.sidebar.x + geometry.sidebar.width);
+    expect(geometry.main.x + geometry.main.width).toBeLessThanOrEqual(viewport.width + 1);
     expect(geometry.workspaceOverflowX).toBe('hidden');
     expect(geometry.workspaceOverflowY).toBe('auto');
     expect(geometry.documentOverflowX).toBe('hidden');
@@ -110,4 +114,5 @@ test('Tauri desktop keeps the app frame fixed and scrolls the workspace and side
   expect(scrollState.windowX).toBe(0);
   expect(scrollState.windowY).toBe(0);
   expect(scrollState.workspaceOverflowX).toBe('hidden');
+  expect(scrollState.topbarTop).toBe(0);
 });
