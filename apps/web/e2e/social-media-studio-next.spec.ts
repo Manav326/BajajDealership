@@ -734,6 +734,38 @@ test('publishing caption and hashtags live in the dedicated Publishing tool', as
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
 });
 
+
+test('Meta connection requires explicit consent and cancellation never starts OAuth', async ({ page }) => {
+  const connectRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/meta/connect', async (route) => {
+    connectRequests.push(route.request().method());
+    const origin = new URL(route.request().url()).origin;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ authorizationUrl: origin + '/meta-oauth-consent-test' }) });
+  });
+  await page.route('**/meta-oauth-consent-test', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Meta authorization handoff test</title>' }));
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const connect = page.getByRole('button', { name: 'Connect', exact: true });
+  await expect(connect).toBeVisible();
+
+  await connect.click();
+  const consent = page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' });
+  await expect(consent).toBeVisible();
+  await expect(consent).toContainText('Meta will show the exact permissions requested');
+  await expect(consent).toContainText('Connecting an account does not publish anything');
+  expect(connectRequests).toHaveLength(0);
+
+  await consent.getByRole('button', { name: 'Not now' }).click();
+  await expect(consent).toHaveCount(0);
+  expect(connectRequests).toHaveLength(0);
+
+  await connect.click();
+  await page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' }).getByRole('button', { name: 'Continue to Meta' }).click();
+  await page.waitForURL('**/meta-oauth-consent-test');
+  expect(connectRequests).toEqual(['POST']);
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });
