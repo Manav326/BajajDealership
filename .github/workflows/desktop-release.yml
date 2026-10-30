@@ -14,18 +14,18 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 50
     env:
-      VITE_API_BASE_URL: \${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
-      VITE_APP_VERSION: \${{ github.ref_name }}
-      MSIX_PACKAGE_IDENTITY_NAME: \${{ vars.MSIX_PACKAGE_IDENTITY_NAME }}
-      MSIX_PUBLISHER: \${{ vars.MSIX_PUBLISHER }}
-      MSIX_PUBLISHER_DISPLAY_NAME: \${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      VITE_APP_VERSION: ${{ github.ref_name }}
+      MSIX_PACKAGE_IDENTITY_NAME: ${{ vars.MSIX_PACKAGE_IDENTITY_NAME }}
+      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+      MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
       - name: Derive desktop and MSIX versions from release tag
         shell: pwsh
         run: |
-          $version = "\${{ github.ref_name }}" -replace '^desktop-v', ''
+          $version = "${{ github.ref_name }}" -replace '^desktop-v', ''
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Expected a stable tag such as desktop-v1.2.3."
           }
@@ -100,7 +100,7 @@ jobs:
       - name: Open draft release for review and Microsoft Store submission
         uses: softprops/action-gh-release@v2
         with:
-          name: "Lucky Bajaj Desktop \${{ github.ref_name }} (draft)"
+          name: "Lucky Bajaj Desktop ${{ github.ref_name }} (draft)"
           draft: true
           prerelease: false
           generate_release_notes: true
