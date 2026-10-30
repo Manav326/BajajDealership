@@ -24,7 +24,7 @@ function Assert-LastExit([string]$Action) {
 
 function Assert-Node {
     if (-not (Get-Command node -ErrorAction SilentlyContinue) -or
-        -not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
         throw 'Node.js 24+ and npm are required. Install Node.js 24 LTS, reopen PowerShell, and run this command again.'
     }
     $major = [int]((& node -p "Number(process.versions.node.split('.')[0])").Trim())
@@ -38,7 +38,7 @@ function Ensure-NpmDependencies([string]$Directory, [string]$Marker, [string]$La
     Write-Step "Installing $Label dependencies (without creating a lockfile)"
     Push-Location $Directory
     try {
-        & npm install --no-package-lock --no-audit --no-fund
+        & npm.cmd install --no-package-lock --no-audit --no-fund
         Assert-LastExit "npm install for $Label"
     }
     finally {
@@ -54,7 +54,7 @@ function Initialize-WebTesting {
     Write-Step 'Checking the Playwright Chromium browser'
     Push-Location $webDir
     try {
-        & npx playwright install chromium
+        & npx.cmd playwright install chromium
         Assert-LastExit 'Playwright Chromium installation'
     }
     finally {
@@ -70,11 +70,11 @@ function Run-WebTesting {
     try {
         if ($Target -eq 'Web') {
             Write-Step 'Opening interactive Playwright UI Mode'
-            & npx playwright test --ui
+            & npx.cmd playwright test --ui
         }
         else {
             Write-Step 'Running the web test suite in a visible Chromium browser'
-            & npx playwright test --headed --workers=1
+            & npx.cmd playwright test --headed --workers=1
         }
         Assert-LastExit 'Playwright web tests'
     }
@@ -136,7 +136,7 @@ function Ensure-Maestro {
     $extractPath = Join-Path $tempRoot 'extract'
     New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
     try {
-        Invoke-WebRequest -Uri 'https://github.com/mobile-dev-inc/maestro/releases/latest/download/maestro.zip' -OutFile $zipPath
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/mobile-dev-inc/maestro/releases/latest/download/maestro.zip' -OutFile $zipPath
         Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
 
         $source = $null
@@ -222,7 +222,7 @@ function Run-AndroidTesting {
     $env:EXPO_PUBLIC_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/'
     Push-Location $androidDir
     try {
-        & npx expo run:android --variant release --device $device
+        & npx.cmd expo run:android --variant release --device $device
         Assert-LastExit 'Expo Android release build/install'
     }
     finally {
