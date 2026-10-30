@@ -112,6 +112,19 @@ test('asks for local folder access and opens a full-viewport editor', async ({ p
   await expect(page.getByRole('button', { name: 'Resize' })).toBeVisible();
 });
 
+test('canvas fullscreen is distinct from fit-page zoom and can be exited', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Fit page' }).click();
+  await expect(page.getByRole('button', { name: 'Fullscreen canvas' })).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Fullscreen canvas' }).click();
+  await expect.poll(async () => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect(page.getByRole('button', { name: 'Exit fullscreen canvas' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Exit fullscreen canvas' }).click();
+  await expect.poll(async () => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  await expect(page.getByRole('button', { name: 'Fullscreen canvas' })).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('supports editable elements, contextual properties, custom sizes, pages and project round-trip', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -157,6 +170,10 @@ test('supports editable elements, contextual properties, custom sizes, pages and
   await page.getByLabel('Page 1 name').fill('Opening scene');
   await page.getByRole('button', { name: 'Duplicate page' }).click();
   await expect(page.getByLabel('Page 4 name')).toHaveValue('Opening scene — Copy');
+  await page.getByRole('button', { name: /1 Opening scene/ }).click();
+  await page.getByRole('button', { name: 'Duplicate page' }).click();
+  await expect(page.getByLabel('Page 5 name')).toHaveValue('Opening scene — Copy 2');
+  await page.getByRole('button', { name: /1 Opening scene/ }).click();
   await page.getByRole('combobox', { name: 'Transition after page 1' }).selectOption('fade');
   await page.getByRole('spinbutton', { name: 'Fade duration after page 1' }).fill('1.5');
   await expect(page.getByRole('spinbutton', { name: 'Fade duration after page 1' })).toHaveValue('1.5');
@@ -389,6 +406,16 @@ test('adds sticker presets and exposes editable text spacing and save state', as
   await page.getByRole('spinbutton', { name: 'Letter spacing' }).fill('2.5');
   await expect(page.getByRole('spinbutton', { name: 'Letter spacing' })).toHaveValue('2.5');
   await page.getByRole('button', { name: 'Set text colour #facc15' }).click();
+  await page.getByLabel('Font family').selectOption('Georgia');
+  await page.getByLabel('Font size').fill('88');
+  await page.getByLabel('Text alignment').selectOption('center');
+  await page.getByRole('button', { name: 'Bold' }).click();
+  await page.getByRole('button', { name: 'Italic' }).click();
+  await expect(page.getByLabel('Font family')).toHaveValue('Georgia');
+  await expect(page.getByLabel('Font size')).toHaveValue('88');
+  await expect(page.getByLabel('Text alignment')).toHaveValue('center');
+  await expect(page.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Italic' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Elements' }).click();
   await page.getByRole('textbox', { name: 'Search tool resources' }).fill('Star sticker');
   await page.getByRole('button', { name: 'Star sticker' }).click();
