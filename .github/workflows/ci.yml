@@ -252,6 +252,7 @@ jobs:
             $parseErrors | ForEach-Object { Write-Error $_.Message }
             throw "The Windows desktop downloader contains PowerShell syntax errors."
           }
+
       - name: Install staff portal dependencies
         working-directory: apps/web
         run: npm install

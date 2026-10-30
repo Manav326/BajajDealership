@@ -75,82 +75,85 @@ function DesktopDownloadPage() {
         <div>
           <p className="desktop-download-eyebrow">QUANTAEDGE • LUCKY BAJAJ</p>
           <h1>Lucky Bajaj Desktop</h1>
-          <p>Install the dealership workspace as a Windows application.</p>
+          <p>Windows desktop installer downloads and local testing.</p>
         </div>
       </header>
       <section className="desktop-download-panel">
         <div className="desktop-download-icon">Q</div>
         <p className="desktop-download-eyebrow">WINDOWS DESKTOP CLIENT</p>
-        <h2>One workspace for your dealership</h2>
+        <h2>Download the local-Docker test build</h2>
         <p className="desktop-download-description">
-          Open the staff portal from your Windows Start menu. Your existing staff login,
-          roles and central dealership records remain in use.
+          This download is compiled to connect to the Docker API on this same computer at
+          <strong> 127.0.0.1:8080</strong>. It is intended for local testing, not customer distribution.
         </p>
         <div className="desktop-download-notice" role="status">
-          <strong>{releaseState === 'available' ? 'Available now · ' + installers?.tag : 'Release availability'}</strong>
-          <span>{releaseState === 'checking'
-            ? 'Checking for a reviewed Windows release…'
-            : releaseState === 'available'
-              ? 'The official Windows installers are ready. The recommended downloader verifies SHA-256 checksums before replacing older downloads.'
-              : 'A reviewed public Windows installer is not currently available. Use the staff website until a release has passed the clean-Windows checks.'}</span>
+          <strong>PR #37 · current-commit build only</strong>
+          <span>
+            The downloader checks the latest PR branch commit and its Windows desktop CI job.
+            It will stop when CI is running or failed; it will never quietly give you an older installer.
+          </span>
         </div>
 
-        {releaseState === 'available' && installers ? <>
-          <section className="desktop-download-managed">
-            <div>
-              <p className="desktop-download-eyebrow">RECOMMENDED · AUTOMATIC VERSION MANAGEMENT</p>
-              <h3>Download the latest version safely</h3>
-              <p>
-                Download and run the PowerShell helper. It fetches both the EXE and MSI from the
-                latest stable release, verifies their SHA-256 checksums, then removes older
-                version folders created by this helper. It never uninstalls the app or deletes
-                unrelated files.
-              </p>
-            </div>
-            <a className="desktop-download-managed-primary" href="/Download-LuckyBajajDesktop.ps1" download="Download-LuckyBajajDesktop.ps1">
-              Download automatic downloader (.ps1)
-            </a>
-            <p className="desktop-download-managed-hint">
-              After downloading, right-click the file and choose <strong>Run with PowerShell</strong>.
-              The script opens the new version folder and displays the installation steps.
+        <section className="desktop-download-managed">
+          <div>
+            <p className="desktop-download-eyebrow">AUTOMATIC DOWNLOAD · VERSION CLEANUP</p>
+            <h3>Get the latest EXE and MSI</h3>
+            <p>
+              The PowerShell helper downloads the local-Docker Actions artifact for the current
+              PR commit, validates the archive and confirms it contains exactly one EXE and one MSI.
+              After validation it removes older local-test download folders created by this helper.
+              It does not uninstall the app, change Docker data or delete unrelated files.
             </p>
-          </section>
-          <div className="desktop-download-manual">
-            <strong>Manual download (does not remove older downloads)</strong>
-            <div className="desktop-download-actions">
-              <a href={installers.exeUrl}>Download Windows installer (.exe)</a>
-              <a className="desktop-download-secondary" href={installers.msiUrl}>Download Windows MSI installer</a>
-              <a className="desktop-download-secondary" href={installers.checksumsUrl}>View SHA-256 checksums</a>
-              <a className="desktop-download-secondary" href={installers.releaseUrl} target="_blank" rel="noreferrer">View release notes</a>
-            </div>
           </div>
-        </> : <>
-          <div className="desktop-download-actions">
-            <button type="button" disabled>{releaseState === 'checking' ? 'Checking availability…' : 'Installer not yet available'}</button>
-            <a className="desktop-download-secondary" href="https://github.com/Manav326/BajajDealership/releases" target="_blank" rel="noreferrer">View official release page</a>
-          </div>
-        </>}
-
-        <section className="desktop-download-install-guide">
-          <h3>What happens after the downloader runs?</h3>
-          <ol>
-            <li>It saves the current EXE and MSI in <strong>Downloads\LuckyBajajDesktop</strong>, inside a folder named for the release.</li>
-            <li>It verifies both installers against the official SHA-256 manifest before touching older managed downloads.</li>
-            <li>After verification, it removes older version folders created by this downloader and opens the new folder in File Explorer.</li>
-            <li>Choose <strong>one</strong> installer: EXE for the guided setup, or MSI for Windows Installer. Do not run both.</li>
-            <li>Follow the setup wizard, then open <strong>Lucky Bajaj Desktop</strong> from the Windows Start menu and sign in with your staff account.</li>
-          </ol>
-          <p className="desktop-download-security">
-            The direct EXE/MSI packages are unsigned and may show Unknown Publisher or SmartScreen warnings.
-            The helper checks their hashes, but never disable Windows security protections. A device policy
-            may block unsigned installers; ask your administrator for an approved signed package in that case.
+          <a className="desktop-download-managed-primary" href="/Download-LuckyBajajDesktop.ps1" download="Download-LuckyBajajDesktop.ps1">
+            Download local-test downloader (.ps1)
+          </a>
+          <p className="desktop-download-managed-hint">
+            After downloading, right-click the file and choose <strong>Run with PowerShell</strong>.
+            It opens the new installer folder and writes a full <strong>INSTALL.txt</strong> guide.
+            If artifact access asks for authentication, use GitHub CLI sign-in or set GH_TOKEN locally with Actions: read access.
           </p>
         </section>
+
+        <section className="desktop-download-install-guide">
+          <h3>Before installing the desktop app</h3>
+          <ol>
+            <li>Open PowerShell in your local BajajDealership repository folder and switch to <strong>feature/dealership-licensing-readonly</strong>.</li>
+            <li>Build the API from that branch: <code>docker compose build api</code>.</li>
+            <li>Start the API and dependencies: <code>docker compose up -d --no-build api</code>.</li>
+            <li>Check the API: <code>Invoke-RestMethod http://127.0.0.1:8080/actuator/health</code>. Continue only when it reports <strong>UP</strong>.</li>
+            <li>Choose one downloaded installer: EXE for guided setup or MSI for Windows Installer. Do not run both. Then launch Lucky Bajaj Desktop from the Start menu.</li>
+          </ol>
+          <p className="desktop-download-security">
+            The main/GHCR latest API is not yet compatible with this unmerged PR build. Use the API
+            source from PR #37 for this test. Do not delete the existing PostgreSQL Docker volume.
+            The installer targets this computer's loopback address and will not connect to the right
+            backend on another PC.
+          </p>
+        </section>
+
+        <section className="desktop-download-hosted">
+          <h3>Hosted customer installer</h3>
+          {releaseState === 'checking'
+            ? <p>Checking whether a reviewed public customer release is available…</p>
+            : releaseState === 'available' && installers
+              ? <>
+                  <p>These packages connect to the hosted Lucky Bajaj API and are separate from the local-Docker test build.</p>
+                  <div className="desktop-download-actions">
+                    <a href={installers.exeUrl}>Download customer EXE</a>
+                    <a className="desktop-download-secondary" href={installers.msiUrl}>Download customer MSI</a>
+                    <a className="desktop-download-secondary" href={installers.checksumsUrl}>SHA-256 checksums</a>
+                    <a className="desktop-download-secondary" href={installers.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>
+                  </div>
+                </>
+              : <p>No reviewed public customer release is published yet. The local-Docker test download above is a separate development artifact.</p>}
+        </section>
+
         <ul className="desktop-download-requirements">
           <li>Windows 10 or 11, 64-bit</li>
-          <li>Internet connection required for live records and transactions</li>
-          <li>The downloader requires Windows PowerShell and internet access to GitHub Releases</li>
-          <li>Expired licenses retain read-only access and owner data export</li>
+          <li>Docker Desktop and the local BajajDealership API must run on this same computer</li>
+          <li>The downloader requires internet access to GitHub Actions artifacts</li>
+          <li>Local-Docker installers are test builds and must not be distributed to customers</li>
         </ul>
       </section>
       <footer className="desktop-download-footer">

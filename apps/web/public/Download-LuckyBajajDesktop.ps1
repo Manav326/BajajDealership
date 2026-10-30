@@ -1,149 +1,182 @@
 [CmdletBinding()]
 param(
-  [string]$DownloadRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\LuckyBajajDesktop')
+  [string]$DownloadRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\LuckyBajajDesktopLocalDocker')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repository = 'Manav326/BajajDealership'
-$releaseApi = "https://api.github.com/repos/$repository/releases?per_page=100"
-$officialAssetPrefix = "https://github.com/$repository/releases/download/"
-$installerNames = @('LuckyBajajDesktopSetup.exe', 'LuckyBajajDesktop.msi')
-$checksumName = 'SHA256SUMS.txt'
+$branch = 'feature/dealership-licensing-readonly'
+$apiRoot = "https://api.github.com/repos/$repository"
+$artifactPrefix = 'lucky-bajaj-windows-local-docker-'
+$desktopJobName = 'Build unsigned direct installers and Store MSIX package'
 
-function Get-ReleaseAsset {
-  param(
-    [Parameter(Mandatory = $true)]$Release,
-    [Parameter(Mandatory = $true)][string]$Name
-  )
-  $asset = @($Release.assets | Where-Object { $_.name -ceq $Name } | Select-Object -First 1)
-  if ($asset.Count -eq 0) {
-    throw "The selected release is missing required asset '$Name'."
+function Get-GitHubHeaders {
+  $headers = @{
+    Accept = 'application/vnd.github+json'
+    'User-Agent' = 'LuckyBajajDesktop-LocalDocker-Downloader'
+    'X-GitHub-Api-Version' = '2022-11-28'
   }
-  if (-not $asset[0].browser_download_url.StartsWith($officialAssetPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "Refusing an installer asset outside the official GitHub release location: $Name"
+  $token = $env:GH_TOKEN
+  if ([string]::IsNullOrWhiteSpace($token)) { $token = $env:GITHUB_TOKEN }
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if ($gh) {
+      $token = (& gh auth token 2>$null | Select-Object -First 1)
+      if ($token) { $token = $token.Trim() }
+    }
   }
-  return $asset[0]
+  if (-not [string]::IsNullOrWhiteSpace($token)) {
+    $headers.Authorization = "Bearer $token"
+  }
+  return $headers
 }
 
-function Get-ExpectedSha256 {
-  param(
-    [Parameter(Mandatory = $true)][string]$Manifest,
-    [Parameter(Mandatory = $true)][string]$AssetName
-  )
-  $escapedName = [Regex]::Escape($AssetName)
-  $match = [Regex]::Match(
-    $Manifest,
-    "(?im)^(?<hash>[a-f0-9]{64})\s+\*?$escapedName\s*$"
-  )
-  if (-not $match.Success) {
-    throw "SHA-256 entry for '$AssetName' was not found in $checksumName."
+function Invoke-GitHubApi {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  try {
+    return Invoke-RestMethod -Uri "$apiRoot/$Path" -Headers $script:githubHeaders -Method Get
+  } catch {
+    $message = $_.Exception.Message
+    if ($message -match '401|403|rate limit') {
+      throw "GitHub denied access to the Actions artifact API. For this public-repository download, retry later; if access still requires authentication, sign in with GitHub CLI or set GH_TOKEN to a fine-grained token with Actions: read access. Details: $message"
+    }
+    throw "GitHub API request failed: $message"
   }
-  return $match.Groups['hash'].Value.ToLowerInvariant()
 }
 
-function Save-VerifiedAsset {
-  param(
-    [Parameter(Mandatory = $true)]$Asset,
-    [Parameter(Mandatory = $true)][string]$Destination,
-    [Parameter(Mandatory = $true)][string]$ExpectedHash
-  )
-  Invoke-WebRequest -Uri $Asset.browser_download_url -OutFile $Destination -MaximumRedirection 10 -UseBasicParsing
-  $actualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actualHash -ne $ExpectedHash) {
-    throw "Checksum verification failed for $($Asset.name). The downloaded file will not replace older installers."
-  }
-  Write-Host "Verified SHA-256: $($Asset.name)" -ForegroundColor Green
-}
-
+$script:githubHeaders = Get-GitHubHeaders
 $resolvedRoot = [System.IO.Path]::GetFullPath($DownloadRoot)
 $null = New-Item -ItemType Directory -Path $resolvedRoot -Force
-$stagingName = '.LuckyBajajDesktop-staging-' + [Guid]::NewGuid().ToString('N')
+$stagingName = '.LuckyBajajDesktopLocalDocker-staging-' + [Guid]::NewGuid().ToString('N')
 $stagingDirectory = Join-Path $resolvedRoot $stagingName
 $finalDirectory = $null
 $backupDirectory = $null
 
 try {
   $null = New-Item -ItemType Directory -Path $stagingDirectory -Force
-  Write-Host 'Checking the official Lucky Bajaj Desktop releases…' -ForegroundColor Cyan
+  Write-Host 'Checking the current PR #37 Windows build…' -ForegroundColor Cyan
 
-  $headers = @{
-    Accept = 'application/vnd.github+json'
-    'User-Agent' = 'LuckyBajajDesktop-Official-Installer'
-    'X-GitHub-Api-Version' = '2022-11-28'
+  $branchRef = Invoke-GitHubApi -Path 'git/ref/heads/feature/dealership-licensing-readonly'
+  $headSha = $branchRef.object.sha
+  if ([string]::IsNullOrWhiteSpace($headSha)) { throw 'GitHub did not return the current PR branch commit.' }
+
+  $encodedBranch = [Uri]::EscapeDataString($branch)
+  $runResponse = Invoke-GitHubApi -Path "actions/runs?branch=$encodedBranch&event=pull_request&per_page=100"
+  $matchingRuns = @($runResponse.workflow_runs | Where-Object { $_.head_sha -eq $headSha })
+  if ($matchingRuns.Count -eq 0) {
+    throw "Windows CI has not produced a run for the current PR commit ($headSha). Wait for CI to finish for PR #37, then run this downloader again. An older build will not be substituted."
   }
-  $releases = Invoke-RestMethod -Uri $releaseApi -Headers $headers -Method Get
-  $stableReleases = @($releases | Where-Object {
-    -not $_.draft -and
-    -not $_.prerelease -and
-    $_.tag_name -match '^desktop-v\d+\.\d+\.\d+$' -and
-    $_.assets
-  })
+  $run = $matchingRuns | Sort-Object { [DateTime]$_.created_at } -Descending | Select-Object -First 1
 
-  if ($stableReleases.Count -eq 0) {
-    throw 'No reviewed public desktop release is available yet. Keep using the staff website and try again after the official release is published.'
-  }
-
-  $release = $stableReleases |
-    Sort-Object { [Version]($_.tag_name -replace '^desktop-v', '') } -Descending |
-    Select-Object -First 1
-
-  $exeAsset = Get-ReleaseAsset -Release $release -Name $installerNames[0]
-  $msiAsset = Get-ReleaseAsset -Release $release -Name $installerNames[1]
-  $checksumAsset = Get-ReleaseAsset -Release $release -Name $checksumName
-
-  $checksumPath = Join-Path $stagingDirectory $checksumName
-  Invoke-WebRequest -Uri $checksumAsset.browser_download_url -OutFile $checksumPath -MaximumRedirection 10 -UseBasicParsing
-  $manifest = [System.IO.File]::ReadAllText($checksumPath, [System.Text.Encoding]::UTF8)
-
-  foreach ($name in $installerNames) {
-    $expected = Get-ExpectedSha256 -Manifest $manifest -AssetName $name
-    $asset = if ($name -eq $installerNames[0]) { $exeAsset } else { $msiAsset }
-    Save-VerifiedAsset -Asset $asset -Destination (Join-Path $stagingDirectory $name) -ExpectedHash $expected
+  $jobsResponse = Invoke-GitHubApi -Path "actions/runs/$($run.id)/jobs?per_page=100"
+  $desktopJob = @($jobsResponse.jobs | Where-Object { $_.name -eq $desktopJobName } | Select-Object -First 1)
+  if ($desktopJob.Count -eq 0) { throw 'The current PR workflow has no Windows desktop build job.' }
+  if ($desktopJob[0].status -ne 'completed' -or $desktopJob[0].conclusion -ne 'success') {
+    throw "The Windows desktop build for the current PR commit is not successful yet (status: $($desktopJob[0].status), result: $($desktopJob[0].conclusion)). No installer was downloaded."
   }
 
-  $versionDirectoryName = 'LuckyBajajDesktop-' + $release.tag_name
+  $artifactsResponse = Invoke-GitHubApi -Path "actions/runs/$($run.id)/artifacts?per_page=100"
+  $artifact = @($artifactsResponse.artifacts | Where-Object {
+    $_.name.StartsWith($artifactPrefix, [StringComparison]::OrdinalIgnoreCase) -and -not $_.expired
+  } | Select-Object -First 1)
+  if ($artifact.Count -eq 0) {
+    throw 'The current successful Windows job does not contain a downloadable local-Docker installer artifact. No older artifact was substituted.'
+  }
+
+  $archivePath = Join-Path $stagingDirectory 'windows-local-docker-artifact.zip'
+  $artifactUrl = "$apiRoot/actions/artifacts/$($artifact[0].id)/zip"
+  try {
+    Invoke-WebRequest -Uri $artifactUrl -Headers $script:githubHeaders -OutFile $archivePath -MaximumRedirection 10 -UseBasicParsing
+  } catch {
+    throw "The Windows artifact could not be downloaded. Sign in with GitHub CLI or set GH_TOKEN with Actions: read access if this repository requires authentication. Details: $($_.Exception.Message)"
+  }
+
+  if ($artifact[0].size_in_bytes -and (Get-Item -LiteralPath $archivePath).Length -ne [long]$artifact[0].size_in_bytes) {
+    throw 'The downloaded artifact size does not match GitHub’s artifact metadata.'
+  }
+  if ($artifact[0].digest -match '^sha256:(?<hash>[A-Fa-f0-9]{64})$') {
+    $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($archiveHash -ne $Matches.hash.ToLowerInvariant()) {
+      throw 'The downloaded Actions artifact failed its SHA-256 digest check.'
+    }
+  } else {
+    $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  }
+
+  $extractDirectory = Join-Path $stagingDirectory 'extracted'
+  Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
+  $exeFiles = @(Get-ChildItem -LiteralPath $extractDirectory -Filter '*.exe' -File -Recurse)
+  $msiFiles = @(Get-ChildItem -LiteralPath $extractDirectory -Filter '*.msi' -File -Recurse)
+  if ($exeFiles.Count -ne 1 -or $msiFiles.Count -ne 1) {
+    throw "Expected exactly one EXE and one MSI in the Windows artifact; found $($exeFiles.Count) EXE and $($msiFiles.Count) MSI files."
+  }
+
+  $shortSha = $headSha.Substring(0, 12).ToLowerInvariant()
+  $versionDirectoryName = "LuckyBajajDesktop-LocalDocker-$shortSha"
   $finalDirectory = Join-Path $resolvedRoot $versionDirectoryName
+  $exePath = Join-Path $stagingDirectory $exeFiles[0].Name
+  $msiPath = Join-Path $stagingDirectory $msiFiles[0].Name
+  Copy-Item -LiteralPath $exeFiles[0].FullName -Destination $exePath
+  Copy-Item -LiteralPath $msiFiles[0].FullName -Destination $msiPath
+  $exeHash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $msiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+  $runUrl = $run.html_url
   $installGuide = @"
-LUCKY BAJAJ DESKTOP — INSTALLATION GUIDE
-Release: $($release.tag_name)
-Official release: $($release.html_url)
+LUCKY BAJAJ DESKTOP — LOCAL DOCKER TEST INSTALLATION
+PR branch: $branch
+Source commit: $headSha
+Windows CI run: $runUrl
+GitHub artifact: $($artifact[0].name)
+Artifact SHA-256: $archiveHash
 
-Downloaded files:
-- $($installerNames[0])
-- $($installerNames[1])
-- $checksumName
+IMPORTANT:
+This installer is compiled to call http://127.0.0.1:8080.
+It is for testing on the SAME Windows computer where the Lucky Bajaj Docker API is running.
+Do not give this local-Docker build to customers or install it on another computer.
 
-INSTALL — choose ONE installer; do not run both:
+STEP 1 — Start the compatible local backend
+1. Open PowerShell in your local BajajDealership repository folder.
+2. Check out the PR branch and update it:
+   git fetch origin
+   git switch $branch
+   git pull
+3. Build the API from this branch:
+   docker compose build api
+4. Start the API and its dependencies without rebuilding again:
+   docker compose up -d --no-build api
+5. Confirm the local API is healthy:
+   Invoke-RestMethod http://127.0.0.1:8080/actuator/health
+   The response must report status UP before you continue.
+
+Do not use the current main/GHCR latest API for this PR build yet. PR #37 contains the required Tauri CORS/device support and Flyway migrations V46/V47. Do not delete your existing PostgreSQL Docker volume.
+
+STEP 2 — Install the desktop app
 1. Close Lucky Bajaj Desktop if it is already open.
-2. For the guided setup, double-click $($installerNames[0]).
-   OR use the Windows Installer package by double-clicking $($installerNames[1]).
-3. Follow the setup wizard and accept the normal Windows installation prompts.
-4. When setup completes, open "Lucky Bajaj Desktop" from the Windows Start menu.
-5. Sign in with your existing Lucky Bajaj staff account. Your records remain on the central dealership system.
+2. Choose ONE installer from this folder; do not run both:
+   EXE: $($exeFiles[0].Name) — guided setup.
+   MSI: $($msiFiles[0].Name) — Windows Installer.
+3. Double-click the chosen file and follow the setup wizard.
+4. Open Lucky Bajaj Desktop from the Windows Start menu.
+5. Sign in with your existing Lucky Bajaj staff account.
 
-SECURITY:
-- The direct-download EXE/MSI packages are intentionally unsigned and may show Unknown Publisher or SmartScreen warnings.
-- These files were downloaded from the official Manav326/BajajDealership GitHub release and their SHA-256 values were checked against SHA256SUMS.txt.
-- Do not disable Windows Defender, SmartScreen, or other security protections. If your device policy blocks unsigned software, ask your administrator for an approved signed package.
-- The MSIX file is not part of this download and must not be installed directly; it is reserved for Microsoft Store submission.
-
-UPDATE / CLEANUP:
-- This downloader removes older version folders created by this downloader only after the new EXE and MSI have both downloaded and passed checksum verification.
-- It does not uninstall or delete the currently installed application, personal files, or manually downloaded files outside this dedicated folder.
+SECURITY AND UPDATE NOTES
+- These direct-download EXE/MSI packages are intentionally unsigned. Windows may show Unknown Publisher or SmartScreen warnings. Do not disable Windows security protections; if policy blocks installation, stop and request an approved signed build.
+- Extracted EXE SHA-256: $exeHash
+- Extracted MSI SHA-256: $msiHash
+- A newer run of this helper replaces older local-test download folders only after the latest branch artifact is downloaded and both installers are validated.
+- This cleanup affects only this helper's version folders under the dedicated download location. It does not uninstall the app, modify Docker data, or remove unrelated files.
 "@
-  [System.IO.File]::WriteAllText(
-    (Join-Path $stagingDirectory 'INSTALL.txt'),
-    $installGuide,
-    [System.Text.UTF8Encoding]::new($false)
-  )
+  [System.IO.File]::WriteAllText((Join-Path $stagingDirectory 'INSTALL.txt'), $installGuide, [System.Text.UTF8Encoding]::new($false))
+  $buildInfo = "Commit: $headSha" + [Environment]::NewLine + "Run: $runUrl" + [Environment]::NewLine + "Artifact: $($artifact[0].name)" + [Environment]::NewLine + "Artifact SHA-256: $archiveHash" + [Environment]::NewLine
+  [System.IO.File]::WriteAllText((Join-Path $stagingDirectory 'BUILD-INFO.txt'), $buildInfo, [System.Text.UTF8Encoding]::new($false))
 
   if (Test-Path -LiteralPath $finalDirectory) {
-    $backupDirectory = Join-Path $resolvedRoot ('.LuckyBajajDesktop-backup-' + [Guid]::NewGuid().ToString('N'))
+    $backupDirectory = Join-Path $resolvedRoot ('.LuckyBajajDesktopLocalDocker-backup-' + [Guid]::NewGuid().ToString('N'))
     Move-Item -LiteralPath $finalDirectory -Destination $backupDirectory
   }
-
   try {
     Move-Item -LiteralPath $stagingDirectory -Destination $finalDirectory
   } catch {
@@ -153,42 +186,43 @@ UPDATE / CLEANUP:
     }
     throw
   }
-
   if ($backupDirectory -and (Test-Path -LiteralPath $backupDirectory)) {
     Remove-Item -LiteralPath $backupDirectory -Recurse -Force
     $backupDirectory = $null
   }
 
-  $oldVersionFolders = @(
+  $oldFolders = @(
     Get-ChildItem -LiteralPath $resolvedRoot -Directory |
       Where-Object {
-        $_.Name -match '^LuckyBajajDesktop-desktop-v\d+\.\d+\.\d+$' -and
+        $_.Name -match '^LuckyBajajDesktop-LocalDocker-[0-9a-f]{12}$' -and
         $_.FullName -ne $finalDirectory
       }
   )
-  foreach ($oldFolder in $oldVersionFolders) {
+  foreach ($oldFolder in $oldFolders) {
     try {
       Remove-Item -LiteralPath $oldFolder.FullName -Recurse -Force
-      Write-Host "Removed previous managed download: $($oldFolder.Name)" -ForegroundColor DarkGray
+      Write-Host "Removed previous local-test download: $($oldFolder.Name)" -ForegroundColor DarkGray
     } catch {
-      Write-Warning "The new download is ready, but the old folder '$($oldFolder.FullName)' could not be removed. Close files open in that folder and delete it manually."
+      Write-Warning "The latest build is ready, but the previous folder '$($oldFolder.Name)' is still in use and could not be removed."
     }
   }
 
   Write-Host ''
-  Write-Host "Download complete: $($release.tag_name)" -ForegroundColor Green
-  Write-Host "Files saved in: $finalDirectory"
+  Write-Host "Latest local-Docker build downloaded: $shortSha" -ForegroundColor Green
+  Write-Host "Files: $finalDirectory"
   Write-Host ''
-  Write-Host 'INSTALL — choose ONE installer, not both:' -ForegroundColor Cyan
-  Write-Host "  EXE: $([System.IO.Path]::Combine($finalDirectory, $installerNames[0]))"
-  Write-Host "  MSI: $([System.IO.Path]::Combine($finalDirectory, $installerNames[1]))"
-  Write-Host '1. Close the desktop app if it is running.'
-  Write-Host '2. Double-click either the EXE (guided setup) or MSI (Windows Installer).'
-  Write-Host '3. Follow the setup wizard, then open Lucky Bajaj Desktop from the Start menu.'
-  Write-Host '4. Sign in with your existing dealership staff account.'
-  Write-Host 'Unsigned installers can show Unknown Publisher / SmartScreen warnings. The checksum was verified; do not disable Windows security protections.'
+  Write-Host 'BEFORE INSTALLING — start the compatible API in your repo folder:' -ForegroundColor Cyan
+  Write-Host "  git switch $branch"
+  Write-Host '  docker compose build api'
+  Write-Host '  docker compose up -d --no-build api'
+  Write-Host '  Invoke-RestMethod http://127.0.0.1:8080/actuator/health'
+  Write-Host ''
+  Write-Host 'INSTALL — choose ONE file, not both:' -ForegroundColor Cyan
+  Write-Host "  EXE: $([System.IO.Path]::Combine($finalDirectory, $exeFiles[0].Name))"
+  Write-Host "  MSI: $([System.IO.Path]::Combine($finalDirectory, $msiFiles[0].Name))"
+  Write-Host 'Double-click the chosen installer, complete setup, then launch Lucky Bajaj Desktop from the Start menu.'
+  Write-Host 'This build targets 127.0.0.1:8080 and is for this computer only. Do not distribute it to customers.'
   Write-Host "Full instructions: $([System.IO.Path]::Combine($finalDirectory, 'INSTALL.txt'))"
-
   try {
     Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $finalDirectory + '"')
   } catch {

@@ -117,3 +117,20 @@ body { margin: 0; min-width: 320px; }
   .desktop-download-managed-primary { width: 100%; }
   .desktop-download-manual .desktop-download-actions { display: grid; }
 }
+
+.desktop-download-hosted {
+  margin-top: 26px;
+  border-top: 1px solid #e8edf5;
+  padding-top: 20px;
+}
+.desktop-download-hosted h3 {
+  margin: 0 0 8px;
+  color: #172641;
+  font-size: 16px;
+}
+.desktop-download-hosted p {
+  margin: 0;
+  color: #64738b;
+  font-size: 12px;
+  line-height: 1.7;
+}
