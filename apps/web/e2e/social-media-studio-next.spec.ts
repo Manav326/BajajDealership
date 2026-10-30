@@ -110,6 +110,10 @@ test('asks for local folder access and opens a full-viewport editor', async ({ p
   expect(bounds!.height).toBe(viewport.height);
   await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Resize' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Render photo' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Render video' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Done' })).toHaveCount(0);
 });
 
 test('canvas fullscreen is distinct from fit-page zoom and can be exited', async ({ page }) => {
@@ -240,6 +244,17 @@ test('renders a selected landscape video size, previews it in the editor and doe
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1234);
   await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(987);
   await page.getByRole('button', { name: 'Close video preview' }).click();
+  await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await page.getByRole('button', { name: 'Resources', exact: true }).click();
+  const renderedVideoCard = page.locator('[data-testid="studio-resource-card"]').filter({ hasText: 'untitled-design-video.webm' }).first();
+  await expect(renderedVideoCard).toBeVisible();
+  const resourcePlayer = renderedVideoCard.locator('video');
+  await expect(resourcePlayer).toHaveAttribute('controls', '');
+  await expect.poll(async () => renderedVideoCard.locator('span').last().textContent()).toContain('00:01');
+  const reDownload = page.waitForEvent('download');
+  await renderedVideoCard.getByRole('button', { name: 'Download untitled-design-video.webm' }).click();
+  expect((await reDownload).suggestedFilename()).toMatch(/\.webm$/);
 });
 
 test('renders a photo first, then downloads it only after an explicit choice', async ({ page }) => {
@@ -260,6 +275,7 @@ test('renders a photo first, then downloads it only after an explicit choice', a
   await page.getByRole('button', { name: 'Download selected' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.png$/);
+  await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to resources' }).click();
   await page.getByRole('button', { name: 'Resources', exact: true }).click();
   await expect(page.locator('[data-testid="studio-resource-card"]')).toHaveCount(1);
