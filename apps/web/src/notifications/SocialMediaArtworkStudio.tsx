@@ -212,6 +212,24 @@ async function listArtworkDrafts(): Promise<ArtworkDraftSummary[]> {
   });
 }
 
+async function listArtworkDraftsUsingAsset(assetId: string): Promise<ArtworkDraftSummary[]> {
+  const db = await openArtworkDraftDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').getAll();
+    request.onsuccess = () => {
+      const drafts = (request.result as ArtworkDraft[])
+        .filter((draft) => draft.objects?.some((object) => object.kind === 'image' && object.assetId === assetId))
+        .map(({ id, name, updatedAt }) => ({ id, name, updatedAt }));
+      db.close();
+      resolve(drafts);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error ?? new Error('Could not check saved draft image references.'));
+    };
+  });
+}
+
 async function readArtworkDraft(id: string): Promise<ArtworkDraft | undefined> {
   const db = await openArtworkDraftDb();
   return new Promise((resolve, reject) => {
@@ -1034,10 +1052,20 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   async function deleteLibraryAsset(asset: ArtworkAsset) {
     if (asset.isStarter) return;
-    if (!window.confirm('Remove "' + asset.name + '" from this browser’s artwork asset library? Saved drafts that already use it will not be changed.')) return;
     setError('');
     setNotice('');
     try {
+      const referencedDrafts = await listArtworkDraftsUsingAsset(asset.id);
+      const usedOnCurrentCanvas = canvasObjects.some((object) => object.kind === 'image' && object.assetId === asset.id);
+      if (usedOnCurrentCanvas || referencedDrafts.length > 0) {
+        const references = [
+          ...(usedOnCurrentCanvas ? ['the current canvas'] : []),
+          ...referencedDrafts.map((draft) => '"' + draft.name + '"'),
+        ];
+        setError('Cannot remove "' + asset.name + '" because it is used by ' + references.join(', ') + '. Remove its image layer from the current canvas and every listed draft, save those drafts, then try again.');
+        return;
+      }
+      if (!window.confirm('Remove "' + asset.name + '" from this browser’s artwork asset library?')) return;
       await removeArtworkAsset(asset.id);
       if (selectedAssetId === asset.id) {
         setSelectedAssetId(null);
@@ -1771,7 +1799,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
           <button type="button" className={activeStudioTab === 'connections' ? styles.studioTabActive : styles.studioTab} aria-current={activeStudioTab === 'connections' ? 'page' : undefined} onClick={() => setActiveStudioTab('connections')}><span>02</span>Connections</button>
           <button type="button" className={activeStudioTab === 'publishing' ? styles.studioTabActive : styles.studioTab} aria-current={activeStudioTab === 'publishing' ? 'page' : undefined} onClick={() => setActiveStudioTab('publishing')}><span>03</span>Publishing & history</button>
         </nav>
-        {activeStudioTab === 'connections' && <div className={styles.connectionsWorkspace}>
+        <div className={styles.connectionsWorkspace} style={{ display: activeStudioTab === 'connections' ? 'grid' : 'none' }}>
         <section className={styles.metaPanel} aria-label="Meta account connections">
           <div className={styles.metaPanelHeader}>
             <div>
@@ -1820,7 +1848,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         </section>
 
           {(canReadWhatsapp || canManageWhatsapp || canSendWhatsapp) && <SocialWhatsAppWorkspace canRead={canReadWhatsapp} canManage={canManageWhatsapp} canSend={canSendWhatsapp} getArtworkJpeg={getArtworkJpeg} />}
-        </div>}
+        </div>
         {activeStudioTab === 'publishing' && <div className={styles.publishWorkspace}>
             <section className={styles.publishPanel} aria-label="Publish campaign artwork">
               <div className={styles.publishPanelHeading}><strong>Publish to social media</strong><span>{metaStatus?.publishingReady?'API ready':'Not configured'}</span></div>
