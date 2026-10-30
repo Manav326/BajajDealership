@@ -82,3 +82,6 @@ app:
       dealership-code: ${SOCIAL_WHATSAPP_DEALERSHIP_CODE:}
   bootstrap:
     token: ${APP_BOOTSTRAP_TOKEN:}
+  license:
+    # Never commit this secret. Vendor-only licensing endpoints are disabled while blank.
+    admin-token: ${APP_LICENSE_ADMIN_TOKEN:}

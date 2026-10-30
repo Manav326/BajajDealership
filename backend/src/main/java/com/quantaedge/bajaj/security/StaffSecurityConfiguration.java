@@ -70,6 +70,8 @@ public class StaffSecurityConfiguration {
             // The original request is still authorized normally before any error dispatch.
             .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
+            // Vendor-only token is validated by the licensing controller.
+            .requestMatchers("/api/v1/system/license/admin/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/public/catalogue/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/meta/callback").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/media/**").permitAll()
@@ -99,10 +101,14 @@ public class StaffSecurityConfiguration {
     addOrigins(allowedOrigins, originTwo);
 
     CorsConfiguration configuration = new CorsConfiguration();
+    // Tauri 2 WebView origins are fixed local origins on Windows; allow them explicitly.
+    // They cannot be supplied by a remote browser page through the configured-origin env.
+    allowedOrigins.add("http://tauri.localhost");
+    allowedOrigins.add("tauri://localhost");
     configuration.setAllowedOrigins(allowedOrigins.stream().distinct().toList());
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(Arrays.asList(
-        "Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key", "X-Bootstrap-Token"));
+        "Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "Idempotency-Key", "X-Bootstrap-Token", "X-License-Admin-Token", "X-Desktop-Installation-Id", "X-Desktop-App-Version"));
     configuration.setExposedHeaders(List.of("Retry-After"));
     configuration.setAllowCredentials(false);
     configuration.setMaxAge(3600L);

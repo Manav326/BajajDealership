@@ -436,3 +436,85 @@ The customer quote covers one outlet and up to 20 staff logins. It proposes a ma
 The customer portal uses the same Google Identity Services web client ID and server-side audience verification as QuantaEdge. Configure `GOOGLE_WEB_CLIENT_ID` on the Lucky Bajaj API service with the exact existing value from the QuantaEdge deployment (`APP_AUTH_GOOGLE_CLIENT_ID` inside the API container). The value is a public OAuth client identifier, not a client secret; keep it centrally managed and do not put a client secret in either web app. The Render Blueprint declares the variable as a manual deployment setting so it can be supplied without committing it to source. For Android sign-in, register separate Android OAuth clients for Standard (`com.quantaedge.luckybajaj`) and Liquid Glass (`com.quantaedge.luckybajajlg`) using the SHA-1 fingerprints of the corresponding APK signing certificates. Configure their public client IDs as `GOOGLE_ANDROID_CLIENT_ID` and `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID`, respectively. The Render Blueprint exposes both as manual API-service settings; local Compose forwards the same variables from the root `.env`. Debug and release signing certificates may require different Android OAuth registrations.
 
 In Google Cloud Console, add `https://lucky-bajaj-customer-web.onrender.com` to the OAuth client’s **Authorized JavaScript origins** alongside the existing QuantaEdge origins. Once configured, check `https://lucky-bajaj-api.onrender.com/api/v1/customer/auth/google/config`; it should return `configured: true` and the same public `clientId` as QuantaEdge. This feature does not change customer-code/password login or staff authentication.
+
+## Dealership licensing and expiry policy
+
+Licensing is enforced by the Spring Boot API, not the website or desktop executable alone. The staff portal queries `/api/v1/system/license/status` to display current state, while the bearer-token filter independently checks license state before each authenticated staff request.
+
+- New and existing dealerships receive an automatic 30-day `TRIAL` record from Flyway V46, with a seven-day renewal grace period and 20 staff seats. Configure real commercial terms before the trial expires.
+- `ACTIVE` grants normal access. `GRACE` preserves access and returns a renewal warning. After expiry plus grace, `READ_ONLY` allows safe GET/read operations and existing role-authorized exports while rejecting create/update/delete requests.
+- `SUSPENDED`, `REVOKED`, `NOT_YET_ACTIVE` and missing-license states block operational reads and writes. Staff may still check license status, verify the current session and sign out.
+- Staff invitations reserve a seat while their account is `INVITED`; `ACTIVE` and `INVITED` accounts count against the seat limit. Deactivated staff do not consume an active seat.
+- The restricted vendor console is hosted at `/license-admin.html`. Configure `APP_LICENSE_ADMIN_TOKEN` as a high-entropy API deployment secret; generate one with `openssl rand -base64 48`. The console sends it in `X-License-Admin-Token` and holds it in page memory only. If the secret is unset, API license-management endpoints remain unavailable.
+- After expiry plus grace, dealership owners can use `GET /api/v1/admin/data-export` to download a ZIP of dealership-owned JSON Lines business records. The route requires the OWNER role, is audit-logged, and omits authentication, session, licensing and secret-like data.
+- Every license update records an audit event with the requested plan, state, dates, grace period, staff-seat limit and change reason. The token itself is never written to the database or audit trail.
+- Before deploying this migration to a live customer, configure the API secret and commercial license terms. The migration trial is a safety transition, not proof of a paid subscription.
+
+The licensing model enforces server-side dealership state, staff-seat limits and registered desktop-installation limits. Each desktop session is tied to its installation registration; device IDs remain installation identities rather than cryptographic hardware attestation.
+
+### Desktop installation activation
+
+The Windows build registers an installation UUID on staff login. The API stores only a SHA-256 digest of that UUID, ties the resulting staff session to that installation and checks the registered-device state on each request. The identity is an installation identifier, not hardware attestation; it improves licensing/accountability but should not be described as impossible to tamper with. Existing registered desktop installations can retain read-only access after license expiry; new device activations are rejected after expiry+grace. A device administrator can revoke/re-activate installations in the license console.
+
+
+## Windows desktop client
+
+The staff portal is packaged as a Tauri 2 Windows desktop app. CI builds both an NSIS setup executable and an MSI on Windows and uploads them as a 14-day GitHub Actions artifact. The staff sign-in page links to `/download.html`; once a reviewed public release is published, it exposes the intentionally unsigned direct-download EXE/MSI with security-warning guidance and SHA-256 checksums.
+
+To produce a draft release candidate, create and push a tag such as `desktop-v0.1.0`. The Windows release workflow creates a **draft** release with the intentionally unsigned EXE/MSI and Store MSIX, plus SHA-256 checksums. The EXE/MSI can be published without a paid certificate, with expected Windows trust warnings; clean-Windows install, login, licensing, upgrade and uninstall checks are still required.
+
+The Tauri app registers a persistent random installation UUID at sign-in. The server stores the UUID's digest and binds the session to that device registration. This is an installation identity and device cap, not hardware attestation; device IDs can be copied by a determined user. Active registrations can be reviewed or revoked from the license console. Expired dealerships retain read-only access and allowed exports from existing registered devices; new desktop activation is blocked after grace expires.
+
+
+### Windows desktop distribution packages
+
+The Windows desktop release builds two distinct distribution paths from the same Tauri staff application.
+
+- Direct customer download: LuckyBajajDesktopSetup.exe and LuckyBajajDesktop.msi are intentionally unsigned. No paid certificate or signing secret is used. Windows may show an Unknown Publisher or SmartScreen warning. The download page publishes SHA-256 checksums. Customers must download only from the official release and must not disable Windows Defender or SmartScreen.
+- Microsoft Store: LuckyBajajDesktopStore.msix is a separate MSIX package with the runFullTrust capability for the Tauri desktop process. It is unsigned at upload time; Microsoft signs Store-distributed MSIX packages after certification. Never provide this unsigned MSIX as a direct download.
+
+Tauri natively builds EXE and MSI installers. The Store MSIX is assembled from the MSI application payload with Windows SDK MakeAppx.exe and unpacked again to verify its manifest and executable. The package is x64 and targets Windows 10 version 1809 or later. Store acceptance and runtime behavior must still be verified using the Windows App Certification Kit and clean Windows devices, especially WebView2 runtime availability and package identity.
+
+Before a Store release, reserve Lucky Bajaj Desktop in Microsoft Partner Center and copy the exact values from the app's Package/Identity section into repository Actions → Variables:
+
+- MSIX_PACKAGE_IDENTITY_NAME — exact Package/Identity Name assigned by Partner Center.
+- MSIX_PUBLISHER — exact Publisher distinguished name from Partner Center (not a guessed company name).
+- MSIX_PUBLISHER_DISPLAY_NAME — approved publisher display name shown to customers.
+
+The stable release workflow stops if any identity value is missing. It creates a draft GitHub release with unsigned direct EXE/MSI, unsigned Store MSIX and SHA256SUMS.txt. Review the draft and test installation, sign-in, server-side licensing, upgrades and uninstall on clean Windows 10/11 devices before publishing the direct-download release or submitting the MSIX to Partner Center.
+
+For pull-request validation, CI produces a development-identity MSIX solely as a packaging smoke-test artifact. It is not valid for Microsoft Store submission. The Store package must be rebuilt from a stable desktop-vX.Y.Z tag using exact Partner Center identity values.
+
+
+### Desktop API connectivity — local Docker vs hosted customer build
+
+The installed Tauri executable is a desktop frontend only. It does not contain PostgreSQL, the Spring Boot API or a second database. It sends requests to the API URL compiled into the frontend bundle, using the configured staff authentication and desktop-installation headers.
+
+There are two different Windows build targets, and they must not be mixed:
+
+- **Local Docker test installer** (the `lucky-bajaj-windows-local-docker-*` CI artifact): compiled with `VITE_API_BASE_URL=http://127.0.0.1:8080/`. On the same Windows PC, Docker Compose publishes the API container's port 8080 to host port 8080 (`API_PORT` defaults to 8080). Start the Docker stack first and verify `http://127.0.0.1:8080/actuator/health` reports `UP`; then install and run this local-only EXE. The installed desktop process is on Windows, outside the Docker network, so it must use the host loopback address—not the Docker service DNS name `http://api:8080`.
+
+- **Hosted customer installer** (the normal `windows-desktop` build and tagged release): compiled with `VITE_API_BASE_URL` set from the repository Actions variable `BAJAJ_API_BASE_URL`, defaulting to the currently deployed Lucky Bajaj API URL. It connects to that remote API over HTTPS; the customer does not need Docker or a local API container. Change the Actions variable before building when the API moves to its production hostname.
+
+The Docker staff website at `http://localhost:3001` uses its Nginx/Vite `/api` reverse proxy. A packaged Tauri desktop app bypasses that staff-web reverse proxy and talks directly to the API base URL above. The Tauri Content Security Policy explicitly permits the local loopback API as well as the hosted API. The PR backend CORS configuration permits the Tauri Windows app origins and the `X-Desktop-Installation-Id` / `X-Desktop-App-Version` headers used for device registration and session binding.
+
+**Backend version prerequisite for local testing:** PR #37 adds Tauri CORS support, device-bound staff login, and database migrations V46/V47. The current `main` branch / GHCR `latest` image only includes migrations through V45 and does not yet include those Tauri CORS/device changes. Because PR #37 is not merged, a local desktop test must run the API built from this PR branch. From a working copy checked out to `feature/dealership-licensing-readonly`, use `docker compose build api` followed by `docker compose up -d --no-build api`; then check `http://127.0.0.1:8080/actuator/health`. Do not switch back to `-Mode Pull` until PR #37 is merged and CI has published the updated GHCR image. The additive V46/V47 migrations then run against the existing local PostgreSQL volume at API startup.
+
+Keep the two desktop artifacts clearly labelled. Never give the local-Docker build to a customer on a different PC: `127.0.0.1` always means that customer's own computer. For a customer installer, use the hosted API build, and deploy the PR backend before releasing that installer.
+
+## Download and install the local Windows test build
+
+Open `/download.html` from the staff portal and download `Download-LuckyBajajDesktop.ps1`. While PR #37 is open, the helper follows `feature/dealership-licensing-readonly`; once PR #37 is merged, it automatically follows `main`. It requires a successful Windows desktop build for the exact current branch commit, downloads only the corresponding `lucky-bajaj-windows-local-docker-<sha>` Actions artifact, verifies the GitHub SHA-256 digest and archive size, and confirms the ZIP contains exactly one EXE and one MSI. It does not fall back to an older build.
+
+Right-click the script and choose **Run with PowerShell**. If Windows blocks scripts under the local execution policy, open PowerShell and run this process-scoped command (it does not change the saved machine or user policy):
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& "$env:USERPROFILE\Downloads\Download-LuckyBajajDesktop.ps1"
+```
+
+If your administrator enforces a policy that prevents scripts from running, do not try to override it; ask the administrator for an approved installer workflow. GitHub artifact access may also require GitHub CLI sign-in or a fine-grained `GH_TOKEN` with Actions read access.
+
+The installers are saved beneath `%USERPROFILE%\Downloads\LuckyBajajDesktopLocalDocker` in a folder named for the source commit. Only after both installers pass validation does the helper remove older version folders created by this helper in that dedicated location. It never uninstalls the app, modifies Docker data, or deletes unrelated files. It opens the new folder and writes `INSTALL.txt` with the exact source commit and setup steps.
+
+This local test build is compiled to use `http://127.0.0.1:8080` and must be installed on the same computer as Docker Desktop. Follow the backend branch and health-check commands printed in `INSTALL.txt`; do not delete the existing PostgreSQL volume. Choose either the EXE or MSI, not both, and keep using the same installer type for later upgrades. The cleanup removes old downloaded installer files only; it does not uninstall the application. Local-Docker builds are for same-machine testing and must not be distributed to customers.

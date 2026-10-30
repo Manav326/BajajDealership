@@ -1,5 +1,7 @@
 package com.quantaedge.bajaj.security;
 
+import com.quantaedge.bajaj.system.DealershipLicenseService;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,9 +22,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class StaffBearerTokenFilter extends OncePerRequestFilter {
   private final JdbcTemplate jdbc;
+  private final DealershipLicenseService licenses;
 
-  public StaffBearerTokenFilter(JdbcTemplate jdbc) {
+  public StaffBearerTokenFilter(JdbcTemplate jdbc, DealershipLicenseService licenses) {
     this.jdbc = jdbc;
+    this.licenses = licenses;
   }
 
   @Override
@@ -48,7 +52,8 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
 
     String tokenHash = TokenDigests.sha256(rawToken);
     List<Map<String, Object>> rows = jdbc.queryForList("""
-        select ss.id as session_id, u.id as staff_user_id, u.public_id::text as staff_public_id,
+        select ss.id as session_id, ss.desktop_installation_hash,
+               u.id as staff_user_id, u.public_id::text as staff_public_id,
                u.dealership_id, d.public_id::text as dealership_public_id,
                d.code as dealership_code, u.full_name
         from staff_session ss
@@ -96,6 +101,33 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
         Set.copyOf(roles),
         Set.copyOf(permissions));
 
+    String sessionInstallationHash = (String) row.get("desktop_installation_hash");
+    if (sessionInstallationHash != null) {
+      String suppliedInstallationId = request.getHeader("X-Desktop-Installation-Id");
+      if (suppliedInstallationId == null || suppliedInstallationId.isBlank()
+          || !isActiveDesktopInstallation(dealershipId, sessionInstallationHash,
+              TokenDigests.sha256(suppliedInstallationId.trim()))) {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write("{\"error\":\"license_restricted\",\"code\":\"LICENSE_DEVICE_REVOKED\",\"message\":\"This desktop installation is not authorized for the current session.\"}");
+        return;
+      }
+    }
+
+    DealershipLicenseService.LicenseRestriction restriction = licenses.restrictionFor(
+        principal.dealershipId(), request.getMethod(), request.getRequestURI());
+    if (restriction != null) {
+      response.setStatus(restriction.httpStatus());
+      response.setContentType("application/json");
+      response.setCharacterEncoding("UTF-8");
+      response.getWriter().write("{\"error\":\"license_restricted\",\"code\":\""
+          + restriction.code() + "\",\"licenseStatus\":\""
+          + restriction.state() + "\",\"message\":\""
+          + restriction.message() + "\"}");
+      return;
+    }
+
     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
     roles.forEach(role -> authorities.add(new SimpleGrantedAuthority("ROLE_" + role)));
     permissions.forEach(permission -> authorities.add(new SimpleGrantedAuthority(permission)));
@@ -106,6 +138,20 @@ public class StaffBearerTokenFilter extends OncePerRequestFilter {
         where id = ? and last_seen_at < now() - interval '5 minutes'
         """, principal.sessionId());
     chain.doFilter(request, response);
+  }
+
+  private boolean isActiveDesktopInstallation(long dealershipId, String boundHash, String suppliedHash) {
+    if (!boundHash.trim().equals(suppliedHash)) return false;
+    Integer count = jdbc.queryForObject("""
+        select count(*) from dealership_license_device
+        where dealership_id = ? and installation_hash = ? and status = 'ACTIVE'
+        """, Integer.class, dealershipId, boundHash);
+    if (count == null || count != 1) return false;
+    jdbc.update("""
+        update dealership_license_device set last_seen_at = now(), updated_at = now()
+        where dealership_id = ? and installation_hash = ? and status = 'ACTIVE'
+        """, dealershipId, boundHash);
+    return true;
   }
 
   private static long number(Object value) {
