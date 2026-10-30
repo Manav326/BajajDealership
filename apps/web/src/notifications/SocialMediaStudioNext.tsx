@@ -1432,6 +1432,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
                 return <button type="button" key={clip.id} className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
                   style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(1.5,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}
                   title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
+                  aria-label={'Select timeline video clip ' + clip.name}
                   onClick={()=>{setTimelinePlaying(false);Object.values(videoElementsRef.current).forEach(video=>video.pause());mutate(current=>({...current,selectedPageId:scene.id}),false);setSelectedIds([clip.id]);setTool('layers');}}>
                   <Icon name="video"/><span>{clip.name}</span>
                 </button>;

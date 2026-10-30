@@ -267,7 +267,7 @@ test('uploaded video media becomes a timed, selectable timeline clip', async ({ 
   const videoAsset = page.getByRole('button', { name: /scene-video\.webm/ });
   await expect(videoAsset).toBeVisible();
   await videoAsset.click();
-  await expect(page.getByRole('button', { name: 'scene-video.webm' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: 'Video clip duration' })).toBeVisible();
   await page.getByRole('button', { name: 'Render photo' }).click();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
