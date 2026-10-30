@@ -40,6 +40,9 @@ export type StudioElement = {
   startSeconds?: number;
   durationSeconds?: number;
   sourceStartSeconds?: number;
+  /** Optional visual transition lengths for timed image/video clips. */
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
   letterSpacing?: number;
   shapeKind?: 'arrow' | 'triangle' | 'star' | 'burst';
 };

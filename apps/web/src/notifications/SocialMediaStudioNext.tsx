@@ -170,6 +170,19 @@ function hasTimedImageRange(item: StudioElement): boolean {
   return item.type === 'image' && (item.startSeconds !== undefined || item.durationSeconds !== undefined);
 }
 
+/** Overlapping in/out ramps combine by their lower alpha, preventing a short clip from flashing to full opacity between fades. */
+function timedMediaFadeAlpha(clip: StudioElement, localSeconds: number, durationSeconds: number): number {
+  const duration = Math.max(.1, Number.isFinite(durationSeconds) ? durationSeconds : .1);
+  const elapsed = Math.max(0, Math.min(duration, Number.isFinite(localSeconds) ? localSeconds : 0));
+  const requestedFadeIn = clip.fadeInSeconds ?? 0;
+  const requestedFadeOut = clip.fadeOutSeconds ?? 0;
+  const fadeIn = Number.isFinite(requestedFadeIn) ? Math.max(0, Math.min(duration, requestedFadeIn)) : 0;
+  const fadeOut = Number.isFinite(requestedFadeOut) ? Math.max(0, Math.min(duration, requestedFadeOut)) : 0;
+  const fadeInAlpha = fadeIn > 0 ? elapsed / fadeIn : 1;
+  const fadeOutAlpha = fadeOut > 0 ? (duration - elapsed) / fadeOut : 1;
+  return Math.max(0, Math.min(1, fadeInAlpha, fadeOutAlpha));
+}
+
 function drawTimedImageClip(context: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, scene: StudioPage, clip: StudioElement, image: HTMLImageElement, transitionAlpha = 1): void {
   const scale = Math.min(canvasWidth / scene.width, canvasHeight / scene.height);
   const offsetX = (canvasWidth - scene.width * scale) / 2;
@@ -293,7 +306,7 @@ async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mi
         const image = new Image();
         image.src = sourceUrl;
         await image.decode();
-        drawTimedImageClip(context, canvas.width, canvas.height, page, clip, image);
+        drawTimedImageClip(context, canvas.width, canvas.height, page, clip, image, timedMediaFadeAlpha(clip, sceneTime - clipStart, clipDuration));
         continue;
       }
       if (clip.type !== 'video') continue;
@@ -303,7 +316,7 @@ async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mi
       context.save();
       context.translate(clip.x + clip.width / 2, clip.y + clip.height / 2);
       context.rotate(clip.rotation * Math.PI / 180);
-      context.globalAlpha = clip.opacity;
+      context.globalAlpha = clip.opacity * timedMediaFadeAlpha(clip, sceneTime - clipStart, clipDuration);
       context.drawImage(video, -clip.width / 2, -clip.height / 2, clip.width, clip.height);
       context.restore();
     }
@@ -935,7 +948,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         if(item.type==='image'){
           if(!active)return;
           const imageElement=timelineImageElementsRef.current[item.id];
-          if(imageElement)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,imageElement,alpha);
+          if(imageElement)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,imageElement,alpha*timedMediaFadeAlpha(item,sceneTime-start,duration));
           return;
         }
         if(item.type!=='video')return;
@@ -948,7 +961,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Decoder is still loading. */}}
         if(timelinePlaying&&video.paused)void video.play().catch(()=>undefined);else if(!timelinePlaying)video.pause();
         const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
-        ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha;
+        ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha*timedMediaFadeAlpha(item,sceneTime-start,duration);
         ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
       });
     };
@@ -1560,7 +1573,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               if(item.type==='image'){
                 if(!active)return;
                 const image=timelineImageElementsRef.current[item.id];
-                if(image)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,image,alpha);
+                if(image)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,image,alpha*timedMediaFadeAlpha(item,sceneTime-clipStart,clipDuration));
                 return;
               }
               if(item.type!=='video')return;
@@ -1574,7 +1587,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
               if(video.paused)void video.play().catch(()=>undefined);
               const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
               ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);
-              ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha;
+              ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha*timedMediaFadeAlpha(item,sceneTime-clipStart,clipDuration);
               ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
             });
           };
@@ -1940,11 +1953,15 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {one?.type === 'image' && <label>Image fit<select disabled={one.locked} aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
         {one?.type === 'image' && <><div className={styles.videoClipInspectorTitle}>Image clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
           <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Image clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event=>updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds),Number(event.target.value)))})}/></label>
-          <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Image clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,page.durationSeconds-(one.startSeconds??0))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event=>updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds??0),Number(event.target.value)))})}/></label></>}
+          <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Image clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,page.durationSeconds-(one.startSeconds??0))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event=>updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds??0),Number(event.target.value)))})}/></label>
+          {hasTimedImageRange(one)&&<><label>Fade in · {one.fadeInSeconds??0}s<input aria-label="Clip fade in" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeInSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+          <label>Fade out · {one.fadeOutSeconds??0}s<input aria-label="Clip fade out" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeOutSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeOutSeconds:Number(event.target.value)})}/></label></> </>}
          {one?.type === 'video' && <><div className={styles.videoClipInspectorTitle}>Video clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
            <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Video clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds),Number(event.target.value)))})}/></label>
            <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Video clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0)))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event => updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0),Number(event.target.value)))})}/></label>
-           <label>Source in-point · {formatTime(one.sourceStartSeconds ?? 0)}<input aria-label="Video source in point" disabled={one.locked} type="number" min="0" max={Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds))} step="0.1" value={Number((one.sourceStartSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{sourceStartSeconds:Math.max(0,Math.min(Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds)),Number(event.target.value)))})}/></label></>}
+           <label>Source in-point · {formatTime(one.sourceStartSeconds ?? 0)}<input aria-label="Video source in point" disabled={one.locked} type="number" min="0" max={Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds))} step="0.1" value={Number((one.sourceStartSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{sourceStartSeconds:Math.max(0,Math.min(Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds)),Number(event.target.value)))})}/></label>
+           <label>Fade in · {one.fadeInSeconds??0}s<input aria-label="Clip fade in" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeInSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+           <label>Fade out · {one.fadeOutSeconds??0}s<input aria-label="Clip fade out" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeOutSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeOutSeconds:Number(event.target.value)})}/></label></>}
         <label>X<input disabled={one?.locked} type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
         <label>Y<input disabled={one?.locked} type="number" value={Math.round(one?.y ?? 0)} onChange={(event) => one && updateElement(one.id, { y: Number(event.target.value) })}/></label>
         <label>Width<input disabled={one?.locked} type="number" min="10" value={Math.round(one?.width ?? 0)} onChange={(event) => one && updateElement(one.id, { width: Math.max(10, Number(event.target.value)) })}/></label>

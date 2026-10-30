@@ -949,7 +949,7 @@ for (const width of [390, 768, 1280]) {
   });
 }
 
-test('timed image clips stay synchronized in timeline preview and rendered video', async ({ page }) => {
+test('timed image clips apply fades consistently in preview, photo and video renders', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Brand', exact: true }).click();
@@ -977,6 +977,10 @@ test('timed image clips stay synchronized in timeline preview and rendered video
   await expect(imageDuration).toHaveValue('5');
   await imageDuration.fill('2');
   await page.getByRole('spinbutton', { name: 'Image clip start' }).fill('2');
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.8');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.8');
+  await expect(page.getByRole('slider', { name: 'Clip fade in' })).toHaveValue('0.8');
+  await expect(page.getByRole('slider', { name: 'Clip fade out' })).toHaveValue('0.8');
 
   const playhead = page.getByRole('slider', { name: 'Timeline playhead' });
   await playhead.focus();
@@ -993,12 +997,47 @@ test('timed image clips stay synchronized in timeline preview and rendered video
   });
   await expect.poll(async () => (await readTimelinePixel())[0]).toBeLessThan(100);
 
-  for (let i = 0; i < 20; i += 1) await playhead.press('ArrowRight');
+  for (let i = 0; i < 14; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('2.4');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 80 && pixel[0] < 190 && pixel[1] < 100 && pixel[2] < 100;
+  }).toBe(true);
+
+  for (let i = 0; i < 6; i += 1) await playhead.press('ArrowRight');
   await expect(playhead).toHaveValue('3');
   await expect.poll(async () => {
     const pixel = await readTimelinePixel();
     return pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80;
   }).toBe(true);
+
+  for (let i = 0; i < 6; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('3.6');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 80 && pixel[0] < 190 && pixel[1] < 100 && pixel[2] < 100;
+  }).toBe(true);
+
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  const photoButton = page.getByRole('button', { name: 'Preview rendered photo' });
+  await expect(photoButton).toBeVisible({ timeout: 30000 });
+  await photoButton.click();
+  const photoPreview = page.getByRole('dialog', { name: 'Rendered photo preview' });
+  const photoPixel = await photoPreview.locator('img[alt="Rendered photo output"]').evaluate(image => {
+    const element = image as HTMLImageElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = element.naturalWidth;
+    canvas.height = element.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Rendered photo frame canvas is unavailable.');
+    context.drawImage(element, 0, 0);
+    const pixel = context.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height*.4), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  expect(photoPixel[0]).toBeGreaterThan(80);
+  expect(photoPixel[0]).toBeLessThan(190);
+  expect(photoPixel[1]).toBeLessThan(100);
+  await photoPreview.getByRole('button', { name: 'Close photo preview' }).click();
 
   await page.getByRole('button', { name: 'Render video' }).click();
   const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
@@ -1026,10 +1065,18 @@ test('timed image clips stay synchronized in timeline preview and rendered video
   };
   const beforeClip = await readRenderedPixel(1);
   expect(beforeClip[0]).toBeLessThan(100);
+  const fadeInFrame = await readRenderedPixel(2.4);
+  expect(fadeInFrame[0]).toBeGreaterThan(80);
+  expect(fadeInFrame[0]).toBeLessThan(190);
+  expect(fadeInFrame[1]).toBeLessThan(100);
   const duringClip = await readRenderedPixel(3);
   expect(duringClip[0]).toBeGreaterThan(150);
   expect(duringClip[1]).toBeLessThan(100);
   expect(duringClip[2]).toBeLessThan(100);
+  const fadeOutFrame = await readRenderedPixel(3.6);
+  expect(fadeOutFrame[0]).toBeGreaterThan(80);
+  expect(fadeOutFrame[0]).toBeLessThan(190);
+  expect(fadeOutFrame[1]).toBeLessThan(100);
 });
 
 test('multiple uploaded video clips have independent, editable timeline tracks', async ({ page }) => {
@@ -1079,6 +1126,10 @@ test('multiple uploaded video clips have independent, editable timeline tracks',
   await page.mouse.move(startBox.x + startBox.width + 25, startBox.y + startBox.height/2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Number(await sourceInPoint.inputValue())).toBeGreaterThan(originalSourceInPoint);
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.1');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.1');
+  await expect(page.getByRole('slider', { name: 'Clip fade in' })).toHaveValue('0.1');
+  await expect(page.getByRole('slider', { name: 'Clip fade out' })).toHaveValue('0.1');
   const initialStart = Number(await page.getByRole('spinbutton', { name: 'Video clip start' }).inputValue());
   const clipBody = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
   const bodyBox = await clipBody.boundingBox();
