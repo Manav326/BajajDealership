@@ -9,7 +9,8 @@ tags:
 - extendedWaitUntil:
     visible: "Find the ride that feels like you."
     timeout: 30000
-- assertVisible: "LUCKY BAJAJ"
+- assertVisible:
+    id: customer-brand-name
 - assertVisible: "Explore Bajaj motorcycles"
 - tapOn: "Search motorcycles"
 - inputText: "Pulsar"

@@ -18,7 +18,9 @@ tags:
 - assertVisible: "One-time activation token"
 - assertVisible: "Create username"
 - assertVisible: "Create password (12+ characters)"
-- tapOn: "Sign in"
-- assertVisible: "Sign in securely"
+- tapOn:
+    id: customer-auth-mode-login
+- assertVisible:
+    id: customer-login-submit
 - tapOn: "Return to showroom"
 - assertVisible: "Explore Bajaj motorcycles"
