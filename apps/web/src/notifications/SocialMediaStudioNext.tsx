@@ -338,6 +338,9 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     if (!metaConsentOpen) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const focusFrame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('#meta-consent-dialog [data-consent-initial-focus]')?.focus({ preventScroll: true });
+    });
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -362,6 +365,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
@@ -638,7 +642,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
         </details>
         <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. Meta will ask you to approve its permissions separately. You can cancel here or decline on Meta's authorization screen.</p>
         <div className={styles.consentActions}>
-          <button type="button" autoFocus onClick={closeMetaConsent}>Not now</button>
+          <button type="button" data-consent-initial-focus autoFocus onClick={closeMetaConsent}>Not now</button>
           <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
         </div>
       </section>
