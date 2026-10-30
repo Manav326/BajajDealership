@@ -756,6 +756,7 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await expect(consent).toContainText('Meta will show the exact permissions requested');
   await expect(consent).toContainText('Connecting an account does not publish anything');
   await consent.getByText('See the exact Meta permissions being requested').click();
+  const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
   for (const scope of ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'instagram_basic', 'instagram_content_publish']) {
     await expect(consent).toContainText(scope);
   }
@@ -764,9 +765,6 @@ test('Meta connection requires explicit consent and cancellation never starts OA
   await expect(permissionSummary).toBeFocused();
   await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
   expect(connectRequests).toHaveLength(0);
-
-  const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
-  await expect(permissionSummary).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(continueToMeta).toBeFocused();
   await page.keyboard.press('Tab');
