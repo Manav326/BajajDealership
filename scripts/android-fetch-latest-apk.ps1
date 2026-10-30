@@ -4,7 +4,7 @@
 param(
     [string]$Repository = "Manav326/BajajDealership",
     [string]$Branch = "main",
-    [string]$ArtifactPattern = "lucky-bajaj-android-maestro-apk-*,
+    [string]$ArtifactPattern = "lucky-bajaj-android-maestro-apk-*",
     [string]$PackageName = "com.quantaedge.luckybajaj",
     [string]$DeviceSerial = "",
     [switch]$DownloadOnly
