@@ -12,12 +12,20 @@ name: Shared customer login
 - tapOn:
     id: customer-login-dealership-code
 - inputText: ${MAESTRO_DEALERSHIP_CODE}
+- hideKeyboard
+- assertVisible:
+    id: customer-login-customer-code
 - tapOn:
     id: customer-login-customer-code
 - inputText: ${MAESTRO_CUSTOMER_CODE}
+- hideKeyboard
+- assertVisible:
+    id: customer-login-password
 - tapOn:
     id: customer-login-password
 - inputText: ${MAESTRO_CUSTOMER_PASSWORD}
+- hideKeyboard
+- assertVisible: "Sign in securely"
 - tapOn: "Sign in securely"
 - extendedWaitUntil:
     visible: "Your motorcycles, service visits, requests and dealership updates—all in one place."
