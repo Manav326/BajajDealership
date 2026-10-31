@@ -1,90 +1,151 @@
 # Implementation Plan — Lucky Bajaj Agency
 
 **Provider:** QuantaEdge  
-**Scope:** one outlet for bike sales and service; owner/staff web portal, customer website and Android app.  
-**Status:** active implementation. The root README is the roadmap and status source.
+**Product scope:** one dealership outlet, with owner/staff portal, public/customer website, two customer Android editions and Windows staff desktop.  
+**Last reconciled:** 31 October 2026  
+**Inspected main baseline:** 6941940b625a7e7ca818687df80deb3421247c15  
+**Canonical feature status:** [PRODUCT_STATUS.md](PRODUCT_STATUS.md)
+
+This document records current domain invariants and the remaining implementation sequence. It replaces older checkpoints that described sales as the next vertical slice or referenced pre-V46/V47 code.
+
+## Product invariants — preserve these
+
+1. This deployment is one dealership. Every customer, staff member, vehicle, stock row, booking, job, campaign and financial record belongs to a dealership.
+2. Derive dealership scope from the authenticated principal or explicitly configured public-dealership resolver. Never trust a customer-supplied dealership ID as authorization.
+3. Keep the motorcycle catalogue model separate from an individual physical vehicle unit. A public listing must never manufacture chassis/engine identifiers or available stock.
+4. Keep consumable spare-parts stock separate from motorcycle-unit inventory. The staff stock ledger is the source of truth for both retail availability and workshop reservations.
+5. Treat customer test-ride/purchase submissions as requests until staff confirms a real available vehicle/time or converts the request into the audited sales workflow.
+6. State transitions must be transactional and auditable. Use idempotency for retries and protect irreversible operations against concurrent requests.
+7. An approved estimate and issued invoice are snapshots. Stock movement or later edits must not silently rewrite historic approved customer terms or issued financial documents.
+8. Manual payment and payout attestations are operational records, not gateway/bank settlement evidence. An operational invoice is not a statutory GST invoice.
+9. In-app inbox persistence is independent of push/social transports. Mark external delivery only on provider evidence.
+10. Released Flyway migrations are immutable. Use additive migrations and rehearse upgrades against a copy of any persistent database.
 
 ## Delivered foundation and tested slices
 
-- Spring Boot API, PostgreSQL, additive Flyway migrations and GitHub Actions CI against a real PostgreSQL service.
-- Staff login with dealership code + email/mobile + password; hashed bearer sessions, server-side revocation, password hashing, login-attempt throttling, one-time owner bootstrap and role/permission checks.
-- Dealership-scoped customer list/search/create/update, validation, marketing-consent source handling, audit records and tests for cross-dealership isolation.
-- Vehicle model and individual-unit inventory; unique chassis/engine references; explicit expected-stock receiving; append-only stock-movement history. Consumable spare parts use separate SKU/balance/receipt/movement tables and never share motorcycle-unit stock rows.
-- Rich-notification validator; private PNG/JPEG upload and integrity checks; immutable templates; server-resolved customer/staff audience; consent-filtered marketing audience; selected-only recipients/exclusions; expiring one-time preview proof; idempotent send request; scheduling/cancellation; durable in-app records/inbox; read/unread/dismiss endpoints; audit.
-- React web sign-in, owner shell, customer workspace, vehicle inventory workspace, Notification Studio editor/template/version/preview/scheduling UI, Logo & Graphics raster export/upload, and a topbar in-app inbox with unread badge.
-- Workshop intake and quality: create/list/confirm/cancel appointment; verify current dealership-scoped customer/vehicle ownership; check-in exactly once into a job card; create seven inspection items; require completed checklist before estimate; immutable estimate revisions with line totals/discount; record customer decision evidence; technician assignment before work; only assigned quality inspector can pass quality check.
-- Workshop web workspace for appointment search/create/check-in, job-card queue, inspection checklist, estimate revision/decision capture, technician assignment, start-work, quality-check, invoice issue, partial-payment receipts, reversals and receiver-acknowledged paid handover. Billing uses the existing BillingOperationsService and a single controller route set; receipts are manual operational records, not evidence of payment-provider settlement.
-- Integration tests for migrations, authentication, customer consent/isolation, vehicle inventory receiving, notification contracts/inbox, workshop check-in idempotency, inspection completion, estimate calculations/revisions, approval evidence, technician assignment, quality-check gates, operational invoice issue, partial payment/idempotency, reversal history, balance enforcement and acknowledgement-backed handover, plus spare-part receipt retries/weighted-average cost, reservation/issue/return/release quantities, partial-release accounting and cross-dealership isolation.
-- CI runs backend tests/migrations with PostgreSQL and TypeScript/React production build. Verify the latest run result before calling a newer commit green.
+### Platform, access and data boundaries
 
-## Immediate validation work
+- Spring Boot API, PostgreSQL, additive Flyway schema and CI using a real PostgreSQL service.
+- Staff login, hashed bearer sessions, server-side revocation, password hashing, login throttling, one-time owner bootstrap, role/permission enforcement and audited staff access administration.
+- Dealership-scoped customer, staff, inventory, workshop, sales, notification, social and finance records.
+- Customer portal identities/sessions, invitation activation, password/alternative authentication, server-verified Google ID-token integration when client IDs are configured.
+- Server-side dealership licensing and desktop installation activation support through migrations V46/V47. The licence console is vendor-only and requires its own deployment secret.
 
-1. Keep CI green on the latest commit after spare-part selector, permission-denial tests and responsive workspace are all included.
-2. Add concurrent spare-stock tests for same-SKU receipt/reservation/issue races, duplicate idempotency keys and transaction rollback on rejected quantities.
-3. Add controller-level authorization tests for every workshop mutation and for parts read/manage/receive/reserve/issue/return boundaries.
-4. Integrate issued/returned part-cost snapshots into a *new* estimate revision. No issued part may silently rewrite an approved estimate or issued invoice; customer decision evidence remains mandatory.
-5. Complete concurrent workshop tests for duplicate check-in, estimate submissions, decisions, quality checks and invoice/payment/handover races.
-6. Harden Notification Studio concurrent approval/send/cancel semantics, scheduled cancel races, media access and preview freshness. Keep external providers disabled until configured and tested.
+### Staff and customer experiences
 
-## Implemented slice: spare-parts stock and job-card operations
+- Staff portal with Overview, Customers, Sales pipeline, Bike inventory, Workshop, Spare parts, Billing & expenses, Team & access, Notification Studio, Social Media Studio and Reports workspaces.
+- Responsive customer website and two separately installable Android customer apps: Standard and Liquid Glass. Shared customer workflows and Maestro flow parity are checked by the repository parity script.
+- Customer profile/contact/language, private profile photo, named saved addresses/default address, linked motorcycles, sales request progress, purchase history, service history, appointment requests and in-app notification inbox.
+- Public Bajaj showroom with browse-before-login, model detail/specification, comparison/share links, sourced offer announcements, source/date price disclosures, and staff-managed model images.
+- Staff customer history view joins the actual saved CRM, sales, ownership, service and retail-parts records.
 
-- Delivered: separate SKU catalogue and supplier records; purchase receipts with line-level unit cost; weighted-average cost; on-hand/reserved/available balances; dealership-scoped stock movements with before/after quantities and actor; receipt idempotency/fingerprint; job-card reservation, issue, return and release endpoints; one idempotency namespace for reservation operations; explicit quantity released; responsive web screens for catalogue, supplier receipt, movement history, and job-card parts; route permission-denial tests.
-- Safety semantics: reserve only for approved/in-progress jobs, issue/return only while in progress, reject over-reservation/over-issue/over-return, make retry with the same key/payload replay the original result, reject changed payloads, and separate consumables from individual bike-unit inventory.
+### Motorcycle catalogue and inventory
 
-## Delivered slice: costed part reservation snapshots on estimate revisions
+- Individual vehicle-unit inventory, model/variant/colour/year, expected-stock receiving, unique chassis/engine references, stock status and auditable stock movement.
+- Bajaj-only public catalogue master seeded with 20 model listings; this creates catalogue model definitions only, not physical vehicle units.
+- Staff-managed effective-dated regional on-road estimate profiles and sourced promotional announcements. Missing/conflicting regional profiles return an unavailable/error state rather than a fabricated number.
+- Model image gallery upload/removal with content validation and dealership scope.
+- Public API excludes supplier cost, physical vehicle identifiers and customer/private inventory records.
 
-- An estimate PART line may reference a reservation on that same job card and dealership. The service locks the reservation, verifies the expected quantity and SKU description are still current, then snapshots reserved/issued/returned/released quantities, reservation cost basis and snapshot time.
-- The customer-facing selling price is entered independently; the internal stock-cost snapshot does not set the selling price. Issuing a reservation requires a matching current approved estimate line; returns/releases that change the quantity snapshot prevent further issue until a new estimate revision is approved.
-- Invoice creation rechecks all nonzero planned reservations against the active approved estimate revision and rejects unpriced/new reservations or changed returned/released quantities before an invoice snapshot is created.
-- A new revision can be submitted while work is approved/in progress; the job pauses in AWAITING_APPROVAL, and the decision resumes the previous active status. Prior revisions and their decisions remain auditable; when a new revision is approved, an older approved revision is marked SUPERSEDED. Issued invoices remain snapshots and are not silently changed.
-- Integration coverage verifies the reservation snapshot, different internal cost vs customer price, approval behavior and resumption of IN_PROGRESS.
+### Sales and delivery
 
-## Delivered slice: spare-parts reorder policy
+- Staff sales enquiries, lead source/contact preference, follow-up and activity history.
+- Test-ride scheduling/check-in/completion/cancellation, bookings tied to a physical available unit, atomic inventory reservation, cancellation release and sales conversion workflows.
+- Customer-originated test-ride and purchase requests with idempotency and visible downstream state when converted by staff.
+- Operational vehicle invoice, manual receipt/payment allocation, adjustments/reversals and acknowledged handover; ownership history is attached only after the authorized delivery transaction.
+- Important boundary: customer request is not a confirmed booking; a manual payment record is not gateway verification. Full real-backend customer-to-staff end-to-end acceptance and broader concurrency testing remain open.
 
-- Each SKU has a low-stock threshold and reorder-to target, both stored with the dealership-scoped balance. A zero threshold disables alerting.
-- The low-stock list compares available quantity (on-hand minus reserved) to the threshold and computes suggested order quantity as max(target minus available, 0).
-- The workspace exposes policy editing and low-stock alerts only to users who already have parts read/manage permissions; backend authorization remains authoritative.
+### Workshop and service
 
-## Completed checkpoint: spare-part stock safety and estimate reconciliation
+- Appointment create/list/confirm/cancel with customer/vehicle ownership checks.
+- Exactly-once job-card check-in, seven-item inspection, estimate revisions and decision evidence, technician assignment, work start and assigned-inspector quality pass.
+- Workshop operational invoice, partial manual receipts, reversals and receiver-acknowledged paid handover.
+- Customer service requests, appointment history and status views.
+- Remaining: customer-facing estimate detail plus revision-bound approve/reject/request-change actions; richer mechanic work/labour/parts completion entries; customer-visible progress improvements; complaints/feedback and follow-up ownership; deeper cross-workflow transition/concurrency testing.
 
-- PostgreSQL integration tests cover concurrent same-SKU reservations, concurrent receipt retries, concurrent issue quantity limits, concurrent returns/releases, idempotent retries across staff sessions, and a multi-line receipt rollback when a later SKU exceeds its quantity ceiling.
-- CI run [40699013261](https://github.com/Manav326/BajajDealership/actions/runs/40699013261) passed both PostgreSQL-backed backend tests/migrations and the React production build on commit `091dc2708a3f67c29d13ae15a93b7ec098acd5a9`.
-- Approved part estimate revisions snapshot the source reservation quantities and internal unit-cost basis. Issue is blocked when that snapshot becomes stale, and invoice draft/issue rechecks planned reservations against the approved revision.
-- Released quantities have their own persisted field and are included in reservation status/remaining-quantity calculations.
+### Spare-parts inventory and retail shop
 
-## Next business vertical slice: sales enquiries and vehicle reservations
+- Dealership-scoped supplier catalogue, receipt lines/unit cost, weighted-average cost, on-hand/reserved/available quantities, stock movement history and low-stock/reorder-to policy.
+- Job-card reservation, issue, return and release; idempotency, quantity checks and approved-estimate cost snapshots protect workshop stock and customer pricing.
+- Retail catalogue master with 50 generic reference products, a dealership-controlled listing/price/fitment declaration and explicit optional mapping to an existing stock SKU.
+- Customer parts catalogue/search/filter, cart, immutable order-line snapshots, stock reservation, pickup or delivery request, staff-entered delivery quote with customer acceptance/decline, cancellation/release, collection record and return/inspection/refund-review lifecycle.
+- The BGP-#### values are internal QuantaEdge catalogue identifiers, not OEM part numbers. The 50 reference entries have no seeded stock, prices, verified fitment or orderability. Staff must verify each listing and map a real SKU before enabling sales.
+- No online payment provider is connected. Collection and return/refund records are manual operational attestations, not provider-confirmed money movement.
 
-1. Add dealership-scoped sales enquiries with customer, model/variant interest, lead source, contact preference, owner/assignee, status, next-follow-up time and notes; record status/follow-up changes in an append-only activity history.
-2. Add test-ride scheduling/check-in/completion/cancellation with vehicle availability checks and auditable state transitions.
-3. Add booking against an individual available vehicle unit. Lock the unit and atomically transition it to RESERVED while recording vehicle stock movement; a vehicle must never be actively booked by two enquiries.
-4. Support booking cancellation that releases only that booking's reservation and returns the unit to AVAILABLE only when the booking is still active and no issued sale invoice/handover exists.
-5. Add transaction/idempotency, permission-denial, dealership-isolation and concurrent-booking tests before enabling sales invoice/delivery flows. Sales payment and vehicle delivery remain blocked until the financial invoice/payment rules are integrated.
+### Finance and reporting
 
-## Follow-on finance controls
+- Operational invoices/receipts, partial payment allocation, reversals, expenses, expense approvals/reversals, immutable daily close by dealership business date, operational credit-adjustment/refund requests, payout attestation and date-bounded operations/finance reports.
+- CSV/printable/PDF outputs clearly distinguish operational documents from statutory tax documents.
+- GST/tax-profile/HSN-SAC screens are readiness configuration and staff source attestation only. No GST is calculated, no statutory GST invoice/credit note/IRN is produced and no IRP is integrated.
+- No online payment/settlement or automatic refund provider is integrated. Remaining: explicit report-total reconciliation to source records, expensive-query/pagination review, and an agreed external statutory-finance/payment process.
 
-- Credit notes/refunds/adjustments with separate authority and append-only reversal history.
-- Daily cash/UPI/bank reconciliation against external statements. Manual receipt records do not indicate a gateway transaction was verified.
-- GST/e-invoicing only after the correct legal entity, registration data, tax rules and approved provider integration are defined and tested.
+### Notifications and social channels
 
-## Follow-on vertical slices
+- In-app Notification Studio supports rich content validation, immutable template versions, audience selection/exclusions, server preview, hashed expiring preview proof, explicit approval, scheduled send/cancel, campaign history, durable customer/staff inbox and audit.
+- Saved-campaign preview and Send now are now present. The scheduled worker isolates campaigns into separate transactions, uses row locking/skip-locked claiming, saves bounded retry state and protects the manual-send/scheduler race. Integration tests cover saved preview, Send now idempotency, expiry, race, batch isolation and failure retry state.
+- Campaign SENT means durable in-app delivery records were written. It does not imply FCM, SMS, email or WhatsApp delivery. The in-process scheduler polls at a configurable interval (15 seconds by default); a sleeping free API has no reliable timing SLA.
+- Backend and UI support disabled-by-default Meta connection, destination discovery, approval-controlled publishing requests, Facebook Page photo posts, Instagram feed publishing/status polling, signed artwork URLs and database-backed campaign images.
+- WhatsApp support includes saved opt-in/opt-out and evidence, approved-template checks, single-recipient sends, idempotency, scheduling, signed provider webhooks and inbound opt-out processing. WhatsApp Status is export/native-share handoff only.
+- Live Meta/WABA credentials, permissions, provider review and authorized E2E are not configured/proven by the repository. FCM credentials/device delivery are also outstanding.
+- Creative Studio uses browser IndexedDB plus optional local-folder storage; it is not a shared server-side staff library. The advanced editor/timeline/render workflow remains tracked in issue #45.
 
-- Finance: refunds/credit notes, payment-provider verification, reconciliation and tax/e-invoicing after legal and provider requirements are confirmed.
-- Sales: enquiry -> test ride -> booking -> vehicle reservation -> documents/finance -> invoice/payment allocation -> delivery and customer/vehicle ownership.
-- Customer website/Android: account sign-in, verified current vehicle ownership, appointment requests, allowed job status, invoices/receipts, feedback and durable customer inbox.
-- Production: route/component responsive and accessibility audit, permission matrix review, performance/retry tests, secure hosting, backup restore rehearsal, staff training and acceptance.
+### Desktop and mobile distribution
+
+- Standard and Liquid Glass Android editions have independent package identities, downloader scripts and arm64 self-contained release-variant Maestro test APK pipelines. A main push that does not change Android paths can skip APK rebuilds; the downloader searches prior successful runs with an APK artifact.
+- Windows Tauri desktop includes hosted/local API target selection, server-side licence validation and installation registration support. CI builds EXE/MSI and has an MSIX packaging path.
+- The current Windows EXE/MSI/MSIX pipeline outputs are unsigned. Android CI APKs are test artifacts, not a signed Play Store AAB/release. Store identity/certification, signing keys, clean-device/upgrade acceptance and FCM remain release tasks.
+
+## Current test evidence and limitations
+
+- On inspected baseline 6941940, [CI run 41164397252](https://github.com/Manav326/BajajDealership/actions/runs/41164397252) passed backend/PostgreSQL tests and migrations, both React production builds, Docker full-stack build/smoke test, Windows EXE/MSI build and GHCR publish/pull verification.
+- [Notification browser run 41164397291](https://github.com/Manav326/BajajDealership/actions/runs/41164397291) passed on the same baseline.
+- Android jobs were skipped on that exact CI run because no Android-relevant path changed. Do not report them as passed on this commit.
+- The last observed successful dedicated Social Media Studio browser run is [41157066812](https://github.com/Manav326/BajajDealership/actions/runs/41157066812) on an earlier main commit; the path-filtered workflow was not rerun on the inspected baseline.
+- Repository inventory at the inspected baseline: 49 Java backend test classes, 9 Playwright spec files, 11 runnable Maestro flow files per Android edition plus one shared login subflow per edition and the top-level auth smoke flow. File counts are not code-coverage measures.
+- Most browser journeys use mocked/intercepted API fixtures. They verify client behavior but do not prove complete real-database browser acceptance. The full Maestro suite runs locally against an emulator/physical device, not automatically in GitHub Actions.
+
+## Prioritized remaining work
+
+### P0 — production safety and acceptance
+
+1. Move from the free Render preview to persistent production-grade PostgreSQL and always-available API capacity. Configure private durable media storage, managed secrets, restricted database access, health/monitoring/alerting.
+2. Perform read-only Flyway history preflight on the actual target. The historic V30 name collision is documented in DEPLOY_PREVIEW.md; clone/rehearse a safe upgrade and verify a restorable backup before applying.
+3. Rehearse backup restore and prove that app access, media and migrations recover correctly. Document owner, recovery point/time objectives and operational procedure.
+4. Run the read-only staging smoke script and manual public URL checks; record deployed version/SHA, timestamp and result. Current docs do not assert live URLs were reachable during the repository audit.
+5. Run full synthetic end-to-end journeys against the actual API/PostgreSQL: customer → sales request → staff conversion → test ride/booking/stock reservation → invoice/manual payment/adjustment → handover/ownership → service appointment → job card/estimate/parts/quality → invoice/settlement → report.
+6. Complete route-by-route responsive/accessibility review and staff acceptance. Keep Issues #1, #3, #4 and #22 open until evidence is recorded.
+7. Agree and document the external statutory invoicing and payment/settlement operating model before using finance records for real transactions.
+
+### P1 — complete core customer/workshop flows
+
+1. Build customer-facing estimate detail and explicit approval/rejection/change-request tied to the exact estimate revision.
+2. Add mechanic job entries, labour/parts completion notes, progress events and customer-visible statuses.
+3. Add customer complaints/feedback and assigned follow-up.
+4. Add missing cross-domain concurrency, rollback, retries, permission-denial and finance-report reconciliation tests.
+5. Complete customer app/web parity and session/ownership/privacy acceptance.
+6. Configure a test Firebase project and prove physical-device FCM delivery if push is in the promised release.
+7. Create signed Android release AAB/APK with production OAuth certificate registration; separately validate Windows installer signing, clean install, upgrade and uninstall if Windows distribution is required.
+8. Complete the SEO foundation for public showroom pages: crawlable sitemap/robots policy, canonical/share metadata, model/offer metadata and structured data only where facts are verified.
+
+### P2 — externally gated capabilities and extended creative tooling
+
+1. Complete issue #45's editor, timeline, audio/video render, preview and download lifecycle. Keep local browser projects distinct from any future shared cloud library.
+2. Enable Meta/WhatsApp only after authorized provider accounts, current permissions, app review, webhook/public-media tests, consent and authorized test-recipient E2E pass.
+3. Add a payment provider, refunds and gateway reconciliation only after provider account/credential/webhook/idempotency rules are agreed.
+4. Add GST/e-invoicing only after qualified legal/tax validation and an approved IRP/provider design.
+5. Implement Bajaj/OEM integrations only with documented partner authorization and sandbox/live confirmation.
 
 ## Release gates
 
-- Every DB change uses an additive Flyway migration; never rewrite a released migration or reset production data.
-- Every query/write derives dealership scope from the authenticated principal, not client-supplied dealership IDs.
-- Customer/vehicle/job relationships are enforced both in service logic and relational constraints.
-- State transitions are validated, transactional and audited; high-risk writes are idempotent.
-- Role-denial tests cover every mutation route. UI hiding supplements but never replaces API authorization.
-- CI uses synthetic identities only and never sends external notifications.
-- “Sent” external delivery means provider-confirmed delivery. Durable in-app records survive transport failure.
-- Fresh migrations, supported schema upgrades, backup and restore must pass before production rollout.
-- A module remains in progress until integration tests and real user acceptance cover the full business journey.
+- Every controller mutation has server-side authorization; tenant/customer/private-media boundaries are covered by tests.
+- Every irreversible business transition is transactional, audited and safe under duplicate/retry/concurrent requests.
+- Source transaction totals reconcile with reports and exports, including reversals and adjustments.
+- Customer and staff journeys complete against a production-like PostgreSQL backend; mocked browser fixtures are not the only evidence.
+- Clean database migrations and upgrade-from-existing-data migrations pass. Persistent target migration history is inspected and backup-restored.
+- HTTPS, secrets, durable private media, always-on scheduler capacity, monitoring and alerts are verified.
+- Android/Windows packages are correctly signed and verified for their intended distribution channels.
+- Staff training and written acceptance sign-off exist before real dealership rollout.
 
 ## Explicit external dependencies
 
-Bajaj/OEM APIs, live payment gateway, GST/e-invoicing and WhatsApp/SMS/email providers require approved access, credentials, contractual scope, pricing and compliance checks. No internal record may be represented as an official OEM submission or provider-confirmed delivery.
+OEM APIs, payment gateways, GST/e-invoicing/IRP, SMS/email/FCM and Meta/WhatsApp require approved accounts/access, credentials, legal/commercial scope, pricing and channel-specific testing. Internal records must never be represented as an OEM submission, gateway settlement, statutory tax document or provider-confirmed delivery unless the relevant provider confirms it.
