@@ -62,7 +62,6 @@ jobs:
         shell: pwsh
         run: |
           $exe = Get-ChildItem "apps/web/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
-          $msi = Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           if (-not $exe -or -not $msi) { throw "Both EXE and MSI installers are required." }
           foreach ($installer in @($exe, $msi)) {
             $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
