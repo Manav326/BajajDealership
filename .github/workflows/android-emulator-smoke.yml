@@ -155,64 +155,7 @@ jobs:
           emulator-boot-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
-            set -euo pipefail
-            workspace="${{ github.workspace }}"
-            result_dir="$workspace/${{ matrix.app_dir }}/maestro-results/ci-public"
-            apk="$workspace/${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
-            flow_dir="$workspace/${{ matrix.app_dir }}/.maestro/flows/public"
-            mkdir -p "$result_dir"
-            if [ ! -s "$apk" ]; then
-              echo "Expected the built test APK at: $apk"
-              find "$workspace/${{ matrix.app_dir }}" -path '*/app/build/outputs/apk/*/*.apk' -type f -print
-              exit 1
-            fi
-
-            # Wait for the emulator guest and Android package manager. adb wait-for-device
-            # alone can return while the transport is still reporting offline.
-            # Keep the runner's existing ADB server; starting an absent server is idempotent.
-            adb start-server
-            ready=false
-            for attempt in $(seq 1 90); do
-              state="$(adb -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)"
-              boot_completed="$(adb -s "$ANDROID_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-              package_manager_ready=false
-              if [ "$state" = "device" ] && [ "$boot_completed" = "1" ]; then
-                if adb -s "$ANDROID_SERIAL" shell cmd package list packages >/dev/null 2>&1; then
-                  package_manager_ready=true
-                fi
-              fi
-              if [ "$package_manager_ready" = true ]; then
-                ready=true
-                break
-              fi
-              adb reconnect offline >/dev/null 2>&1 || true
-              sleep 2
-            done
-
-            if [ "$ready" != true ]; then
-              echo "Android emulator did not become ADB-ready. Device list:"
-              adb devices -l || true
-              exit 1
-            fi
-
-            installed=false
-            for attempt in $(seq 1 5); do
-              if adb -s "$ANDROID_SERIAL" install -r "$apk"; then
-                installed=true
-                break
-              fi
-              adb reconnect offline >/dev/null 2>&1 || true
-              sleep 3
-            done
-            if [ "$installed" != true ]; then
-              adb devices -l || true
-              exit 1
-            fi
-
-            maestro --device="$ANDROID_SERIAL" test "$flow_dir" \
-              --format JUNIT \
-              --output "$result_dir/public.junit.xml" \
-              --test-output-dir "$result_dir"
+            bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${{ matrix.application_id }}"
       - name: Upload emulator test results
         if: always()
         uses: actions/upload-artifact@v4
