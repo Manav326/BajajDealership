@@ -2,8 +2,9 @@
 
 **Status reconciled:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Application / test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
-**Current test harness:** 52170e2c81f86a597fc6463179eb8646ec0f46b1  
+**Implementation baseline reviewed:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02`  
+**Backend / web / finance measurement baseline:** `f94d46b56698e17c67f7ef61bc96383420a3cd62`  
+**Android strict-emulator/JUnit validator baseline:** `51c937a204f2cdd31b5e791bd0272e66aa3e707d`  
 **Decision:** active implementation; not approved for full production rollout.
 
 This document is the canonical product-status snapshot. The root README is the short project entry point. Domain details stay in the linked specialist documents. GitHub issues track implementation and acceptance work; an open issue does not automatically mean its entire feature is absent from the current code.
@@ -28,10 +29,12 @@ The full measured testing inventory and release-quality assessment are maintaine
 | Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
 | Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
-| Android emulator public smoke | [Run 41177206073](https://github.com/Manav326/BajajDealership/actions/runs/41177206073) | Passed: Standard 2/2 and Liquid Glass 2/2 public Maestro flows; both JUnit reports show 0 failures, errors or skips. Stricter validator rerun [41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) was still in progress at this audit snapshot |
+| Android emulator public smoke | [Strict validator run 41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) | Passed: Standard and Liquid Glass each ran 2/2 public Maestro flows; each JUnit report shows 2 tests, 0 failures, 0 errors and 0 skips. This is public smoke only, not the complete 11-flow suite |
 | Physical Android acceptance | Not yet evidenced | Standard and Liquid Glass still require a complete All Maestro run and real-device acceptance |
 
-The Android source/test-flow inventory is 11 runnable Maestro flows per edition. CI has currently executed the 2 public smoke flows per edition (2/2 passed); the remaining five authenticated and four notification-fixture flows per edition are not yet covered by CI. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and records its emulator smoke result.
+The Android source/test-flow inventory is 11 runnable Maestro flows per edition. CI has executed the 2 public smoke flows per edition (2/2 passed in strict validator run #41178367640); the remaining five authenticated and four notification-fixture flows per edition are not yet covered by CI. Commit `caff228` improved selectors and keyboard/scroll handling in the authenticated service-appointment flow, but that flow has not yet been run. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and records its emulator smoke result.
+
+The measurement and workflow evidence above spans multiple explicit commit baselines. It is not a claim that a complete CI suite ran on the later `caff228` source head; the current test ledger records those boundaries.
 
 ## Product capability status
 
