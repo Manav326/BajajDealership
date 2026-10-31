@@ -78,7 +78,7 @@ jobs:
         run: |
           $msi = Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           $params = @{
-            MsiPath = $msi.FullName
+            ExecutablePath = "apps/web/src-tauri/target/release/lucky-bajaj-desktop.exe"
             IconPath = "apps/web/src-tauri/icons/icon.ico"
             PackageName = $env:MSIX_PACKAGE_IDENTITY_NAME
             Publisher = $env:MSIX_PUBLISHER
