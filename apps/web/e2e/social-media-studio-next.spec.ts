@@ -1251,3 +1251,257 @@ test('multiple uploaded video clips have independent, editable timeline tracks',
   await page.getByRole('button', { name: 'Render photo' }).click();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
 });
+
+test('legacy single-soundtrack projects reopen, render audio and upgrade on the next save', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'legacy-single-track.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  await page.getByRole('button', { name: 'legacy-single-track.wav', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Audio start position' }).fill('0.5');
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('4');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('42');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.5');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.6');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+
+  const projectId = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('lucky-bajaj-creative-studio', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not open the studio database.'));
+    });
+    const readTransaction = db.transaction(['projects', 'resources'], 'readonly');
+    const projectsRequest = readTransaction.objectStore('projects').getAll() as IDBRequest<Array<Record<string, unknown>>>;
+    const resourcesRequest = readTransaction.objectStore('resources').getAll() as IDBRequest<Array<Record<string, unknown>>>;
+    const [projects, resources] = await Promise.all([
+      new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+        projectsRequest.onsuccess = () => resolve(projectsRequest.result);
+        projectsRequest.onerror = () => reject(projectsRequest.error ?? new Error('Could not read saved projects.'));
+      }),
+      new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+        resourcesRequest.onsuccess = () => resolve(resourcesRequest.result);
+        resourcesRequest.onerror = () => reject(resourcesRequest.error ?? new Error('Could not read saved resources.'));
+      }),
+    ]);
+    const project = projects.find(item => item.name === 'Untitled design');
+    const resource = resources.find(item => item.name === 'legacy-single-track.wav' && item.kind === 'audio');
+    if (!project || !resource) throw new Error('The saved project or its audio resource was not found.');
+    project.selectedAudioId = resource.id;
+    project.audioStartSeconds = 0.5;
+    project.audioDurationSeconds = 3.5;
+    project.audioVolume = 42;
+    project.audioFadeInSeconds = 0.5;
+    project.audioFadeOutSeconds = 0.6;
+    delete project.audioTracks;
+    delete project.selectedAudioTrackId;
+    project.updatedAt = new Date().toISOString();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('projects', 'readwrite');
+      transaction.objectStore('projects').put(project);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('Could not seed the legacy project shape.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Legacy project update was aborted.'));
+    });
+    db.close();
+    return String(project.id);
+  });
+
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Audio track 1: legacy-single-track.wav' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('spinbutton', { name: 'Audio start position' })).toHaveValue('0.5');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('4');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('42');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.5');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('0.6');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => preview.locator('video').evaluate(element => {
+    const video = element as HTMLVideoElement;
+    return typeof video.captureStream === 'function' ? video.captureStream().getAudioTracks().length : 0;
+  })).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('43');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  const upgraded = await page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('lucky-bajaj-creative-studio', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not reopen the studio database.'));
+    });
+    const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const transaction = db.transaction('projects', 'readonly');
+      const request = transaction.objectStore('projects').get(id) as IDBRequest<Record<string, unknown>>;
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not read the upgraded project.'));
+    });
+    db.close();
+    const tracks = Array.isArray(result.audioTracks) ? result.audioTracks as Array<Record<string, unknown>> : [];
+    return {
+      count: tracks.length,
+      sourceStart: tracks[0]?.sourceStartSeconds,
+      duration: tracks[0]?.durationSeconds,
+      volume: tracks[0]?.volume,
+    };
+  }, projectId);
+  expect(upgraded).toEqual({ count: 1, sourceStart: 0.5, duration: 3.5, volume: 43 });
+});
+
+test('audio track limit is eight and every track can be removed cleanly', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+
+  for (let index = 1; index <= 9; index += 1) {
+    const name = 'limit-track-' + index + '.wav';
+    await page.getByLabel('Import audio').setInputFiles({
+      name, mimeType: 'audio/wav', buffer: makeSilentWav(1),
+    });
+    const resource = page.getByRole('button', { name, exact: true });
+    await expect(resource).toBeVisible();
+    await resource.click();
+  }
+
+  const rows = page.getByRole('group', { name: /^Audio track \d+:/ });
+  await expect(rows).toHaveCount(8);
+  await expect(page.getByText('A project can contain up to eight audio tracks.')).toBeVisible();
+  const remove = page.getByRole('button', { name: 'Remove audio track' });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  await expect(rows).toHaveCount(7);
+  await expect(page.getByRole('group', { name: 'Audio track 7: limit-track-7.wav' })).toBeVisible();
+
+  for (let remaining = 7; remaining > 0; remaining -= 1) {
+    await remove.click();
+    await expect(rows).toHaveCount(remaining - 1);
+  }
+  await expect(page.getByText('Add one or more audio tracks from the Audio panel.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove audio track' })).toHaveCount(0);
+});
+
+test('video clip fade-in and fade-out change the actual rendered video frames', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('3');
+  await page.getByRole('button', { name: 'Uploads' }).click();
+
+  const videoBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Synthetic video canvas is unavailable.');
+    let frame = 0;
+    let animationFrame = 0;
+    const paint = () => {
+      context.fillStyle = '#00ff00';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      frame += 1;
+      animationFrame = window.requestAnimationFrame(paint);
+    };
+    paint();
+    const mimeType = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm']
+      .find(candidate => MediaRecorder.isTypeSupported(candidate));
+    if (!mimeType) throw new Error('This browser cannot create the WebM video fixture.');
+    const stream = canvas.captureStream(24);
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: Blob[] = [];
+    recorder.addEventListener('dataavailable', event => {
+      if (event.data.size) chunks.push(event.data);
+    });
+    const stopped = new Promise<void>((resolve, reject) => {
+      recorder.addEventListener('stop', () => resolve(), { once: true });
+      recorder.addEventListener('error', () => reject(new Error('Synthetic video recording failed.')), { once: true });
+    });
+    recorder.start(100);
+    await new Promise(resolve => window.setTimeout(resolve, 1800));
+    recorder.stop();
+    await stopped;
+    window.cancelAnimationFrame(animationFrame);
+    stream.getTracks().forEach(track => track.stop());
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    if (!blob.size) throw new Error('Synthetic video fixture is empty.');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+    return window.btoa(binary);
+  });
+
+  await page.getByLabel('Import media').setInputFiles({
+    name: 'solid-green-fade-test.webm',
+    mimeType: 'video/webm',
+    buffer: Buffer.from(videoBase64, 'base64'),
+  });
+  const asset = page.getByRole('button', { name: /solid-green-fade-test\.webm/ });
+  await expect(asset).toBeVisible();
+  await asset.click();
+  const clip = page.getByRole('button', { name: 'Select timeline video clip solid-green-fade-test.webm', exact: true });
+  await expect(clip).toBeVisible();
+  await clip.click();
+
+  const clipDuration = page.getByRole('spinbutton', { name: 'Video clip duration' });
+  await expect.poll(async () => Number(await clipDuration.inputValue())).toBeGreaterThan(1.2);
+  await clipDuration.fill('1.2');
+  await page.getByRole('spinbutton', { name: 'Video clip start' }).fill('0.5');
+  await page.getByRole('spinbutton', { name: 'Video source in point' }).fill('0');
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.3');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.3');
+  await expect(clipDuration).toHaveValue('1.2');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+
+  const readPixel = async (seconds: number) => {
+    await video.evaluate((element, time) => new Promise<void>((resolve, reject) => {
+      const output = element as HTMLVideoElement;
+      const timeout = window.setTimeout(() => reject(new Error('Rendered video seek timed out.')), 10000);
+      output.addEventListener('seeked', () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+      output.currentTime = time as number;
+    }), seconds);
+    return video.evaluate(element => {
+      const output = element as HTMLVideoElement;
+      const canvas = document.createElement('canvas');
+      canvas.width = output.videoWidth;
+      canvas.height = output.videoHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Rendered video frame canvas is unavailable.');
+      context.drawImage(output, 0, 0);
+      const pixel = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.4), 1, 1).data;
+      return [pixel[0], pixel[1], pixel[2]];
+    });
+  };
+
+  const background = await readPixel(2.2);
+  const fullyVisible = await readPixel(0.9);
+  const fadeInFrame = await readPixel(0.65);
+  const fadeOutFrame = await readPixel(1.55);
+  const fullGreenRange = fullyVisible[1] - background[1];
+  expect(fullGreenRange).toBeGreaterThan(100);
+  const fadeInRatio = (fadeInFrame[1] - background[1]) / fullGreenRange;
+  const fadeOutRatio = (fadeOutFrame[1] - background[1]) / fullGreenRange;
+  expect(fadeInRatio).toBeGreaterThan(0.25);
+  expect(fadeInRatio).toBeLessThan(0.75);
+  expect(fadeOutRatio).toBeGreaterThan(0.25);
+  expect(fadeOutRatio).toBeLessThan(0.75);
+});
+
