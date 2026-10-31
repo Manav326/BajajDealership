@@ -1,3 +1,4 @@
+import { appConfirm } from '../dialogs/dialogService';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiFetch, apiRequestUrl } from '../apiClient';
 import type { StaffSummary } from '../auth/StaffLogin';
@@ -200,7 +201,7 @@ export default function VehicleInventoryWorkspace({ token, staff }: { token: str
 
   async function deleteCatalogueImage(image: CatalogueImage) {
     if (!canManageCatalogue) return;
-    if (!window.confirm(`Remove this uploaded image for ${image.modelCode}? The official Bajaj image will be used if no uploaded primary image remains.`)) return;
+    if (!(await appConfirm(`Remove this uploaded image for ${image.modelCode}? The official Bajaj image will be used if no uploaded primary image remains.`, { title: 'Remove catalogue image', confirmLabel: 'Remove image', danger: true }))) return;
     setGalleryBusyId(image.publicId); setGalleryError(''); setSuccess('');
     try {
       await apiFetch<{ success: boolean; message: string }>(

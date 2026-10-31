@@ -1,0 +1,186 @@
+.qe-app-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(90vh, 720px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  color: #17243b;
+  background: #fff;
+  box-shadow: 0 28px 90px rgba(8, 18, 35, .28), 0 4px 16px rgba(8, 18, 35, .12);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+.qe-app-dialog::backdrop {
+  background: rgba(9, 18, 33, .56);
+  backdrop-filter: blur(5px);
+}
+
+.qe-app-dialog__content {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+  padding: 25px;
+}
+
+.qe-app-dialog__heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.qe-app-dialog__mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border: 1px solid #fed7aa;
+  border-radius: 13px;
+  background: #fff7ed;
+  color: #c45b13;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.qe-app-dialog__heading-copy {
+  min-width: 0;
+}
+
+.qe-app-dialog__title {
+  margin: 0;
+  color: inherit;
+  font-size: 17px;
+  line-height: 1.35;
+  font-weight: 800;
+  letter-spacing: -.3px;
+}
+
+.qe-app-dialog__subtitle {
+  margin: 3px 0 0;
+  color: #8a96a8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+}
+
+.qe-app-dialog__message {
+  margin: 0;
+  color: #526176;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.qe-app-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.qe-app-dialog__label {
+  color: #34445c;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.qe-app-dialog__input {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #d6deea;
+  border-radius: 10px;
+  outline: none;
+  color: #17243b;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.qe-app-dialog__input:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, .16);
+}
+
+.qe-app-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 2px;
+}
+
+.qe-app-dialog__button {
+  min-width: 88px;
+  min-height: 39px;
+  padding: 9px 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  transition: transform .15s ease, filter .15s ease, background .15s ease;
+  cursor: pointer;
+}
+
+.qe-app-dialog__button:hover {
+  filter: brightness(.97);
+  transform: translateY(-1px);
+}
+
+.qe-app-dialog__button:focus-visible {
+  outline: 3px solid rgba(249, 115, 22, .42);
+  outline-offset: 2px;
+}
+
+.qe-app-dialog__button--secondary {
+  border-color: #dbe2eb;
+  color: #526176;
+  background: #f8fafc;
+}
+
+.qe-app-dialog__button--primary {
+  color: #fff;
+  background: linear-gradient(135deg, #f58a32, #e86a16);
+  box-shadow: 0 5px 12px rgba(232, 106, 22, .22);
+}
+
+.qe-app-dialog__button--danger {
+  color: #fff;
+  background: #c83b39;
+  box-shadow: 0 5px 12px rgba(200, 59, 57, .18);
+}
+
+@media (prefers-color-scheme: dark) {
+  .qe-app-dialog {
+    border-color: #37445a;
+    color: #edf2f8;
+    background: #182337;
+  }
+
+  .qe-app-dialog__subtitle { color: #9aa8bc; }
+  .qe-app-dialog__message { color: #c3cddd; }
+  .qe-app-dialog__label { color: #e2e8f0; }
+  .qe-app-dialog__input {
+    border-color: #40506a;
+    color: #edf2f8;
+    background: #101a2a;
+  }
+
+  .qe-app-dialog__button--secondary {
+    border-color: #40506a;
+    color: #d4deeb;
+    background: #24334a;
+  }
+}
+
+@media (max-width: 480px) {
+  .qe-app-dialog__content { padding: 20px; }
+  .qe-app-dialog__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qe-app-dialog__button { width: 100%; }
+}

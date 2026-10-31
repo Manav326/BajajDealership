@@ -5,10 +5,45 @@ export function isTauriDesktopRuntime(): boolean {
     && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 }
 
-const configuredApiBaseUrl = (
-  import.meta.env.VITE_API_BASE_URL
-  ?? (isTauriDesktopRuntime() ? 'https://lucky-bajaj-api.onrender.com/' : '')
-).trim().replace(/\/+$/, '');
+export type DesktopApiTarget = 'hosted' | 'local-docker';
+
+const DESKTOP_API_TARGET_KEY = 'qe_desktop_api_target';
+const DEFAULT_DESKTOP_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/';
+const LOCAL_DOCKER_API_BASE_URL = 'http://127.0.0.1:8080/';
+
+export function getDesktopApiTarget(): DesktopApiTarget {
+  if (!isTauriDesktopRuntime()) return 'hosted';
+  try {
+    return window.localStorage.getItem(DESKTOP_API_TARGET_KEY) === 'local-docker'
+      ? 'local-docker'
+      : 'hosted';
+  } catch {
+    return 'hosted';
+  }
+}
+
+export function setDesktopApiTarget(target: DesktopApiTarget): void {
+  if (!isTauriDesktopRuntime()) return;
+  try {
+    if (target === 'local-docker') {
+      window.localStorage.setItem(DESKTOP_API_TARGET_KEY, target);
+    } else {
+      window.localStorage.removeItem(DESKTOP_API_TARGET_KEY);
+    }
+  } catch {
+    // Keep the hosted default when browser storage is unavailable.
+  }
+}
+
+function configuredApiBaseUrl(): string {
+  if (isTauriDesktopRuntime() && getDesktopApiTarget() === 'local-docker') {
+    return LOCAL_DOCKER_API_BASE_URL.replace(/\/+$/, '');
+  }
+  return (
+    import.meta.env.VITE_API_BASE_URL
+    ?? (isTauriDesktopRuntime() ? DEFAULT_DESKTOP_API_BASE_URL : '')
+  ).trim().replace(/\/+$/, '');
+}
 
 const DESKTOP_INSTALLATION_KEY = 'lucky_bajaj_desktop_installation_id';
 
@@ -27,7 +62,8 @@ export function desktopRequestHeaders(): Record<string, string> {
 
 export function apiRequestUrl(path: string): string {
   // Empty in local development: Vite/Docker proxy /api to the local Spring Boot API.
-  return configuredApiBaseUrl ? new URL(path, `${configuredApiBaseUrl}/`).toString() : path;
+  const baseUrl = configuredApiBaseUrl();
+  return baseUrl ? new URL(path, `${baseUrl}/`).toString() : path;
 }
 
 

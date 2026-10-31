@@ -155,7 +155,7 @@ jobs:
         shell: bash
         run: |
           sh -n scripts/start.sh
-          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1","scripts/test-android-liquid-glass-maestro.ps1","scripts/android-fetch-latest-apk.ps1","scripts/android-lg-fetch-latest-apk.ps1","scripts/check-android-edition-parity.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
+          pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1","scripts/test-android-liquid-glass-maestro.ps1","scripts/android-fetch-latest-apk.ps1","scripts/android-lg-fetch-latest-apk.ps1","scripts/check-android-edition-parity.ps1","scripts/package-windows-msix.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
       - name: Verify Android edition feature and test parity
         run: pwsh -NoLogo -NoProfile -File scripts/check-android-edition-parity.ps1
       - name: Validate Docker Compose configuration
@@ -232,7 +232,7 @@ jobs:
 
 
   windows-desktop:
-    name: Build unsigned direct installers and local-Docker test installer
+    name: Build unsigned Windows desktop installers
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -266,6 +266,17 @@ jobs:
             }
             throw "The Windows desktop downloader contains PowerShell syntax errors."
           }
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/package-windows-msix.ps1").Path,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object {
+              Write-Error ("MSIX packager line {0}, column {1}: {2}" -f $_.Extent.StartLineNumber, $_.Extent.StartColumnNumber, $_.Message)
+            }
+            throw "The Windows Store MSIX packaging script contains PowerShell syntax errors."
+          }
 
       - name: Install staff portal dependencies
         working-directory: apps/web
@@ -296,95 +307,23 @@ jobs:
               throw "Expected $($installer.Name) to remain unsigned; found $($signature.Status)."
             }
           }
-      - name: Upload Windows build validation artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: lucky-bajaj-windows-builds-${{ github.sha }}
-          path: |
-            apps/web/src-tauri/target/release/bundle/nsis/*.exe
-            apps/web/src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
-          retention-days: 14
-      # This second build is deliberately local-only. It is not the customer installer:
-      # its API endpoint is the host loopback port published by Docker Compose.
-      - name: Build local-Docker Windows test installer
-        working-directory: apps/web
-        env:
-          VITE_API_BASE_URL: http://127.0.0.1:8080/
-          VITE_APP_VERSION: "0.1.0-local"
-        run: npm run tauri:build
-      - name: Verify local-Docker EXE and MSI installers remain unsigned
-        shell: pwsh
-        run: |
-          $installerPaths = @(
-            "apps/web/src-tauri/target/release/bundle/nsis/*.exe"
-            "apps/web/src-tauri/target/release/bundle/msi/*.msi"
-          )
-          $installers = @(
-            foreach ($installerPath in $installerPaths) {
-              Get-ChildItem -Path $installerPath -File -ErrorAction Stop
-            }
-          )
-          $exeCount = @($installers | Where-Object { $_.Extension -ieq '.exe' }).Count
-          $msiCount = @($installers | Where-Object { $_.Extension -ieq '.msi' }).Count
-          if ($exeCount -ne 1 -or $msiCount -ne 1) {
-            throw "Expected exactly one local EXE and one local MSI; found $exeCount EXE and $msiCount MSI."
-          }
-          foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-            if ($signature.Status -ne 'NotSigned') {
-              throw "Expected local installer $($installer.Name) to remain unsigned; found $($signature.Status)."
-            }
-          }
 
-      - name: Verify local-Docker API URL was embedded in the desktop bundle
+      - name: Verify hosted and Local Docker connection choices are present
         shell: pwsh
         run: |
           $bundles = Get-ChildItem "apps/web/dist-desktop/assets/*.js" -File
           if (-not $bundles) { throw "No desktop JavaScript bundles were produced." }
-          $match = Select-String -Path $bundles.FullName -SimpleMatch "http://127.0.0.1:8080"
-          if (-not $match) { throw "The local-Docker API URL was not embedded in the desktop build." }
-      - name: Upload local-Docker Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: lucky-bajaj-windows-local-docker-${{ github.sha }}
-          path: |
-            apps/web/src-tauri/target/release/bundle/nsis/*.exe
-            apps/web/src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: error
-          retention-days: 14
+          foreach ($required in @("http://127.0.0.1:8080", "local-docker", "qe_desktop_api_target")) {
+            $match = Select-String -Path $bundles.FullName -SimpleMatch $required
+            if (-not $match) { throw "The desktop bundle is missing runtime connection setting '$required'." }
+          }
 
-  windows-store-msix-validation:
-    name: Optional Store MSIX packaging validation
-    needs: [windows-desktop]
-    if: ${{ always() && needs.windows-desktop.result == 'success' }}
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download validated Windows installer artifact
-        id: download-installers
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: lucky-bajaj-windows-builds-${{ github.sha }}
-          path: windows-installers
-
-      - name: Build and verify development-identity MSIX package
-        id: build-msix-validation
-        if: steps.download-installers.outcome == 'success'
-        timeout-minutes: 12
-        continue-on-error: true
+      - name: Build and verify Store MSIX from the native Tauri executable
         shell: pwsh
         run: |
-          $msis = @(Get-ChildItem -Path "windows-installers" -Filter "*.msi" -File -Recurse)
-          if ($msis.Count -ne 1) {
-            throw "Expected exactly one MSI in the validated installer artifact; found $($msis.Count)."
-          }
+          $executable = (Resolve-Path "apps/web/src-tauri/target/release/lucky-bajaj-desktop.exe").Path
           $params = @{
-            MsiPath = $msis[0].FullName
+            ExecutablePath = $executable
             IconPath = "apps/web/src-tauri/icons/icon.ico"
             PackageName = "QuantaEdge.LuckyBajajDesktop.Dev"
             Publisher = "CN=QuantaEdge Development"
@@ -393,23 +332,21 @@ jobs:
             OutputPath = "release-validation/LuckyBajajDesktop.StoreValidation.msix"
           }
           & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-msix.ps1 @params
-          if ($LASTEXITCODE -ne 0) { throw "Optional MSIX packaging exited with code $LASTEXITCODE." }
+          if ($LASTEXITCODE -ne 0) { throw "Store MSIX validation failed with exit code $LASTEXITCODE." }
+          $package = Get-Item -LiteralPath $params.OutputPath -ErrorAction Stop
+          if ($package.Length -lt 1MB) { throw "The Store MSIX package is unexpectedly small ($($package.Length) bytes)." }
+          Write-Host ("Validated Store MSIX package: {0:N2} MiB" -f ($package.Length / 1MB))
+          Remove-Item -LiteralPath $package.FullName -Force
 
-      - name: Upload Store MSIX validation artifact
-        if: steps.build-msix-validation.outcome == 'success'
+      - name: Upload Windows installer artifacts
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
-          name: lucky-bajaj-windows-msix-validation-${{ github.sha }}
-          path: release-validation/LuckyBajajDesktop.StoreValidation.msix
+          name: lucky-bajaj-windows-builds-${{ github.sha }}
+          path: |
+            apps/web/src-tauri/target/release/bundle/nsis/*.exe
+            apps/web/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 14
-
-      - name: Report optional Store packaging result
-        if: steps.build-msix-validation.outcome != 'success'
-        shell: pwsh
-        run: |
-          Write-Warning "Optional Store MSIX validation did not complete. The required EXE/MSI and local-Docker installer artifacts were built independently and are unaffected."
 
   android:
     name: Build Lucky Bajaj Android APK
@@ -463,7 +400,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Build self-contained Maestro APK
         working-directory: apps/android/android
-        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel
+        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel -PreactNativeArchitectures=arm64-v8a
       - name: Verify standalone JavaScript bundle is packaged
         shell: bash
         run: |
@@ -472,9 +409,17 @@ jobs:
             echo "The APK does not contain assets/index.android.bundle; it would require Metro at runtime."
             exit 1
           fi
+          abi_dirs="$(unzip -Z1 "$apk" | awk -F/ '$1 == "lib" && NF > 2 { print $2 }' | sort -u | paste -sd ',' -)"
+          if [ "$abi_dirs" != "arm64-v8a" ]; then
+            echo "Expected an arm64-v8a-only physical-device test APK; found ABI directories: $abi_dirs"
+            exit 1
+          fi
       - name: Record Android APK build metadata
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'standard', buildType: 'release', packageName: 'com.quantaedge.luckybajaj', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'standard', buildType: 'release', packageName: 'com.quantaedge.luckybajaj', architectures: ['arm64-v8a'], apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+      - name: Validate Standard APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'standard' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajaj' || !Array.isArray(metadata.architectures) || metadata.architectures.join(',') !== 'arm64-v8a' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Standard APK build metadata is incomplete or does not match this CI commit.');"
       - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
@@ -551,7 +496,7 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Build self-contained Maestro APK
         working-directory: apps/android-liquid-glass/android
-        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel
+        run: ./gradlew assembleRelease --no-daemon --build-cache --parallel -PreactNativeArchitectures=arm64-v8a
       - name: Verify standalone JavaScript bundle is packaged
         shell: bash
         run: |
@@ -560,12 +505,17 @@ jobs:
             echo "The Liquid Glass APK does not contain assets/index.android.bundle; it would require Metro at runtime."
             exit 1
           fi
+          abi_dirs="$(unzip -Z1 "$apk" | awk -F/ '$1 == "lib" && NF > 2 { print $2 }' | sort -u | paste -sd ',' -)"
+          if [ "$abi_dirs" != "arm64-v8a" ]; then
+            echo "Expected an arm64-v8a-only physical-device test APK; found ABI directories: $abi_dirs"
+            exit 1
+          fi
       - name: Record Android APK build metadata
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'liquid-glass', buildType: 'release', packageName: 'com.quantaedge.luckybajajlg', apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'liquid-glass', buildType: 'release', packageName: 'com.quantaedge.luckybajajlg', architectures: ['arm64-v8a'], apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
       - name: Validate Liquid Glass APK build metadata
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !Array.isArray(metadata.architectures) || metadata.architectures.join(',') !== 'arm64-v8a' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
       - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4

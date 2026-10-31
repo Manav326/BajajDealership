@@ -334,6 +334,10 @@ try {
             throw "The Android APK and build metadata refer to different source commits."
         }
     }
+    if ($buildMetadata.architectures -and @($buildMetadata.architectures) -notcontains "arm64-v8a") {
+        Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
+        throw "The downloaded Liquid Glass APK does not include arm64-v8a."
+    }
     if (-not $buildMetadata -or $buildMetadata.buildType -ne "release") {
         Remove-Item -LiteralPath $stagedApk -Force -ErrorAction SilentlyContinue
         throw "The downloaded artifact is not marked as a self-contained release-variant Maestro APK. Debug APKs require Metro."
@@ -356,6 +360,7 @@ try {
         packageName = $PackageName
         apiBaseUrl = $compiledApiBaseUrl
         buildType = [string]$buildMetadata.buildType
+        architectures = @($buildMetadata.architectures)
         sizeBytes = [long]$apkInfo.Length
         sha256 = $apkHash
         signingCertificateSha1 = $signingSha1
@@ -388,6 +393,12 @@ try {
 
     $selectedSerial = Select-Device $devices $DeviceSerial
     if ([string]::IsNullOrWhiteSpace($selectedSerial)) { return }
+    $deviceAbiOutput = @(& $adbPath -s $selectedSerial shell getprop ro.product.cpu.abilist 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the selected phone's supported Android CPU architectures." }
+    $deviceAbis = ($deviceAbiOutput -join ",").Trim()
+    if ($deviceAbis -notmatch '(^|,)arm64-v8a(,|$)') {
+        throw ("The Liquid Glass test APK is built for arm64-v8a, but device '{0}' reports ABI list '{1}'. Use a supported 64-bit ARM phone." -f $selectedSerial, $deviceAbis)
+    }
 
     $confirm = Read-Host ("Install Lucky Bajaj Liquid Glass APK from commit {0} on device {1}? (Y/N)" -f $sourceRun.headSha, $selectedSerial)
     if ($confirm -notmatch '^(Y|YES)$') {

@@ -246,6 +246,12 @@ if ($LASTEXITCODE -ne 0) { Fail "Maestro CLI was found but could not start. Veri
 if ($maestroVersion) { Write-Host ("Maestro version: {0}" -f ($maestroVersion -join " ")) }
 
 $selectedDevice = Get-PhysicalAndroidDevice
+$deviceAbiOutput = @(& $script:AdbPath -s $selectedDevice shell getprop ro.product.cpu.abilist 2>&1)
+if ($LASTEXITCODE -ne 0) { Fail "Could not read the selected phone's supported Android CPU architectures." }
+$deviceAbis = ($deviceAbiOutput -join ",").Trim()
+if ($deviceAbis -notmatch '(^|,)arm64-v8a(,|$)') {
+  Fail ("The physical-device test APK is built for arm64-v8a, but device '$selectedDevice' reports ABI list '$deviceAbis'. Use a supported 64-bit ARM phone or a universal distribution build.")
+}
 Write-Host ("Physical Android device: {0}" -f $selectedDevice)
 
 if ($BuildLocalApk -and $SkipBuild) {
@@ -289,6 +295,9 @@ if ($BuildLocalApk) {
   }
   if ([string]::IsNullOrWhiteSpace($apiBaseUrl)) {
     Fail "The APK metadata does not record apiBaseUrl. Re-run after a successful CI Android build."
+  }
+  if ($apkMetadata.architectures -and @($apkMetadata.architectures) -notcontains "arm64-v8a") {
+    Fail "The downloaded CI APK does not contain the arm64-v8a architecture required by this physical-device test workflow."
   }
   if ($apkMetadata.buildType -ne "release") {
     Fail "The selected APK is not a self-contained release-variant Maestro build. Debug APKs require Metro on port 8081."
@@ -365,7 +374,7 @@ if ($BuildLocalApk) {
     Push-Location $androidProjectRoot
     try {
       Write-Host ([Environment]::NewLine + "Building self-contained release-variant Maestro APK...")
-      & .\gradlew.bat assembleRelease --no-daemon --build-cache --parallel
+      & .\gradlew.bat assembleRelease --no-daemon --build-cache --parallel -PreactNativeArchitectures=arm64-v8a
       if ($LASTEXITCODE -ne 0) { Fail "Self-contained Android Maestro APK build failed." }
     } finally {
       Pop-Location
@@ -379,6 +388,7 @@ if ($BuildLocalApk) {
     apiBaseUrl = $apiBaseUrl
     headSha = "local"
     buildSource = "local"
+    architectures = @("arm64-v8a")
     buildType = "release"
   }
   $localMetadata | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $apkMetadataPath -Encoding UTF8

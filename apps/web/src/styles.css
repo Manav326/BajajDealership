@@ -224,6 +224,18 @@ h1,h2,h3,p { margin-top: 0; }
 .auth-eyebrow { color: #e46e1b; letter-spacing: 1.6px; font-size: 9px; font-weight: 800; margin-bottom: 10px; }
 .auth-card h1 { margin: 0 0 9px; font-size: 31px; color: #101c35; font-weight: 800; letter-spacing: -1.2px; }
 .auth-intro { color: #79869b; font-size: 12px; line-height: 1.75; margin: 0 0 26px; }
+.desktop-connection-panel {
+  display: grid; gap: 7px; margin: -8px 0 18px; padding: 13px 14px;
+  background: #f8fafc; border: 1px solid #e4eaf2; border-radius: 11px;
+}
+.desktop-connection-panel label { color: #3f4e65; font-size: 10px; font-weight: 800; }
+.desktop-connection-panel select {
+  width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #dfe5ee;
+  border-radius: 8px; outline: 0; background: #fff; color: #1e2a41;
+  font: inherit; font-size: 11px; font-weight: 600;
+}
+.desktop-connection-panel select:focus { border-color: #f59a56; box-shadow: 0 0 0 3px #f9731614; }
+.desktop-connection-panel p { margin: 0; color: #7b8799; font-size: 9px; line-height: 1.6; }
 .auth-form { display: grid; gap: 16px; }
 .auth-field-optional { color: #8b97a9; font-size: 9px; font-weight: 500; }
 .auth-form label,.customer-form-grid > label,.consent-panel > label:not(.consent-check) {

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { apiRequestUrl, desktopRequestHeaders } from '../apiClient';
+import { apiRequestUrl, desktopRequestHeaders, getDesktopApiTarget, isTauriDesktopRuntime, setDesktopApiTarget, type DesktopApiTarget } from '../apiClient';
 
 type StaffSummary = {
   staffPublicId: string;
@@ -54,6 +54,8 @@ function responseErrorMessage(payload: unknown, fallback: string): string {
 }
 
 export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult) => void }) {
+  const desktopRuntime = isTauriDesktopRuntime();
+  const [desktopApiTarget, setDesktopApiTargetState] = useState<DesktopApiTarget>(() => getDesktopApiTarget());
   const [dealershipCode, setDealershipCode] = useState('');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
@@ -101,9 +103,17 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [desktopApiTarget]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  function changeDesktopApiTarget(target: DesktopApiTarget) {
+    setDesktopApiTarget(target);
+    setDesktopApiTargetState(target);
+    setError('');
+    setActivationMessage('');
+    setOwnerSetupAvailable(null);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -270,6 +280,26 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
           : authMode === 'staff-activate'
             ? 'Paste the single-use staff invitation token from your dealership owner, then create a strong password.'
             : 'Sign in to your dealership workspace to manage sales, servicing and customer care.'}</p>
+        {desktopRuntime && (
+          <div className="desktop-connection-panel">
+            <label htmlFor="desktop-api-target">Server connection</label>
+            <select
+              id="desktop-api-target"
+              aria-describedby="desktop-api-target-help"
+              value={desktopApiTarget}
+              onChange={(event) => changeDesktopApiTarget(event.target.value as DesktopApiTarget)}
+              disabled={busy}
+            >
+              <option value="hosted">Hosted Lucky Bajaj service</option>
+              <option value="local-docker">Local Docker on this computer</option>
+            </select>
+            <p id="desktop-api-target-help">
+              {desktopApiTarget === 'local-docker'
+                ? 'Local mode connects to http://127.0.0.1:8080 on this Windows computer. Start the local Docker stack before signing in.'
+                : 'Hosted mode is the normal customer setting. Choose Local Docker only when testing a stack running on this same computer.'}
+            </p>
+          </div>
+        )}
         {activationMessage && <div className="notice notice-success" role="status">{activationMessage}</div>}
         {authMode === 'login' && ownerSetupAvailable === false && ownerSetupMissingKeys.length > 0 && (
           <div className="form-error" role="status">

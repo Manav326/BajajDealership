@@ -356,6 +356,7 @@ try {
         packageName = $PackageName
         apiBaseUrl = $compiledApiBaseUrl
         buildType = [string]$buildMetadata.buildType
+        architectures = @($buildMetadata.architectures)
         sizeBytes = [long]$apkInfo.Length
         sha256 = $apkHash
         signingCertificateSha1 = $signingSha1
@@ -388,6 +389,12 @@ try {
 
     $selectedSerial = Select-Device $devices $DeviceSerial
     if ([string]::IsNullOrWhiteSpace($selectedSerial)) { return }
+    $deviceAbiOutput = @(& $adbPath -s $selectedSerial shell getprop ro.product.cpu.abilist 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the selected phone's supported Android CPU architectures." }
+    $deviceAbis = ($deviceAbiOutput -join ",").Trim()
+    if ($deviceAbis -notmatch '(^|,)arm64-v8a(,|$)') {
+        throw ("This physical-device APK is built for arm64-v8a, but device '{0}' reports ABI list '{1}'. Use a supported 64-bit ARM phone." -f $selectedSerial, $deviceAbis)
+    }
 
     $confirm = Read-Host ("Install Lucky Bajaj APK from commit {0} on device {1}? (Y/N)" -f $sourceRun.headSha, $selectedSerial)
     if ($confirm -notmatch '^(Y|YES)$') {

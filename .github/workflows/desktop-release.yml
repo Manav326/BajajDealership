@@ -76,9 +76,8 @@ jobs:
       - name: Build unsigned MSIX for Microsoft Store submission
         shell: pwsh
         run: |
-          $msi = Get-ChildItem "apps/web/src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
           $params = @{
-            MsiPath = $msi.FullName
+            ExecutablePath = "apps/web/src-tauri/target/release/lucky-bajaj-desktop.exe"
             IconPath = "apps/web/src-tauri/icons/icon.ico"
             PackageName = $env:MSIX_PACKAGE_IDENTITY_NAME
             Publisher = $env:MSIX_PUBLISHER
@@ -87,6 +86,7 @@ jobs:
             OutputPath = "release-assets/LuckyBajajDesktopStore.msix"
           }
           & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-msix.ps1 @params
+          if ($LASTEXITCODE -ne 0) { throw "Store MSIX packaging failed with exit code $LASTEXITCODE." }
       - name: Generate SHA-256 checksums
         shell: pwsh
         run: |

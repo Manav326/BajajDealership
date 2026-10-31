@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][string]$MsiPath,
+  [Parameter(Mandatory = $true)][string]$ExecutablePath,
   [Parameter(Mandatory = $true)][string]$IconPath,
   [Parameter(Mandatory = $true)][string]$PackageName,
   [Parameter(Mandatory = $true)][string]$Publisher,
@@ -44,52 +44,56 @@ function Invoke-BoundedProcess {
     $process.Dispose()
   }
 }
+
 if ($PackageName -notmatch '^[A-Za-z0-9.]{3,50}$') { throw 'Invalid package identity name.' }
 if ([string]::IsNullOrWhiteSpace($Publisher) -or [string]::IsNullOrWhiteSpace($PublisherDisplayName)) { throw 'Partner Center publisher values are required.' }
 if ($Version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'MSIX version must have four numeric parts.' }
 foreach ($part in $Version.Split('.')) { if ([int]$part -gt 65535) { throw 'MSIX version part exceeds 65535.' } }
 
-$msi = (Resolve-Path -LiteralPath $MsiPath).Path
+$executable = (Resolve-Path -LiteralPath $ExecutablePath).Path
+$exeName = 'lucky-bajaj-desktop.exe'
+if ([System.IO.Path]::GetFileName($executable) -ine $exeName) {
+  throw "Expected the Tauri application executable '$exeName', received '$([System.IO.Path]::GetFileName($executable))'."
+}
 $icon = (Resolve-Path -LiteralPath $IconPath).Path
-$temp = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString('N'))
-$extract = Join-Path $temp 'extract'
+$tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+$temp = Join-Path $tempRoot ([Guid]::NewGuid().ToString('N'))
 $stage = Join-Path $temp 'stage'
 $verify = Join-Path $temp 'verify'
 $out = [System.IO.Path]::GetFullPath($OutputPath)
-New-Item -ItemType Directory -Force -Path $extract,$stage,$verify,(Split-Path -Parent $out) | Out-Null
+New-Item -ItemType Directory -Force -Path $stage,$verify,(Split-Path -Parent $out) | Out-Null
 
-$msiexec = Join-Path $env:WINDIR 'System32\msiexec.exe'
-$extractArguments = '/a "{0}" /qn "TARGETDIR={1}"' -f $msi, $extract
-[void](Invoke-BoundedProcess -FilePath $msiexec -ArgumentList $extractArguments -TimeoutSeconds 300 -Description 'MSI administrative extraction' -SuccessExitCodes @(0,3010))
-
-$exeName = 'lucky-bajaj-desktop.exe'
-$exe = Get-ChildItem -LiteralPath $extract -Filter $exeName -File -Recurse | Select-Object -First 1
-if (-not $exe) { throw "The MSI does not contain $exeName." }
-Get-ChildItem -LiteralPath $exe.DirectoryName -Force | Copy-Item -Destination $stage -Recurse -Force
-if (-not (Test-Path -LiteralPath (Join-Path $stage $exeName))) { throw 'Tauri executable was not staged.' }
-
-$assets = Join-Path $stage 'Assets'
-New-Item -ItemType Directory -Force -Path $assets | Out-Null
-Add-Type -AssemblyName System.Drawing
-$ico = [System.Drawing.Icon]::new($icon)
-$bitmap = $ico.ToBitmap()
 try {
-  foreach ($size in @(44,50,150)) {
-    $image = [System.Drawing.Bitmap]::new($size,$size,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $graphics = [System.Drawing.Graphics]::FromImage($image)
-    try {
-      $graphics.Clear([System.Drawing.Color]::Transparent)
-      $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-      $graphics.DrawImage($bitmap,0,0,$size,$size)
-      $name = if ($size -eq 44) { 'Square44x44Logo.png' } elseif ($size -eq 50) { 'StoreLogo.png' } else { 'Square150x150Logo.png' }
-      $image.Save((Join-Path $assets $name),[System.Drawing.Imaging.ImageFormat]::Png)
-    } finally { $graphics.Dispose(); $image.Dispose() }
-  }
-} finally { $bitmap.Dispose(); $ico.Dispose() }
+  # Tauri embeds the web assets in its executable. Stage the application binary
+  # directly rather than running Windows Installer's administrative MSI extraction.
+  $stagedExecutable = Join-Path $stage $exeName
+  Copy-Item -LiteralPath $executable -Destination $stagedExecutable
+  $sourceHash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
+  $stagedHash = (Get-FileHash -LiteralPath $stagedExecutable -Algorithm SHA256).Hash
+  if ($sourceHash -ne $stagedHash) { throw 'The staged Tauri executable does not match the build output.' }
 
-$pub = [System.Security.SecurityElement]::Escape($Publisher)
-$pubName = [System.Security.SecurityElement]::Escape($PublisherDisplayName)
-$manifest = @"
+  $assets = Join-Path $stage 'Assets'
+  New-Item -ItemType Directory -Force -Path $assets | Out-Null
+  Add-Type -AssemblyName System.Drawing
+  $ico = [System.Drawing.Icon]::new($icon)
+  $bitmap = $ico.ToBitmap()
+  try {
+    foreach ($size in @(44,50,150)) {
+      $image = [System.Drawing.Bitmap]::new($size,$size,[System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+      $graphics = [System.Drawing.Graphics]::FromImage($image)
+      try {
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.DrawImage($bitmap,0,0,$size,$size)
+        $name = if ($size -eq 44) { 'Square44x44Logo.png' } elseif ($size -eq 50) { 'StoreLogo.png' } else { 'Square150x150Logo.png' }
+        $image.Save((Join-Path $assets $name),[System.Drawing.Imaging.ImageFormat]::Png)
+      } finally { $graphics.Dispose(); $image.Dispose() }
+    }
+  } finally { $bitmap.Dispose(); $ico.Dispose() }
+
+  $pub = [System.Security.SecurityElement]::Escape($Publisher)
+  $pubName = [System.Security.SecurityElement]::Escape($PublisherDisplayName)
+  $manifest = @"
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -114,18 +118,43 @@ $manifest = @"
  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
 </Package>
 "@
-[System.IO.File]::WriteAllText((Join-Path $stage 'AppxManifest.xml'),$manifest,[System.Text.UTF8Encoding]::new($false))
+  [System.IO.File]::WriteAllText((Join-Path $stage 'AppxManifest.xml'),$manifest,[System.Text.UTF8Encoding]::new($false))
 
-$sdkRoot = Join-Path "$env:ProgramFiles(x86)" 'Windows Kits\10\bin'
-$makeAppx = Get-ChildItem -LiteralPath $sdkRoot -Filter 'MakeAppx.exe' -File -Recurse |
- Where-Object { $_.Directory.Name -eq 'x64' } |
- Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
- Select-Object -First 1
-if (-not $makeAppx) { throw 'Windows SDK MakeAppx.exe was not found.' }
-$packArguments = 'pack /d "{0}" /p "{1}" /o' -f $stage, $out
-[void](Invoke-BoundedProcess -FilePath $makeAppx.FullName -ArgumentList $packArguments -TimeoutSeconds 120 -Description 'MakeAppx package creation')
-$unpackArguments = 'unpack /p "{0}" /d "{1}" /o' -f $out, $verify
-[void](Invoke-BoundedProcess -FilePath $makeAppx.FullName -ArgumentList $unpackArguments -TimeoutSeconds 120 -Description 'MakeAppx package verification')
-if (-not (Test-Path (Join-Path $verify 'AppxManifest.xml')) -or -not (Test-Path (Join-Path $verify $exeName))) { throw 'MSIX verification did not find manifest and executable.' }
-Write-Host "Created unsigned Store-submission MSIX: $out"
-Write-Host 'Do not distribute this unsigned MSIX directly. Submit it through Partner Center so Microsoft can sign it.'
+  $programFilesX86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+  if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+    throw 'The Windows Program Files (x86) directory could not be resolved.'
+  }
+  $sdkRoot = Join-Path $programFilesX86 'Windows Kits\10\bin'
+  $makeAppx = Get-ChildItem -LiteralPath $sdkRoot -Filter 'MakeAppx.exe' -File -Recurse |
+    Where-Object { $_.Directory.Name -eq 'x64' } |
+    Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+    Select-Object -First 1
+  if (-not $makeAppx) { throw 'Windows SDK MakeAppx.exe was not found.' }
+
+  $packArguments = 'pack /d "{0}" /p "{1}" /o' -f $stage, $out
+  [void](Invoke-BoundedProcess -FilePath $makeAppx.FullName -ArgumentList $packArguments -TimeoutSeconds 120 -Description 'MakeAppx package creation')
+  $unpackArguments = 'unpack /p "{0}" /d "{1}" /o' -f $out, $verify
+  [void](Invoke-BoundedProcess -FilePath $makeAppx.FullName -ArgumentList $unpackArguments -TimeoutSeconds 120 -Description 'MakeAppx package verification')
+
+  $verifiedManifestPath = Join-Path $verify 'AppxManifest.xml'
+  $verifiedExecutablePath = Join-Path $verify $exeName
+  if (-not (Test-Path -LiteralPath $verifiedManifestPath) -or -not (Test-Path -LiteralPath $verifiedExecutablePath)) {
+    throw 'MSIX verification did not find its manifest and Tauri executable.'
+  }
+  $verifiedHash = (Get-FileHash -LiteralPath $verifiedExecutablePath -Algorithm SHA256).Hash
+  if ($verifiedHash -ne $sourceHash) { throw 'The executable extracted from the MSIX does not match the source binary.' }
+  [xml]$verifiedManifest = Get-Content -LiteralPath $verifiedManifestPath -Raw
+  $identityNode = $verifiedManifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Identity']")
+  if (-not $identityNode -or $identityNode.Name -ne $PackageName -or $identityNode.Publisher -ne $Publisher -or $identityNode.Version -ne $Version) {
+    throw 'The packaged manifest identity does not match the requested Store package identity.'
+  }
+
+  $package = Get-Item -LiteralPath $out
+  Write-Host ("Created unsigned Store-submission MSIX: {0:N2} MiB" -f ($package.Length / 1MB))
+  Write-Host 'The MSIX contains the verified Tauri executable and package manifest.'
+  Write-Host 'Do not distribute this unsigned MSIX directly. Submit it through Partner Center so Microsoft can sign it.'
+} finally {
+  if (Test-Path -LiteralPath $temp) {
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}

@@ -1,3 +1,4 @@
+import { appPrompt } from './dialogs/dialogService';
 import { useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { apiRequestUrl } from './apiClient';
@@ -128,8 +129,16 @@ function LicenseAdminApp() {
 
   async function setDeviceStatus(device: (typeof devices)[number], status: 'ACTIVE' | 'REVOKED') {
     if (!form) return;
-    const reason = window.prompt(
+    const reason = await appPrompt(
       status === 'REVOKED' ? 'Reason for deactivating this device:' : 'Reason for reactivating this device:',
+      {
+        title: status === 'REVOKED' ? 'Deactivate desktop device' : 'Reactivate desktop device',
+        inputLabel: 'Reason',
+        placeholder: 'Enter at least four characters',
+        multiline: true,
+        minLength: 4,
+        confirmLabel: status === 'REVOKED' ? 'Deactivate device' : 'Reactivate device',
+      },
     );
     if (!reason || reason.trim().length < 4) {
       setMessage('Device change cancelled. Enter a reason of at least four characters.');
