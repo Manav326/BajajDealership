@@ -75,7 +75,7 @@ jobs:
         env:
           APP_DIR: ${{ matrix.app_dir }}
         run: |
-          apk="$APP_DIR/android/app/build/outputs/apk/release/app-release.apk"
+          apk="${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
           unzip -Z1 "$apk" | grep -Fx 'assets/index.android.bundle'
           abi_dirs="$(unzip -Z1 "$apk" | awk -F/ '$1 == "lib" && NF > 2 { print $2 }' | sort -u | paste -sd ',' -)"
           if [ "$abi_dirs" != "x86_64" ]; then
@@ -154,8 +154,10 @@ jobs:
           disable-animations: true
           script: |
             set -euo pipefail
-            mkdir -p "$APP_DIR/maestro-results/ci-public"
+            mkdir -p "${{ matrix.app_dir }}/maestro-results/ci-public"
             apk="$APP_DIR/android/app/build/outputs/apk/release/app-release.apk"
+            test -s "$apk"
+            adb wait-for-device
             adb install -r "$apk"
             maestro --device="$ANDROID_SERIAL" test "$APP_DIR/.maestro/flows/public" \
               --format JUNIT \
