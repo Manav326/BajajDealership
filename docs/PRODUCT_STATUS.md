@@ -2,7 +2,8 @@
 
 **Status reconciled:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Code baseline inspected:** main at f94d46b56698e17c67f7ef61bc96383420a3cd62 (Finance test expansion; latest main commit may be newer)  
+**Application / test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
+**Current test harness:** 52170e2c81f86a597fc6463179eb8646ec0f46b1  
 **Decision:** active implementation; not approved for full production rollout.
 
 This document is the canonical product-status snapshot. The root README is the short project entry point. Domain details stay in the linked specialist documents. GitHub issues track implementation and acceptance work; an open issue does not automatically mean its entire feature is absent from the current code.
@@ -20,14 +21,14 @@ The full measured testing inventory and release-quality assessment are maintaine
 
 | Check | Latest evidence | Result / qualification |
 |---|---|---|
-| Main CI | [Run 41174258424](https://github.com/Manav326/BajajDealership/actions/runs/41174258424) | Backend/PostgreSQL, staff/customer builds and Docker smoke passed; Windows installer job was still completing at snapshot time |
+| Main CI | [Run 41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318) | Passed: backend/PostgreSQL, staff/customer builds, Docker smoke, unsigned Windows installers and GHCR publication/pull smoke |
 | Backend tests | Same CI run | 236 passed; 0 failures, errors or skips across 49 classes |
-| Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41174258424/artifacts/13031568476) | 69.63% line / 44.76% branch overall; Finance improved to 76.53% / 50.60%; Social remains 15.85% / 10.57% |
+| Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41174598318/artifacts/13032471991) | 69.63% line / 44.76% branch overall; Finance improved to 76.53% / 50.60%; Social remains 15.85% / 10.57% |
 | Full Chromium browser suite | [Run 41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41173480435) | 97 passed; 0 failed, skipped or flaky |
 | Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
 | Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
-| Android emulator public smoke | [Run 41174258459](https://github.com/Manav326/BajajDealership/actions/runs/41174258459) | In progress: both editions are rebuilding x86_64 test APKs using absolute workspace paths; no Maestro pass is claimed yet. The previous run exposed an APK path-resolution issue after emulator boot |
+| Android emulator public smoke | [Run 41175240508](https://github.com/Manav326/BajajDealership/actions/runs/41175240508) | In progress: both editions are rebuilding x86_64 APKs with workflow-injected workspace paths. Earlier runs booted the emulator but failed before Maestro due to the workspace variable being absent from the action shell; no mobile pass is claimed yet |
 | Physical Android acceptance | Not yet evidenced | Standard and Liquid Glass still require a complete All Maestro run and real-device acceptance |
 
 The Android source/test-flow inventory is 11 runnable Maestro flows per edition; this is not an execution or pass count. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and is responsible for its explicitly reported device smoke.
