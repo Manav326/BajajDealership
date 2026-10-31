@@ -78,7 +78,17 @@ jobs:
           java-version: "21"
           cache: maven
       - name: Test Spring Boot API and PostgreSQL migrations
-        run: mvn -B -f backend/pom.xml test
+        run: mvn -B -f backend/pom.xml verify
+      - name: Upload backend JUnit and JaCoCo coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-coverage-${{ github.sha }}
+          path: |
+            backend/target/surefire-reports/
+            backend/target/site/jacoco/
+          if-no-files-found: warn
+          retention-days: 14
 
   web:
     name: Build and publish staff/customer web artifacts

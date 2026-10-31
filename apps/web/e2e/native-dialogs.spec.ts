@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage-test';
 
 test('desktop staff and customer portal use branded dialogs instead of browser-native dialogs', async ({ page }) => {
   const nativeDialogs: string[] = [];

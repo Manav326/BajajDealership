@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage-test';
 
 test('Tauri desktop can switch between hosted and Local Docker APIs without rebuilding installers', async ({ page }) => {
   const bootstrapRequests: string[] = [];

@@ -12,6 +12,7 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined,
   reporter: [
     ['line'],
+    ['json', { outputFile: 'test-results/results.json' }],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
   ],
   use: {

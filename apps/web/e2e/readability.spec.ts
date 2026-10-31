@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/coverage-test';
 
 const isLatinInterFont = (response: { url(): string }) =>
   new URL(response.url()).pathname.endsWith('/fonts/inter-latin-wght-normal.woff2');

@@ -1,0 +1,59 @@
+name: Browser compatibility and accessibility smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/customer-web/src/**'
+      - 'apps/web/e2e/browser-compatibility.spec.ts'
+      - 'apps/web/playwright.compat.config.ts'
+      - '.github/workflows/browser-compatibility.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/customer-web/src/**'
+      - 'apps/web/e2e/browser-compatibility.spec.ts'
+      - 'apps/web/playwright.compat.config.ts'
+      - '.github/workflows/browser-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-matrix:
+    name: Chromium, Firefox and WebKit accessibility smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install staff portal test dependencies
+        working-directory: apps/web
+        run: npm install
+      - name: Install customer website dependencies
+        working-directory: apps/customer-web
+        run: npm install
+      - name: Install Chromium, Firefox and WebKit
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run browser compatibility and accessibility smoke
+        working-directory: apps/web
+        run: npx playwright test --config=playwright.compat.config.ts
+      - name: Upload cross-browser reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-compatibility-${{ github.sha }}
+          path: |
+            apps/web/playwright-compat-report/
+            apps/web/test-results/browser-compatibility.json
+            apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

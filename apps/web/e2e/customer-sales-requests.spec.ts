@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures/coverage-test';
 
 const requestPublicId = 'website-request-e2e-001';
 const enquiryPublicId = 'sales-enquiry-e2e-001';
