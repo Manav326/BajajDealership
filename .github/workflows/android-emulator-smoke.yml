@@ -156,13 +156,19 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             set -euo pipefail
-            mkdir -p "${{ matrix.app_dir }}/maestro-results/ci-public"
-            apk="${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
-            test -s "$apk"
+            result_dir="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/maestro-results/ci-public"
+            apk="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
+            flow_dir="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/.maestro/flows/public"
+            mkdir -p "$result_dir"
+            if [ ! -s "$apk" ]; then
+              echo "Expected the built test APK at: $apk"
+              find "$GITHUB_WORKSPACE/${{ matrix.app_dir }}" -path '*/app/build/outputs/apk/*/*.apk' -type f -print
+              exit 1
+            fi
 
             # Wait for the emulator guest and Android package manager. adb wait-for-device
             # alone can return while the transport is still reporting offline.
-            adb kill-server || true
+            # Keep the runner's existing ADB server; starting an absent server is idempotent.
             adb start-server
             ready=false
             for attempt in $(seq 1 90); do
@@ -202,10 +208,10 @@ jobs:
               exit 1
             fi
 
-            maestro --device="$ANDROID_SERIAL" test "${{ matrix.app_dir }}/.maestro/flows/public" \
+            maestro --device="$ANDROID_SERIAL" test "$flow_dir" \
               --format JUNIT \
-              --output "${{ matrix.app_dir }}/maestro-results/ci-public/public.junit.xml" \
-              --test-output-dir "${{ matrix.app_dir }}/maestro-results/ci-public"
+              --output "$result_dir/public.junit.xml" \
+              --test-output-dir "$result_dir"
       - name: Upload emulator test results
         if: always()
         uses: actions/upload-artifact@v4
