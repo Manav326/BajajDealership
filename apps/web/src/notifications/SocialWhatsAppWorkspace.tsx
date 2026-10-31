@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from './apiClient';
+import StudioConfirmDialog from './StudioConfirmDialog';
 import styles from './SocialWhatsAppWorkspace.module.css';
 
 type Status = { configured: boolean; webhookConfigured: boolean; message: string; webhookMessage: string; missingConfigurationKeys: string[]; missingWebhookConfigurationKeys: string[] };
@@ -8,6 +9,10 @@ type Template = { name: string; language: string; status: string; category: stri
 type Consent = { customerPublicId: string; customerName: string; maskedPhone: string; status: string; source: string; consentedAt: string | null; optedOutAt: string | null };
 type Message = { publicId: string; status: string; templateName: string; languageCode: string; providerMessageId: string | null; errorCode: string | null; createdAt: string; updatedAt: string; acceptedAt?: string | null; sentAt: string | null; deliveredAt: string | null; readAt: string | null; failedAt: string | null; scheduledAt?: string | null };
 type Props = { canRead: boolean; canManage: boolean; canSend: boolean; getArtworkJpeg: () => Promise<Blob> };
+type WhatsAppConfirmation =
+  | { kind: 'consent'; optedIn: boolean; title: string; description: string; confirmLabel: string }
+  | { kind: 'send'; scheduledAt: string | null; title: string; description: string; confirmLabel: string }
+  | { kind: 'cancel-scheduled'; item: Message; title: string; description: string; confirmLabel: string };
 
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({})) as T & { message?: string; detail?: string };
@@ -47,6 +52,7 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
   const [includeArtwork, setIncludeArtwork] = useState(false);
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [scheduledMessages, setScheduledMessages] = useState<Message[]>([]);
+  const [confirmation, setConfirmation] = useState<WhatsAppConfirmation | null>(null);
 
   const customer = (Array.isArray(customers) ? customers : []).find((item) => item.publicId === customerId) ?? null;
   const template = (Array.isArray(templates) ? templates : []).find((item) => item.name + '|' + item.language === templateId) ?? null;
@@ -101,10 +107,20 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     if (!customer) return;
     if (optedIn && !optInVerified) { setError('Confirm that the customer explicitly opted in before recording consent.'); return; }
     if (!source.trim()) { setError('Record the source of the customer preference.'); return; }
-    const prompt = optedIn
+    const description = optedIn
       ? 'Record explicit WhatsApp opt-in for ' + customer.fullName + '?'
       : 'Record WhatsApp opt-out for ' + customer.fullName + '? Future sends will be blocked.';
-    if (!window.confirm(prompt)) return;
+    setConfirmation({
+      kind: 'consent',
+      optedIn,
+      title: optedIn ? 'Record WhatsApp opt-in?' : 'Record WhatsApp opt-out?',
+      description,
+      confirmLabel: optedIn ? 'Record opt-in' : 'Record opt-out',
+    });
+  }
+
+  async function submitConsent(optedIn: boolean) {
+    if (!customer) return;
     setBusy(true); setError(''); setNotice('');
     try {
       const result = await apiFetch('/api/v1/admin/social/whatsapp/customers/' + customer.publicId + '/consent', {
@@ -137,10 +153,20 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     if (scheduledLocal && Number.isNaN(new Date(scheduledLocal).getTime())) { setError('Choose a valid local send time.'); return; }
     const scheduledAt = scheduledLocal ? new Date(scheduledLocal).toISOString() : null;
     if (scheduledAt && new Date(scheduledAt).getTime() < Date.now() + 120000) { setError('Schedule the send at least two minutes from now.'); return; }
-    const prompt = scheduledAt
+    const description = scheduledAt
       ? 'Schedule approved template "' + template.name + '" for ' + customer.fullName + ' (' + customer.maskedPhone + ') at ' + new Date(scheduledAt).toLocaleString() + '? Consent and template approval will be rechecked when it dispatches.'
       : 'Send approved template "' + template.name + '" to ' + customer.fullName + ' (' + customer.maskedPhone + ')?';
-    if (!window.confirm(prompt)) return;
+    setConfirmation({
+      kind: 'send',
+      scheduledAt,
+      title: scheduledAt ? 'Schedule WhatsApp message?' : 'Send WhatsApp message?',
+      description,
+      confirmLabel: scheduledAt ? 'Schedule message' : 'Send message',
+    });
+  }
+
+  async function submitSend(scheduledAt: string | null) {
+    if (!customer || !template) return;
     setBusy(true); setError(''); setNotice('');
     try {
       let assetId: string | null = null;
@@ -196,7 +222,16 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
 
   async function cancelScheduled(item: Message) {
     if (!canManage || item.status !== 'SCHEDULED') return;
-    if (!window.confirm('Cancel this scheduled WhatsApp message? It will not be sent.')) return;
+    setConfirmation({
+      kind: 'cancel-scheduled',
+      item,
+      title: 'Cancel scheduled WhatsApp message?',
+      description: 'Cancel the scheduled "' + item.templateName + '" message? It will not be sent.',
+      confirmLabel: 'Cancel scheduled send',
+    });
+  }
+
+  async function submitCancelScheduled(item: Message) {
     setBusy(true); setError(''); setNotice('');
     try {
       const result = await apiFetch('/api/v1/admin/social/whatsapp/scheduled/' + item.publicId + '/cancel', {
@@ -207,6 +242,15 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Scheduled message could not be cancelled.');
     } finally { setBusy(false); }
+  }
+
+  async function confirmPendingAction() {
+    const pending = confirmation;
+    if (!pending || busy) return;
+    if (pending.kind === 'consent') await submitConsent(pending.optedIn);
+    else if (pending.kind === 'send') await submitSend(pending.scheduledAt);
+    else await submitCancelScheduled(pending.item);
+    setConfirmation(null);
   }
 
   async function refreshMessageFor(item: Message) {
@@ -308,5 +352,13 @@ export default function SocialWhatsAppWorkspace({ canRead, canManage, canSend, g
       </div>)}
     </section>}
     <p className={styles.note}>A provider acceptance is not proof of delivery. Signed webhooks update sent, delivered, read and failed states; inbound STOP and equivalent keywords withdraw recorded consent.</p>
+    {confirmation && <StudioConfirmDialog
+      title={confirmation.title}
+      description={confirmation.description}
+      confirmLabel={confirmation.confirmLabel}
+      busy={busy}
+      onCancel={() => { if (!busy) setConfirmation(null); }}
+      onConfirm={confirmPendingAction}
+    />}
   </section>;
 }
