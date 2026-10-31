@@ -25,4 +25,4 @@ The API returns the client ID matching the `applicationId` query from the app an
 
 Standard retains its current presentation. Liquid Glass uses Android-native `expo-blur` overlays on the top and bottom navigation on Android 12+, with translucent fallback on older Android, plus frosted translucent cards, edge highlights and ambient colour fields. Text, prices, forms, legal content and financial/service records remain readable.
 
-CI produces two independent debug APK artifacts, not signed Play Store releases. Production signing, OAuth registrations for the relevant signing certificates, push delivery credentials and physical-device acceptance are separate release-readiness tasks.
+CI produces two independent, self-contained arm64 release-variant Maestro test APK artifacts when the relevant Android paths change. These are test artifacts, not signed Play Store releases. The current main CI run may legitimately skip both Android jobs when Android paths are unchanged. Production signing, OAuth registrations for the release certificates, push delivery credentials and physical-device acceptance remain separate release-readiness tasks.
