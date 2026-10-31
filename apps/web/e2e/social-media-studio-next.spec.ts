@@ -493,7 +493,7 @@ test('search filters Text, Uploads and Audio library entries', async ({ page }) 
   await expect(page.getByText('campaign-beta.png')).toBeVisible();
   await expect(page.getByText('campaign-alpha.png')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
   await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-alpha.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
   await expect(page.getByRole('button', { name: 'ambient-alpha.wav', exact: true })).toBeVisible();
   await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-beta.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
@@ -1108,8 +1108,11 @@ test('timed image clips apply fades consistently in preview, photo and video ren
   await expect(photoButton).toBeVisible({ timeout: 30000 });
   await photoButton.click();
   const photoPreview = page.getByRole('dialog', { name: 'Rendered photo preview' });
-  const photoPixel = await photoPreview.locator('img[alt="Rendered photo output"]').evaluate(image => {
+  const photoImage = photoPreview.locator('img[alt="Rendered photo output"]');
+  await expect.poll(async () => photoImage.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  const photoPixel = await photoImage.evaluate(async image => {
     const element = image as HTMLImageElement;
+    await element.decode();
     const canvas = document.createElement('canvas');
     canvas.width = element.naturalWidth;
     canvas.height = element.naturalHeight;
