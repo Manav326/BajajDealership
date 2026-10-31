@@ -12,7 +12,7 @@ This document is the decision record for test volume, measured source coverage, 
 | Application / layer | Automated execution evidence | Measured source coverage | Quality assessment | Release decision |
 |---|---|---:|---|---|
 | Backend / API | 233/233 PostgreSQL-backed tests passed | **66.69% line / 42.82% branch** | **Good**, with two weak packages | Keep CI gate; improve Finance and Social |
-| Staff web portal | Included in 97/97 full Chromium cases | **61.15% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
+| Staff web portal | Included in 97/97 full Chromium cases | **61.23% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
 | Customer web site | Included in 97/97 full Chromium cases | **64.34% function execution** on 8 loaded source modules | **Good showroom journey coverage; mock-heavy outside API integration tests** | Staging only until real-backend and deployed acceptance |
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
 | Standard Android | 11 runnable flow definitions; latest emulator job failed before installing/running flows | Not measured | **Insufficient execution evidence** | No mobile pass claim; fix CI runner and complete device suite |
@@ -27,7 +27,7 @@ This document is the decision record for test volume, measured source coverage, 
 
 <badge color="success">97 passed / 97 executed</badge>
 
-[Full browser run #41172140858](https://github.com/Manav326/BajajDealership/actions/runs/41172140858) completed with zero failures, skips or flaky tests. Its test-results JSON records 97 expected and 97 passed.
+[Full browser run #41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41172140858) completed with zero failures, skips or flaky tests. Its test-results JSON records 97 expected and 97 passed.
 
 | Spec file | Cases passed | Main scenarios |
 |---|---:|---|
@@ -124,9 +124,9 @@ The full browser run captured V8 function-execution data per test and unions fun
 
 | Application | Source modules loaded | Executed functions | Loaded-source function coverage |
 |---|---:|---:|---:|
-| Staff portal | 42 | 1,064 / 1,740 | **61.15%** |
+| Staff portal | 42 | 1,066 / 1,741 | **61.15%** |
 | Customer web site | 8 | 249 / 387 | **64.34%** |
-| Combined loaded source | 50 | 1,313 / 2,127 | **61.73%** |
+| Combined loaded source | 50 | 1,315 / 2,128 | **61.80%** |
 
 The workflow enforces a 50% regression floor for the loaded-source function metric.
 
@@ -154,7 +154,7 @@ Therefore:
 - Maestro scenario execution: **0 flows executed**.
 - Android app regression result: **unknown**, not pass and not a product assertion failure.
 
-The Android workflow is being corrected to restart the ADB server, wait for the emulator to report device, wait for Android boot and package manager readiness, reconnect offline transports and retry APK installation. The next run must produce the JUnit artifact before any scenario can be marked passed.
+The ADB-hardened workflow now restarts the ADB server, waits for the emulator transport, Android boot and package-manager readiness, reconnects offline transports and retries APK installation. A fresh run [#41173351609](https://github.com/Manav326/BajajDealership/actions/runs/41173351609) has progressed into the Standard public Maestro step while Liquid Glass completes its APK build. Neither edition is counted as passed until its JUnit artifact is uploaded.
 
 The emulator smoke workflow currently exercises the two public flows. Full authenticated/notification All flows still require a separate, isolated synthetic-account and notification-fixture setup. A physical phone run is also still required before mobile release acceptance.
 

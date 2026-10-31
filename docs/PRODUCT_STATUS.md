@@ -23,8 +23,8 @@ The full measured testing inventory and release-quality assessment are maintaine
 | Main CI | [Run 41172140918](https://github.com/Manav326/BajajDealership/actions/runs/41172140918) | Passed: backend/PostgreSQL, staff/customer builds, Docker smoke, Windows installers and GHCR publish/pull |
 | Backend tests | Same CI run | 233 passed; 0 failures, errors or skips |
 | Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41172140918/artifacts/13031915147) | 66.69% line / 42.82% branch; package-level gaps are called out in the testing report |
-| Full Chromium browser suite | [Run 41172140858](https://github.com/Manav326/BajajDealership/actions/runs/41172140858) | 97 passed; 0 failed, skipped or flaky |
-| Browser function execution | Same browser run | Staff 61.15%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
+| Full Chromium browser suite | [Run 41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41173480435) | 97 passed; 0 failed, skipped or flaky |
+| Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
 | Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
 | Android emulator public smoke | [Run 41172140850](https://github.com/Manav326/BajajDealership/actions/runs/41172140850) | Did not reach Maestro scenarios: emulator ADB transport remained offline during installation. An ADB readiness/retry correction is being added; no mobile pass is claimed from this run |
