@@ -22,7 +22,7 @@ Run these from the repository root after pulling the branch containing this setu
 .\scripts\test-ui.ps1 -Target Both
 ```
 
-The default target is `Web`. `-Target Web` opens Playwright UI Mode, where you choose the tests to run. `-Target Both` runs the web suite in headed Chromium and then builds/installs the Android app and runs the Maestro flow.
+The default target is Web. -Target Web opens Playwright UI Mode, where you choose the tests to run. -Target Both runs the web suite in headed Chromium and then builds/installs the Standard Android app and runs the configured Maestro suite.
 
 ## What the script prepares automatically
 
@@ -44,8 +44,13 @@ The app is built in release mode so the test does not depend on a persistent Met
 ## Test safety and current coverage
 
 - The Playwright scenarios use synthetic UI fixtures and intercepted API responses where defined in the tests. They do not require the local PostgreSQL/database stack and must not be treated as proof that live backend business flows work.
-- The Maestro flow `.maestro/flows/customer-auth-smoke.yaml` preserves the app's existing local session. When signed out, it checks the sign-in screen and switches to account activation and back; when signed in, it checks the customer home shell and navigates between Home, Service, Visits, and Updates. It does **not** submit credentials, activate an account, send notifications, clear local app data, or write customer data. On a signed-in device, the app may issue its normal read-only customer API requests; the API base is visible in the runner output and can be overridden with `EXPO_PUBLIC_API_BASE_URL` before running the command.
-- A passing smoke test proves only the covered UI checks. Extend the flow and acceptance suite as each native customer workflow is validated.
+- - The top-level smoke flow .maestro/flows/customer-auth-smoke.yaml preserves the app's existing local session. When signed out, it checks sign-in and account-activation entry; when signed in, it checks the customer home shell and primary navigation. It does not submit credentials, activate an account, send notifications, clear local app data or write customer data.
+- - Each Android edition contains 11 runnable Maestro flow files: 2 public flows, 5 authenticated customer flows and 4 fixture-driven notification flows, plus one shared customer-login subflow. Standard and Liquid Glass flow trees are checked for parity. The notification fixture flows cover pagination, read/unread/dismiss, rich content with CTA/image and suppression of unsafe routes.
+- These flow files are local device UI automation, not proof that all flows have passed on the current commit. The scripts build/install and run the selected suite on a connected emulator/physical device; normal GitHub CI does not run the full physical-device Maestro suite.
+- The Playwright suite contains 9 spec files. Several customer journeys intercept/mock API responses; they verify client behavior but do not prove the complete real PostgreSQL business journey.
+- The current main baseline's Android CI jobs were skipped because no Android source paths changed. The APK download scripts search earlier successful main runs that actually contain the requested Android artifact.
+
+A passing smoke test proves only the covered UI checks. Use a synthetic test account on a production-like API for real backend acceptance and record the device, API version, flow suite and result.
 
 ## Web test ports
 
