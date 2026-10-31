@@ -11,8 +11,8 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'Manav326/BajajDealership'
 $apiRoot = "https://api.github.com/repos/$repository"
-$desktopJobName = 'Build unsigned direct installers and local-Docker test installer'
-$artifactPrefix = 'lucky-bajaj-windows-local-docker-'
+$desktopJobName = 'Build unsigned Windows desktop installers'
+$artifactPrefix = 'lucky-bajaj-windows-builds-'
 $webRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent (Split-Path -Parent $webRoot)
 $resolvedRoot = [System.IO.Path]::GetFullPath($DownloadRoot)
@@ -125,7 +125,7 @@ function Find-LatestCiInstaller {
           Select-Object -First 1
       )
       if ($artifact.Count -eq 0) {
-        Write-Host "  No local-Docker installer artifact in this run; checking an earlier successful run." -ForegroundColor DarkGray
+        Write-Host "  No Windows installer artifact in this run; checking an earlier successful run." -ForegroundColor DarkGray
         continue
       }
 
@@ -232,13 +232,11 @@ function Build-LocalDockerInstaller {
     Write-Warning 'The working tree has uncommitted changes. The installer will include the current local files.'
   }
 
-  $previousApiBaseUrl = $env:VITE_API_BASE_URL
-  $previousAppVersion = $env:VITE_APP_VERSION
+    $previousAppVersion = $env:VITE_APP_VERSION
   $exeDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/nsis'
   $msiDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/msi'
 
   try {
-    $env:VITE_API_BASE_URL = 'http://127.0.0.1:8080/'
     $env:VITE_APP_VERSION = '0.1.0-local'
 
     Push-Location $webRoot
@@ -258,8 +256,6 @@ function Build-LocalDockerInstaller {
       Pop-Location
     }
   } finally {
-    if ($null -eq $previousApiBaseUrl) { Remove-Item Env:VITE_API_BASE_URL -ErrorAction SilentlyContinue }
-    else { $env:VITE_API_BASE_URL = $previousApiBaseUrl }
     if ($null -eq $previousAppVersion) { Remove-Item Env:VITE_APP_VERSION -ErrorAction SilentlyContinue }
     else { $env:VITE_APP_VERSION = $previousAppVersion }
   }
@@ -307,7 +303,7 @@ try {
     }
 
     if (-not $installer -and $Mode -eq 'Pull') {
-      throw "No successful local-Docker EXE/MSI artifact was found in the 100 most recent successful '$Branch' CI runs. Nothing was downloaded. Run with -Mode Build to create installers from the current checkout."
+      throw "No successful Windows EXE/MSI artifact was found in the 100 most recent successful '$Branch' CI runs. Nothing was downloaded. Run with -Mode Build to create installers from the current checkout."
     }
   }
 
@@ -352,28 +348,34 @@ LUCKY BAJAJ DESKTOP — LOCAL DOCKER TEST INSTALLATION
 Installer source: $sourceLabel
 $sourceDescription
 
-IMPORTANT:
-This installer is compiled to call http://127.0.0.1:8080.
-It is only for testing on the same Windows computer where the Lucky Bajaj Docker API is running.
-Do not distribute this local-Docker build to customers or install it on another computer.
+CONNECTION TARGETS:
+This single installer supports both the hosted service and Local Docker.
+Hosted Lucky Bajaj is selected by default and is the normal customer setting.
+For local testing, choose "Local Docker on this computer" in the Server connection
+selector on the sign-in screen. That option calls http://127.0.0.1:8080.
+The selected connection is saved on this Windows installation until changed.
 
-STEP 1 — Start the compatible local stack
-1. Open PowerShell in the BajajDealership checkout that matches the installer source recorded above.
-2. For a local build, keep the same branch and working files while testing the desktop app.
-3. Build/start the local backend and both websites:
+STEP 1 — Start the local stack (only when testing locally)
+1. Open PowerShell in the BajajDealership checkout you want to test.
+2. Build/start the local backend and both websites:
    .\scripts\start.ps1
-4. Confirm the API is healthy:
+3. Confirm the API is healthy:
    Invoke-RestMethod http://127.0.0.1:8080/actuator/health
    Continue only when the response reports status UP.
 
-STEP 2 — Install the desktop app
+STEP 2 — Install and choose the connection
 1. Close Lucky Bajaj Desktop if it is running.
 2. Choose ONE installer from this folder; do not run both:
    EXE: $exeName — guided setup.
    MSI: $msiName — Windows Installer.
 3. Double-click the chosen installer and complete setup.
 4. Open Lucky Bajaj Desktop from the Windows Start menu.
-5. Sign in with your existing Lucky Bajaj staff account.
+5. On the sign-in screen, select Hosted Lucky Bajaj service for normal use,
+   or Local Docker on this computer for local testing.
+6. Sign in with your existing Lucky Bajaj staff account.
+
+Do not leave Local Docker selected when you intend to use the hosted customer service.
+Local Docker mode requires the API to be running on this same computer.
 
 SECURITY AND UPDATE NOTES
 - Direct-download EXE/MSI packages are intentionally unsigned and may show Unknown Publisher or SmartScreen warnings. Do not disable Windows security protections.
