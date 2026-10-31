@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const nativeDialogsByPage = new WeakMap<Page, string[]>();
+
 function makeSilentWav(seconds: number) {
   const sampleRate = 8000;
   const dataBytes = sampleRate * seconds * 2;
@@ -21,6 +23,12 @@ function makeSilentWav(seconds: number) {
 }
 
 async function installStudioFixture(page: Page) {
+  const nativeDialogs: string[] = [];
+  nativeDialogsByPage.set(page, nativeDialogs);
+  page.on('dialog', async dialog => {
+    nativeDialogs.push(dialog.type() + ': ' + dialog.message());
+    await dialog.dismiss();
+  });
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'social-studio-next-browser-test');
     Object.defineProperty(window, 'showDirectoryPicker', {
@@ -78,6 +86,9 @@ async function openNewStudio(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => installStudioFixture(page));
+test.afterEach(async ({ page }) => {
+  expect(nativeDialogsByPage.get(page) ?? [], 'New Social Media Studio must not show browser-native dialogs').toEqual([]);
+});
 
 test('new navigation entry is separate and existing Social Media Studio remains available', async ({ page }) => {
   await expect(page.locator('button[title="Social Media Studio"]')).toBeVisible();
@@ -348,9 +359,14 @@ test('resource import, filter and delete remain in the resource library', async 
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
   await page.getByRole('combobox', { name: 'Resource type' }).selectOption('image');
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
-  // Confirm the resource is removed after the explicit confirmation.
+  const confirmation = page.getByRole('dialog', { name: 'Remove resource?' });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText('local-campaign-photo.png');
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
+  await page.getByRole('dialog', { name: 'Remove resource?' }).getByRole('button', { name: 'Remove resource' }).click();
   await expect(page.getByText('local-campaign-photo.png')).toHaveCount(0);
 });
 
@@ -1503,5 +1519,285 @@ test('video clip fade-in and fade-out change the actual rendered video frames', 
   expect(fadeInRatio).toBeLessThan(0.75);
   expect(fadeOutRatio).toBeGreaterThan(0.25);
   expect(fadeOutRatio).toBeLessThan(0.75);
+});
+
+test('project deletion and Meta disconnection use in-app confirmations', async ({ page }) => {
+  const disconnectRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/meta/disconnect', async route => {
+    disconnectRequests.push(route.request().method());
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Meta accounts disconnected.' }),
+    });
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+
+  const deleteProject = page.getByRole('button', { name: 'Delete Untitled design' });
+  await expect(deleteProject).toBeVisible();
+  await deleteProject.click();
+  const projectDialog = page.getByRole('dialog', { name: 'Delete project?' });
+  await expect(projectDialog).toBeVisible();
+  await projectDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(deleteProject).toBeVisible();
+
+  await deleteProject.click();
+  await projectDialog.getByRole('button', { name: 'Delete project' }).click();
+  await expect(deleteProject).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const disconnect = page.getByRole('button', { name: 'Disconnect', exact: true });
+  await expect(disconnect).toBeVisible();
+  await disconnect.click();
+  const disconnectDialog = page.getByRole('dialog', { name: 'Disconnect Meta accounts?' });
+  await expect(disconnectDialog).toBeVisible();
+  await disconnectDialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(disconnectRequests).toHaveLength(0);
+
+  await disconnect.click();
+  await disconnectDialog.getByRole('button', { name: 'Disconnect accounts' }).click();
+  await expect.poll(() => disconnectRequests.length).toBe(1);
+  await expect(disconnectDialog).toHaveCount(0);
+});
+
+test('failed editor save offers an in-app leave-without-saving choice', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.evaluate(() => {
+    const prototype = IDBDatabase.prototype as unknown as {
+      transaction: (...args: unknown[]) => IDBTransaction;
+    };
+    const original = prototype.transaction;
+    prototype.transaction = function (this: IDBDatabase, ...args: unknown[]) {
+      const stores = args[0];
+      const mode = args[1];
+      const names = typeof stores === 'string' ? [stores] : Array.from(stores as ArrayLike<string>);
+      if (mode === 'readwrite' && names.includes('projects')) {
+        throw new DOMException('Simulated local project storage failure.', 'QuotaExceededError');
+      }
+      return original.apply(this, args);
+    };
+  });
+
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('may discard those edits');
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to resources' })).toBeVisible();
+});
+
+test('WhatsApp consent and scheduled-send cancellation use in-app confirmations', async ({ page }) => {
+  const consentRequests: string[] = [];
+  const cancelRequests: string[] = [];
+  const scheduled = {
+    publicId: 'MSG-SCHEDULED-1',
+    status: 'SCHEDULED',
+    templateName: 'service_reminder',
+    languageCode: 'en',
+    providerMessageId: null,
+    errorCode: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    acceptedAt: null,
+    sentAt: null,
+    deliveredAt: null,
+    readAt: null,
+    failedAt: null,
+    scheduledAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  };
+  await page.route('**/api/v1/admin/social/whatsapp/**', async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'GET' && path.endsWith('/customers')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          publicId: 'CUSTOMER-1',
+          customerCode: 'C-001',
+          fullName: 'Test Customer',
+          maskedPhone: '+91******1234',
+          validPhone: true,
+          consentStatus: 'OPTED_IN',
+          consentSource: 'Existing customer record',
+          consentUpdatedAt: null,
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/scheduled')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([scheduled]) });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/customers/CUSTOMER-1/consent')) {
+      consentRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          customerPublicId: 'CUSTOMER-1',
+          customerName: 'Test Customer',
+          maskedPhone: '+91******1234',
+          status: 'OPTED_OUT',
+          source: 'Customer request',
+          consentedAt: null,
+          optedOutAt: new Date().toISOString(),
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/scheduled/MSG-SCHEDULED-1/cancel')) {
+      cancelRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...scheduled, status: 'CANCELLED' }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
+  await page.getByLabel('Customer').selectOption('CUSTOMER-1');
+
+  const optOut = page.getByRole('button', { name: 'Record opt-out' });
+  await optOut.click();
+  const consentDialog = page.getByRole('dialog', { name: 'Record WhatsApp opt-out?' });
+  await expect(consentDialog).toBeVisible();
+  await consentDialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(consentRequests).toHaveLength(0);
+
+  await optOut.click();
+  await consentDialog.getByRole('button', { name: 'Record opt-out' }).click();
+  await expect.poll(() => consentRequests.length).toBe(1);
+  await expect(consentDialog).toHaveCount(0);
+
+  const cancelScheduled = page.getByRole('button', { name: 'Cancel scheduled send' });
+  await expect(cancelScheduled).toBeVisible();
+  await cancelScheduled.click();
+  const scheduledDialog = page.getByRole('dialog', { name: 'Cancel scheduled WhatsApp message?' });
+  await expect(scheduledDialog).toBeVisible();
+  await scheduledDialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(cancelRequests).toHaveLength(0);
+
+  await cancelScheduled.click();
+  await scheduledDialog.getByRole('button', { name: 'Cancel scheduled send' }).click();
+  await expect.poll(() => cancelRequests.length).toBe(1);
+  await expect(scheduledDialog).toHaveCount(0);
+});
+
+test('sending a WhatsApp template requires an in-app confirmation', async ({ page }) => {
+  const sendRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/whatsapp/**', async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'GET' && path.endsWith('/status')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: true,
+          webhookConfigured: true,
+          message: 'Configured for the browser test.',
+          webhookMessage: 'Webhook configured for the browser test.',
+          missingConfigurationKeys: [],
+          missingWebhookConfigurationKeys: [],
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/customers')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          publicId: 'CUSTOMER-READY',
+          customerCode: 'C-002',
+          fullName: 'Ready Customer',
+          maskedPhone: '+91******5678',
+          validPhone: true,
+          consentStatus: 'OPTED_IN',
+          consentSource: 'Customer-confirmed opt-in',
+          consentUpdatedAt: new Date().toISOString(),
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/scheduled')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/templates')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          name: 'service_reminder',
+          language: 'en',
+          status: 'APPROVED',
+          category: 'UTILITY',
+          bodyParameterCount: 0,
+          headerFormat: 'NONE',
+          supported: true,
+          unsupportedReason: null,
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/send')) {
+      sendRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          publicId: 'MSG-ACCEPTED-1',
+          status: 'ACCEPTED',
+          templateName: 'service_reminder',
+          languageCode: 'en',
+          providerMessageId: 'mock-provider-id',
+          errorCode: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          acceptedAt: new Date().toISOString(),
+          sentAt: null,
+          deliveredAt: null,
+          readAt: null,
+          failedAt: null,
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
+  await page.getByLabel('Customer').selectOption('CUSTOMER-READY');
+  await page.getByRole('button', { name: 'Load templates' }).click();
+  await expect(page.getByRole('combobox', { name: 'Template and language' })).toHaveValue('service_reminder|en');
+
+  const send = page.getByRole('button', { name: 'Send WhatsApp template' });
+  await expect(send).toBeEnabled();
+  await send.click();
+  const dialog = page.getByRole('dialog', { name: 'Send WhatsApp message?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(sendRequests).toHaveLength(0);
+
+  await send.click();
+  await dialog.getByRole('button', { name: 'Send message' }).click();
+  await expect.poll(() => sendRequests.length).toBe(1);
+  await expect(dialog).toHaveCount(0);
 });
 
