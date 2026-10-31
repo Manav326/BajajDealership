@@ -17,7 +17,7 @@ This document is the decision record for test volume, measured source coverage, 
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
 | Standard Android | 11 runnable flow definitions; latest emulator job failed before installing/running flows | Not measured | **Insufficient execution evidence** | No mobile pass claim; fix CI runner and complete device suite |
 | Liquid Glass Android | 11 runnable flow definitions; latest emulator job failed before installing/running flows | Not measured | **Insufficient execution evidence** | Same gate as Standard |
-| Windows desktop | EXE/MSI/MSIX packaging checks passed; 3 related browser specs exercise shared portal/layout/API selection | Not measured for native shell | **Build evidence good; native app acceptance limited** | Require signed/clean-machine and native-shell acceptance |
+| Windows desktop | EXE/MSI/MSIX packaging checks passed; 2 Tauri-related browser specs cover API-target selection and window layout; browser native dialogs are tested separately | Not measured for native shell | **Build evidence good; native app acceptance limited** | Require signed/clean-machine and native-shell acceptance |
 
 **Do not add overlapping test suites together.** The dedicated 42-case Social Studio suite overlaps the 97-case full Chromium suite. The 6 cross-browser cases are an additional, narrow run covering two public showroom scenarios on three engines; they are not another full website suite.
 
@@ -74,6 +74,22 @@ This is a valuable compatibility smoke, not a complete 97-case Firefox/WebKit ru
 - JaCoCo report and coverage check: **passed**
 
 Important test domains include authentication and dealership isolation, customer portal identities/sessions/ownership, catalogue publication, inventory, customer sales requests, test rides, booking/concurrency, invoices and operational payments, workshop estimates/quality/handover, spare-parts stock/order/return, notification approval/preview/dispatch/retry, social provider security and webhook/media controls.
+
+| Backend package | Test cases | Test classes (from the CI JUnit report) |
+|---|---:|---:|
+| Catalogue | 9 | 3 |
+| Commerce / parts | 17 | 1 |
+| Customers | 21 | 5 |
+| Finance | 16 | 3 |
+| Inventory | 26 | 4 |
+| Notifications | 35 | 7 |
+| Sales | 34 | 5 |
+| Security | 17 | 5 |
+| Social integrations | 25 | 5 |
+| System | 12 | 1 |
+| Workshop | 20 | 3 |
+| Root / migrations | 1 | 1 |
+| **Total** | **233** | **49** |
 
 There is a backend integration journey for a synthetic customer request through test ride, booking, invoice, payment record, handover and customer ownership visibility. The parallel browser UI request-conversion test remains API-mocked; keep those two evidence types distinct.
 
