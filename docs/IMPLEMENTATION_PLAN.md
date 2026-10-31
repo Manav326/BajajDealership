@@ -3,7 +3,7 @@
 **Provider:** QuantaEdge  
 **Product scope:** one dealership outlet, with owner/staff portal, public/customer website, two customer Android editions and Windows staff desktop.  
 **Last reconciled:** 31 October 2026  
-**Inspected main baseline:** 6941940b625a7e7ca818687df80deb3421247c15  
+**Inspected implementation baseline:** caff228c47358a8cc40178e0ce1f0eb5ad85bc02  
 **Canonical feature status:** [PRODUCT_STATUS.md](PRODUCT_STATUS.md)
 
 This document records current domain invariants and the remaining implementation sequence. It replaces older checkpoints that described sales as the next vertical slice or referenced pre-V46/V47 code.
@@ -97,12 +97,13 @@ This document records current domain invariants and the remaining implementation
 
 ## Current test evidence and limitations
 
-- On inspected baseline 6941940, [CI run 41164397252](https://github.com/Manav326/BajajDealership/actions/runs/41164397252) passed backend/PostgreSQL tests and migrations, both React production builds, Docker full-stack build/smoke test, Windows EXE/MSI build and GHCR publish/pull verification.
-- [Notification browser run 41164397291](https://github.com/Manav326/BajajDealership/actions/runs/41164397291) passed on the same baseline.
-- Android jobs were skipped on that exact CI run because no Android-relevant path changed. Do not report them as passed on this commit.
-- The last observed successful dedicated Social Media Studio browser run is [41157066812](https://github.com/Manav326/BajajDealership/actions/runs/41157066812) on an earlier main commit; the path-filtered workflow was not rerun on the inspected baseline.
-- Repository inventory at the inspected baseline: 49 Java backend test classes, 9 Playwright spec files, 11 runnable Maestro flow files per Android edition plus one shared login subflow per edition and the top-level auth smoke flow. File counts are not code-coverage measures.
-- Most browser journeys use mocked/intercepted API fixtures. They verify client behavior but do not prove complete real-database browser acceptance. GitHub Actions runs the two public Android Maestro smoke flows per edition; the full authenticated/notification All suite remains local until deterministic synthetic account, vehicle and notification fixtures are prepared.
+- The source baseline inspected for this update is `caff228c47358a8cc40178e0ce1f0eb5ad85bc02`. The evidence below intentionally retains the exact commit associated with each test run; it must not be read as a claim that every suite ran on `caff228`.
+- Backend/PostgreSQL, Finance coverage, both web production builds, Docker smoke, Windows installer packaging and GHCR publish/pull evidence passed in [main CI run 41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318), on application/Finance baseline `f94d46b56698e17c67f7ef61bc96383420a3cd62`. Backend: 236 tests, 0 failures/errors/skips across 49 test classes; JaCoCo: 69.63% line / 44.76% branch overall. Finance: 76.53% / 50.60%; Social remains low at 15.85% / 10.57%.
+- Full Chromium browser run [41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41173480435) passed 97/97 cases. Social Media Studio regression [41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) passed 42/42 but overlaps the full 97-case suite. Cross-browser showroom smoke [41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) passed 6/6 narrowly scoped cases across Chromium, Firefox and WebKit.
+- Android strict-validator run [41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) passed both matrix jobs on test-harness commit `51c937a204f2cdd31b5e791bd0272e66aa3e707d`: Standard 2/2 and Liquid Glass 2/2 public Maestro flows; each JUnit summary reported 2 tests, 0 failures, 0 errors and 0 skips. It does not cover the other nine flow definitions per edition.
+- The later `caff228` source commit added stable testIDs and scroll/keyboard handling to the authenticated service-appointment flow in both Android editions. That flow is more deterministic in source but has not been run by the current public-only CI workflow; no pass is claimed.
+- Repository inventory: 49 Java backend test classes, 9 Playwright spec files, and 11 runnable Maestro flow files per Android edition (2 public, 5 authenticated and 4 notification-fixture flows) plus shared login subflows. File counts are not code-coverage measures.
+- Most browser journeys use mocked/intercepted API fixtures. They verify client behavior but do not prove complete real-database browser acceptance. The full authenticated/notification Android All suite still needs deterministic synthetic customer, vehicle and notification fixtures before reliable CI execution.
 
 ## Prioritized remaining work
 
