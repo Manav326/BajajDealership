@@ -121,6 +121,24 @@ There is a backend integration journey for a synthetic customer request through 
 
 The JaCoCo regression floors currently enforce at least 60% bundle line / 35% bundle branch, 65% / 40% for the established core packages, 42% / 24% for Finance and 14% / 9% for Social. Finance has now materially exceeded its floor after three additional PostgreSQL integration scenarios, but the low Social floor is still deliberately close to its measured baseline to prevent regressions while provider tests are expanded. The floor is not a quality target.
 
+#### Social integration class-level hotspots
+
+The Social package total hides several large services with very little direct execution. The class figures below come from the same JaCoCo XML report and are the best next test targets:
+
+| Service class | Line coverage | Branch coverage | Priority |
+|---|---:|---:|---|
+| SocialMetaPublishingService | 5.3% | 1.1% | Critical |
+| SocialWhatsappScheduleService | 6.9% | 0.9% | Critical |
+| SocialMediaWorkflowService | 8.0% | 1.0% | Critical |
+| SocialMediaAssetController | 10.0% | n/a | High |
+| SocialWhatsappService | 13.5% | 9.9% | High |
+| SocialMetaService | 16.4% | 12.6% | High |
+| SocialMediaAssetService | 21.6% | 8.5% | High |
+| SocialMetaController | 23.1% | n/a | Medium |
+| SocialMediaObjectStorage | 82.3% | 73.9% | Relatively strong |
+
+Prioritize approval/reject/cancel and dispatch state transitions, schedule retries and consent revalidation, Meta token/OAuth failure paths, signed media expiry/tamper/integrity paths, and webhook event ordering. The current 25 Social tests mostly cover configuration, storage and endpoint security; they do not yet exercise the core provider workflows deeply.
+
 ### Web — Chromium V8 function execution
 
 The full browser run captured V8 function-execution data per test and unions functions by loaded source module:
