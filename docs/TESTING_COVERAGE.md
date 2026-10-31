@@ -2,12 +2,12 @@
 
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Implementation baseline reviewed:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02` (latest source commit observed before this documentation reconciliation)  
+**Implementation / Android test baseline:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02`  
 **Backend / web / finance measurement baseline:** `f94d46b56698e17c67f7ef61bc96383420a3cd62`  
-**Android strict-emulator/JUnit validator baseline:** `51c937a204f2cdd31b5e791bd0272e66aa3e707d`  
-**Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and GHCR publication/pull evidence are green on their recorded baselines. The strict Android validator run #41178367640 completed successfully: Standard and Liquid Glass each passed both configured public flows with 2 JUnit tests, 0 failures, 0 errors and 0 skips. Full authenticated/notification flow acceptance and physical-device acceptance remain open.
+**Android execution evidence:** [run #41192835741](https://github.com/Manav326/BajajDealership/actions/runs/41192835741), on `caff228`  
+**Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and GHCR publication/pull evidence are green on their recorded baselines. On the Android baseline `caff228`, both Standard and Liquid Glass passed 6/6 CI-selected Maestro flows (2 public + 4 authenticated) with zero failures, errors or skips. Five flow definitions per edition and physical-device acceptance remain open.
 
-**Evidence boundary:** The percentage measurements and backend/web/Windows results below are from the explicitly named earlier baselines, not an exact-head run on `caff228`. The Android strict-run evidence is from `51c937`; the later `caff228` commit updated the authenticated appointment-flow selectors but that flow is not in the two-flow public CI selection.
+**Evidence boundary:** Backend/web/Windows percentage and build measurements below remain tied to their earlier named baselines; Android execution evidence is now available on `caff228`. Android source-code coverage is not measured. The Android CI result covers only the six configured flows, not all 11 flow definitions.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
 
@@ -21,8 +21,8 @@ The overall JaCoCo line/branch percentages below use the report-level aggregate 
 | Staff web portal | Included in 97/97 full Chromium cases | **61.23% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
 | Customer web site | Included in 97/97 full Chromium cases | **64.34% function execution** on 8 loaded source modules | **Good showroom journey coverage; mock-heavy outside API integration tests** | Staging only until real-backend and deployed acceptance |
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
-| Standard Android | 2/2 public Maestro flows passed on emulator; JUnit: 2 tests, 0 failures/errors/skips | Not measured | **Limited positive smoke evidence**; 9 other flow definitions and physical-device acceptance remain | Controlled staging only; complete authenticated/notification and physical-device tests |
-| Liquid Glass Android | 2/2 public Maestro flows passed on emulator; JUnit: 2 tests, 0 failures/errors/skips | Not measured | **Limited positive smoke evidence**; 9 other flow definitions and physical-device acceptance remain | Same gate as Standard |
+| Standard Android | 6/6 CI-selected Maestro flows passed on emulator (2 public + 4 authenticated); 6 JUnit tests, 0 failures/errors/skips | Not measured | **Good targeted emulator regression evidence**; 5 other flow definitions and physical-device acceptance remain | Controlled staging only; complete remaining fixture/parts flows and physical-device tests |
+| Liquid Glass Android | 6/6 CI-selected Maestro flows passed on emulator (2 public + 4 authenticated); 6 JUnit tests, 0 failures/errors/skips | Not measured | **Good targeted emulator regression evidence**; 5 other flow definitions and physical-device acceptance remain | Same gate as Standard |
 | Windows desktop | EXE/MSI/MSIX packaging checks passed; 2 Tauri-related browser specs cover API-target selection and window layout; browser native dialogs are tested separately | Not measured for native shell | **Build evidence good; native app acceptance limited** | Require signed/clean-machine and native-shell acceptance |
 
 **Do not add overlapping test suites together.** The dedicated 42-case Social Studio suite overlaps the 97-case full Chromium suite. The 6 cross-browser cases are an additional, narrow run covering two public showroom scenarios on three engines; they are not another full website suite.
@@ -162,21 +162,21 @@ No trustworthy source-code coverage percentage is currently produced for the Rea
 
 | Suite | Scenario / Maestro flow | Key assertions | Current execution status |
 |---|---|---|---|
-| Public | `authentication-entry.yaml` | Signed-out sign-in entry, credentials and activation fields, return to showroom | Passed in run #41178367640 on both editions (2/2 JUnit tests per edition) |
-| Public | `showroom-smoke.yaml` | Public brand identity, showroom visibility and motorcycle search | Passed in run #41178367640 on both editions (2/2 JUnit tests per edition) |
-| Authenticated | `customer-area-navigation.yaml` | My bikes, parts, updates, profile, saved addresses and service history navigation | Not run in CI; synthetic customer credentials required |
-| Authenticated | `device-layout-adaptation.yaml` | Customer navigation and content remain visible in portrait and landscape | Not run in CI; synthetic customer credentials required |
-| Authenticated | `notification-inbox-basics.yaml` | Inbox and unread-only filter | Not run in CI; synthetic customer credentials required |
+| Public | `authentication-entry.yaml` | Signed-out sign-in entry, credentials and activation fields, return to showroom | Passed in run #41192835741 on both editions (2/2 public JUnit tests per edition) |
+| Public | `showroom-smoke.yaml` | Public brand identity, showroom visibility and motorcycle search | Passed in run #41192835741 on both editions (2/2 public JUnit tests per edition) |
+| Authenticated | `customer-area-navigation.yaml` | My bikes, parts, updates, profile, saved addresses and service history navigation | Passed in authenticated-ci run #41192835741 on both editions |
+| Authenticated | `device-layout-adaptation.yaml` | Customer navigation and content remain visible in portrait and landscape | Passed in authenticated-ci run #41192835741 on both editions |
+| Authenticated | `notification-inbox-basics.yaml` | Inbox and unread-only filter | Passed in authenticated-ci run #41192835741 on both editions |
 | Authenticated | `parts-cart-persistence.yaml` | Parts filters, add-to-cart, subtotal and cart persistence after app restart | Not run in CI; synthetic customer credentials required |
-| Authenticated | `service-appointment-cycle.yaml` | Create and cancel an appointment for a linked synthetic vehicle | Not run in CI; synthetic customer and vehicle required. Stable testIDs plus keyboard/scroll handling were added to both editions in commit `caff228`; this flow has not yet been executed |
+| Authenticated | `service-appointment-cycle.yaml` | Create and cancel an appointment for a linked synthetic vehicle | Passed in authenticated-ci run #41192835741 on both editions after the stable testID and keyboard/scroll updates in `caff228` |
 | Notification fixtures | `notification-pagination.yaml` | Load-more action and page-two fixture | Not run in CI; deterministic notification fixture required |
 | Notification fixtures | `notification-read-unread-dismiss.yaml` | Mark read, mark unread and dismiss | Not run in CI; deterministic notification fixture required |
 | Notification fixtures | `notification-rich-content-cta-image.yaml` | Campaign title/image, CTA and expected destination | Not run in CI; deterministic campaign/media fixture required |
 | Notification fixtures | `notification-unsafe-route-suppressed.yaml` | Unsafe internal destination appears without an actionable CTA | Not run in CI; deterministic notification fixture required |
 
-The emulator CI workflow currently selects only the two public flows. The local helper's `All` selection can run all three suites, but authenticated and fixture flows need a synthetic customer, linked vehicle and deterministic notification fixture data. A public smoke pass must not be described as all 11 flows passing.
+The emulator CI workflow runs two suites per edition: the two public flows and four tagged authenticated regressions (`customer-area-navigation`, `device-layout-adaptation`, `notification-inbox-basics`, and `service-appointment-cycle`). Run #41192835741 passed all six selected flows on both editions. The remaining five definitions are `parts-cart-persistence` plus the four notification-fixture flows; these are not in the current CI selection. Do not describe the 6/11 result as all 11 flows passing.
 
-## 4. Android emulator public smoke: failure diagnosis and successful pass
+## 4. Android emulator public and authenticated regression: failure diagnosis and successful pass
 
 ### Historical runner failure
 
@@ -203,11 +203,18 @@ Both reports contain the two expected scenarios: customer sign-in/activation ent
 
 The persistent single-process helper `.github/scripts/run-android-maestro-public.sh` was corrected and then hardened in [commit 51c937a](https://github.com/Manav326/BajajDealership/commit/51c937a204f2cdd31b5e791bd0272e66aa3e707d). It verifies the flow directory and APK, waits for ADB/device/package-manager readiness, retries install, requires a non-empty parseable JUnit report, requires the JUnit test count to be at least the count of public YAML flow files, and rejects failures, errors or skipped tests.
 
-The stricter rerun [#41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) completed successfully for both editions. The Standard and Liquid Glass jobs each installed the self-contained x86_64 APK, started an isolated PostgreSQL-backed API, seeded the public showroom, ran both public Maestro flows, and uploaded JUnit evidence. Job logs confirm **2/2 flows passed; 2 tests, 0 failures, 0 errors and 0 skips** for each edition. The validator therefore proves the two configured public flows only; it does not execute authenticated or notification-fixture flows.
+Earlier strict public-only run [#41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) passed both public flows on each edition. The emulator workflow was then extended to seed a synthetic customer and linked sold motorcycle in its disposable PostgreSQL database, verify customer login, and run a four-flow authenticated regression suite after public smoke.
 
-After that run, commit `caff228` added stable testIDs and improved scroll/keyboard handling in `service-appointment-cycle.yaml` and both Android customer screens. That changed flow remains unexecuted in CI.
+### Current Android CI evidence on the inspected source baseline
 
-The emulator workflow selects only the two public flows per edition. The remaining authenticated-customer and notification-fixture flows (five and four respectively) still require isolated synthetic customer/vehicle data and deterministic notification fixtures before running the complete 11-flow set. A physical phone run is also required before mobile release acceptance.
+[Run #41192835741](https://github.com/Manav326/BajajDealership/actions/runs/41192835741) ran on source commit `caff228c47358a8cc40178e0ce1f0eb5ad85bc02` and completed successfully for both editions. Each job built and installed its self-contained x86_64 APK, started the isolated PostgreSQL-backed API, applied migrations, seeded the synthetic public dealership plus authenticated customer/vehicle, and verified the synthetic customer login. Then both suites ran:
+
+| Android edition | Public flows | Authenticated regressions | Total JUnit tests | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|---:|---:|
+| Standard | 2/2 | 4/4 | **6** | 0 | 0 | 0 |
+| Liquid Glass | 2/2 | 4/4 | **6** | 0 | 0 | 0 |
+
+Job logs explicitly report 4/4 authenticated flows passed on each edition, including service appointment request and cancellation. This is 6 of 11 defined Maestro flows per edition, not the full suite. The five remaining definitions are `parts-cart-persistence` and four notification-fixture flows; none is claimed as passed. A physical phone run is still required before mobile release acceptance.
 
 ## 5. Quality rating — decision data
 
@@ -219,8 +226,8 @@ The emulator workflow selects only the two public flows per edition. The remaini
 | Customer website | **Good for tested journeys** | 25 showroom cases pass; loaded-source function coverage 64.34%; production-like end-to-end remains |
 | Social Studio | **Good editor regression** | 42 dedicated cases pass; provider authentication, permissions and live publishing remain disabled/external |
 | Notification Studio | **Good browser/backend baseline** | Responsive preview, approvals and Send now have UI and PostgreSQL tests; actual FCM delivery is not proven |
-| Standard Android | **Limited positive smoke evidence** | 2/2 public emulator flows passed with JUnit; 9 additional flow definitions and physical-device acceptance remain |
-| Liquid Glass Android | **Limited positive smoke evidence** | 2/2 public emulator flows passed with JUnit; 9 additional flow definitions and physical-device acceptance remain |
+| Standard Android | **Good targeted CI regression evidence** | 6/6 selected emulator flows passed with JUnit; 5 remaining flow definitions and physical-device acceptance remain |
+| Liquid Glass Android | **Good targeted CI regression evidence** | 6/6 selected emulator flows passed with JUnit; 5 remaining flow definitions and physical-device acceptance remain |
 | Windows desktop | **Limited-to-good build evidence** | EXE/MSI/MSIX packaging passes; browser-based shell layout/API selection exists; full native-shell install/update acceptance remains |
 | Accessibility | **Limited** | Keyboard focus and semantic navigation smoke exists; no comprehensive axe/WCAG or screen-reader audit |
 | Performance and resilience | **Incomplete** | No comprehensive load/stress, long-running scheduler, service outage or backup-restore acceptance suite |
@@ -229,10 +236,10 @@ The emulator workflow selects only the two public flows per edition. The remaini
 
 ### P0 — required before production approval
 
-1. [x] Confirm the stricter JUnit-validation rerun #41178367640 completed successfully for both Standard and Liquid Glass; both job logs and JUnit summaries show 2/2 public flows and zero failures, errors or skips.
+1. [x] Run the strict Android emulator workflow on source commit `caff228` for both Standard and Liquid Glass; run #41192835741 passed all 2 public + 4 authenticated selected flows per edition, with zero JUnit failures, errors or skips.
 2. Fix any actual assertions that fail after Maestro begins executing; do not mask failures as infrastructure retries.
-3. Seed an isolated synthetic customer, linked test vehicle and deterministic notification fixture data so authenticated and notification Maestro flows can run as All on both editions.
-4. Run the full All Maestro suite on at least one representative physical Android device for both editions and retain reports/screenshots.
+3. Add the remaining five flow definitions per edition (`parts-cart-persistence` plus four notification-fixture flows) to CI using isolated deterministic fixture data; current CI evidence is 6/11 per edition.
+4. Run the complete All Maestro suite on representative physical Android devices for both editions and retain reports/screenshots.
 5. Add real-backend Playwright acceptance for staff sales, inventory, finance and workshop, using only synthetic database fixtures; retain the existing service-level integration tests.
 6. Add explicit authorization/privacy browser tests across OWNER, MANAGER and restricted staff roles.
 7. Add backup/restore, deployment migration-upgrade rehearsal, scheduler outage/recovery and realistic transaction concurrency acceptance.
