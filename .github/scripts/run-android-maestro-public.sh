@@ -87,11 +87,12 @@ if [[ ! -s "$junit" ]]; then
   exit 1
 fi
 
-python3 - "$junit" <<'PY'
+python3 - "$junit" "$flow_count" <<'PY'
 import sys
 import xml.etree.ElementTree as ET
 
 report_path = sys.argv[1]
+expected_flows = int(sys.argv[2])
 root = ET.parse(report_path).getroot()
 suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
 tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
@@ -101,10 +102,13 @@ skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
 
 print(
     "Maestro JUnit summary: "
-    f"{tests} tests, {failures} failures, {errors} errors, {skipped} skipped"
+    f"{tests} tests, {failures} failures, {errors} errors, {skipped} skipped; "
+    f"{expected_flows} public flow files expected"
 )
-if tests < 1:
-    raise SystemExit("Maestro JUnit report contains no executed test cases.")
+if tests < expected_flows:
+    raise SystemExit(
+        f"Maestro executed {tests} tests, fewer than the {expected_flows} public flow files."
+    )
 if failures or errors or skipped:
     raise SystemExit("Maestro JUnit report contains failures, errors or skipped test cases.")
 PY
