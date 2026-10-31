@@ -79,14 +79,14 @@ Important test domains include authentication and dealership isolation, customer
 |---|---:|---:|
 | Catalogue | 9 | 3 |
 | Commerce / parts | 17 | 1 |
-| Customers | 21 | 5 |
+| Customers | 21 | 6 |
 | Finance | 16 | 3 |
-| Inventory | 26 | 4 |
+| Inventory | 26 | 5 |
 | Notifications | 35 | 7 |
-| Sales | 34 | 5 |
-| Security | 17 | 5 |
-| Social integrations | 25 | 5 |
-| System | 12 | 1 |
+| Sales | 34 | 6 |
+| Security | 17 | 6 |
+| Social integrations | 25 | 6 |
+| System | 12 | 2 |
 | Workshop | 20 | 3 |
 | Root / migrations | 1 | 1 |
 | **Total** | **233** | **49** |
