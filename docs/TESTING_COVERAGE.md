@@ -2,8 +2,8 @@
 
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Audited test-infrastructure baseline:** a5457abaa0e517fac2b53558a3d53e3fa02fda24  
-**Decision:** Not approved for full production rollout. Backend and browser automation are useful and currently green. Android device execution remains unproven because the latest emulator attempt failed before Maestro could install the APK and start scenarios.
+**Audited test-infrastructure baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
+**Decision:** Not approved for full production rollout. Backend and browser automation are green. The latest Android emulator workflow is rebuilding both editions with corrected absolute APK paths; no Maestro result is claimed until JUnit artifacts are available.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
 
@@ -11,12 +11,12 @@ This document is the decision record for test volume, measured source coverage, 
 
 | Application / layer | Automated execution evidence | Measured source coverage | Quality assessment | Release decision |
 |---|---|---:|---|---|
-| Backend / API | 233/233 PostgreSQL-backed tests passed | **66.69% line / 42.82% branch** | **Good**, with two weak packages | Keep CI gate; improve Finance and Social |
+| Backend / API | 236/236 PostgreSQL-backed tests passed | **69.63% line / 44.76% branch** | **Good, improved**; Social remains very weak | Keep CI gate; prioritize Social and financial reconciliation edge cases |
 | Staff web portal | Included in 97/97 full Chromium cases | **61.23% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
 | Customer web site | Included in 97/97 full Chromium cases | **64.34% function execution** on 8 loaded source modules | **Good showroom journey coverage; mock-heavy outside API integration tests** | Staging only until real-backend and deployed acceptance |
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
-| Standard Android | 11 runnable flow definitions; latest emulator job failed before installing/running flows | Not measured | **Insufficient execution evidence** | No mobile pass claim; fix CI runner and complete device suite |
-| Liquid Glass Android | 11 runnable flow definitions; latest emulator job failed before installing/running flows | Not measured | **Insufficient execution evidence** | Same gate as Standard |
+| Standard Android | 11 runnable flow definitions; latest emulator run #41174258459 is still building its x86_64 test APK | Not measured | **Insufficient execution evidence** | No mobile pass claim until JUnit flow results and physical-device acceptance |
+| Liquid Glass Android | 11 runnable flow definitions; latest emulator run #41174258459 is still building its x86_64 test APK | Not measured | **Insufficient execution evidence** | Same gate as Standard |
 | Windows desktop | EXE/MSI/MSIX packaging checks passed; 2 Tauri-related browser specs cover API-target selection and window layout; browser native dialogs are tested separately | Not measured for native shell | **Build evidence good; native app acceptance limited** | Require signed/clean-machine and native-shell acceptance |
 
 **Do not add overlapping test suites together.** The dedicated 42-case Social Studio suite overlaps the 97-case full Chromium suite. The 6 cross-browser cases are an additional, narrow run covering two public showroom scenarios on three engines; they are not another full website suite.
@@ -63,11 +63,11 @@ This is a valuable compatibility smoke, not a complete 97-case Firefox/WebKit ru
 
 ### Backend / API — PostgreSQL integration and security tests
 
-<badge color="success">233 passed / 233 executed</badge>
+<badge color="success">236 passed / 236 executed</badge>
 
-[Main CI run #41172140918](https://github.com/Manav326/BajajDealership/actions/runs/41172140918) executed the backend suite against PostgreSQL. Maven reported:
+[Main CI run #41174258424](https://github.com/Manav326/BajajDealership/actions/runs/41174258424) executed the backend suite against PostgreSQL. The backend job completed successfully (the overall CI run was still finishing other packaging jobs when this snapshot was taken). Maven reported:
 
-- Tests run: **233**
+- Tests run: **236**
 - Failures: **0**
 - Errors: **0**
 - Skipped: **0**
@@ -80,7 +80,7 @@ Important test domains include authentication and dealership isolation, customer
 | Catalogue | 9 | 3 |
 | Commerce / parts | 17 | 1 |
 | Customers | 21 | 6 |
-| Finance | 16 | 3 |
+| Finance | 19 | 3 |
 | Inventory | 26 | 5 |
 | Notifications | 35 | 7 |
 | Sales | 34 | 6 |
@@ -89,7 +89,7 @@ Important test domains include authentication and dealership isolation, customer
 | System | 12 | 2 |
 | Workshop | 20 | 3 |
 | Root / migrations | 1 | 1 |
-| **Total** | **233** | **49** |
+| **Total** | **236** | **49** |
 
 There is a backend integration journey for a synthetic customer request through test ride, booking, invoice, payment record, handover and customer ownership visibility. The parallel browser UI request-conversion test remains API-mocked; keep those two evidence types distinct.
 
@@ -99,11 +99,11 @@ There is a backend integration journey for a synthetic customer request through 
 
 <badge color="success">Coverage floors passed</badge>
 
-[Coverage report artifact from CI #41172140918](https://github.com/Manav326/BajajDealership/actions/runs/41172140918/artifacts/13031915147)
+[Coverage report artifact from CI #41174258424](https://github.com/Manav326/BajajDealership/actions/runs/41174258424/artifacts/13031568476)
 
 | Package | Line coverage | Branch coverage | Assessment |
 |---|---:|---:|---|
-| Whole backend bundle | **66.69%** | **42.82%** | Good baseline; more branches needed |
+| Whole backend bundle | **69.63%** | **44.76%** | Good; continue raising branch depth |
 | Catalogue | 86.08% | 58.82% | Strong |
 | Commerce / parts | 80.16% | 57.39% | Strong |
 | Customers | 73.65% | 47.36% | Good |
@@ -113,10 +113,10 @@ There is a backend integration journey for a synthetic customer request through 
 | Security | 80.06% | 50.38% | Strong |
 | System | 79.08% | 62.80% | Strong |
 | Workshop | 79.45% | 55.37% | Strong |
-| Finance | **45.32%** | **26.73%** | **Weak; priority for more tests** |
+| Finance | **76.53%** | **50.60%** | **Good after new expense, day-close and tax-control integration tests** |
 | Social integrations | **15.85%** | **10.57%** | **Very weak; highest priority** |
 
-The JaCoCo regression floors currently enforce at least 60% bundle line / 35% bundle branch, 65% / 40% for the established core packages, 42% / 24% for Finance and 14% / 9% for Social. Finance/Social thresholds are deliberately set close to the measured baseline to prevent regressions while their test suites are expanded. They are not quality targets or evidence those domains are adequately tested.
+The JaCoCo regression floors currently enforce at least 60% bundle line / 35% bundle branch, 65% / 40% for the established core packages, 42% / 24% for Finance and 14% / 9% for Social. Finance has now materially exceeded its floor after three additional PostgreSQL integration scenarios, but the low Social floor is still deliberately close to its measured baseline to prevent regressions while provider tests are expanded. The floor is not a quality target.
 
 ### Web — Chromium V8 function execution
 
@@ -143,18 +143,18 @@ No trustworthy source-code coverage percentage is currently produced for the Rea
 
 ## 4. Android run: exact failure and correction
 
-[Android emulator run #41172140850](https://github.com/Manav326/BajajDealership/actions/runs/41172140850) built both self-contained x86_64 Maestro APKs, started the API and PostgreSQL stack, seeded a synthetic CI dealership and verified 20 public catalogue models. Both editions then failed **before Maestro executed a scenario** because the emulator's ADB transport reported device offline during APK installation.
+[Android emulator run #41173351609](https://github.com/Manav326/BajajDealership/actions/runs/41173351609) built the Standard x86_64 APK and booted the emulator, but failed before Maestro because its relative APK path did not resolve from the emulator-runner working directory. The workflow now uses absolute `$GITHUB_WORKSPACE` paths, verifies the file exists and prints candidate APK paths if it does not. The fresh two-edition run [#41174258459](https://github.com/Manav326/BajajDealership/actions/runs/41174258459) is in progress; no Maestro result is claimed yet.
 
 Therefore:
 
 - APK generation: passed.
 - Native project generation and TypeScript checks: passed.
 - Synthetic API/database preflight: passed.
-- APK installation: not passed.
-- Maestro scenario execution: **0 flows executed**.
+- APK installation: not proven on the previous failed attempt; the latest absolute-path run is still in progress.
+- Maestro scenario execution: **0 passed in the failed prior attempt; current attempt pending**.
 - Android app regression result: **unknown**, not pass and not a product assertion failure.
 
-The ADB-hardened workflow now restarts the ADB server, waits for the emulator transport, Android boot and package-manager readiness, reconnects offline transports and retries APK installation. A fresh run [#41173351609](https://github.com/Manav326/BajajDealership/actions/runs/41173351609) has progressed into the Standard public Maestro step while Liquid Glass completes its APK build. Neither edition is counted as passed until its JUnit artifact is uploaded.
+The workflow waits for ADB device state, Android boot and package-manager readiness, then uses absolute workspace paths for APK installation and Maestro flow files. Both editions must upload valid JUnit results before any flow is counted as passed.
 
 The emulator smoke workflow currently exercises the two public flows. Full authenticated/notification All flows still require a separate, isolated synthetic-account and notification-fixture setup. A physical phone run is also still required before mobile release acceptance.
 
@@ -162,14 +162,14 @@ The emulator smoke workflow currently exercises the two public flows. Full authe
 
 | Dimension | Quality | Why |
 |---|---|---|
-| Backend correctness tests | **Good** | 233 real PostgreSQL-backed tests passed, including security, dealership scope, transaction and concurrency cases |
-| Backend coverage depth | **Mixed** | Strong core packages; Finance is 45.32% line; Social is only 15.85% line |
+| Backend correctness tests | **Good** | 236 real PostgreSQL-backed tests passed, including security, dealership scope, transaction and concurrency cases |
+| Backend coverage depth | **Good but uneven** | Whole backend 69.63% line / 44.76% branch; Finance improved to 76.53% / 50.60%; Social remains 15.85% / 10.57% |
 | Staff web | **Good, not complete** | Main workflows have broad passing Chromium coverage; loaded-source function coverage 61.15%; many API routes are mocked |
 | Customer website | **Good for tested journeys** | 25 showroom cases pass; loaded-source function coverage 64.34%; production-like end-to-end remains |
 | Social Studio | **Good editor regression** | 42 dedicated cases pass; provider authentication, permissions and live publishing remain disabled/external |
 | Notification Studio | **Good browser/backend baseline** | Responsive preview, approvals and Send now have UI and PostgreSQL tests; actual FCM delivery is not proven |
-| Standard Android | **Insufficient evidence** | 11 flow definitions, but latest CI stopped before installing the APK |
-| Liquid Glass Android | **Insufficient evidence** | Same; no successful latest device execution |
+| Standard Android | **Insufficient evidence** | 11 flow definitions; latest workflow is still building the corrected emulator APK; no flow pass yet |
+| Liquid Glass Android | **Insufficient evidence** | 11 flow definitions; latest workflow is still building the corrected emulator APK; no flow pass yet |
 | Windows desktop | **Limited-to-good build evidence** | EXE/MSI/MSIX packaging passes; browser-based shell layout/API selection exists; full native-shell install/update acceptance remains |
 | Accessibility | **Limited** | Keyboard focus and semantic navigation smoke exists; no comprehensive axe/WCAG or screen-reader audit |
 | Performance and resilience | **Incomplete** | No comprehensive load/stress, long-running scheduler, service outage or backup-restore acceptance suite |
@@ -188,7 +188,7 @@ The emulator smoke workflow currently exercises the two public flows. Full authe
 
 ### P1 — improve quality depth
 
-1. Raise Finance coverage from 45.32% line / 26.73% branch to at least 65% / 40%.
+1. Maintain Finance above its current 76.53% line / 50.60% branch baseline while adding reversal, reconciliation, permission and report-boundary cases.
 2. Raise Social coverage from 15.85% / 10.57% to at least 50% / 35%, including provider callback/error/permission/token lifecycle cases with synthetic provider stubs.
 3. Raise whole-backend coverage progressively toward 75% line / 55% branch, without weakening current floors.
 4. Add a stable per-application frontend line/branch metric (e.g. instrumented Vitest/V8 source maps); retain the current loaded-function metric only as a browser-journey signal.
