@@ -152,3 +152,9 @@ The physical phone and local API are not available to GitHub-hosted CI. CI conti
 ## Two Android editions
 
 The Standard Edition remains package `com.quantaedge.luckybajaj`. Its Liquid Glass sibling lives in `apps/android-liquid-glass`, uses `com.quantaedge.luckybajajlg`, and can be installed alongside Standard. Both use the same Lucky Bajaj API and customer records. Shared feature source and Maestro flows are byte-identical and checked by `scripts/check-android-edition-parity.ps1`; edition-specific visual tokens and glass effects are separate.
+
+## APK and Play Store build profiles
+
+The GitHub Actions Maestro APK and the local physical-device Maestro build are deliberately restricted to `arm64-v8a`, the ABI used by supported 64-bit ARM test phones. This keeps the installable test artifact smaller and avoids packaging native libraries for emulator/desktop CPU architectures that are not used by the physical-device suite. The metadata sidecar records the ABI, and the downloader/test runner checks the connected phone before installation.
+
+This is a **test-artifact-only** build flag. Do not reuse `-PreactNativeArchitectures=arm64-v8a` for a public Play Store build. For a broader release, use `./gradlew bundleRelease` without the architecture override so React Native's default supported ABI list is retained; configure the upload signing key before distributing the resulting Android App Bundle. The normal Gradle configuration remains universal by default.
