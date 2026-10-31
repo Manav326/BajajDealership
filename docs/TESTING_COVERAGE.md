@@ -12,7 +12,7 @@ This document is the decision record for test volume, measured source coverage, 
 
 | Application / layer | Automated execution evidence | Measured source coverage | Quality assessment | Release decision |
 |---|---|---:|---|---|
-| Backend / API | 236/236 PostgreSQL-backed tests passed | **69.63% line / 44.76% branch** | **Good, improved**; Social remains very weak | Keep CI gate; prioritize Social and financial reconciliation edge cases |
+| Backend / API | 236/236 PostgreSQL-backed tests passed | **69.61% line / 44.76% branch** | **Good, improved**; Social remains very weak | Keep CI gate; prioritize Social and financial reconciliation edge cases |
 | Staff web portal | Included in 97/97 full Chromium cases | **61.23% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
 | Customer web site | Included in 97/97 full Chromium cases | **64.34% function execution** on 8 loaded source modules | **Good showroom journey coverage; mock-heavy outside API integration tests** | Staging only until real-backend and deployed acceptance |
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
@@ -28,7 +28,7 @@ This document is the decision record for test volume, measured source coverage, 
 
 <badge color="success">97 passed / 97 executed</badge>
 
-[Full browser run #41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41172140858) completed with zero failures, skips or flaky tests. Its test-results JSON records 97 expected and 97 passed.
+[Full browser run #41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41173480435) completed with zero failures, skips or flaky tests. Its test-results JSON records 97 expected and 97 passed.
 
 | Spec file | Cases passed | Main scenarios |
 |---|---:|---|
@@ -104,7 +104,7 @@ There is a backend integration journey for a synthetic customer request through 
 
 | Package | Line coverage | Branch coverage | Assessment |
 |---|---:|---:|---|
-| Whole backend bundle | **69.63%** | **44.76%** | Good; continue raising branch depth |
+| Whole backend bundle | **69.61%** | **44.76%** | Good; continue raising branch depth |
 | Catalogue | 86.08% | 58.82% | Strong |
 | Commerce / parts | 80.16% | 57.39% | Strong |
 | Customers | 73.65% | 47.36% | Good |
@@ -115,7 +115,7 @@ There is a backend integration journey for a synthetic customer request through 
 | System | 79.08% | 62.80% | Strong |
 | Workshop | 79.45% | 55.37% | Strong |
 | Finance | **76.53%** | **50.60%** | **Good after new expense, day-close and tax-control integration tests** |
-| Social integrations | **15.85%** | **10.57%** | **Very weak; highest priority** |
+| Social integrations | **15.83%** | **10.57%** | **Very weak; highest priority** |
 
 The JaCoCo regression floors currently enforce at least 60% bundle line / 35% bundle branch, 65% / 40% for the established core packages, 42% / 24% for Finance and 14% / 9% for Social. Finance has now materially exceeded its floor after three additional PostgreSQL integration scenarios, but the low Social floor is still deliberately close to its measured baseline to prevent regressions while provider tests are expanded. The floor is not a quality target.
 
@@ -125,7 +125,7 @@ The full browser run captured V8 function-execution data per test and unions fun
 
 | Application | Source modules loaded | Executed functions | Loaded-source function coverage |
 |---|---:|---:|---:|
-| Staff portal | 42 | 1,066 / 1,741 | **61.15%** |
+| Staff portal | 42 | 1,066 / 1,741 | **61.23%** |
 | Customer web site | 8 | 249 / 387 | **64.34%** |
 | Combined loaded source | 50 | 1,315 / 2,128 | **61.80%** |
 
@@ -164,8 +164,8 @@ The emulator smoke workflow currently exercises the two public flows. Full authe
 | Dimension | Quality | Why |
 |---|---|---|
 | Backend correctness tests | **Good** | 236 real PostgreSQL-backed tests passed, including security, dealership scope, transaction and concurrency cases |
-| Backend coverage depth | **Good but uneven** | Whole backend 69.63% line / 44.76% branch; Finance improved to 76.53% / 50.60%; Social remains 15.85% / 10.57% |
-| Staff web | **Good, not complete** | Main workflows have broad passing Chromium coverage; loaded-source function coverage 61.15%; many API routes are mocked |
+| Backend coverage depth | **Good but uneven** | Whole backend 69.61% line / 44.76% branch; Finance improved to 76.53% / 50.60%; Social remains 15.83% / 10.57% |
+| Staff web | **Good, not complete** | Main workflows have broad passing Chromium coverage; loaded-source function coverage 61.23%; many API routes are mocked |
 | Customer website | **Good for tested journeys** | 25 showroom cases pass; loaded-source function coverage 64.34%; production-like end-to-end remains |
 | Social Studio | **Good editor regression** | 42 dedicated cases pass; provider authentication, permissions and live publishing remain disabled/external |
 | Notification Studio | **Good browser/backend baseline** | Responsive preview, approvals and Send now have UI and PostgreSQL tests; actual FCM delivery is not proven |
@@ -190,7 +190,7 @@ The emulator smoke workflow currently exercises the two public flows. Full authe
 ### P1 — improve quality depth
 
 1. Maintain Finance above its current 76.53% line / 50.60% branch baseline while adding reversal, reconciliation, permission and report-boundary cases.
-2. Raise Social coverage from 15.85% / 10.57% to at least 50% / 35%, including provider callback/error/permission/token lifecycle cases with synthetic provider stubs.
+2. Raise Social coverage from 15.83% / 10.57% to at least 50% / 35%, including provider callback/error/permission/token lifecycle cases with synthetic provider stubs.
 3. Raise whole-backend coverage progressively toward 75% line / 55% branch, without weakening current floors.
 4. Add a stable per-application frontend line/branch metric (e.g. instrumented Vitest/V8 source maps); retain the current loaded-function metric only as a browser-journey signal.
 5. Add full Firefox/WebKit coverage for high-risk customer showroom journeys, plus accessibility scans and manual screen-reader checks.
