@@ -10,11 +10,13 @@ on:
       - 'compose.yaml'
       - '.github/workflows/android-emulator-smoke.yml'
       - '.github/scripts/run-android-maestro-public.sh'
+      - '.github/scripts/run-android-maestro-ci.sh'
       - '.github/scripts/seed-android-maestro-authenticated.sql'
   pull_request:
     branches: [main]
     paths:
       - '.github/scripts/run-android-maestro-public.sh'
+      - '.github/scripts/run-android-maestro-ci.sh'
       - 'apps/android/**'
       - 'apps/android-liquid-glass/**'
       - 'backend/**'
@@ -168,13 +170,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: |
-            bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}" public
-            MAESTRO_DEALERSHIP_CODE=CI-LUCKY-BAJAJ \
-            MAESTRO_CUSTOMER_CODE=CI-MAESTRO-CUSTOMER \
-            MAESTRO_CUSTOMER_PASSWORD=CI-Maestro-Only-Password-123 \
-            MAESTRO_CUSTOMER_VEHICLE_NAME="CI Maestro Motorcycle" \
-              bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}" authenticated-ci
+          script: bash "${{ github.workspace }}/.github/scripts/run-android-maestro-ci.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}"
       - name: Upload emulator test results
         if: always()
         uses: actions/upload-artifact@v4
