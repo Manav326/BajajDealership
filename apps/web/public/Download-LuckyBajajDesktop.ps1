@@ -232,7 +232,7 @@ function Build-LocalDockerInstaller {
     Write-Warning 'The working tree has uncommitted changes. The installer will include the current local files.'
   }
 
-    $previousAppVersion = $env:VITE_APP_VERSION
+  $previousAppVersion = $env:VITE_APP_VERSION
   $exeDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/nsis'
   $msiDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/msi'
 
