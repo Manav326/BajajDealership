@@ -3,7 +3,7 @@
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
 **Application / Finance test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
-**Latest main test-harness baseline:** 69e7bdaee9cd132de1bf11926c74956e4a2caa3c  
+**Latest main test-harness baseline:** 51c937a204f2cdd31b5e791bd0272e66aa3e707d  
 **Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and the published GHCR image smoke test are green. Android remains unapproved: run #41175240508 built both APKs and booted both emulators, but its runner failed before installation or Maestro execution. The current main runner uses one persistent shell process and validates JUnit output; a fresh passing emulator run is not yet evidenced.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
@@ -195,7 +195,7 @@ The workflow now invokes `.github/scripts/run-android-maestro-public.sh` through
 - Runs Maestro and requires a non-empty, parseable JUnit report.
 - Rejects empty test runs and any JUnit failures, errors or skipped cases.
 
-These safeguards are present in main test-harness commit `69e7bdaee9cd132de1bf11926c74956e4a2caa3c`. They are a code correction, **not yet a successful emulator test result**. Until a fresh workflow uploads valid JUnit reports for both editions, Android execution remains unverified.
+These safeguards are present in main test-harness commit `51c937a204f2cdd31b5e791bd0272e66aa3e707d`. The JUnit validator also requires at least as many executed tests as there are public YAML flow files and rejects any failures, errors or skipped cases. They are a code correction, **not yet a successful emulator test result**. Until a fresh workflow uploads valid JUnit reports for both editions, Android execution remains unverified.
 
 Evidence summary:
 
