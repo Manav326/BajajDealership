@@ -137,12 +137,23 @@ The workflow enforces a 50% regression floor for the loaded-source function metr
 
 ### Android and Windows coverage
 
-No trustworthy source-code coverage percentage is currently produced for the React Native Android editions or native Tauri shell. Maestro flow counts are scenario inventory, not line/branch/function coverage. The Android app's 11 flow definitions in each edition are:
+No trustworthy source-code coverage percentage is currently produced for the React Native Android editions or native Tauri shell. Maestro flow counts are scenario inventory, not line/branch/function coverage. Standard and Liquid Glass each define the same 11 flows, plus a shared customer-login subflow:
 
-- 2 public flows: authentication/activation entry and public showroom.
-- 5 authenticated flows: customer area navigation, portrait/landscape adaptation, notification inbox, parts cart persistence, and service appointment request/cancellation.
-- 4 notification fixtures: pagination, read/unread/dismiss, rich content/image/CTA, and unsupported destination suppression.
-- A shared customer login subflow supports the authenticated tests.
+| Suite | Scenario / Maestro flow | Key assertions | Current execution status |
+|---|---|---|---|
+| Public | `authentication-entry.yaml` | Signed-out sign-in entry, credentials and activation fields, return to showroom | Pending current emulator run |
+| Public | `showroom-smoke.yaml` | Public brand identity, showroom visibility and motorcycle search | Pending current emulator run |
+| Authenticated | `customer-area-navigation.yaml` | My bikes, parts, updates, profile, saved addresses and service history navigation | Not run in CI; synthetic customer credentials required |
+| Authenticated | `device-layout-adaptation.yaml` | Customer navigation and content remain visible in portrait and landscape | Not run in CI; synthetic customer credentials required |
+| Authenticated | `notification-inbox-basics.yaml` | Inbox and unread-only filter | Not run in CI; synthetic customer credentials required |
+| Authenticated | `parts-cart-persistence.yaml` | Parts filters, add-to-cart, subtotal and cart persistence after app restart | Not run in CI; synthetic customer credentials required |
+| Authenticated | `service-appointment-cycle.yaml` | Create and cancel an appointment for a linked synthetic vehicle | Not run in CI; synthetic customer and vehicle required |
+| Notification fixtures | `notification-pagination.yaml` | Load-more action and page-two fixture | Not run in CI; deterministic notification fixture required |
+| Notification fixtures | `notification-read-unread-dismiss.yaml` | Mark read, mark unread and dismiss | Not run in CI; deterministic notification fixture required |
+| Notification fixtures | `notification-rich-content-cta-image.yaml` | Campaign title/image, CTA and expected destination | Not run in CI; deterministic campaign/media fixture required |
+| Notification fixtures | `notification-unsafe-route-suppressed.yaml` | Unsafe internal destination appears without an actionable CTA | Not run in CI; deterministic notification fixture required |
+
+The emulator CI workflow currently selects only the two public flows. The local helper's `All` selection can run all three suites, but authenticated and fixture flows need a synthetic customer, linked vehicle and deterministic notification fixture data. A public smoke pass must not be described as all 11 flows passing.
 
 ## 4. Android run: exact failure and correction
 
