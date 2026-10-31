@@ -72,8 +72,8 @@ Keep provider secrets out of source control and browser responses. Provider mess
 ## Current implementation checkpoint
 
 - [x] GitHub tracking issue created.
-- [x] Work branch created: feature/issue-9-social-media-studio.
-- [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
+- [x] Initial implementation branch was created and the implementation was merged into main; the issue remains open for live provider acceptance.
+- [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (dedicated Social Studio browser workflow passed on main in run 41157066812; rerun when relevant code changes).
 - [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
 - [x] Confirm web typecheck/build and CI for the implementation revisions. Current main's exact-head Notification browser suite passed; the dedicated Social Studio browser suite last passed on an earlier main commit and must be rerun after relevant Social Studio changes.
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
@@ -84,12 +84,12 @@ Keep provider secrets out of source control and browser responses. Provider mess
 - [x] Persisted, auditable publishing approval/rejection workflow with a dealership-scoped review queue; an authenticated private artwork preview must load before approving.
 - [x] Backend-scheduled Meta publishing (2-minute minimum lead, 90-day horizon), lock-based dispatch, audited stale-lock recovery and no-blind-retry handling for uncertain outcomes.
 - [x] Backend-scheduled WhatsApp sends with lock-based dispatch, manager-only cancellation while still scheduled, current opt-in/phone/template and current-role revalidation, webhook delivery states, and audited safe uncertain-outcome recovery.
-- [ ] Complete authorized-account E2E tests and destination disconnect/revocation.
+- [ ] Complete authorized-account provider E2E tests; verify local disconnect and remote revocation confirmation against authorized accounts.
 - [x] Add WhatsApp template sends, channel-specific opt-in/opt-out, approved-template parameter checks, optional image headers, idempotency and HMAC-verified webhooks (live provider E2E still pending).
 - [x] Add unit coverage for exact WhatsApp webhook HMAC verification, altered request bodies, missing/invalid signatures, disabled configuration and webhook challenge tokens.
 - [x] Keep one centrally configured WhatsApp Business connection for the Lucky Bajaj dealership; provider credentials remain backend-only.
 - [x] Add the assignable `SOCIAL_MEDIA_COORDINATOR` staff role for social publishing and consent-checked WhatsApp messaging without Meta connection administration; integration test verifies permissions are present in the activated staff session.
-- [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.
+- [x] Keep WhatsApp Status on manual export/native-share handoff; do not claim server-side Status publishing without an officially supported API.
 
 
 ## Current release interpretation
