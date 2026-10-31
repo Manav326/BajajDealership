@@ -140,8 +140,8 @@ try {
   $verifiedHash = (Get-FileHash -LiteralPath $verifiedExecutablePath -Algorithm SHA256).Hash
   if ($verifiedHash -ne $sourceHash) { throw 'The executable extracted from the MSIX does not match the source binary.' }
   [xml]$verifiedManifest = Get-Content -LiteralPath $verifiedManifestPath -Raw
-  $identityNode = $verifiedManifest.Package.Identity
-  if ($identityNode.Name -ne $PackageName -or $identityNode.Publisher -ne $Publisher -or $identityNode.Version -ne $Version) {
+  $identityNode = $verifiedManifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Identity']")
+  if (-not $identityNode -or $identityNode.Name -ne $PackageName -or $identityNode.Publisher -ne $Publisher -or $identityNode.Version -ne $Version) {
     throw 'The packaged manifest identity does not match the requested Store package identity.'
   }
 
