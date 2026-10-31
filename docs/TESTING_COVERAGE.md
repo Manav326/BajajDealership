@@ -2,8 +2,9 @@
 
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Audited test-infrastructure baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
-**Decision:** Not approved for full production rollout. Backend and browser automation are green. The latest Android emulator workflow is rebuilding both editions with corrected absolute APK paths; no Maestro result is claimed until JUnit artifacts are available.
+**Application / Finance test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
+**Latest main test-harness baseline:** 52170e2c81f86a597fc6463179eb8646ec0f46b1  
+**Decision:** Not approved for full production rollout. Backend and browser automation are green. The latest Android emulator workflow is rebuilding both editions with paths injected from the GitHub workflow workspace; no Maestro result is claimed until JUnit artifacts are available.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
 
@@ -65,7 +66,7 @@ This is a valuable compatibility smoke, not a complete 97-case Firefox/WebKit ru
 
 <badge color="success">236 passed / 236 executed</badge>
 
-[Main CI run #41174258424](https://github.com/Manav326/BajajDealership/actions/runs/41174258424) executed the backend suite against PostgreSQL. The backend job completed successfully (the overall CI run was still finishing other packaging jobs when this snapshot was taken). Maven reported:
+[Main CI run #41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318) executed the backend suite against PostgreSQL. The backend job completed successfully (the overall CI run was still finishing other packaging jobs when this snapshot was taken). Maven reported:
 
 - Tests run: **236**
 - Failures: **0**
@@ -99,7 +100,7 @@ There is a backend integration journey for a synthetic customer request through 
 
 <badge color="success">Coverage floors passed</badge>
 
-[Coverage report artifact from CI #41174258424](https://github.com/Manav326/BajajDealership/actions/runs/41174258424/artifacts/13031568476)
+[Coverage report artifact from CI #41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318/artifacts/13032471991)
 
 | Package | Line coverage | Branch coverage | Assessment |
 |---|---:|---:|---|
@@ -143,7 +144,7 @@ No trustworthy source-code coverage percentage is currently produced for the Rea
 
 ## 4. Android run: exact failure and correction
 
-[Android emulator run #41173351609](https://github.com/Manav326/BajajDealership/actions/runs/41173351609) built the Standard x86_64 APK and booted the emulator, but failed before Maestro because its relative APK path did not resolve from the emulator-runner working directory. The workflow now uses absolute `$GITHUB_WORKSPACE` paths, verifies the file exists and prints candidate APK paths if it does not. The fresh two-edition run [#41174258459](https://github.com/Manav326/BajajDealership/actions/runs/41174258459) is in progress; no Maestro result is claimed yet.
+[Android emulator run #41174258459](https://github.com/Manav326/BajajDealership/actions/runs/41174258459) built both x86_64 APKs, started the synthetic API/database, and booted each emulator. The run then stopped before Maestro because the emulator action did not expose `GITHUB_WORKSPACE` to its shell, leaving the result directory empty. The workflow now injects `${{ github.workspace }}` at workflow-expansion time. The fresh two-edition run [#41175240508](https://github.com/Manav326/BajajDealership/actions/runs/41175240508) is compiling the APKs with that correction; no Maestro result is claimed yet.
 
 Therefore:
 
