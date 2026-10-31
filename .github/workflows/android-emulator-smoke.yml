@@ -155,14 +155,14 @@ jobs:
           script: |
             set -euo pipefail
             mkdir -p "${{ matrix.app_dir }}/maestro-results/ci-public"
-            apk="$APP_DIR/android/app/build/outputs/apk/release/app-release.apk"
+            apk="${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
             test -s "$apk"
             adb wait-for-device
             adb install -r "$apk"
-            maestro --device="$ANDROID_SERIAL" test "$APP_DIR/.maestro/flows/public" \
+            maestro --device="$ANDROID_SERIAL" test "${{ matrix.app_dir }}/.maestro/flows/public" \
               --format JUNIT \
-              --output "$APP_DIR/maestro-results/ci-public/public.junit.xml" \
-              --test-output-dir "$APP_DIR/maestro-results/ci-public"
+              --output "${{ matrix.app_dir }}/maestro-results/ci-public/public.junit.xml" \
+              --test-output-dir "${{ matrix.app_dir }}/maestro-results/ci-public"
       - name: Upload emulator test results
         if: always()
         uses: actions/upload-artifact@v4
