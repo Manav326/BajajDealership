@@ -57,7 +57,7 @@ npm run typecheck
 npx expo run:android
 ```
 
-CI builds a self-contained, release-variant Android Maestro test APK whenever `apps/android/**` changes. Its JavaScript bundle is embedded, so Metro does not need to run on the PC during device tests. This is an installable test build, not a signed Play Store release. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions).
+CI builds a self-contained, release-variant Android Maestro test APK whenever `apps/android/**` changes. Its JavaScript bundle is embedded, so Metro does not need to run on the PC during device tests. This is an installable arm64 release-variant Maestro test build, not a signed Play Store release. See [GitHub Actions](https://github.com/Manav326/BajajDealership/actions).
 
 ### Download and install the latest CI APK (Windows)
 
@@ -144,9 +144,9 @@ The notification title, image alt text, CTA label and destination heading must m
 
 ### What Maestro covers
 
-Maestro is end-to-end UI coverage, not source-code line coverage. The current suite contains 10 runnable flows plus one shared login subflow. It exercises the public showroom and search, login/activation entry, authenticated navigation, profile/address/service screens, service appointment request and cancellation, parts cart persistence across app restart, portrait/landscape layout adaptation, inbox unread filtering, rich notification rendering, CTA navigation, notification read/unread/dismiss, customer-authorized image loading and page-2 pagination. Three notification fixture flows require the sent campaigns described above. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
+Maestro is end-to-end UI coverage, not source-code line coverage. The current edition contains 11 runnable flow files (2 public, 5 authenticated and 4 fixture-driven notification flows) plus one shared login subflow. It exercises the public showroom and search, login/activation entry, authenticated navigation, profile/address/service screens, service appointment request and cancellation, parts cart persistence across app restart, portrait/landscape layout adaptation, inbox unread filtering, rich notification rendering, CTA navigation, notification read/unread/dismiss, customer-authorized image loading and page-2 pagination. The four fixture-driven notification flows cover pagination, read/unread/dismiss, rich content/CTA/image and unsafe-route suppression; create the exact synthetic campaigns described above before running the notification suite. A test run produces pass/fail counts in JUnit; no percentage of Java/TypeScript lines is claimed by Maestro.
 
-The physical phone and local API are not available to GitHub-hosted CI. CI continues to run backend tests/migrations, web builds, Docker smoke tests and Android typecheck/native APK build. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
+The physical phone and local API are not available to GitHub-hosted CI. CI builds the Android test APK when that edition's source paths change; it does not execute these Maestro device flows. A successful CI run may skip Android jobs when no Android-relevant files changed. Run Maestro on the connected phone from the local PC to validate the device + LAN + API combination.
 
 
 ## Two Android editions
