@@ -2,9 +2,12 @@
 
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Application / Finance test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
-**Latest main test-harness baseline:** 51c937a204f2cdd31b5e791bd0272e66aa3e707d  
-**Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and the published GHCR image smoke test are green. Standard and Liquid Glass Android each passed the two public emulator smoke flows with JUnit evidence in run #41177206073. The stricter JUnit-validation rerun #41178367640 is the latest Android check and was still in progress at the time of this audit. Full authenticated/notification flow acceptance and physical-device acceptance remain open.
+**Implementation baseline reviewed:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02` (latest source commit observed before this documentation reconciliation)  
+**Backend / web / finance measurement baseline:** `f94d46b56698e17c67f7ef61bc96383420a3cd62`  
+**Android strict-emulator/JUnit validator baseline:** `51c937a204f2cdd31b5e791bd0272e66aa3e707d`  
+**Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and GHCR publication/pull evidence are green on their recorded baselines. The strict Android validator run #41178367640 completed successfully: Standard and Liquid Glass each passed both configured public flows with 2 JUnit tests, 0 failures, 0 errors and 0 skips. Full authenticated/notification flow acceptance and physical-device acceptance remain open.
+
+**Evidence boundary:** The percentage measurements and backend/web/Windows results below are from the explicitly named earlier baselines, not an exact-head run on `caff228`. The Android strict-run evidence is from `51c937`; the later `caff228` commit updated the authenticated appointment-flow selectors but that flow is not in the two-flow public CI selection.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
 
@@ -159,13 +162,13 @@ No trustworthy source-code coverage percentage is currently produced for the Rea
 
 | Suite | Scenario / Maestro flow | Key assertions | Current execution status |
 |---|---|---|---|
-| Public | `authentication-entry.yaml` | Signed-out sign-in entry, credentials and activation fields, return to showroom | Pending current emulator run |
-| Public | `showroom-smoke.yaml` | Public brand identity, showroom visibility and motorcycle search | Pending current emulator run |
+| Public | `authentication-entry.yaml` | Signed-out sign-in entry, credentials and activation fields, return to showroom | Passed in run #41178367640 on both editions (2/2 JUnit tests per edition) |
+| Public | `showroom-smoke.yaml` | Public brand identity, showroom visibility and motorcycle search | Passed in run #41178367640 on both editions (2/2 JUnit tests per edition) |
 | Authenticated | `customer-area-navigation.yaml` | My bikes, parts, updates, profile, saved addresses and service history navigation | Not run in CI; synthetic customer credentials required |
 | Authenticated | `device-layout-adaptation.yaml` | Customer navigation and content remain visible in portrait and landscape | Not run in CI; synthetic customer credentials required |
 | Authenticated | `notification-inbox-basics.yaml` | Inbox and unread-only filter | Not run in CI; synthetic customer credentials required |
 | Authenticated | `parts-cart-persistence.yaml` | Parts filters, add-to-cart, subtotal and cart persistence after app restart | Not run in CI; synthetic customer credentials required |
-| Authenticated | `service-appointment-cycle.yaml` | Create and cancel an appointment for a linked synthetic vehicle | Not run in CI; synthetic customer and vehicle required |
+| Authenticated | `service-appointment-cycle.yaml` | Create and cancel an appointment for a linked synthetic vehicle | Not run in CI; synthetic customer and vehicle required. Stable testIDs plus keyboard/scroll handling were added to both editions in commit `caff228`; this flow has not yet been executed |
 | Notification fixtures | `notification-pagination.yaml` | Load-more action and page-two fixture | Not run in CI; deterministic notification fixture required |
 | Notification fixtures | `notification-read-unread-dismiss.yaml` | Mark read, mark unread and dismiss | Not run in CI; deterministic notification fixture required |
 | Notification fixtures | `notification-rich-content-cta-image.yaml` | Campaign title/image, CTA and expected destination | Not run in CI; deterministic campaign/media fixture required |
@@ -200,7 +203,9 @@ Both reports contain the two expected scenarios: customer sign-in/activation ent
 
 The persistent single-process helper `.github/scripts/run-android-maestro-public.sh` was corrected and then hardened in [commit 51c937a](https://github.com/Manav326/BajajDealership/commit/51c937a204f2cdd31b5e791bd0272e66aa3e707d). It verifies the flow directory and APK, waits for ADB/device/package-manager readiness, retries install, requires a non-empty parseable JUnit report, requires the JUnit test count to be at least the count of public YAML flow files, and rejects failures, errors or skipped tests.
 
-The stricter rerun [#41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) was still in progress at the time this audit snapshot was captured. No result is claimed for that run until both edition jobs complete and their JUnit artifacts are available.
+The stricter rerun [#41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) completed successfully for both editions. The Standard and Liquid Glass jobs each installed the self-contained x86_64 APK, started an isolated PostgreSQL-backed API, seeded the public showroom, ran both public Maestro flows, and uploaded JUnit evidence. Job logs confirm **2/2 flows passed; 2 tests, 0 failures, 0 errors and 0 skips** for each edition. The validator therefore proves the two configured public flows only; it does not execute authenticated or notification-fixture flows.
+
+After that run, commit `caff228` added stable testIDs and improved scroll/keyboard handling in `service-appointment-cycle.yaml` and both Android customer screens. That changed flow remains unexecuted in CI.
 
 The emulator workflow selects only the two public flows per edition. The remaining authenticated-customer and notification-fixture flows (five and four respectively) still require isolated synthetic customer/vehicle data and deterministic notification fixtures before running the complete 11-flow set. A physical phone run is also required before mobile release acceptance.
 
@@ -224,7 +229,7 @@ The emulator workflow selects only the two public flows per edition. The remaini
 
 ### P0 — required before production approval
 
-1. Confirm the stricter JUnit-validation rerun #41178367640 completes successfully for both Standard and Liquid Glass; retain its non-empty JUnit reports and verify all configured public flows executed without failures, errors or skips.
+1. [x] Confirm the stricter JUnit-validation rerun #41178367640 completed successfully for both Standard and Liquid Glass; both job logs and JUnit summaries show 2/2 public flows and zero failures, errors or skips.
 2. Fix any actual assertions that fail after Maestro begins executing; do not mask failures as infrastructure retries.
 3. Seed an isolated synthetic customer, linked test vehicle and deterministic notification fixture data so authenticated and notification Maestro flows can run as All on both editions.
 4. Run the full All Maestro suite on at least one representative physical Android device for both editions and retain reports/screenshots.
