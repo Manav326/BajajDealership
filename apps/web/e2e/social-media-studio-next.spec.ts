@@ -1350,8 +1350,11 @@ test('legacy single-soundtrack projects reopen, render audio and upgrade on the 
   })).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Close video preview' }).click();
 
-  await page.getByRole('slider', { name: 'Audio volume' }).fill('43');
+  const migratedVolume = page.getByRole('slider', { name: 'Audio volume' });
+  await migratedVolume.fill('43');
+  await expect(migratedVolume).toHaveValue('43');
   await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
   const upgraded = await page.evaluate(async (id) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('lucky-bajaj-creative-studio', 1);
@@ -1668,7 +1671,7 @@ test('WhatsApp consent and scheduled-send cancellation use in-app confirmations'
   await openNewStudio(page);
   await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
-  await page.getByLabel('Customer').selectOption('CUSTOMER-1');
+  await page.locator('section[aria-label="WhatsApp Business messaging"] select').first().selectOption('CUSTOMER-1');
 
   const optOut = page.getByRole('button', { name: 'Record opt-out' });
   await optOut.click();
@@ -1783,7 +1786,7 @@ test('sending a WhatsApp template requires an in-app confirmation', async ({ pag
   await openNewStudio(page);
   await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
-  await page.getByLabel('Customer').selectOption('CUSTOMER-READY');
+  await page.locator('section[aria-label="WhatsApp Business messaging"] select').first().selectOption('CUSTOMER-READY');
   await page.getByRole('button', { name: 'Load templates' }).click();
   await expect(page.getByRole('combobox', { name: 'Template and language' })).toHaveValue('service_reminder|en');
 
