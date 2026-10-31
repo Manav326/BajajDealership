@@ -972,9 +972,9 @@ test('multiple audio tracks retain independent source and timeline settings afte
   });
   await page.getByRole('button', { name: 'persistent-voiceover.wav', exact: true }).click();
 
-  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
   await page.getByRole('spinbutton', { name: 'Audio start position' }).fill('1');
   await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('5');
+  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
   await page.getByRole('slider', { name: 'Audio volume' }).fill('45');
   await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.7');
   await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.8');
