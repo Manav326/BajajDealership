@@ -1,5 +1,8 @@
 # Lucky Bajaj Public Showroom
 
+**Implementation status (31 October 2026):** the public catalogue, browse/detail/compare/share surfaces, source/date price disclosures, dealership-managed promotions, model image gallery and customer request handoff are implemented in current main code. This is a code-status statement, not live-deployment acceptance. See [PRODUCT_STATUS.md](PRODUCT_STATUS.md) for the release matrix and [DEPLOY_PREVIEW.md](DEPLOY_PREVIEW.md) for preview limitations.
+
+
 ## Product/data boundary
 The public motorcycle catalogue is sourced from `bajaj_catalogue_model`; physical stock remains sourced from dealership-scoped `vehicle_model` and `vehicle_unit`. The catalogue migration creates 20 current Bajaj Auto motorcycle listings (Freedom, Pulsar, Dominar, Avenger, Platina and CT families) with manufacturer-constrained records. It deliberately does not create fake vehicle units, chassis/engine identifiers or available stock.
 
@@ -28,7 +31,7 @@ Set `app.dealership.public-code` to the exact active dealership code on deployme
 - Staff can configure source-backed effective-dated location estimates; a public estimate is unavailable until a matching profile is saved. Do not seed or infer legal/insurance fees.
 - Notification saved-preview/Send now/scheduler race, expiry, batch isolation and retry exhaustion are covered by integration tests. Retail parts checkout supports pickup or a delivery request with a staff-entered fee and explicit customer acceptance/decline; stock is released and cancellation is audited when a pending order is cancelled. Integration and browser regressions cover checkout/cancellation/concurrency, collection, delivery quoting and full-order returns. Returns restock only after staff confirms inspection/resaleability and create a refund-review state; the system does not issue an automatic refund or imply an online payment occurred.
 - The synthetic showroom browser suite checks the 20-card catalogue, model search, sourced-offer display, absent/unsourced quote state, test-ride/purchase intent handoff, 320/390/768/1280 viewport layouts, reduced-motion preference and keyboard-accessible modal behavior. These tests use synthetic fixtures and do not substitute for live preview verification or dealership-supplied source/pricing records.
-- Full customer transaction/workshop journey QA and the production gate remain tracked in issues #17, #20, #21 and #22. Do not call this branch production-ready until exact-head CI, live preview smoke checks, sourced dealership prices/offers, payment-provider decisions (if online payments are required), deployment database-history review and all acceptance items are evidenced.
+- Full customer transaction/workshop journey QA remains tracked in issues #20 and #22. The customer retail-parts ordering implementation is present (issue #21), but dealership fitment/price/SKU setup and full acceptance remain. Notification saved-preview/Send now/retry/race code and tests are present (issue #17), but production scheduler operation still requires an always-available runtime and operational monitoring. Do not declare production readiness until live smoke checks, verified dealership data, payment-provider decisions (if online payments are required), deployment database-history review and all acceptance evidence are complete.
 
 
 ### Sourced public promotions
