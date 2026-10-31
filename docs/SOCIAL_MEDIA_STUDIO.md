@@ -1,12 +1,19 @@
-# Social Media Studio — implementation design and resume checkpoint
+# Social Media Studio — implementation and release boundary
+
+**Status reconciled:** 31 October 2026  
+**Tracking:** [Issue #9](https://github.com/Manav326/BajajDealership/issues/9)  
+**Creative editor backlog:** [Issue #45](https://github.com/Manav326/BajajDealership/issues/45)
+
+The repository contains both a browser-local creative workspace and backend/provider workflows for external channels. They are distinct capabilities and neither should be described as proof that live Meta/WhatsApp accounts are connected.
+
 
 Tracked implementation: [Issue #9](https://github.com/Manav326/BajajDealership/issues/9)
 
 ## Scope and current boundary
 
-The Social Media Studio is being added beside the existing staff Notification Studio. The existing LogoGraphicsLab and Notification Studio remain the foundation for internal rich notifications; they must not be conflated with external social posts.
+The Social Media Studio sits beside the existing staff Notification Studio. LogoGraphicsLab and Notification Studio remain the internal rich-notification tools; they must not be conflated with external social posts. The current Creative Studio stores projects/resources in this browser's IndexedDB and optional local folder. It is not a central shared staff library.
 
-The first vertical slice is a browser-local artwork composer:
+The browser-local artwork composer and named project/resource storage are implemented as a local editing/export slice:
 - platform/placement presets with explicit pixel dimensions;
 - editable dealership brand, headline, supporting message, call-to-action, caption and hashtags;
 - optional campaign photo and brand/accent colours;
@@ -54,7 +61,7 @@ Do not advertise direct Status publishing from the server unless a supported off
 ## Delivery phases
 
 - **Phase 1 — artwork foundation:** channel format presets, editable branded composer, PNG export and caption copy. No external API calls.
-- **Phase 2 — Meta publishing:** provide JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes. Provider E2E still requires a configured Meta app; production also requires a persistent existing PostgreSQL database for campaign-image bytes.
+- **Phase 2 — Meta publishing:** JPEG upload, short-lived HMAC-signed media URLs, idempotent Facebook Page photo posts, Instagram media-container processing/polling, provider-confirmed job status and safe handling of uncertain outcomes are implemented in code. The feature remains disabled until a real Meta app, credentials, app review/permissions, authorized destination and provider E2E are configured and accepted; production media bytes use the existing persistent PostgreSQL database by default.
 - **Phase 3 — WhatsApp:** single-recipient approved-template sends, consent/opt-out records, optional image headers, idempotency and signed delivery webhooks are implemented behind server configuration. Remaining work for this single-dealership deployment is authorized-provider E2E testing, plus review of bulk/audience controls and an explicit preview/approval workflow if those features are approved for scope. Owner/Manager can configure or disconnect the Meta connection; staff assigned the `SOCIAL_MEDIA_COORDINATOR` role can publish and send approved WhatsApp templates but cannot change the connected Meta account.
 - **Phase 4 — operations:** durable scheduled queues, database-backed idempotency, lock-based dispatch, audit, permissions, delivery-status reconciliation and safe handling of uncertain provider outcomes are implemented. Do not blindly retry a request that may already have created a public post or sent a message.
 
@@ -68,7 +75,7 @@ Keep provider secrets out of source control and browser responses. Provider mess
 - [x] Work branch created: feature/issue-9-social-media-studio.
 - [x] Add browser-local composer, format presets, PNG/JPEG download, caption copy and share-sheet handoff (CI validation pending).
 - [x] Add named IndexedDB drafts with load, update, delete and optional photo persistence (browser-local, not synced across staff devices).
-- [x] Confirm web typecheck/build and full CI on the current main-synced revision (rerun after this workflow change).
+- [x] Confirm web typecheck/build and CI for the implementation revisions. Current main's exact-head Notification browser suite passed; the dedicated Social Studio browser suite last passed on an earlier main commit and must be rerun after relevant Social Studio changes.
 - [x] Add disabled-by-default Meta OAuth/account-discovery foundation and account-token encryption (provider E2E still pending configuration).
 - [x] Add Facebook Page photo posts and Instagram feed media-container publishing with expiring signed media URLs, idempotent jobs and status polling (live Meta E2E still pending).
 - [x] Add dealership-scoped Meta disconnect: attempt provider permission revocation, disable local destinations and clear locally stored token ciphertext; report when Meta does not confirm remote revocation.
@@ -83,3 +90,12 @@ Keep provider secrets out of source control and browser responses. Provider mess
 - [x] Keep one centrally configured WhatsApp Business connection for the Lucky Bajaj dealership; provider credentials remain backend-only.
 - [x] Add the assignable `SOCIAL_MEDIA_COORDINATOR` staff role for social publishing and consent-checked WhatsApp messaging without Meta connection administration; integration test verifies permissions are present in the activated staff session.
 - [ ] Keep WhatsApp Status on manual share/export unless an officially supported publishing API is verified.
+
+
+## Current release interpretation
+
+- **Implemented in code:** browser-local drafts and assets; Meta OAuth/state/token encryption and destination management; approval-controlled Facebook Page photo publishing and Instagram feed processing; signed media URLs and database-backed media; WhatsApp consent/opt-out records, approved-template send validation, idempotent scheduling/sends and signed webhooks.
+- **Disabled or unverified:** the checked-in Render Blueprint sets Meta and WhatsApp feature flags to false. No provider credentials or authorized production account are assumed. Do not present a provider as connected or a post/message as delivered until the corresponding provider response/webhook proves it.
+- **WhatsApp Status:** export/share handoff only. Do not claim server-side Status publishing.
+- **Creative Studio:** project/resource data are browser-local (IndexedDB and optional local folder). The extensive editor/timeline/render/download completion checklist is tracked separately in issue #45 and is not a prerequisite claim that the provider backend is fully live.
+- **Release gate:** configure an authorized test Meta app, Facebook Page, eligible Instagram professional account, test WABA and consented internal recipient. Validate OAuth, destination mapping, media fetch, approval, publish/send, callbacks/webhooks, retry/uncertain state and disconnect/revocation before enabling any live feature flag.
