@@ -110,6 +110,40 @@ if [[ "$installed" != "true" ]]; then
   exit 1
 fi
 
+# APK installation can temporarily drop the emulator's ADB transport while
+# Android refreshes package metadata. Require three consecutive healthy guest
+# probes before Maestro opens a device connection.
+adb reconnect offline >/dev/null 2>&1 || true
+ready=false
+stable_checks=0
+for attempt in $(seq 1 30); do
+  state="$(adb -s "$serial" get-state 2>/dev/null || true)"
+  boot_completed="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r' || true)"
+  package_manager_ready=false
+  if [[ "$state" == "device" && "$boot_completed" == "1" ]]; then
+    if adb -s "$serial" shell cmd package list packages >/dev/null 2>&1; then
+      package_manager_ready=true
+    fi
+  fi
+  if [[ "$package_manager_ready" == "true" ]]; then
+    ((stable_checks += 1))
+    if [[ "$stable_checks" -ge 3 ]]; then
+      ready=true
+      break
+    fi
+  else
+    stable_checks=0
+    adb reconnect offline >/dev/null 2>&1 || true
+  fi
+  sleep 2
+done
+
+if [[ "$ready" != "true" ]]; then
+  echo "Android emulator lost ADB/package-manager readiness after APK installation." >&2
+  adb devices -l >&2 || true
+  exit 1
+fi
+
 maestro_args=(--device="$serial" test "$flow_dir")
 if [[ -n "$include_tag" ]]; then
   maestro_args+=("--include-tags=$include_tag")
