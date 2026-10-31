@@ -28,10 +28,10 @@ The full measured testing inventory and release-quality assessment are maintaine
 | Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
 | Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
-| Android emulator public smoke | [Run 41175240508](https://github.com/Manav326/BajajDealership/actions/runs/41175240508) | In progress: both editions are rebuilding x86_64 APKs with workflow-injected workspace paths. Earlier runs booted the emulator but failed before Maestro due to the workspace variable being absent from the action shell; no mobile pass is claimed yet |
+| Android emulator public smoke | [Run 41177206073](https://github.com/Manav326/BajajDealership/actions/runs/41177206073) | Passed: Standard 2/2 and Liquid Glass 2/2 public Maestro flows; both JUnit reports show 0 failures, errors or skips. Stricter validator rerun [41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) was still in progress at this audit snapshot |
 | Physical Android acceptance | Not yet evidenced | Standard and Liquid Glass still require a complete All Maestro run and real-device acceptance |
 
-The Android source/test-flow inventory is 11 runnable Maestro flows per edition; this is not an execution or pass count. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and is responsible for its explicitly reported device smoke.
+The Android source/test-flow inventory is 11 runnable Maestro flows per edition. CI has currently executed the 2 public smoke flows per edition (2/2 passed); the remaining five authenticated and four notification-fixture flows per edition are not yet covered by CI. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and records its emulator smoke result.
 
 ## Product capability status
 
