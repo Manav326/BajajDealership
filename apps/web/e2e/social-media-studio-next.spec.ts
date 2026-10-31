@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const nativeDialogsByPage = new WeakMap<Page, string[]>();
+
 function makeSilentWav(seconds: number) {
   const sampleRate = 8000;
   const dataBytes = sampleRate * seconds * 2;
@@ -21,6 +23,12 @@ function makeSilentWav(seconds: number) {
 }
 
 async function installStudioFixture(page: Page) {
+  const nativeDialogs: string[] = [];
+  nativeDialogsByPage.set(page, nativeDialogs);
+  page.on('dialog', async dialog => {
+    nativeDialogs.push(dialog.type() + ': ' + dialog.message());
+    await dialog.dismiss();
+  });
   await page.addInitScript(() => {
     window.sessionStorage.setItem('qe_staff_token', 'social-studio-next-browser-test');
     Object.defineProperty(window, 'showDirectoryPicker', {
@@ -78,6 +86,9 @@ async function openNewStudio(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => installStudioFixture(page));
+test.afterEach(async ({ page }) => {
+  expect(nativeDialogsByPage.get(page) ?? [], 'New Social Media Studio must not show browser-native dialogs').toEqual([]);
+});
 
 test('new navigation entry is separate and existing Social Media Studio remains available', async ({ page }) => {
   await expect(page.locator('button[title="Social Media Studio"]')).toBeVisible();
@@ -290,11 +301,11 @@ test('video render can be cancelled, cleans up and can be retried', async ({ pag
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Pages' }).click();
-  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('2');
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('8');
   await page.getByRole('button', { name: 'Render video' }).click();
   const cancel = page.getByRole('button', { name: 'Cancel render' });
   await expect(cancel).toBeVisible({ timeout: 15000 });
-  await cancel.click();
+  await cancel.click({ force: true });
   await expect(page.getByText('Video rendering was cancelled.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Cancel render' })).toHaveCount(0);
@@ -348,9 +359,14 @@ test('resource import, filter and delete remain in the resource library', async 
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
   await page.getByRole('combobox', { name: 'Resource type' }).selectOption('image');
   await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
-  // Confirm the resource is removed after the explicit confirmation.
+  const confirmation = page.getByRole('dialog', { name: 'Remove resource?' });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText('local-campaign-photo.png');
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('local-campaign-photo.png')).toBeVisible();
+  await page.getByRole('button', { name: 'Delete local-campaign-photo.png' }).click();
+  await page.getByRole('dialog', { name: 'Remove resource?' }).getByRole('button', { name: 'Remove resource' }).click();
   await expect(page.getByText('local-campaign-photo.png')).toHaveCount(0);
 });
 
@@ -438,6 +454,40 @@ test('layer visibility hides and restores the selected canvas object', async ({ 
   await expect(canvasObject).toHaveCount(1);
 });
 
+test('locking a text layer prevents canvas movement and typography edits until unlocked', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
+
+  const textValue = page.getByRole('textbox', { name: 'Text', exact: true });
+  await expect(textValue).toBeEnabled();
+  await page.getByRole('button', { name: 'Layers' }).click();
+  const headlineLayer = page.getByRole('button', { name: 'Headline', exact: true });
+  const headlineRow = headlineLayer.locator('..');
+  await headlineLayer.click();
+  await headlineRow.getByRole('button', { name: 'Lock layer' }).click();
+
+  const lockedCanvasObject = page.getByRole('button', { name: 'Select Headline, locked', exact: true });
+  await expect(lockedCanvasObject).toBeVisible();
+  await expect(textValue).toBeDisabled();
+  await expect(page.getByRole('spinbutton', { name: 'Font size' })).toBeDisabled();
+
+  const originalTransform = await lockedCanvasObject.getAttribute('transform');
+  const objectBox = await lockedCanvasObject.boundingBox();
+  if (!objectBox) throw new Error('Locked headline is not measurable on the canvas.');
+  await page.mouse.move(objectBox.x + objectBox.width/2, objectBox.y + objectBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(objectBox.x + objectBox.width/2 + 45, objectBox.y + objectBox.height/2 + 24, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => lockedCanvasObject.getAttribute('transform')).toBe(originalTransform);
+  await expect(page.locator('svg[aria-label="Editable design canvas"] rect[stroke="#1685ff"]')).toHaveCount(0);
+
+  await headlineRow.getByRole('button', { name: 'Unlock layer' }).click();
+  await expect(textValue).toBeEnabled();
+  await expect(page.getByRole('spinbutton', { name: 'Font size' })).toBeEnabled();
+});
+
 test('search filters Text, Uploads and Audio library entries', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -459,7 +509,7 @@ test('search filters Text, Uploads and Audio library entries', async ({ page }) 
   await expect(page.getByText('campaign-beta.png')).toBeVisible();
   await expect(page.getByText('campaign-alpha.png')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
   await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-alpha.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
   await expect(page.getByRole('button', { name: 'ambient-alpha.wav', exact: true })).toBeVisible();
   await page.getByLabel('Import audio').setInputFiles({ name: 'ambient-beta.wav', mimeType: 'audio/wav', buffer: makeSilentWav(2) });
@@ -611,15 +661,20 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(startAfterTrim, 0);
   await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
 
-  const selectedRange = page.getByRole('group', { name: 'Audio trim range' }).locator('span').nth(1);
+  const timelinePosition = page.getByRole('spinbutton', { name: 'Audio timeline position' });
+  const sourceStartBeforeMove = Number(await start.inputValue());
+  const sourceEndBeforeMove = Number(await end.inputValue());
+  const timelinePositionBeforeMove = Number(await timelinePosition.inputValue());
+  const selectedRange = page.getByRole('group', { name: 'Audio trim range: full-track.wav' }).locator('span').nth(1);
   const rangeBox = await selectedRange.boundingBox();
   if (!rangeBox) throw new Error('Audio selected-range body was not visible.');
   await page.mouse.move(rangeBox.x + rangeBox.width/2, rangeBox.y + rangeBox.height/2);
   await page.mouse.down();
   await page.mouse.move(rangeBox.x + rangeBox.width/2 - 12, rangeBox.y + rangeBox.height/2, { steps: 4 });
   await page.mouse.up();
-  await expect.poll(async () => Number(await start.inputValue())).toBeLessThan(35);
-  await expect.poll(async () => Number(await end.inputValue())).toBeLessThan(95);
+  await expect.poll(async () => Number(await timelinePosition.inputValue())).toBeLessThan(timelinePositionBeforeMove);
+  await expect.poll(async () => Number(await start.inputValue())).toBeCloseTo(sourceStartBeforeMove, 1);
+  await expect.poll(async () => Number(await end.inputValue())).toBeCloseTo(sourceEndBeforeMove, 1);
 
   const beforeStartTrim = Number(await start.inputValue());
   const beforeEndTrim = Number(await end.inputValue());
@@ -651,6 +706,57 @@ test('audio timeline selects and moves a 35–95 second range from a 125-second 
   await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('65');
   await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.8');
   await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('1.1');
+});
+
+test('multiple audio tracks keep independent timing and mix into the rendered video', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio' }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'music-bed.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  const musicBed = page.getByRole('button', { name: 'music-bed.wav', exact: true });
+  await expect(musicBed).toBeVisible();
+  await musicBed.click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'voiceover.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  const voiceover = page.getByRole('button', { name: 'voiceover.wav', exact: true });
+  await expect(voiceover).toBeVisible();
+  await voiceover.click();
+
+  const firstTrack = page.getByRole('group', { name: 'Audio track 1: music-bed.wav' });
+  const secondTrack = page.getByRole('group', { name: 'Audio track 2: voiceover.wav' });
+  await expect(firstTrack).toBeVisible();
+  await expect(secondTrack).toBeVisible();
+
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('4');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('4');
+  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('45');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.7');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.8');
+  await page.getByRole('button', { name: 'Select audio track 1: music-bed.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('80');
+  await page.getByRole('button', { name: 'Select audio track 2: voiceover.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('45');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const output = preview.locator('video');
+  await expect.poll(async () => output.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => output.evaluate(element => {
+    const video = element as HTMLVideoElement;
+    return typeof video.captureStream === 'function' ? video.captureStream().getAudioTracks().length : 0;
+  })).toBeGreaterThan(0);
 });
 
 test('fade transition blends the timeline preview and the rendered video consistently', async ({ page }) => {
@@ -734,6 +840,205 @@ test('publishing caption and hashtags live in the dedicated Publishing tool', as
   await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
 });
 
+
+test('Meta connection requires explicit consent and cancellation never starts OAuth', async ({ page }) => {
+  const connectRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/meta/connect', async (route) => {
+    connectRequests.push(route.request().method());
+    const origin = new URL(route.request().url()).origin;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ authorizationUrl: origin + '/meta-oauth-consent-test' }) });
+  });
+  await page.route('**/meta-oauth-consent-test', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Meta authorization handoff test</title>' }));
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const connect = page.getByRole('button', { name: 'Connect', exact: true });
+  await expect(connect).toBeVisible();
+
+  await connect.click();
+  const consent = page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' });
+  await expect(consent).toBeVisible();
+  await expect(consent).toBeFocused();
+  await expect(consent).toContainText('Meta will show the exact permissions requested');
+  await expect(consent).toContainText('Connecting an account does not publish anything');
+  await consent.getByText('See the exact Meta permissions being requested').click();
+  const permissionSummary = consent.getByText('See the exact Meta permissions being requested');
+  for (const scope of ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'instagram_basic', 'instagram_content_publish']) {
+    await expect(consent).toContainText(scope);
+  }
+  const notNow = consent.getByRole('button', { name: 'Not now' });
+  const continueToMeta = consent.getByRole('button', { name: 'Continue to Meta' });
+  await expect(permissionSummary).toBeFocused();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  expect(connectRequests).toHaveLength(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(continueToMeta).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(permissionSummary).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(consent).toHaveCount(0);
+  await expect(connect).toBeFocused();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
+  expect(connectRequests).toHaveLength(0);
+
+  await connect.click();
+  await page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' }).getByRole('button', { name: 'Not now' }).click();
+  await expect(consent).toHaveCount(0);
+  expect(connectRequests).toHaveLength(0);
+
+  await connect.click();
+  await page.getByRole('dialog', { name: 'Connect Facebook and Instagram?' }).getByRole('button', { name: 'Continue to Meta' }).click();
+  await page.waitForURL('**/meta-oauth-consent-test');
+  expect(connectRequests).toEqual(['POST']);
+});
+
+test('video output uses an explicitly selected browser-supported codec', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Resize' }).click();
+  const format = page.getByRole('combobox', { name: 'Video output format' });
+  const webmSupported = await format.locator('option[value="webm"]').isEnabled();
+  const mp4Supported = await format.locator('option[value="mp4"]').isEnabled();
+  const requestedFormat = webmSupported ? 'webm' : mp4Supported ? 'mp4' : 'auto';
+  if (requestedFormat !== 'auto') await format.selectOption(requestedFormat);
+  await expect(format).toHaveValue(requestedFormat);
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+
+  await page.getByRole('button', { name: 'Download rendered outputs' }).click();
+  const renderedFormat = (await page.getByRole('combobox', { name: 'Video format' }).locator('option').textContent() ?? '').toLowerCase();
+  const actualExtension = renderedFormat.includes('mp4') ? 'mp4' : 'webm';
+  if (requestedFormat !== 'auto') expect(actualExtension).toBe(requestedFormat);
+  await page.getByRole('button', { name: 'Close download dialog' }).click();
+
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  const outputName = 'untitled-design-video.' + actualExtension;
+  const outputCard = page.locator('[data-testid="studio-resource-card"]').filter({ hasText: outputName }).first();
+  await expect(outputCard).toBeVisible();
+  const download = page.waitForEvent('download');
+  await outputCard.getByRole('button', { name: 'Download ' + outputName }).click();
+  expect((await download).suggestedFilename()).toBe(outputName);
+});
+
+test('mixed-size scenes use the selected page as the deliberate video output frame', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('1');
+  await page.getByRole('complementary', { name: 'Pages' }).getByRole('button', { name: 'Add page' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('1');
+  await page.getByRole('button', { name: 'Resize' }).click();
+  await page.getByRole('button', { name: 'Landscape feed' }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 566');
+
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await page.getByRole('button', { name: 'Render video' }).click();
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(566);
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('button', { name: /1 Page 1/ }).click();
+  await expect(page.getByTestId('active-page-size')).toHaveText('1080 × 1080');
+  await page.getByRole('button', { name: 'Render video' }).click();
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoHeight)).toBe(1080);
+});
+
+
+test('projects survive a full browser reload and reopen with their edits intact', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Text', exact: true }).fill('Persistent campaign headline');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await expect(page.getByRole('button', { name: 'Open Untitled design' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.locator('svg[aria-label="Editable design canvas"] g[aria-label="Select Headline"]').click();
+  await expect(page.getByRole('textbox', { name: 'Text', exact: true })).toHaveValue('Persistent campaign headline');
+});
+
+test('multiple audio tracks retain independent source and timeline settings after reload', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'persistent-music-bed.wav', mimeType: 'audio/wav', buffer: makeSilentWav(8),
+  });
+  await page.getByRole('button', { name: 'persistent-music-bed.wav', exact: true }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'persistent-voiceover.wav', mimeType: 'audio/wav', buffer: makeSilentWav(8),
+  });
+  await page.getByRole('button', { name: 'persistent-voiceover.wav', exact: true }).click();
+
+  await page.getByRole('spinbutton', { name: 'Audio start position' }).fill('1');
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('5');
+  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('45');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.7');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.8');
+
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+
+  const musicBed = page.getByRole('group', { name: 'Audio track 1: persistent-music-bed.wav' });
+  const voiceover = page.getByRole('group', { name: 'Audio track 2: persistent-voiceover.wav' });
+  await expect(musicBed).toBeVisible();
+  await expect(voiceover).toBeVisible();
+
+  await page.getByRole('button', { name: 'Select audio track 1: persistent-music-bed.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('80');
+
+  await page.getByRole('button', { name: 'Select audio track 2: persistent-voiceover.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: 'Audio start position' })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('5');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('45');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.7');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('0.8');
+});
+
+
+test('editing a project invalidates previously rendered outputs until the next render', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  const download = page.getByRole('button', { name: 'Download rendered outputs' });
+  await expect(download).toBeDisabled();
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(download).toBeEnabled({ timeout: 30000 });
+
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Text', exact: true }).fill('A newer design revision');
+  await expect(download).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  await expect(download).toBeEnabled({ timeout: 30000 });
+});
+
 for (const width of [390, 768, 1280]) {
   test('new studio workspace adapts without horizontal overflow at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 820 });
@@ -745,19 +1050,186 @@ for (const width of [390, 768, 1280]) {
   });
 }
 
-test('uploaded video media becomes a timed, selectable timeline clip', async ({ page }) => {
+test('timed image clips apply fades consistently in preview, photo and video renders', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Brand', exact: true }).click();
+  await page.getByRole('button', { name: 'Add logo / image' }).click();
+  const picker = page.getByRole('dialog', { name: 'Brand image picker' });
+  const pngBase64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Image fixture canvas is unavailable.');
+    context.fillStyle = '#ff0000';
+    context.fillRect(0, 0, 32, 32);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await picker.locator('input[aria-label="Upload brand logo or image"]').setInputFiles({
+    name: 'timed-campaign.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngBase64, 'base64'),
+  });
+
+  const imageTrack = page.getByRole('group', { name: 'Image track 1: timed-campaign.png' });
+  await expect(imageTrack).toBeVisible();
+  const imageDuration = page.getByRole('spinbutton', { name: 'Image clip duration' });
+  await expect(imageDuration).toHaveValue('5');
+  await imageDuration.fill('2');
+  await page.getByRole('spinbutton', { name: 'Image clip start' }).fill('2');
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.8');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.8');
+  await expect(page.getByRole('slider', { name: 'Clip fade in' })).toHaveValue('0.8');
+  await expect(page.getByRole('slider', { name: 'Clip fade out' })).toHaveValue('0.8');
+
+  const playhead = page.getByRole('slider', { name: 'Timeline playhead' });
+  await playhead.focus();
+  for (let i = 0; i < 10; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('1');
+  const timelineCanvas = page.locator('canvas[aria-label="Timeline preview"]');
+  await expect(timelineCanvas).toBeVisible();
+  const readTimelinePixel = () => timelineCanvas.evaluate(canvas => {
+    const element = canvas as HTMLCanvasElement;
+    const context = element.getContext('2d');
+    if (!context) throw new Error('Timeline preview canvas is unavailable.');
+    const pixel = context.getImageData(Math.floor(element.width/2), Math.floor(element.height*.4), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  await expect.poll(async () => (await readTimelinePixel())[0]).toBeLessThan(100);
+
+  for (let i = 0; i < 14; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('2.4');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 80 && pixel[0] < 190 && pixel[1] < 100 && pixel[2] < 100;
+  }).toBe(true);
+
+  for (let i = 0; i < 6; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('3');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 180 && pixel[1] < 80 && pixel[2] < 80;
+  }).toBe(true);
+
+  for (let i = 0; i < 6; i += 1) await playhead.press('ArrowRight');
+  await expect(playhead).toHaveValue('3.6');
+  await expect.poll(async () => {
+    const pixel = await readTimelinePixel();
+    return pixel[0] > 80 && pixel[0] < 190 && pixel[1] < 100 && pixel[2] < 100;
+  }).toBe(true);
+
+  await page.getByRole('button', { name: 'Render photo' }).click();
+  const photoButton = page.getByRole('button', { name: 'Preview rendered photo' });
+  await expect(photoButton).toBeVisible({ timeout: 30000 });
+  await photoButton.click();
+  const photoPreview = page.getByRole('dialog', { name: 'Rendered photo preview' });
+  const photoImage = photoPreview.locator('img[alt="Rendered photo output"]');
+  await expect.poll(async () => photoImage.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  const photoPixel = await photoImage.evaluate(async image => {
+    const element = image as HTMLImageElement;
+    await element.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = element.naturalWidth;
+    canvas.height = element.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Rendered photo frame canvas is unavailable.');
+    context.drawImage(element, 0, 0);
+    const pixel = context.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height*.4), 1, 1).data;
+    return [pixel[0], pixel[1], pixel[2]];
+  });
+  expect(photoPixel[0]).toBeGreaterThan(80);
+  expect(photoPixel[0]).toBeLessThan(190);
+  expect(photoPixel[1]).toBeLessThan(100);
+  await photoPreview.getByRole('button', { name: 'Close photo preview' }).click();
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+  const readRenderedPixel = async (seconds: number) => {
+    await video.evaluate((element, time) => new Promise<void>((resolve, reject) => {
+      const output = element as HTMLVideoElement;
+      const timeout = window.setTimeout(() => reject(new Error('Rendered video seek timed out.')), 10000);
+      output.addEventListener('seeked', () => { window.clearTimeout(timeout); resolve(); }, { once: true });
+      output.currentTime = time as number;
+    }), seconds);
+    return video.evaluate(element => {
+      const output = element as HTMLVideoElement;
+      const canvas = document.createElement('canvas');
+      canvas.width = output.videoWidth;
+      canvas.height = output.videoHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Rendered video frame canvas is unavailable.');
+      context.drawImage(output, 0, 0);
+      const pixel = context.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height*.4), 1, 1).data;
+      return [pixel[0], pixel[1], pixel[2]];
+    });
+  };
+  const beforeClip = await readRenderedPixel(1);
+  expect(beforeClip[0]).toBeLessThan(100);
+  const fadeInFrame = await readRenderedPixel(2.4);
+  expect(fadeInFrame[0]).toBeGreaterThan(80);
+  expect(fadeInFrame[0]).toBeLessThan(190);
+  expect(fadeInFrame[1]).toBeLessThan(100);
+  const duringClip = await readRenderedPixel(3);
+  expect(duringClip[0]).toBeGreaterThan(150);
+  expect(duringClip[1]).toBeLessThan(100);
+  expect(duringClip[2]).toBeLessThan(100);
+  const fadeOutFrame = await readRenderedPixel(3.6);
+  expect(fadeOutFrame[0]).toBeGreaterThan(80);
+  expect(fadeOutFrame[0]).toBeLessThan(190);
+  expect(fadeOutFrame[1]).toBeLessThan(100);
+});
+
+test('multiple uploaded video clips have independent, editable timeline tracks', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Uploads' }).click();
-  await page.getByLabel('Import media').setInputFiles({
-    name: 'scene-video.webm',
-    mimeType: 'video/webm',
-    buffer: Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAPREU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggO77AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIBQqxoaDkAoicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgTC6gTCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIBQqxoaDkAohnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QhLngQCjwYEAAIBwAwCdASowADAAAEcIhYWImYSIAgICdaoD+AP6AgdqCOecuLQA/v1u8//kb+PnRv/I4//8Sp7jieP//EaAo7KBAGQAMQIABRCsABgMUUvbO5RwHhcckwD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQDIABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQEsABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQGQABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQH0ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQJYABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQK8ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQMgABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=', 'base64'),
-  });
+  const videoBytes = Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAPREU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggO77AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIBQqxoaDkAoicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgTC6gTCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIBQqxoaDkAohnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1QhLngQCjwYEAAIBwAwCdASowADAAAEcIhYWImYSIAgICdaoD+AP6AgdqCOecuLQA/v1u8//kb+PnRv/I4//8Sp7jieP//EaAo7KBAGQAMQIABRCsABgMUUvbO5RwHhcckwD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQDIABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQEsABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQGQABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQH0ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQJYABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQK8ABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agAKOxgQMgABECAAUQrAAYACBP9AwAUJDzRAD+7U3f8aY8/A9AO9//W/kv7fyX9wH8w9agABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=', 'base64');
+  await page.getByLabel('Import media').setInputFiles([
+    { name: 'scene-video.webm', mimeType: 'video/webm', buffer: videoBytes },
+    { name: 'scene-overlay.webm', mimeType: 'video/webm', buffer: Buffer.from(videoBytes) },
+  ]);
   const videoAsset = page.getByRole('button', { name: /scene-video\.webm/ });
   await expect(videoAsset).toBeVisible();
+  const overlayAsset = page.getByRole('button', { name: /scene-overlay/ });
+  await expect(overlayAsset).toBeVisible();
   await videoAsset.click();
-  await expect(page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Uploads' }).click();
+  await overlayAsset.click();
+  const firstVideoTrack = page.getByRole('group', { name: 'Video track 1: scene-video.webm' });
+  const secondVideoTrack = page.getByRole('group', { name: 'Video track 2: scene-overlay.webm' });
+  await expect(firstVideoTrack).toBeVisible();
+  await expect(secondVideoTrack).toBeVisible();
+  const firstTrackBox = await firstVideoTrack.boundingBox();
+  const secondTrackBox = await secondVideoTrack.boundingBox();
+  if (!firstTrackBox || !secondTrackBox) throw new Error('Both independent video tracks should be measurable.');
+  expect(secondTrackBox.y).toBeGreaterThan(firstTrackBox.y);
+
+  // Adding a video clip already opens the Layers panel.
+  const overlayLayer = page.getByRole('button', { name: 'scene-overlay.webm', exact: true });
+  const overlayLayerRow = overlayLayer.locator('..');
+  await overlayLayer.click();
+  await overlayLayerRow.getByRole('button', { name: 'Lock layer' }).click();
+  const overlayTimelineClip = page.getByRole('button', { name: 'Select timeline video clip scene-overlay.webm', exact: true });
+  await overlayTimelineClip.click();
+  const lockedOverlayStart = page.getByRole('spinbutton', { name: 'Video clip start' });
+  await expect(lockedOverlayStart).toBeDisabled();
+  const originalOverlayStart = Number(await lockedOverlayStart.inputValue());
+  const lockedOverlayBox = await overlayTimelineClip.boundingBox();
+  if (!lockedOverlayBox) throw new Error('Locked video clip body is not visible.');
+  await page.mouse.move(lockedOverlayBox.x + lockedOverlayBox.width/2, lockedOverlayBox.y + lockedOverlayBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(lockedOverlayBox.x + lockedOverlayBox.width/2 + 35, lockedOverlayBox.y + lockedOverlayBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await lockedOverlayStart.inputValue())).toBe(originalOverlayStart);
+  await overlayLayerRow.getByRole('button', { name: 'Unlock layer' }).click();
+  await expect(lockedOverlayStart).toBeEnabled();
+
+  const firstTimelineClip = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
+  await firstTimelineClip.click();
   const clipDuration = page.getByRole('spinbutton', { name: 'Video clip duration' });
   await expect(clipDuration).toBeVisible();
   const initialDuration = Number(await clipDuration.inputValue());
@@ -779,6 +1251,10 @@ test('uploaded video media becomes a timed, selectable timeline clip', async ({ 
   await page.mouse.move(startBox.x + startBox.width + 25, startBox.y + startBox.height/2, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => Number(await sourceInPoint.inputValue())).toBeGreaterThan(originalSourceInPoint);
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.1');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.1');
+  await expect(page.getByRole('slider', { name: 'Clip fade in' })).toHaveValue('0.1');
+  await expect(page.getByRole('slider', { name: 'Clip fade out' })).toHaveValue('0.1');
   const initialStart = Number(await page.getByRole('spinbutton', { name: 'Video clip start' }).inputValue());
   const clipBody = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
   const bodyBox = await clipBody.boundingBox();
@@ -791,3 +1267,540 @@ test('uploaded video media becomes a timed, selectable timeline clip', async ({ 
   await page.getByRole('button', { name: 'Render photo' }).click();
   await expect(page.getByRole('button', { name: 'Download rendered outputs' })).toBeEnabled({ timeout: 30000 });
 });
+
+test('legacy single-soundtrack projects reopen, render audio and upgrade on the next save', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'legacy-single-track.wav', mimeType: 'audio/wav', buffer: makeSilentWav(5),
+  });
+  await page.getByRole('button', { name: 'legacy-single-track.wav', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Audio start position' }).fill('0.5');
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('4');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('42');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.5');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.6');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+
+  const projectId = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('lucky-bajaj-creative-studio', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not open the studio database.'));
+    });
+    const readTransaction = db.transaction(['projects', 'resources'], 'readonly');
+    const projectsRequest = readTransaction.objectStore('projects').getAll() as IDBRequest<Array<Record<string, unknown>>>;
+    const resourcesRequest = readTransaction.objectStore('resources').getAll() as IDBRequest<Array<Record<string, unknown>>>;
+    const [projects, resources] = await Promise.all([
+      new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+        projectsRequest.onsuccess = () => resolve(projectsRequest.result);
+        projectsRequest.onerror = () => reject(projectsRequest.error ?? new Error('Could not read saved projects.'));
+      }),
+      new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+        resourcesRequest.onsuccess = () => resolve(resourcesRequest.result);
+        resourcesRequest.onerror = () => reject(resourcesRequest.error ?? new Error('Could not read saved resources.'));
+      }),
+    ]);
+    const project = projects.find(item => item.name === 'Untitled design');
+    const resource = resources.find(item => item.name === 'legacy-single-track.wav' && item.kind === 'audio');
+    if (!project || !resource) throw new Error('The saved project or its audio resource was not found.');
+    project.selectedAudioId = resource.id;
+    project.audioStartSeconds = 0.5;
+    project.audioDurationSeconds = 3.5;
+    project.audioVolume = 42;
+    project.audioFadeInSeconds = 0.5;
+    project.audioFadeOutSeconds = 0.6;
+    delete project.audioTracks;
+    delete project.selectedAudioTrackId;
+    project.updatedAt = new Date().toISOString();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('projects', 'readwrite');
+      transaction.objectStore('projects').put(project);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('Could not seed the legacy project shape.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Legacy project update was aborted.'));
+    });
+    db.close();
+    return String(project.id);
+  });
+
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Audio track 1: legacy-single-track.wav' })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('spinbutton', { name: 'Audio start position' })).toHaveValue('0.5');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('4');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('42');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.5');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('0.6');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  await expect.poll(async () => preview.locator('video').evaluate(element => {
+    const video = element as HTMLVideoElement;
+    return typeof video.captureStream === 'function' ? video.captureStream().getAudioTracks().length : 0;
+  })).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Close video preview' }).click();
+
+  const migratedVolume = page.getByRole('slider', { name: 'Audio volume' });
+  await migratedVolume.fill('43');
+  await expect(migratedVolume).toHaveValue('43');
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  const upgraded = await page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('lucky-bajaj-creative-studio', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not reopen the studio database.'));
+    });
+    const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const transaction = db.transaction('projects', 'readonly');
+      const request = transaction.objectStore('projects').get(id) as IDBRequest<Record<string, unknown>>;
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('Could not read the upgraded project.'));
+    });
+    db.close();
+    const tracks = Array.isArray(result.audioTracks) ? result.audioTracks as Array<Record<string, unknown>> : [];
+    return {
+      count: tracks.length,
+      sourceStart: tracks[0]?.sourceStartSeconds,
+      duration: tracks[0]?.durationSeconds,
+      volume: tracks[0]?.volume,
+    };
+  }, projectId);
+  expect(upgraded).toEqual({ count: 1, sourceStart: 0.5, duration: 3.5, volume: 43 });
+});
+
+test('audio track limit is eight and every track can be removed cleanly', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+
+  for (let index = 1; index <= 9; index += 1) {
+    const name = 'limit-track-' + index + '.wav';
+    await page.getByLabel('Import audio').setInputFiles({
+      name, mimeType: 'audio/wav', buffer: makeSilentWav(1),
+    });
+    const resource = page.getByRole('button', { name, exact: true });
+    await expect(resource).toBeVisible();
+    await resource.click();
+  }
+
+  const rows = page.getByRole('group', { name: /^Audio track \d+:/ });
+  await expect(rows).toHaveCount(8);
+  await expect(page.getByText('A project can contain up to eight audio tracks.')).toBeVisible();
+  const remove = page.getByRole('button', { name: 'Remove audio track' });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  await expect(rows).toHaveCount(7);
+  await expect(page.getByRole('group', { name: 'Audio track 7: limit-track-7.wav' })).toBeVisible();
+
+  for (let remaining = 7; remaining > 0; remaining -= 1) {
+    await remove.click();
+    await expect(rows).toHaveCount(remaining - 1);
+  }
+  await expect(page.getByText('Add one or more audio tracks from the Audio panel.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove audio track' })).toHaveCount(0);
+});
+
+test('video clip fade-in and fade-out change the actual rendered video frames', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('3');
+  await page.getByRole('button', { name: 'Uploads' }).click();
+
+  const videoBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Synthetic video canvas is unavailable.');
+    let frame = 0;
+    let animationFrame = 0;
+    const paint = () => {
+      context.fillStyle = '#00ff00';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      frame += 1;
+      animationFrame = window.requestAnimationFrame(paint);
+    };
+    paint();
+    const mimeType = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm']
+      .find(candidate => MediaRecorder.isTypeSupported(candidate));
+    if (!mimeType) throw new Error('This browser cannot create the WebM video fixture.');
+    const stream = canvas.captureStream(24);
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: Blob[] = [];
+    recorder.addEventListener('dataavailable', event => {
+      if (event.data.size) chunks.push(event.data);
+    });
+    const stopped = new Promise<void>((resolve, reject) => {
+      recorder.addEventListener('stop', () => resolve(), { once: true });
+      recorder.addEventListener('error', () => reject(new Error('Synthetic video recording failed.')), { once: true });
+    });
+    recorder.start(100);
+    await new Promise(resolve => window.setTimeout(resolve, 1800));
+    recorder.stop();
+    await stopped;
+    window.cancelAnimationFrame(animationFrame);
+    stream.getTracks().forEach(track => track.stop());
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    if (!blob.size) throw new Error('Synthetic video fixture is empty.');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+    return window.btoa(binary);
+  });
+
+  await page.getByLabel('Import media').setInputFiles({
+    name: 'solid-green-fade-test.webm',
+    mimeType: 'video/webm',
+    buffer: Buffer.from(videoBase64, 'base64'),
+  });
+  const asset = page.getByRole('button', { name: /solid-green-fade-test\.webm/ });
+  await expect(asset).toBeVisible();
+  await asset.click();
+  const clip = page.getByRole('button', { name: 'Select timeline video clip solid-green-fade-test.webm', exact: true });
+  await expect(clip).toBeVisible();
+  await clip.click();
+
+  const clipDuration = page.getByRole('spinbutton', { name: 'Video clip duration' });
+  await expect.poll(async () => Number(await clipDuration.inputValue())).toBeGreaterThan(1.2);
+  await clipDuration.fill('1.2');
+  await page.getByRole('spinbutton', { name: 'Video clip start' }).fill('0.5');
+  await page.getByRole('spinbutton', { name: 'Video source in point' }).fill('0');
+  await page.getByRole('slider', { name: 'Clip fade in' }).fill('0.3');
+  await page.getByRole('slider', { name: 'Clip fade out' }).fill('0.3');
+  await expect(clipDuration).toHaveValue('1.2');
+
+  await page.getByRole('button', { name: 'Render video' }).click();
+  const preview = page.getByRole('dialog', { name: 'Rendered video preview' });
+  await expect(preview).toBeVisible({ timeout: 30000 });
+  const video = preview.locator('video');
+  await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBe(1080);
+
+  const readPixel = async (seconds: number) => {
+    await video.evaluate((element, time) => new Promise<void>((resolve, reject) => {
+      const output = element as HTMLVideoElement;
+      const timeout = window.setTimeout(() => reject(new Error('Rendered video seek timed out.')), 10000);
+      output.addEventListener('seeked', () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+      output.currentTime = time as number;
+    }), seconds);
+    return video.evaluate(element => {
+      const output = element as HTMLVideoElement;
+      const canvas = document.createElement('canvas');
+      canvas.width = output.videoWidth;
+      canvas.height = output.videoHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Rendered video frame canvas is unavailable.');
+      context.drawImage(output, 0, 0);
+      const pixel = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.4), 1, 1).data;
+      return [pixel[0], pixel[1], pixel[2]];
+    });
+  };
+
+  const background = await readPixel(2.2);
+  const fullyVisible = await readPixel(0.9);
+  const fadeInFrame = await readPixel(0.65);
+  const fadeOutFrame = await readPixel(1.55);
+  const fullGreenRange = fullyVisible[1] - background[1];
+  expect(fullGreenRange).toBeGreaterThan(100);
+  const fadeInRatio = (fadeInFrame[1] - background[1]) / fullGreenRange;
+  const fadeOutRatio = (fadeOutFrame[1] - background[1]) / fullGreenRange;
+  expect(fadeInRatio).toBeGreaterThan(0.25);
+  expect(fadeInRatio).toBeLessThan(0.75);
+  expect(fadeOutRatio).toBeGreaterThan(0.25);
+  expect(fadeOutRatio).toBeLessThan(0.75);
+});
+
+test('project deletion and Meta disconnection use in-app confirmations', async ({ page }) => {
+  const disconnectRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/meta/disconnect', async route => {
+    disconnectRequests.push(route.request().method());
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Meta accounts disconnected.' }),
+    });
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+
+  const deleteProject = page.getByRole('button', { name: 'Delete Untitled design' });
+  await expect(deleteProject).toBeVisible();
+  await deleteProject.click();
+  const projectDialog = page.getByRole('dialog', { name: 'Delete project?' });
+  await expect(projectDialog).toBeVisible();
+  await projectDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(deleteProject).toBeVisible();
+
+  await deleteProject.click();
+  await projectDialog.getByRole('button', { name: 'Delete project' }).click();
+  await expect(deleteProject).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  const disconnect = page.getByRole('button', { name: 'Disconnect', exact: true });
+  await expect(disconnect).toBeVisible();
+  await disconnect.click();
+  const disconnectDialog = page.getByRole('dialog', { name: 'Disconnect Meta accounts?' });
+  await expect(disconnectDialog).toBeVisible();
+  await disconnectDialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(disconnectRequests).toHaveLength(0);
+
+  await disconnect.click();
+  await disconnectDialog.getByRole('button', { name: 'Disconnect accounts' }).click();
+  await expect.poll(() => disconnectRequests.length).toBe(1);
+  await expect(disconnectDialog).toHaveCount(0);
+});
+
+test('failed editor save offers an in-app leave-without-saving choice', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.evaluate(() => {
+    const prototype = IDBDatabase.prototype as unknown as {
+      transaction: (...args: unknown[]) => IDBTransaction;
+    };
+    const original = prototype.transaction;
+    prototype.transaction = function (this: IDBDatabase, ...args: unknown[]) {
+      const stores = args[0];
+      const mode = args[1];
+      const names = typeof stores === 'string' ? [stores] : Array.from(stores as ArrayLike<string>);
+      if (mode === 'readwrite' && names.includes('projects')) {
+        throw new DOMException('Simulated local project storage failure.', 'QuotaExceededError');
+      }
+      return original.apply(this, args);
+    };
+  });
+
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('may discard those edits');
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog', { name: 'Creative editor' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to resources' })).toBeVisible();
+});
+
+test('WhatsApp consent and scheduled-send cancellation use in-app confirmations', async ({ page }) => {
+  const consentRequests: string[] = [];
+  const cancelRequests: string[] = [];
+  const scheduled = {
+    publicId: 'MSG-SCHEDULED-1',
+    status: 'SCHEDULED',
+    templateName: 'service_reminder',
+    languageCode: 'en',
+    providerMessageId: null,
+    errorCode: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    acceptedAt: null,
+    sentAt: null,
+    deliveredAt: null,
+    readAt: null,
+    failedAt: null,
+    scheduledAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  };
+  await page.route('**/api/v1/admin/social/whatsapp/**', async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'GET' && path.endsWith('/customers')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          publicId: 'CUSTOMER-1',
+          customerCode: 'C-001',
+          fullName: 'Test Customer',
+          maskedPhone: '+91******1234',
+          validPhone: true,
+          consentStatus: 'OPTED_IN',
+          consentSource: 'Existing customer record',
+          consentUpdatedAt: null,
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/scheduled')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([scheduled]) });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/customers/CUSTOMER-1/consent')) {
+      consentRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          customerPublicId: 'CUSTOMER-1',
+          customerName: 'Test Customer',
+          maskedPhone: '+91******1234',
+          status: 'OPTED_OUT',
+          source: 'Customer request',
+          consentedAt: null,
+          optedOutAt: new Date().toISOString(),
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/scheduled/MSG-SCHEDULED-1/cancel')) {
+      cancelRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...scheduled, status: 'CANCELLED' }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
+  await page.locator('section[aria-label="WhatsApp Business messaging"] select').first().selectOption('CUSTOMER-1');
+
+  const optOut = page.getByRole('button', { name: 'Record opt-out' });
+  await optOut.click();
+  const consentDialog = page.getByRole('dialog', { name: 'Record WhatsApp opt-out?' });
+  await expect(consentDialog).toBeVisible();
+  await consentDialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(consentRequests).toHaveLength(0);
+
+  await optOut.click();
+  await consentDialog.getByRole('button', { name: 'Record opt-out' }).click();
+  await expect.poll(() => consentRequests.length).toBe(1);
+  await expect(consentDialog).toHaveCount(0);
+
+  const cancelScheduled = page.getByRole('button', { name: 'Cancel scheduled send' });
+  await expect(cancelScheduled).toBeVisible();
+  await cancelScheduled.click();
+  const scheduledDialog = page.getByRole('dialog', { name: 'Cancel scheduled WhatsApp message?' });
+  await expect(scheduledDialog).toBeVisible();
+  await scheduledDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(cancelRequests).toHaveLength(0);
+
+  await cancelScheduled.click();
+  await scheduledDialog.getByRole('button', { name: 'Cancel scheduled send' }).click();
+  await expect.poll(() => cancelRequests.length).toBe(1);
+  await expect(scheduledDialog).toHaveCount(0);
+});
+
+test('sending a WhatsApp template requires an in-app confirmation', async ({ page }) => {
+  const sendRequests: string[] = [];
+  await page.route('**/api/v1/admin/social/whatsapp/**', async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'GET' && path.endsWith('/status')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: true,
+          webhookConfigured: true,
+          message: 'Configured for the browser test.',
+          webhookMessage: 'Webhook configured for the browser test.',
+          missingConfigurationKeys: [],
+          missingWebhookConfigurationKeys: [],
+        }),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/customers')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          publicId: 'CUSTOMER-READY',
+          customerCode: 'C-002',
+          fullName: 'Ready Customer',
+          maskedPhone: '+91******5678',
+          validPhone: true,
+          consentStatus: 'OPTED_IN',
+          consentSource: 'Customer-confirmed opt-in',
+          consentUpdatedAt: new Date().toISOString(),
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/scheduled')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      return;
+    }
+    if (route.request().method() === 'GET' && path.endsWith('/templates')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          name: 'service_reminder',
+          language: 'en',
+          status: 'APPROVED',
+          category: 'UTILITY',
+          bodyParameterCount: 0,
+          headerFormat: 'NONE',
+          supported: true,
+          unsupportedReason: null,
+        }]),
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && path.endsWith('/send')) {
+      sendRequests.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          publicId: 'MSG-ACCEPTED-1',
+          status: 'ACCEPTED',
+          templateName: 'service_reminder',
+          languageCode: 'en',
+          providerMessageId: 'mock-provider-id',
+          errorCode: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          acceptedAt: new Date().toISOString(),
+          sentAt: null,
+          deliveredAt: null,
+          readAt: null,
+          failedAt: null,
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'WhatsApp', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'WhatsApp customer messages' })).toBeVisible();
+  await page.locator('section[aria-label="WhatsApp Business messaging"] select').first().selectOption('CUSTOMER-READY');
+  await page.getByRole('button', { name: 'Load templates' }).click();
+  await expect(page.getByRole('combobox', { name: 'Template and language' })).toHaveValue('service_reminder|en');
+
+  const send = page.getByRole('button', { name: 'Send WhatsApp template' });
+  await expect(send).toBeEnabled();
+  await send.click();
+  const dialog = page.getByRole('dialog', { name: 'Send WhatsApp message?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(sendRequests).toHaveLength(0);
+
+  await send.click();
+  await dialog.getByRole('button', { name: 'Send message' }).click();
+  await expect.poll(() => sendRequests.length).toBe(1);
+  await expect(dialog).toHaveCount(0);
+});
+

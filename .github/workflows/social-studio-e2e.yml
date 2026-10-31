@@ -1,0 +1,78 @@
+name: Social studio browser regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/src/App.tsx'
+      - 'apps/web/src/notifications/SocialMediaStudioNext.tsx'
+      - 'apps/web/src/notifications/SocialMediaStudioNext.module.css'
+      - 'apps/web/src/notifications/socialStudioLocalStore.ts'
+      - 'apps/web/src/notifications/artworkAssets.ts'
+      - 'apps/web/src/notifications/artworkMusic.ts'
+      - 'apps/web/src/notifications/SocialWhatsAppWorkspace.tsx'
+      - 'apps/web/e2e/social-media-studio-next.spec.ts'
+      - 'apps/web/playwright.config.ts'
+      - 'apps/web/package.json'
+      - 'apps/customer-web/package.json'
+      - '.github/workflows/social-studio-e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/src/App.tsx'
+      - 'apps/web/src/notifications/SocialMediaStudioNext.tsx'
+      - 'apps/web/src/notifications/SocialMediaStudioNext.module.css'
+      - 'apps/web/src/notifications/socialStudioLocalStore.ts'
+      - 'apps/web/src/notifications/artworkAssets.ts'
+      - 'apps/web/src/notifications/artworkMusic.ts'
+      - 'apps/web/src/notifications/SocialWhatsAppWorkspace.tsx'
+      - 'apps/web/e2e/social-media-studio-next.spec.ts'
+      - 'apps/web/playwright.config.ts'
+      - 'apps/web/package.json'
+      - 'apps/customer-web/package.json'
+      - '.github/workflows/social-studio-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  social-studio:
+    name: Social Media Studio Playwright suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install staff portal dependencies
+        working-directory: apps/web
+        run: npm install
+
+      - name: Install customer portal dependencies for the configured test server
+        working-directory: apps/customer-web
+        run: npm install
+
+      - name: Install Chromium and system dependencies
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Social Media Studio browser regressions
+        working-directory: apps/web
+        run: npx playwright test e2e/social-media-studio-next.spec.ts
+
+      - name: Upload Playwright report and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: social-studio-playwright-${{ github.run_id }}
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

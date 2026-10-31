@@ -40,6 +40,9 @@ export type StudioElement = {
   startSeconds?: number;
   durationSeconds?: number;
   sourceStartSeconds?: number;
+  /** Optional visual transition lengths for timed image/video clips. */
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
   letterSpacing?: number;
   shapeKind?: 'arrow' | 'triangle' | 'star' | 'burst';
 };
@@ -56,6 +59,17 @@ export type StudioPage = {
   elements: StudioElement[];
 };
 
+export type StudioAudioTrack = {
+  id: string;
+  resourceId: string;
+  timelineStartSeconds: number;
+  sourceStartSeconds: number;
+  durationSeconds: number;
+  volume: number;
+  fadeInSeconds: number;
+  fadeOutSeconds: number;
+};
+
 export type StudioProject = {
   id: string;
   name: string;
@@ -64,6 +78,9 @@ export type StudioProject = {
   pages: StudioPage[];
   selectedPageId: string;
   selectedAudioId: string | null;
+  /** Missing audioTracks denotes a legacy single-soundtrack project. */
+  audioTracks?: StudioAudioTrack[];
+  selectedAudioTrackId?: string | null;
   audioStartSeconds: number;
   audioDurationSeconds?: number;
   audioVolume: number;

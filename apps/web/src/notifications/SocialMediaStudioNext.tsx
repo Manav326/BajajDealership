@@ -6,14 +6,34 @@ import { STARTER_MUSIC_CATALOG } from './artworkMusic';
 import {
   chooseWorkspaceDirectory, downloadBlob, getWorkspacePermission, listProjects, listResources, persistHandleName,
   removeProject, removeResource, requestSavedFolderPermission, saveProject, saveResource, supportsLocalDirectoryAccess, useBrowserStorage,
-  type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
+  type StudioAudioTrack, type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
 } from './socialStudioLocalStore';
+import StudioConfirmDialog from './StudioConfirmDialog';
 import styles from './SocialMediaStudioNext.module.css';
 
 type Tool = 'templates' | 'elements' | 'text' | 'publishing' | 'uploads' | 'brand' | 'audio' | 'layers' | 'pages' | 'resize';
 type HubPage = 'projects' | 'resources' | 'publish' | 'whatsapp' | 'connections';
 type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
+type StudioConfirmation = {
+  action: 'delete-resource' | 'delete-project' | 'disconnect-meta';
+  targetId?: string;
+  title: string;
+  message: string;
+  confirmLabel: string;
+};
 type SizePreset = { id: string; label: string; platform: string; width: number; height: number; group: string };
+type VideoFormatPreference = 'auto' | 'mp4' | 'webm';
+
+function videoMimeCandidates(format: VideoFormatPreference): string[] {
+  const mp4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4'];
+  const webm = ['video/webm;codecs=vp9,opus', 'video/webm'];
+  return format === 'mp4' ? mp4 : format === 'webm' ? webm : [...mp4, ...webm];
+}
+
+function findSupportedVideoMime(format: VideoFormatPreference): string | null {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return videoMimeCandidates(format).find((mime) => MediaRecorder.isTypeSupported(mime)) ?? null;
+}
 
 const SIZE_PRESETS: SizePreset[] = [
   { id: 'ig-square', label: 'Square feed', platform: 'Instagram / Facebook', width: 1080, height: 1080, group: 'Instagram' },
@@ -49,7 +69,7 @@ const newProject = (): StudioProject => {
   const page = defaultPage();
   return {
     id: randomId(), name: 'Untitled design', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
+    pages: [page], selectedPageId: page.id, selectedAudioId: null, audioTracks: [], selectedAudioTrackId: null, audioStartSeconds: 0, audioDurationSeconds: 30, audioVolume: 80,
     audioFadeInSeconds: 0, audioFadeOutSeconds: 0,
     caption: '', hashtags: '#LuckyBajaj #Bajaj', primaryColor: '#15213a', accentColor: '#f97316',
   };
@@ -61,6 +81,16 @@ const element = (type: StudioElement['type'], x = 250, y = 240): StudioElement =
   text: type === 'text' ? 'Your text here' : '', fontSize: 76, fontFamily: 'Arial', fontWeight: '700',
   italic: false, letterSpacing: 0, align: 'left', imageFit: 'cover', visible: true, locked: false,
 });
+function projectAudioTracks(project: StudioProject): StudioAudioTrack[] {
+  if (Array.isArray(project.audioTracks)) return project.audioTracks;
+  if (!project.selectedAudioId) return [];
+  return [{id:'legacy-audio-'+project.id,resourceId:project.selectedAudioId,timelineStartSeconds:0,sourceStartSeconds:Math.max(0,project.audioStartSeconds??0),durationSeconds:Math.max(.1,project.audioDurationSeconds??30),volume:Math.max(0,Math.min(100,project.audioVolume??80)),fadeInSeconds:Math.max(0,project.audioFadeInSeconds??0),fadeOutSeconds:Math.max(0,project.audioFadeOutSeconds??0)}];
+}
+function projectWithAudioTracks(project: StudioProject, tracks: StudioAudioTrack[], selectedId: string | null): StudioProject {
+  const selected=tracks.find(track=>track.id===selectedId)??tracks[0]??null;
+  return {...project,audioTracks:tracks,selectedAudioTrackId:selected?.id??null,selectedAudioId:selected?.resourceId??null,audioStartSeconds:selected?.sourceStartSeconds??0,audioDurationSeconds:selected?.durationSeconds??30,audioVolume:selected?.volume??80,audioFadeInSeconds:selected?.fadeInSeconds??0,audioFadeOutSeconds:selected?.fadeOutSeconds??0};
+}
+
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const formatBytes = (value: number) => value < 1024 * 1024 ? Math.max(1, Math.round(value / 1024)) + ' KB' : (value / (1024 * 1024)).toFixed(1) + ' MB';
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'lucky-bajaj';
@@ -122,14 +152,17 @@ function elementSvg(item: StudioElement, url?: string) {
   return <rect x={0} y={0} width={item.width} height={item.height} rx={12} fill={item.fill} stroke={item.stroke} strokeWidth={item.strokeWidth} transform={common.transform} opacity={common.opacity} />;
 }
 
-function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false, includeVideoPlaceholders = true): string {
+function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, includeGuides = false, includeVideoPlaceholders = true, includeTimedImages = true): string {
   const content = page.elements.filter((item) => item.visible).map((item) => {
     const url = item.resourceId ? resourceUrls[item.resourceId] : undefined;
     let shape = '';
     if (item.type === 'text') {
       const lines = item.text.split('\n').slice(0, 8);
       shape = '<text x="0" y="' + item.fontSize + '" fill="' + item.fill + '" font-family="' + item.fontFamily + '" font-size="' + item.fontSize + '" letter-spacing="' + (item.letterSpacing ?? 0) + '" font-weight="' + item.fontWeight + '" font-style="' + (item.italic ? 'italic' : 'normal') + '" text-anchor="' + (item.align === 'left' ? 'start' : item.align === 'center' ? 'middle' : 'end') + '">' + lines.map((line, i) => '<tspan x="' + (item.align === 'left' ? 0 : item.align === 'center' ? item.width / 2 : item.width) + '" dy="' + (i ? item.fontSize * 1.2 : 0) + '">' + escapeSvg(line) + '</tspan>').join('') + '</text>';
-    } else if (item.type === 'image' && url) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
+    } else if (item.type === 'image') {
+      if (!url) shape = '<rect width="' + item.width + '" height="' + item.height + '" fill="#94a3b8" opacity=".35"/>';
+      else if (includeTimedImages || !hasTimedImageRange(item)) shape = '<image href="' + url + '" width="' + item.width + '" height="' + item.height + '" preserveAspectRatio="' + (item.imageFit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice') + '"/>';
+    }
     else if (item.type === 'video' && includeVideoPlaceholders) shape = '<rect width="' + item.width + '" height="' + item.height + '" rx="12" fill="#101827" stroke="#93a4ba" stroke-width="3"/><path d="M ' + item.width*.44 + ' ' + item.height*.3 + ' L ' + item.width*.68 + ' ' + item.height*.5 + ' L ' + item.width*.44 + ' ' + item.height*.7 + ' Z" fill="#fff"/><text x="' + item.width/2 + '" y="' + item.height*.88 + '" text-anchor="middle" fill="#fff" font-size="' + Math.max(12,item.height*.07) + '">VIDEO CLIP</text>';
     else if (item.shapeKind) shape = '<polygon points="' + shapePoints(item.shapeKind,item.width,item.height) + '" fill="' + item.fill + '" stroke="' + item.stroke + '" stroke-width="' + item.strokeWidth + '"/>';
     else if (item.type === 'circle') shape = '<ellipse cx="' + item.width / 2 + '" cy="' + item.height / 2 + '" rx="' + item.width / 2 + '" ry="' + item.height / 2 + '" fill="' + item.fill + '"/>';
@@ -141,6 +174,49 @@ function makeSvg(page: StudioPage, resourceUrls: Record<string, string>, include
   return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="' + page.width + '" height="' + page.height + '" viewBox="0 0 ' + page.width + ' ' + page.height + '"><rect width="100%" height="100%" fill="' + page.background + '"/>' + content + guides + '</svg>';
 }
 function formatTime(seconds: number): string { const v = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0)); return String(Math.floor(v / 60)).padStart(2, '0') + ':' + String(v % 60).padStart(2, '0'); }
+function hasTimedImageRange(item: StudioElement): boolean {
+  return item.type === 'image' && (item.startSeconds !== undefined || item.durationSeconds !== undefined);
+}
+
+/** Overlapping in/out ramps combine by their lower alpha, preventing a short clip from flashing to full opacity between fades. */
+function timedMediaFadeAlpha(clip: StudioElement, localSeconds: number, durationSeconds: number): number {
+  const duration = Math.max(.1, Number.isFinite(durationSeconds) ? durationSeconds : .1);
+  const elapsed = Math.max(0, Math.min(duration, Number.isFinite(localSeconds) ? localSeconds : 0));
+  const requestedFadeIn = clip.fadeInSeconds ?? 0;
+  const requestedFadeOut = clip.fadeOutSeconds ?? 0;
+  const fadeIn = Number.isFinite(requestedFadeIn) ? Math.max(0, Math.min(duration, requestedFadeIn)) : 0;
+  const fadeOut = Number.isFinite(requestedFadeOut) ? Math.max(0, Math.min(duration, requestedFadeOut)) : 0;
+  const fadeInAlpha = fadeIn > 0 ? elapsed / fadeIn : 1;
+  const fadeOutAlpha = fadeOut > 0 ? (duration - elapsed) / fadeOut : 1;
+  return Math.max(0, Math.min(1, fadeInAlpha, fadeOutAlpha));
+}
+
+function drawTimedImageClip(context: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, scene: StudioPage, clip: StudioElement, image: HTMLImageElement, transitionAlpha = 1): void {
+  const scale = Math.min(canvasWidth / scene.width, canvasHeight / scene.height);
+  const offsetX = (canvasWidth - scene.width * scale) / 2;
+  const offsetY = (canvasHeight - scene.height * scale) / 2;
+  const boxWidth = Math.max(1, clip.width * scale);
+  const boxHeight = Math.max(1, clip.height * scale);
+  context.save();
+  context.translate(offsetX + (clip.x + clip.width / 2) * scale, offsetY + (clip.y + clip.height / 2) * scale);
+  context.rotate(clip.rotation * Math.PI / 180);
+  context.globalAlpha = Math.max(0, Math.min(1, clip.opacity * transitionAlpha));
+  if (clip.imageFit === 'contain') {
+    const factor = Math.min(boxWidth / image.naturalWidth, boxHeight / image.naturalHeight);
+    const width = image.naturalWidth * factor;
+    const height = image.naturalHeight * factor;
+    context.drawImage(image, -width / 2, -height / 2, width, height);
+  } else {
+    const factor = Math.max(boxWidth / image.naturalWidth, boxHeight / image.naturalHeight);
+    const sourceWidth = boxWidth / factor;
+    const sourceHeight = boxHeight / factor;
+    const sourceX = (image.naturalWidth - sourceWidth) / 2;
+    const sourceY = (image.naturalHeight - sourceHeight) / 2;
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+  }
+  context.restore();
+}
+
 function escapeSvg(value: string) { return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[char] ?? char)); }
 function shapePoints(kind: NonNullable<StudioElement['shapeKind']>, width: number, height: number): string {
   if (kind === 'triangle') return `${width/2},0 ${width},${height} 0,${height}`;
@@ -212,7 +288,7 @@ async function decodeVideoFrame(sourceUrl: string, requestedTime: number): Promi
 }
 
 async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mimeType: 'image/png' | 'image/jpeg' = 'image/png', sceneTime = 0): Promise<Blob> {
-  const svg = new Blob([makeSvg(page, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
+  const svg = new Blob([makeSvg(page, urls, false, false, false)], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svg);
   const decodedVideos: HTMLVideoElement[] = [];
   try {
@@ -228,19 +304,27 @@ async function renderPageBlob(page: StudioPage, urls: Record<string, string>, mi
     context.fillStyle = page.background;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    for (const clip of page.elements.filter(item => item.type === 'video' && item.visible)) {
+    for (const clip of page.elements.filter(item => item.visible && (item.type === 'video' || hasTimedImageRange(item)))) {
       const clipStart = clip.startSeconds ?? 0;
       const clipDuration = clip.durationSeconds ?? page.durationSeconds;
       if (sceneTime < clipStart || sceneTime >= clipStart + clipDuration) continue;
       const sourceUrl = clip.resourceId ? urls[clip.resourceId] : undefined;
-      if (!sourceUrl) throw new Error('The video media for "' + clip.name + '" is not available in the resource library.');
+      if (!sourceUrl) throw new Error('The media for "' + clip.name + '" is not available in the resource library.');
+      if (clip.type === 'image') {
+        const image = new Image();
+        image.src = sourceUrl;
+        await image.decode();
+        drawTimedImageClip(context, canvas.width, canvas.height, page, clip, image, timedMediaFadeAlpha(clip, sceneTime - clipStart, clipDuration));
+        continue;
+      }
+      if (clip.type !== 'video') continue;
       const sourceTime = Math.max(0, (clip.sourceStartSeconds ?? 0) + sceneTime - clipStart);
       const video = await decodeVideoFrame(sourceUrl, sourceTime);
       decodedVideos.push(video);
       context.save();
       context.translate(clip.x + clip.width / 2, clip.y + clip.height / 2);
       context.rotate(clip.rotation * Math.PI / 180);
-      context.globalAlpha = clip.opacity;
+      context.globalAlpha = clip.opacity * timedMediaFadeAlpha(clip, sceneTime - clipStart, clipDuration);
       context.drawImage(video, -clip.width / 2, -clip.height / 2, clip.width, clip.height);
       context.restore();
     }
@@ -282,7 +366,10 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | StudioResourceKind>('all');
   const [toast, setToast] = useState('');
+  const [confirmation, setConfirmation] = useState<StudioConfirmation | null>(null);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null);
+  const [metaConsentOpen, setMetaConsentOpen] = useState(false);
   const [publishRequests, setPublishRequests] = useState<PublishRequest[]>([]);
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishError, setPublishError] = useState('');
@@ -291,6 +378,8 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [destinationId, setDestinationId] = useState('');
   const [scheduleAt, setScheduleAt] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const metaConnectButtonRef = useRef<HTMLButtonElement | null>(null);
+  const metaConsentDialogRef = useRef<HTMLElement | null>(null);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -319,6 +408,43 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     if (hubPage !== 'connections' && hubPage !== 'publish') return;
     void loadMetaData();
   }, [hubPage]);
+
+  useEffect(() => {
+    if (!metaConsentOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusFrame = window.requestAnimationFrame(() => {
+      metaConsentDialogRef.current?.focus({ preventScroll: true });
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMetaConsent();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = document.getElementById('meta-consent-dialog');
+      const focusable = dialog?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), summary, a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [metaConsentOpen]);
 
   async function loadMetaData() {
     try {
@@ -382,10 +508,41 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   async function deleteResource(resource: StudioResource) {
     const references = projects.filter((item) => item.pages.some((savedPage) => savedPage.elements.some((element) => element.resourceId === resource.id)));
     if (references.length) { notify('This resource is used by: ' + references.map((item) => item.name).join(', ')); return; }
-    if (!window.confirm('Remove this resource from the studio library?')) return;
-    await removeResource(resource.id);
-    if (selectedResourceId === resource.id) setSelectedResourceId(null);
-    await refreshLibrary();
+    setConfirmation({
+      action: 'delete-resource',
+      targetId: resource.id,
+      title: 'Remove resource?',
+      message: 'Remove "' + resource.name + '" from the studio library? This does not delete other media files or projects.',
+      confirmLabel: 'Remove resource',
+    });
+  }
+
+  async function confirmPendingAction() {
+    if (!confirmation || confirmationBusy) return;
+    setConfirmationBusy(true);
+    try {
+      if (confirmation.action === 'delete-resource') {
+        const resource = resources.find((item) => item.id === confirmation.targetId);
+        if (!resource) throw new Error('This resource is no longer available. Refresh the library and try again.');
+        await removeResource(resource.id);
+        if (selectedResourceId === resource.id) setSelectedResourceId(null);
+        await refreshLibrary();
+        notify('Resource removed from the studio library.');
+      } else if (confirmation.action === 'delete-project') {
+        const project = projects.find((item) => item.id === confirmation.targetId);
+        if (!project) throw new Error('This project is no longer available. Refresh the library and try again.');
+        await removeProject(project.id);
+        await refreshLibrary();
+        notify('Project deleted.');
+      } else {
+        await performDisconnectMeta();
+      }
+      setConfirmation(null);
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'The requested action could not be completed.');
+    } finally {
+      setConfirmationBusy(false);
+    }
   }
 
   async function getProjectJpeg(project: StudioProject): Promise<Blob> {
@@ -446,6 +603,11 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
     finally { setPublishBusy(false); }
   }
 
+  function closeMetaConsent() {
+    setMetaConsentOpen(false);
+    window.requestAnimationFrame(() => metaConnectButtonRef.current?.focus());
+  }
+
   async function connectMeta() {
     setPublishBusy(true);
     try {
@@ -455,8 +617,16 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       window.location.assign(payload.authorizationUrl);
     } catch (cause) { setPublishError(cause instanceof Error ? cause.message : 'Meta connection failed.'); setPublishBusy(false); }
   }
-  async function disconnectMeta() {
-    if (!window.confirm('Disconnect Meta accounts for this dealership?')) return;
+  function disconnectMeta() {
+    setConfirmation({
+      action: 'disconnect-meta',
+      title: 'Disconnect Meta accounts?',
+      message: 'Disconnect the Facebook and Instagram accounts currently connected to this dealership? You can reconnect them later.',
+      confirmLabel: 'Disconnect accounts',
+    });
+  }
+
+  async function performDisconnectMeta() {
     setPublishBusy(true);
     try {
       const response = await apiFetch('/api/v1/admin/social/meta/disconnect', { method: 'POST' });
@@ -464,8 +634,10 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       if (!response.ok) throw new Error(payload.message ?? 'Meta disconnect failed.');
       notify(payload.message ?? 'Meta accounts disconnected.');
       await loadMetaData();
-    } catch (cause) { setPublishError(cause instanceof Error ? cause.message : 'Meta disconnect failed.'); }
-    finally { setPublishBusy(false); }
+    } catch (cause) {
+      setPublishError(cause instanceof Error ? cause.message : 'Meta disconnect failed.');
+      throw cause;
+    } finally { setPublishBusy(false); }
   }
 
   const filteredResources = useMemo(() => resources.filter((resource) =>
@@ -507,7 +679,11 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           <div className={styles.projectMeta}><strong>{project.name}</strong><span>{project.pages.length} pages · {new Date(project.updatedAt).toLocaleDateString('en-IN')}</span></div>
           <div className={styles.cardActions}><button type="button" title="Edit" aria-label={'Edit ' + project.name} onClick={() => void editProject(project)}><Icon name="text"/></button>
             <button type="button" title="Publish" aria-label={'Publish ' + project.name} onClick={() => { setActiveProject(project); setHubPage('publish'); }}><Icon name="publish"/></button>
-            <button type="button" title="Delete" aria-label={'Delete ' + project.name} onClick={() => { if (window.confirm('Delete this project?')) void removeProject(project.id).then(refreshLibrary); }}><Icon name="trash"/></button></div>
+            <button type="button" title="Delete" aria-label={'Delete ' + project.name} onClick={() => setConfirmation({
+              action: 'delete-project', targetId: project.id, title: 'Delete project?',
+              message: 'Permanently delete "' + project.name + '" and its saved design pages? Media resources in the library will remain available.',
+              confirmLabel: 'Delete project',
+            })}><Icon name="trash"/></button></div>
         </article>)}</div> : <div className={styles.emptyState}><Icon name="template"/><button type="button" onClick={createBlankProject}>Create your first design</button></div>}
       </>}
       {hubPage === 'resources' && <>
@@ -527,7 +703,7 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           {metaStatus?.destinations?.map((item) => <div className={styles.destinationRow} key={item.publicId}><span>{item.type === 'FACEBOOK_PAGE' ? 'f' : '◎'}</span><strong>{item.displayName}</strong><small>{item.status}</small></div>)}
           {!!metaStatus?.missingConfigurationKeys?.length && <small className={styles.missingKeys}>Missing settings: {metaStatus.missingConfigurationKeys.join(', ')}</small>}
           {!!metaStatus?.missingPublishingConfigurationKeys?.length && <small className={styles.missingKeys}>Publishing settings: {metaStatus.missingPublishingConfigurationKeys.join(', ')}</small>}
-          <div className={styles.cardActions}>{canManage && <button type="button" onClick={() => void connectMeta()} disabled={publishBusy}><Icon name="link"/> Connect</button>}
+          <div className={styles.cardActions}>{canManage && <button ref={metaConnectButtonRef} type="button" onClick={() => setMetaConsentOpen(true)} disabled={publishBusy}><Icon name="link"/> Connect</button>}
             {canManage && <button type="button" onClick={() => void disconnectMeta()} disabled={publishBusy}><Icon name="close"/> Disconnect</button>}</div>
         </div>
       </section>}
@@ -562,6 +738,43 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           }}/>
       </section>}
     </main>
+    {confirmation && <StudioConfirmDialog
+      title={confirmation.title}
+      description={confirmation.message}
+      confirmLabel={confirmation.confirmLabel}
+      busy={confirmationBusy}
+      onCancel={() => { if (!confirmationBusy) setConfirmation(null); }}
+      onConfirm={confirmPendingAction}
+    />}
+    {metaConsentOpen && <div className={styles.consentBackdrop}>
+      <section ref={metaConsentDialogRef} className={styles.consentDialog} id="meta-consent-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description" tabIndex={-1}>
+        <div className={styles.consentHeading}>
+          <span className={styles.consentMark} aria-hidden="true"><Icon name="link"/></span>
+          <div><h2 id="meta-consent-title">Connect Facebook and Instagram?</h2><p>Authorize the dealership's social accounts</p></div>
+        </div>
+        <p id="meta-consent-description">Continuing will start Meta's secure authorization flow. Meta will show the exact permissions requested for the account. Review that list carefully and grant only the access you approve.</p>
+        <ul className={styles.consentList}>
+          <li>Eligible Facebook Pages and connected Instagram professional accounts may become available as dealership publishing destinations.</li>
+          <li>Connecting an account does not publish anything. Every post remains subject to the separate LuckyBajaj publishing approval workflow.</li>
+          <li>Provider authorization credentials are handled by the dealership backend and are not stored in this browser.</li>
+        </ul>
+        <details className={styles.consentPermissions}>
+          <summary>See the exact Meta permissions being requested</summary>
+          <ul>
+            <li><code>pages_show_list</code> — find the Facebook Pages available to the authorized account.</li>
+            <li><code>pages_read_engagement</code> — read Page information and engagement needed to verify publishing destinations.</li>
+            <li><code>pages_manage_posts</code> — manage posts on the selected Facebook Pages.</li>
+            <li><code>instagram_basic</code> — read basic details for linked Instagram professional accounts.</li>
+            <li><code>instagram_content_publish</code> — publish eligible Instagram feed content after LuckyBajaj approval.</li>
+          </ul>
+        </details>
+        <p className={styles.consentNotice}>Continue only if you are authorized to connect these dealership accounts. Meta will ask you to approve its permissions separately. You can cancel here or decline on Meta's authorization screen.</p>
+        <div className={styles.consentActions}>
+          <button type="button" onClick={closeMetaConsent}>Not now</button>
+          <button type="button" className={styles.consentContinue} disabled={publishBusy} onClick={() => { setMetaConsentOpen(false); void connectMeta(); }}>Continue to Meta</button>
+        </div>
+      </section>
+    </div>}
     {toast && <div className={styles.toast} role="status">{toast}</div>}
     {editorOpen && activeProject && <StudioEditor project={activeProject} resources={resources} urls={resourceUrls}
       onProjectChange={setActiveProject} onResourceAdded={async (resource) => { await refreshLibrary(); return resource; }}
@@ -584,7 +797,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [snapGuides, setSnapGuides] = useState<{ x?: number; y?: number }>({});
   const [customWidth, setCustomWidth] = useState('1080');
   const [customHeight, setCustomHeight] = useState('1080');
-  const [selectedAudio, setSelectedAudio] = useState(project.selectedAudioId ?? '');
   const [favoriteMusicIds, setFavoriteMusicIds] = useState<string[]>(() => { try { return JSON.parse(window.localStorage.getItem('lucky-bajaj-studio-music-favourites') ?? '[]') as string[]; } catch { return []; } });
   const [storyTarget, setStoryTarget] = useState<StoryTarget>('whatsapp-status');
   const [exporting, setExporting] = useState(false);
@@ -601,11 +813,15 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
   const [brandAssetPickerOpen, setBrandAssetPickerOpen] = useState(false);
+  const [leaveWithoutSavingOpen, setLeaveWithoutSavingOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<'photo' | 'video' | 'both'>('photo');
   const [downloadPhotoFormat, setDownloadPhotoFormat] = useState<'png' | 'jpg'>('png');
+  const [videoFormatPreference, setVideoFormatPreference] = useState<VideoFormatPreference>('auto');
+  const supportedVideoFormats = useMemo(() => ({ mp4: !!findSupportedVideoMime('mp4'), webm: !!findSupportedVideoMime('webm') }), []);
+  const selectedVideoMime = findSupportedVideoMime(videoFormatPreference);
   const [downloadBusy, setDownloadBusy] = useState(false);
-  const [audioTrackDuration, setAudioTrackDuration] = useState(125);
+  const [audioTrackDurations, setAudioTrackDurations] = useState<Record<string, number>>({});
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPreviewTime, setAudioPreviewTime] = useState(0);
   const [timelinePlaying, setTimelinePlaying] = useState(false);
@@ -613,16 +829,17 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [timelineTime, setTimelineTime] = useState(0);
   const [renderStage, setRenderStage] = useState<'idle'|'preparing'|'rendering'|'saving'|'ready'|'failed'|'cancelled'>('idle');
   const [canCancelRender, setCanCancelRender] = useState(false);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
   const timelineCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineFramesRef = useRef<Record<string, HTMLImageElement>>({});
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
+  const timelineImageElementsRef = useRef<Record<string, HTMLImageElement>>({});
   const timelineTimeRef = useRef(0);
   const timelineClipTrackRef = useRef<HTMLDivElement | null>(null);
-  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mode:'move'|'start'|'end';changed:boolean}|null>(null);
+  const timelineClipDragRef = useRef<{clipId:string;pageId:string;pointerId:number;pointerX:number;trackWidth:number;startSeconds:number;durationSeconds:number;sourceStartSeconds:number;previewStartSeconds:number;previewDurationSeconds:number;previewSourceStartSeconds:number;sceneDuration:number;mediaType:'image'|'video';mode:'move'|'start'|'end';changed:boolean}|null>(null);
   const [timelineClipPreview,setTimelineClipPreview] = useState<{clipId:string;startSeconds:number;durationSeconds:number}|null>(null);
-  const audioRangeTrackRef = useRef<HTMLDivElement | null>(null);
-  const audioRangeDragRef = useRef<{mode:'start'|'end'|'move';pointerX:number;start:number;duration:number}|null>(null);
+  const audioRangeTrackRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const audioRangeDragRef = useRef<{trackId:string;mode:'start'|'end'|'move';pointerX:number;trackWidth:number;timelineStart:number;sourceStart:number;duration:number}|null>(null);
   const cancelRenderRef = useRef<(()=>void)|null>(null);
   const projectRef = useRef(project);
   useEffect(() => { projectRef.current = project; }, [project]);
@@ -637,10 +854,16 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const saveInFlightRef = useRef(0);
   const page = project.pages.find((item) => item.id === project.selectedPageId) ?? project.pages[0];
   const totalSceneDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-  const audioClipLength = Math.max(.1,Math.min(project.audioDurationSeconds??30,Math.max(.1,audioTrackDuration-project.audioStartSeconds),Math.max(.1,totalSceneDuration)));
+  const audioTracks = projectAudioTracks(project);
+  const selectedAudioTrack = audioTracks.find(track=>track.id===project.selectedAudioTrackId)??audioTracks[0]??null;
+  const selectedAudio = selectedAudioTrack?.resourceId??project.selectedAudioId??'';
+  const selectedAudioResource = resources.find(item=>item.id===selectedAudio&&item.kind==='audio');
+  const audioTrackDuration = selectedAudioTrack?(audioTrackDurations[selectedAudioTrack.resourceId]??125):0;
+  const audioClipLength = selectedAudioTrack?.durationSeconds??0;
+  const timelineMediaClips = project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video'||element.type==='image').map(clip=>({scene,sceneIndex,clip})));
   const changeProject = (next:StudioProject) => {
     projectRef.current = next;
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     setTimelinePreviewVisible(false);timelineTimeRef.current=0;setTimelineTime(0);Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(renderedPhoto?.url)URL.revokeObjectURL(renderedPhoto.url);if(renderedVideo?.url)URL.revokeObjectURL(renderedVideo.url);
     setRenderedPhoto(null);setRenderedVideo(null);setPhotoPreviewOpen(false);setVideoPreviewOpen(false);setDownloadOpen(false);setRenderStage('idle');setRenderProgress(0);
@@ -652,9 +875,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   function endSave() { saveInFlightRef.current = Math.max(0, saveInFlightRef.current - 1); setSaving(saveInFlightRef.current > 0); }
   const selected = page.elements.filter((item) => selectedIds.includes(item.id));
   const one = selected.length === 1 ? selected[0] : null;
-  const selectedAudioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
   useEffect(()=>{try{window.localStorage.setItem('lucky-bajaj-studio-music-favourites',JSON.stringify(favoriteMusicIds));}catch{/* Session-only favourites remain usable. */}},[favoriteMusicIds]);
-  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
+  useEffect(()=>{let cancelled=false;const objectUrls:string[]=[];const nextVideos:Record<string,HTMLVideoElement>={};const load=async()=>{const entries=await Promise.all(project.pages.map(async item=>{const src=URL.createObjectURL(new Blob([makeSvg(item,urls,false,false,false)],{type:'image/svg+xml;charset=utf-8'}));objectUrls.push(src);const image=new Image();image.src=src;await image.decode();return [item.id,image] as const;}));const imageEntries=await Promise.all(project.pages.flatMap(scene=>scene.elements.filter(element=>hasTimedImageRange(element)&&element.resourceId&&urls[element.resourceId])).map(async element=>{const image=new Image();image.src=urls[element.resourceId!];try{await image.decode();return [element.id,image] as [string,HTMLImageElement];}catch{return null;}}));project.pages.forEach(scene=>scene.elements.filter(element=>element.type==='video'&&element.resourceId&&urls[element.resourceId]).forEach(element=>{const video=document.createElement('video');video.src=urls[element.resourceId!];video.preload='auto';video.muted=true;video.playsInline=true;nextVideos[element.id]=video;video.load();video.addEventListener('loadedmetadata',()=>{
       if(!Number.isFinite(video.duration)||video.duration<=0)return;
       const currentProject=projectRef.current;
       const owner=currentProject.pages.find(candidate=>candidate.elements.some(candidateClip=>candidateClip.id===element.id));
@@ -665,8 +887,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const safeDuration=Math.max(.1,Math.min(sourceClip.durationSeconds??owner.durationSeconds,owner.durationSeconds-clipStart,video.duration-sourceStart));
       if(Math.abs(clipStart-(sourceClip.startSeconds??0))<.01&&Math.abs(sourceStart-(sourceClip.sourceStartSeconds??0))<.01&&Math.abs(safeDuration-(sourceClip.durationSeconds??owner.durationSeconds))<.01)return;
       changeProject({...currentProject,pages:currentProject.pages.map(candidate=>candidate.id===owner.id?{...candidate,elements:candidate.elements.map(candidateClip=>candidateClip.id===element.id?{...candidateClip,startSeconds:clipStart,sourceStartSeconds:sourceStart,durationSeconds:safeDuration}:candidateClip)}:candidate)});
-    });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
-  useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
+    });video.addEventListener('loadeddata',()=>drawTimelinePreview(timelineTimeRef.current),{once:true});video.addEventListener('seeked',()=>drawTimelinePreview(timelineTimeRef.current));}));if(!cancelled){timelineFramesRef.current=Object.fromEntries(entries);timelineImageElementsRef.current=Object.fromEntries(imageEntries.filter((entry):entry is [string,HTMLImageElement]=>entry!==null));videoElementsRef.current=nextVideos;if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);}};void load().catch(()=>undefined);return()=>{cancelled=true;objectUrls.forEach(URL.revokeObjectURL);Object.values(nextVideos).forEach(video=>{video.pause();video.removeAttribute('src');video.load();});};},[project.pages,urls]);
+  useEffect(()=>{if(!timelinePlaying)return;let raf=0,last=0;const started=performance.now()-timelineTimeRef.current*1000;const tick=(now:number)=>{const t=Math.min(totalSceneDuration,Math.max(0,(now-started)/1000));timelineTimeRef.current=t;drawTimelinePreview(t);syncAudioPlaybackAtTime(t,true);if(now-last>=100||t>=totalSceneDuration){setTimelineTime(t);last=now;}if(t>=totalSceneDuration){setTimelinePlaying(false);pauseAudioPlayers();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf);},[timelinePlaying,totalSceneDuration,project.pages,urls]);
   useEffect(()=>{if(timelinePreviewVisible)drawTimelinePreview(timelineTimeRef.current);},[timelinePreviewVisible,project.pages,urls]);
   function toggleMusicFavourite(id: string) { setFavoriteMusicIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
@@ -749,7 +971,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     } catch (cause) {
       setSaveStatus('error');
       onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
-      if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
+      setLeaveWithoutSavingOpen(true);
+      return;
     } finally { endSave(); }
     onOpenLibrary();
   }
@@ -784,46 +1007,167 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     const current=project.pages[index],image=timelineFramesRef.current[current.id];if(!image)return;
     const draw=(img:HTMLImageElement,alpha=1)=>{const scale=Math.min(canvas.width/img.width,canvas.height/img.height),w=img.width*scale,h=img.height*scale;ctx.globalAlpha=alpha;ctx.drawImage(img,(canvas.width-w)/2,(canvas.height-h)/2,w,h);ctx.globalAlpha=1;};
     const activeVideoIds=new Set<string>();
-    const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
-      const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
-      scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
-        const video=videoElementsRef.current[clip.id],start=clip.startSeconds??0,duration=clip.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
-        if(!video)return;if(!active){video.pause();return;}activeVideoIds.add(clip.id);
-        const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-start);
+    const drawSceneMedia=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+      scene.elements.filter(item=>item.visible&&(item.type==='video'||hasTimedImageRange(item))).forEach(item=>{
+        const start=item.startSeconds??0,duration=item.durationSeconds??scene.durationSeconds,active=sceneTime>=start&&sceneTime<start+duration;
+        if(item.type==='image'){
+          if(!active)return;
+          const imageElement=timelineImageElementsRef.current[item.id];
+          if(imageElement)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,imageElement,alpha*timedMediaFadeAlpha(item,sceneTime-start,duration));
+          return;
+        }
+        if(item.type!=='video')return;
+        const video=videoElementsRef.current[item.id];if(!video)return;
+        if(!active){video.pause();return;}
+        activeVideoIds.add(item.id);
+        const sourceTime=Math.max(0,(item.sourceStartSeconds??0)+sceneTime-start);
         if(Number.isFinite(video.duration)&&sourceTime>=video.duration){video.pause();return;}
         if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
         if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Decoder is still loading. */}}
         if(timelinePlaying&&video.paused)void video.play().catch(()=>undefined);else if(!timelinePlaying)video.pause();
-        ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
-        ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+        const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+        ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha*timedMediaFadeAlpha(item,sceneTime-start,duration);
+        ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
       });
     };
-    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);drawSceneVideos(current,remaining,1);
+    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=current.background;ctx.fillRect(0,0,canvas.width,canvas.height);draw(image);drawSceneMedia(current,remaining,1);
     const next=project.pages[index+1],fade=Math.min(current.durationSeconds,current.transitionDurationSeconds??.5);
     if(next&&current.transitionAfter==='fade'&&fade>0&&current.durationSeconds-remaining<fade){
       const progress=Math.max(0,Math.min(1,1-(current.durationSeconds-remaining)/fade)),nextImage=timelineFramesRef.current[next.id];
-      if(nextImage){draw(nextImage,progress);drawSceneVideos(next,Math.min(next.durationSeconds,progress*fade),progress);}
+      if(nextImage){draw(nextImage,progress);drawSceneMedia(next,Math.min(next.durationSeconds,progress*fade),progress);}
     }
     Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
   }
-  function seekTimeline(seconds:number){const t=Math.max(0,Math.min(totalSceneDuration,seconds));timelineTimeRef.current=t;setTimelineTime(t);setTimelinePreviewVisible(true);drawTimelinePreview(t);const audio=audioPlayerRef.current;if(audio&&timelinePlaying){if(t<audioClipLength)audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+t);else audio.pause();}}
-  function toggleTimelinePlayback(){const audio=audioPlayerRef.current;if(timelinePlaying){setTimelinePlaying(false);audio?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());return;}const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);if(audio&&start<audioClipLength){audio.currentTime=Math.min(audioTrackDuration-.05,project.audioStartSeconds+start);void audio.play().catch(()=>onNotify('Audio preview could not start.'));}else audio?.pause();setTimelinePlaying(true);}
-  function setAudioRange(start:number,duration:number){const s=Math.max(0,Math.min(audioTrackDuration-.1,start)),max=Math.max(.1,Math.min(audioTrackDuration-s,totalSceneDuration));changeProject({...project,audioStartSeconds:s,audioDurationSeconds:Math.max(.1,Math.min(max,duration))});}
-  function beginAudioRangeDrag(event:ReactPointerEvent<HTMLElement>,request:'auto'|'start'|'end'|'move'){const track=audioRangeTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();const rect=track.getBoundingClientRect(),pos=rect.width?(event.clientX-rect.left)/rect.width*audioTrackDuration:0;let mode=request;const start=project.audioStartSeconds,end=start+audioClipLength;if(mode==='auto')mode=pos>=start&&pos<=end?'move':Math.abs(pos-start)<=Math.abs(pos-end)?'start':'end';track.setPointerCapture(event.pointerId);audioRangeDragRef.current={mode,pointerX:event.clientX,start,duration:audioClipLength};}
-  function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){const drag=audioRangeDragRef.current,track=audioRangeTrackRef.current;if(!drag||!track)return;const rect=track.getBoundingClientRect();if(!rect.width)return;const delta=(event.clientX-drag.pointerX)/rect.width*audioTrackDuration;if(drag.mode==='move'){const max=Math.max(0,Math.min(audioTrackDuration-drag.duration,totalSceneDuration-drag.duration));setAudioRange(Math.max(0,Math.min(max,drag.start+delta)),drag.duration);}else if(drag.mode==='start'){const end=drag.start+drag.duration,next=Math.max(0,Math.min(end-.1,drag.start+delta));setAudioRange(next,end-next);}else{const max=Math.max(.1,Math.min(audioTrackDuration-drag.start,totalSceneDuration));setAudioRange(drag.start,Math.max(.1,Math.min(max,drag.duration+delta)));}}
-  function selectTimelineVideoClip(scene:StudioPage,clip:StudioElement) {
-    setTimelinePlaying(false);audioPlayerRef.current?.pause();Object.values(videoElementsRef.current).forEach(video=>video.pause());
+  function seekTimeline(seconds:number){
+    const time=Math.max(0,Math.min(totalSceneDuration,seconds));
+    timelineTimeRef.current=time;setTimelineTime(time);setTimelinePreviewVisible(true);drawTimelinePreview(time);
+    syncAudioPlaybackAtTime(time,timelinePlaying);
+  }
+  function toggleTimelinePlayback(){
+    if(timelinePlaying){
+      setTimelinePlaying(false);pauseAudioPlayers();
+      Object.values(videoElementsRef.current).forEach(video=>video.pause());
+      return;
+    }
+    const start=timelineTimeRef.current>=totalSceneDuration?0:timelineTimeRef.current;
+    timelineTimeRef.current=start;setTimelineTime(start);setTimelinePreviewVisible(true);drawTimelinePreview(start);
+    syncAudioPlaybackAtTime(start,true);
+    setTimelinePlaying(true);
+  }
+  function pauseAudioPlayers(){Object.values(audioElementsRef.current).forEach(audio=>audio.pause());setAudioPlaying(false);}
+  function syncAudioPlaybackAtTime(seconds:number,shouldPlay:boolean){
+    const tracks=projectAudioTracks(projectRef.current);
+    tracks.forEach(track=>{
+      const audio=audioElementsRef.current[track.id];if(!audio)return;
+      const local=seconds-track.timelineStartSeconds;
+      if(local<0||local>=track.durationSeconds){audio.pause();return;}
+      const sourceTime=track.sourceStartSeconds+local;
+      if(audio.readyState>0&&Math.abs(audio.currentTime-sourceTime)>.22){try{audio.currentTime=sourceTime;}catch{/* Audio metadata may still be loading. */}}
+      const inLevel=track.fadeInSeconds>0?local/track.fadeInSeconds:1;
+      const outLevel=track.fadeOutSeconds>0?(track.durationSeconds-local)/track.fadeOutSeconds:1;
+      audio.volume=Math.max(0,Math.min(1,track.volume/100,inLevel,outLevel));
+      if(shouldPlay&&audio.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA&&audio.paused)void audio.play().catch(()=>onNotify('An audio track could not start.'));
+      else if(!shouldPlay)audio.pause();
+      if(track.id===(projectRef.current.selectedAudioTrackId??tracks[0]?.id))setAudioPreviewTime(sourceTime);
+    });
+    setAudioPlaying(Object.values(audioElementsRef.current).some(audio=>!audio.paused));
+  }
+  function updateAudioPlayback(trackId:string,audio:HTMLAudioElement){
+    const track=projectAudioTracks(projectRef.current).find(item=>item.id===trackId);if(!track)return;
+    const local=audio.currentTime-track.sourceStartSeconds;
+    const inLevel=track.fadeInSeconds>0?local/track.fadeInSeconds:1;
+    const outLevel=track.fadeOutSeconds>0?(track.durationSeconds-local)/track.fadeOutSeconds:1;
+    audio.volume=Math.max(0,Math.min(1,track.volume/100,inLevel,outLevel));
+    if(local>=track.durationSeconds)audio.pause();
+    if(track.id===(projectRef.current.selectedAudioTrackId??projectAudioTracks(projectRef.current)[0]?.id))setAudioPreviewTime(audio.currentTime);
+    setAudioPlaying(Object.values(audioElementsRef.current).some(player=>!player.paused));
+  }
+  function updateAudioTrack(trackId:string,changes:Partial<StudioAudioTrack>){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    const next=tracks.map(track=>track.id===trackId?{...track,...changes}:track);
+    changeProject(projectWithAudioTracks(current,next,current.selectedAudioTrackId??trackId));
+  }
+  function addAudioTrack(resource:StudioResource){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    if(tracks.length>=8){onNotify('A project can contain up to eight audio tracks.');return;}
+    const available=audioTrackDurations[resource.id]??30;
+    const duration=Math.max(.1,Math.min(available,Math.max(.1,totalSceneDuration)));
+    const track:StudioAudioTrack={id:randomId(),resourceId:resource.id,timelineStartSeconds:0,sourceStartSeconds:0,durationSeconds:duration,volume:80,fadeInSeconds:0,fadeOutSeconds:0};
+    changeProject(projectWithAudioTracks(current,[...tracks,track],track.id));
+    setTool('audio');setAudioPreviewTime(0);
+  }
+  function selectAudioTrack(trackId:string){
+    const current=projectRef.current,tracks=projectAudioTracks(current);
+    const activeId=current.selectedAudioTrackId??tracks[0]?.id??null;
+    if(activeId!==trackId)changeProject(projectWithAudioTracks(current,tracks,trackId));
+    setTool('audio');
+    const track=tracks.find(item=>item.id===trackId);if(track)setAudioPreviewTime(track.sourceStartSeconds);
+  }
+  function removeAudioTrack(trackId:string){
+    const current=projectRef.current,tracks=projectAudioTracks(current).filter(track=>track.id!==trackId);
+    const selectedId=current.selectedAudioTrackId===trackId?(tracks[tracks.length-1]?.id??null):current.selectedAudioTrackId??null;
+    audioElementsRef.current[trackId]?.pause();delete audioElementsRef.current[trackId];
+    changeProject(projectWithAudioTracks(current,tracks,selectedId));
+  }
+  function handleAudioMetadata(trackId:string,audio:HTMLAudioElement){
+    const duration=Number.isFinite(audio.duration)&&audio.duration>0?audio.duration:0;if(!duration)return;
+    const current=projectRef.current,track=projectAudioTracks(current).find(item=>item.id===trackId);if(!track)return;
+    setAudioTrackDurations(existing=>({...existing,[track.resourceId]:duration}));
+    const timelineStart=Math.max(0,Math.min(track.timelineStartSeconds,Math.max(0,totalSceneDuration-.1)));
+    const sourceStart=Math.max(0,Math.min(track.sourceStartSeconds,Math.max(0,duration-.1)));
+    const clipDuration=Math.max(.1,Math.min(track.durationSeconds,duration-sourceStart,totalSceneDuration-timelineStart));
+    if(Math.abs(timelineStart-track.timelineStartSeconds)>.01||Math.abs(sourceStart-track.sourceStartSeconds)>.01||Math.abs(clipDuration-track.durationSeconds)>.01){
+      const next=projectAudioTracks(current).map(item=>item.id===trackId?{...item,timelineStartSeconds:timelineStart,sourceStartSeconds:sourceStart,durationSeconds:clipDuration}:item);
+      changeProject(projectWithAudioTracks(current,next,current.selectedAudioTrackId??trackId));
+    }
+    if(track.id===(current.selectedAudioTrackId??projectAudioTracks(current)[0]?.id)){setAudioPreviewTime(sourceStart);audio.currentTime=sourceStart;}
+  }
+  function setAudioRange(start:number,duration:number){
+    if(!selectedAudioTrack)return;
+    const limit=audioTrackDuration||Math.max(.1,start+duration);
+    const sourceStart=Math.max(0,Math.min(limit-.1,start));
+    const clipDuration=Math.max(.1,Math.min(limit-sourceStart,totalSceneDuration-selectedAudioTrack.timelineStartSeconds,duration));
+    updateAudioTrack(selectedAudioTrack.id,{sourceStartSeconds:sourceStart,durationSeconds:clipDuration});
+  }
+  function beginAudioRangeDrag(trackId:string,event:ReactPointerEvent<HTMLElement>,mode:'start'|'end'|'move'){
+    const element=audioRangeTrackRefs.current[trackId],track=projectAudioTracks(projectRef.current).find(item=>item.id===trackId);if(!element||!track)return;
+    event.preventDefault();event.stopPropagation();const rect=element.getBoundingClientRect();if(!rect.width)return;
+    element.setPointerCapture(event.pointerId);
+    audioRangeDragRef.current={trackId,mode,pointerX:event.clientX,trackWidth:rect.width,timelineStart:track.timelineStartSeconds,sourceStart:track.sourceStartSeconds,duration:track.durationSeconds};
+    selectAudioTrack(trackId);
+  }
+  function moveAudioRange(event:ReactPointerEvent<HTMLDivElement>){
+    const drag=audioRangeDragRef.current;if(!drag)return;
+    const delta=(event.clientX-drag.pointerX)/drag.trackWidth*totalSceneDuration;
+    const track=projectAudioTracks(projectRef.current).find(item=>item.id===drag.trackId);if(!track)return;
+    const resourceDuration=audioTrackDurations[track.resourceId]??(drag.sourceStart+drag.duration);
+    let timelineStart=drag.timelineStart,sourceStart=drag.sourceStart,duration=drag.duration;
+    if(drag.mode==='move')timelineStart=Math.max(0,Math.min(totalSceneDuration-duration,drag.timelineStart+delta));
+    else if(drag.mode==='start'){
+      const clipEnd=drag.timelineStart+drag.duration;
+      timelineStart=Math.max(0,Math.min(clipEnd-.1,drag.timelineStart+delta));
+      sourceStart=Math.max(0,Math.min(resourceDuration-.1,drag.sourceStart+(timelineStart-drag.timelineStart)));
+      duration=Math.max(.1,Math.min(clipEnd-timelineStart,resourceDuration-sourceStart));
+    }else duration=Math.max(.1,Math.min(drag.duration+delta,totalSceneDuration-drag.timelineStart,resourceDuration-drag.sourceStart));
+    updateAudioTrack(drag.trackId,{timelineStartSeconds:timelineStart,sourceStartSeconds:sourceStart,durationSeconds:duration});
+  }
+  function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){
+    const drag=audioRangeDragRef.current;if(!drag)return;const element=audioRangeTrackRefs.current[drag.trackId];
+    if(element?.hasPointerCapture(event.pointerId))element.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;
+  }
+  function selectTimelineMediaClip(scene:StudioPage,clip:StudioElement) {
+    setTimelinePlaying(false);pauseAudioPlayers();Object.values(videoElementsRef.current).forEach(video=>video.pause());
     if(project.selectedPageId!==scene.id)mutate(current=>({...current,selectedPageId:scene.id}),false);
     setSelectedIds([clip.id]);setTool('layers');
   }
   function beginTimelineClipDrag(event:ReactPointerEvent<HTMLElement>,scene:StudioPage,clip:StudioElement,mode:'move'|'start'|'end') {
     if(clip.locked){onNotify('Unlock this video clip before changing its timeline position or trim.');return;}
-    const track=timelineClipTrackRef.current;if(!track)return;event.preventDefault();event.stopPropagation();
+    const track=event.currentTarget.closest('[data-video-clip-track]') as HTMLDivElement|null;if(!track)return;timelineClipTrackRef.current=track;event.preventDefault();event.stopPropagation();
     const rect=track.getBoundingClientRect();if(!rect.width)return;
     const startSeconds=clip.startSeconds??0,durationSeconds=Math.max(.1,Math.min(clip.durationSeconds??scene.durationSeconds,scene.durationSeconds-startSeconds));
     track.setPointerCapture(event.pointerId);
-    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.sourceStartSeconds??0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mode,changed:false};
-    selectTimelineVideoClip(scene,clip);
+    timelineClipDragRef.current={clipId:clip.id,pageId:scene.id,pointerId:event.pointerId,pointerX:event.clientX,trackWidth:rect.width,startSeconds,durationSeconds,sourceStartSeconds:clip.type==='video'?(clip.sourceStartSeconds??0):0,previewStartSeconds:startSeconds,previewDurationSeconds:durationSeconds,previewSourceStartSeconds:clip.sourceStartSeconds??0,sceneDuration:scene.durationSeconds,mediaType:clip.type==='image'?'image':'video',mode,changed:false};
+    selectTimelineMediaClip(scene,clip);
   }
   function moveTimelineClipDrag(event:ReactPointerEvent<HTMLDivElement>) {
     const drag=timelineClipDragRef.current;if(!drag||drag.pointerId!==event.pointerId)return;
@@ -832,8 +1176,9 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(drag.mode==='move')startSeconds=Math.max(0,Math.min(drag.sceneDuration-durationSeconds,drag.startSeconds+delta));
     else if(drag.mode==='start'){const end=drag.startSeconds+drag.durationSeconds;startSeconds=Math.max(0,Math.min(end-.1,drag.startSeconds+delta));durationSeconds=end-startSeconds;}
     else durationSeconds=Math.max(.1,Math.min(drag.sceneDuration-drag.startSeconds,drag.durationSeconds+delta));
-    const sourceDuration=videoElementsRef.current[drag.clipId]?.duration;
-    const sourceStartSeconds=drag.mode==='start'?Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):Math.max(0,Math.min(Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER,drag.sourceStartSeconds));
+    const sourceDuration=drag.mediaType==='video'?videoElementsRef.current[drag.clipId]?.duration:undefined;
+    const maxSourceStart=typeof sourceDuration==='number'&&Number.isFinite(sourceDuration)?Math.max(0,sourceDuration-durationSeconds):Number.MAX_SAFE_INTEGER;
+    const sourceStartSeconds=drag.mediaType==='video'&&drag.mode==='start'?Math.max(0,Math.min(maxSourceStart,drag.sourceStartSeconds+(startSeconds-drag.startSeconds))):drag.sourceStartSeconds;
     drag.previewStartSeconds=startSeconds;drag.previewDurationSeconds=durationSeconds;drag.previewSourceStartSeconds=sourceStartSeconds;
     drag.changed=Math.abs(startSeconds-drag.startSeconds)>.04||Math.abs(durationSeconds-drag.durationSeconds)>.04;
     setTimelineClipPreview({clipId:drag.clipId,startSeconds,durationSeconds});
@@ -849,8 +1194,6 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);
     timelineClipDragRef.current=null;setTimelineClipPreview(null);
   }
-  function endAudioRangeDrag(event:ReactPointerEvent<HTMLDivElement>){const track=audioRangeTrackRef.current;if(track?.hasPointerCapture(event.pointerId))track.releasePointerCapture(event.pointerId);audioRangeDragRef.current=null;}
-  function updateAudioPlayback(){const audio=audioPlayerRef.current;if(!audio)return;setAudioPreviewTime(audio.currentTime);const t=Math.max(0,audio.currentTime-project.audioStartSeconds),fadeIn=Math.max(0,project.audioFadeInSeconds??0),fadeOut=Math.max(0,project.audioFadeOutSeconds??0),fadeInLevel=fadeIn>0?t/fadeIn:1,fadeOutLevel=fadeOut>0?(audioClipLength-t)/fadeOut:1,envelope=Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel)),volume=(project.audioVolume/100)*envelope;audio.volume=Math.max(0,Math.min(1,volume));if(!audio.paused&&t>=audioClipLength)audio.pause();}
 
   async function downloadOutputs() {
     if (!renderedPhoto && !renderedVideo) return;
@@ -1086,7 +1429,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       const resource = await saveResource(blob, asset.name + '.jpg', 'image');
       await onResourceAdded(resource);
       const item = makeElement('image', page);
-      item.name = asset.name; item.resourceId = resource.id;
+      item.name = asset.name; item.resourceId = resource.id; item.startSeconds = 0; item.durationSeconds = page.durationSeconds;
       replacePage({ ...page, elements: [...page.elements, item] });
       setSelectedIds([item.id]);
       onNotify('Image added to the design.');
@@ -1094,7 +1437,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   }
   async function addLibraryImage(resource: StudioResource) {
     const item = makeElement('image', page);
-    item.name = resource.name; item.resourceId = resource.id;
+    item.name = resource.name; item.resourceId = resource.id; item.startSeconds = 0; item.durationSeconds = page.durationSeconds;
     mutate((current) => ({ ...current, pages: current.pages.map((entry) => entry.id === page.id ? { ...entry, elements: [...entry.elements, item] } : entry) }));
     setSelectedIds([item.id]);
   }
@@ -1104,7 +1447,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     setSelectedIds([item.id]); setTool('layers'); onNotify('Video clip added to this scene. Adjust its timing in Properties.');
   }
   async function exportImage(mime: 'image/png' | 'image/jpeg' = 'image/png') {
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(10);
     try {
@@ -1130,10 +1473,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       onNotify('This browser cannot record canvas video. Use current Chrome or Edge.');
       return;
     }
+    if (videoFormatPreference !== 'auto' && !selectedVideoMime) {
+      onNotify(videoFormatPreference.toUpperCase() + ' recording is not supported by this browser. Choose another available format.');
+      return;
+    }
     const maxDuration = storyTarget === 'whatsapp-status' ? 90 : storyTarget === 'social-reel' ? 120 : 60;
     const totalDuration = project.pages.reduce((sum, item) => sum + item.durationSeconds, 0);
-    const audioResource = resources.find((item) => item.id === selectedAudio && item.kind === 'audio');
-    if (audioResource && totalDuration < 1) {
+    const renderAudioTracks = projectAudioTracks(project).map(track => ({track,resource:resources.find(item=>item.id===track.resourceId&&item.kind==='audio')})).filter((item):item is {track:StudioAudioTrack;resource:StudioResource}=>!!item.resource);
+    if (renderAudioTracks.length && totalDuration < 1) {
       onNotify('Add at least one second of scene duration before rendering with audio.');
       return;
     }
@@ -1142,13 +1489,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       return;
     }
 
-    if(timelinePlaying){setTimelinePlaying(false);audioPlayerRef.current?.pause();}
+    if(timelinePlaying){setTimelinePlaying(false);pauseAudioPlayers();}
     Object.values(videoElementsRef.current).forEach(video=>video.pause());
     setExporting(true); setRenderStage('preparing'); setRenderProgress(4);
     let cancelled=false;
     let recorder: MediaRecorder | null = null;
     let context: AudioContext | null = null;
-    let audioSource: AudioBufferSourceNode | null = null;
+    const audioSources: Array<{source:AudioBufferSourceNode;gain:GainNode;timelineStart:number;sourceStart:number;duration:number;envelope:Float32Array}> = [];
     let mediaStream: MediaStream | null = null;
     let frameId = 0;
     let stopWatch: number | null = null;
@@ -1157,7 +1504,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     try {
       Object.values(videoElementsRef.current).forEach(video=>video.pause());
       const frames = await Promise.all(project.pages.map(async (item) => {
-        const blob = new Blob([makeSvg(item, urls, false, false)], { type: 'image/svg+xml;charset=utf-8' });
+        const blob = new Blob([makeSvg(item, urls, false, false, false)], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         frameUrls.push(url);
         const image = new Image();
@@ -1174,6 +1521,10 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           video.addEventListener('error', () => { window.clearTimeout(timeout); reject(new Error('A video clip could not be decoded. Use a browser-supported MP4 or WebM file.')); }, { once: true });
         });
       }));
+      await Promise.all(project.pages.flatMap(scene=>scene.elements.filter(element=>hasTimedImageRange(element)&&element.resourceId&&urls[element.resourceId])).map(async element=>{
+        if(timelineImageElementsRef.current[element.id])return;
+        const image=new Image();image.src=urls[element.resourceId!];await image.decode();timelineImageElementsRef.current[element.id]=image;
+      }));
       const canvas = document.createElement('canvas');
       // Render every scene letterboxed at the selected page's exact dimensions.
       canvas.width = page.width;
@@ -1182,32 +1533,41 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       if (!ctx) throw new Error('Video render canvas is unavailable.');
       mediaStream = canvas.captureStream(30);
 
-      let audioClipStart = 0;
-      let audioClipDuration = 0;
-      if (audioResource) {
+      if (renderAudioTracks.length) {
         context = new AudioContext();
         const audioDestination = context.createMediaStreamDestination();
-        const decoded = await context.decodeAudioData(await audioResource.blob.arrayBuffer());
-        audioSource = context.createBufferSource();
-        audioSource.buffer = decoded;
-        const gain = context.createGain();
-        audioClipStart=Math.max(0,project.audioStartSeconds);
-        audioClipDuration=Math.min(project.audioDurationSeconds??30,totalDuration,Math.max(0,decoded.duration-audioClipStart));
-        if(audioClipDuration<.1)throw new Error('The selected audio range must contain at least 0.1 seconds within the video duration.');
-        const volume=Math.max(0,Math.min(1,project.audioVolume/100)),fadeIn=Math.max(0,Math.min(audioClipDuration,project.audioFadeInSeconds??0)),fadeOut=Math.max(0,Math.min(audioClipDuration,project.audioFadeOutSeconds??0)),started=context.currentTime;
-        const envelope=new Float32Array(128);
-        for(let index=0;index<envelope.length;index+=1){const time=index/(envelope.length-1)*audioClipDuration,fadeInLevel=fadeIn>0?time/fadeIn:1,fadeOutLevel=fadeOut>0?(audioClipDuration-time)/fadeOut:1;envelope[index]=volume*Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel));}
-        gain.gain.setValueCurveAtTime(envelope,started,audioClipDuration);
-        audioSource.connect(gain);gain.connect(audioDestination);
-        audioDestination.stream.getAudioTracks().forEach((track) => mediaStream?.addTrack(track));
+        const decodedByResource = new Map<string, AudioBuffer>();
+        for (const {track,resource} of renderAudioTracks) {
+          let decoded = decodedByResource.get(resource.id);
+          if (!decoded) {
+            decoded = await context.decodeAudioData(await resource.blob.arrayBuffer());
+            decodedByResource.set(resource.id, decoded);
+          }
+          const timelineStart = Math.max(0,Math.min(totalDuration,track.timelineStartSeconds));
+          const sourceStart = Math.max(0,Math.min(decoded.duration-.1,track.sourceStartSeconds));
+          const duration = Math.min(track.durationSeconds,decoded.duration-sourceStart,totalDuration-timelineStart);
+          if (duration < .1) continue;
+          const source = context.createBufferSource();
+          source.buffer = decoded;
+          const gain = context.createGain();
+          const volume = Math.max(0,Math.min(1,track.volume/100));
+          const fadeIn = Math.max(0,Math.min(duration,track.fadeInSeconds));
+          const fadeOut = Math.max(0,Math.min(duration,track.fadeOutSeconds));
+          const envelope = new Float32Array(128);
+          for (let index=0;index<envelope.length;index+=1) {
+            const time=index/(envelope.length-1)*duration;
+            const fadeInLevel=fadeIn>0?time/fadeIn:1;
+            const fadeOutLevel=fadeOut>0?(duration-time)/fadeOut:1;
+            envelope[index]=volume*Math.max(0,Math.min(1,fadeInLevel,fadeOutLevel));
+          }
+          source.connect(gain);
+          gain.connect(audioDestination);
+          audioSources.push({source,gain,timelineStart,sourceStart,duration,envelope});
+        }
+        audioDestination.stream.getAudioTracks().forEach(track => mediaStream?.addTrack(track));
       }
 
-      const mime = [
-        'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-        'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm',
-      ].find((value) => MediaRecorder.isTypeSupported(value));
+      const mime = selectedVideoMime;
       recorder = new MediaRecorder(mediaStream, mime
         ? { mimeType: mime, videoBitsPerSecond: 3_000_000, audioBitsPerSecond: 128_000 }
         : undefined);
@@ -1230,18 +1590,22 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       recorder.start(250);
       setRenderStage('rendering');setCanCancelRender(true);
       cancelRenderRef.current=()=>{cancelled=true;if(recorder?.state==='recording')recorder.stop();};
-      if (context && audioSource) {
-        await context.resume();
-        audioSource.start(0, audioClipStart, audioClipDuration);
+      if (context) await context.resume();
+      const started = performance.now() + (context ? 20 : 0);
+      if (context) {
+        const audioClockStart = context.currentTime + .02;
+        audioSources.forEach(({source,gain,timelineStart,sourceStart,duration,envelope})=>{
+          gain.gain.setValueCurveAtTime(envelope,audioClockStart+timelineStart,duration);
+          source.start(audioClockStart+timelineStart,sourceStart,duration);
+        });
       }
 
       const total = frames.reduce((sum, item) => sum + item.duration, 0);
-      const started = performance.now();
       let renderFailure: Error | null = null;
 
       const draw = (now: number) => {
         try {
-          const elapsed = (now - started) / 1000;
+          const elapsed = Math.max(0,(now - started) / 1000);
           setRenderProgress(Math.min(96, Math.round(8 + elapsed / total * 86)));
           let offset = elapsed;
           let selectedFrameIndex = frames.length - 1;
@@ -1268,29 +1632,38 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           ctx.fillStyle = '#101c35';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           const activeVideoIds=new Set<string>();
-          const drawSceneVideos=(scene:StudioPage,sceneTime:number,alpha=1)=>{
-            const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
-            scene.elements.filter(clip=>clip.type==='video'&&clip.visible).forEach(clip=>{
-              const video=videoElementsRef.current[clip.id],clipStart=clip.startSeconds??0,clipDuration=clip.durationSeconds??scene.durationSeconds;
-              if(!video)return;if(sceneTime<clipStart||sceneTime>=clipStart+clipDuration){video.pause();return;}activeVideoIds.add(clip.id);
-              const sourceTime=Math.max(0,(clip.sourceStartSeconds??0)+sceneTime-clipStart);
+          const drawSceneMedia=(scene:StudioPage,sceneTime:number,alpha=1)=>{
+            scene.elements.filter(item=>item.visible&&(item.type==='video'||hasTimedImageRange(item))).forEach(item=>{
+              const clipStart=item.startSeconds??0,clipDuration=item.durationSeconds??scene.durationSeconds,active=sceneTime>=clipStart&&sceneTime<clipStart+clipDuration;
+              if(item.type==='image'){
+                if(!active)return;
+                const image=timelineImageElementsRef.current[item.id];
+                if(image)drawTimedImageClip(ctx,canvas.width,canvas.height,scene,item,image,alpha*timedMediaFadeAlpha(item,sceneTime-clipStart,clipDuration));
+                return;
+              }
+              if(item.type!=='video')return;
+              const video=videoElementsRef.current[item.id];if(!video)return;
+              if(!active){video.pause();return;}
+              activeVideoIds.add(item.id);
+              const sourceTime=Math.max(0,(item.sourceStartSeconds??0)+sceneTime-clipStart);
               if(Number.isFinite(video.duration)&&sourceTime>=video.duration)return;
               if(video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
               if(Math.abs(video.currentTime-sourceTime)>.18){try{video.currentTime=sourceTime;}catch{/* Wait for decoded frame. */}}
               if(video.paused)void video.play().catch(()=>undefined);
-              ctx.save();ctx.translate(offsetX+(clip.x+clip.width/2)*scale,offsetY+(clip.y+clip.height/2)*scale);
-              ctx.rotate(clip.rotation*Math.PI/180);ctx.globalAlpha=clip.opacity*alpha;
-              ctx.drawImage(video,-clip.width*scale/2,-clip.height*scale/2,clip.width*scale,clip.height*scale);ctx.restore();
+              const scale=Math.min(canvas.width/scene.width,canvas.height/scene.height),offsetX=(canvas.width-scene.width*scale)/2,offsetY=(canvas.height-scene.height*scale)/2;
+              ctx.save();ctx.translate(offsetX+(item.x+item.width/2)*scale,offsetY+(item.y+item.height/2)*scale);
+              ctx.rotate(item.rotation*Math.PI/180);ctx.globalAlpha=item.opacity*alpha*timedMediaFadeAlpha(item,sceneTime-clipStart,clipDuration);
+              ctx.drawImage(video,-item.width*scale/2,-item.height*scale/2,item.width*scale,item.height*scale);ctx.restore();
             });
           };
           drawContained(selectedFrame.image);
-          drawSceneVideos(selectedFrame.page,selectedOffset,1);
+          drawSceneMedia(selectedFrame.page,selectedOffset,1);
           const nextFrame = frames[selectedFrameIndex + 1];
           const transitionWindow = Math.min(selectedFrame.duration, selectedFrame.transitionDuration);
           if (nextFrame && selectedFrame.transition === 'fade' && selectedFrame.duration - selectedOffset < transitionWindow) {
             const progress = Math.max(0,Math.min(1,1-(selectedFrame.duration-selectedOffset)/transitionWindow));
             drawContained(nextFrame.image,progress);
-            drawSceneVideos(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
+            drawSceneMedia(nextFrame.page,Math.min(nextFrame.duration,progress*transitionWindow),progress);
           }
           Object.entries(videoElementsRef.current).forEach(([id,video])=>{if(!activeVideoIds.has(id))video.pause();});
 
@@ -1331,7 +1704,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     } finally {
       if (stopWatch !== null) window.clearTimeout(stopWatch);
       if (frameId) cancelAnimationFrame(frameId);
-      try { audioSource?.stop(); } catch { /* The source may not have started before an export error. */ }
+      audioSources.forEach(({source})=>{try{source.stop();}catch{/* A source may already have ended. */}});
       mediaStream?.getTracks().forEach((track) => track.stop());
       frameUrls.forEach((url) => URL.revokeObjectURL(url));
       await context?.close().catch(() => undefined);
@@ -1452,7 +1825,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {tool === 'audio' && <div className={styles.audioPanel}>
           <label className={styles.uploadDrop}><Icon name="audio"/><span>Import audio</span><input type="file" accept="audio/*" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addUploadedFile(file, 'audio'); }}/></label>
           {resources.filter((item) => item.kind === 'audio' && item.name.toLowerCase().includes(panelSearch.toLowerCase())).map((resource) => <div className={styles.audioResourceRow} key={resource.id}>
-            <button type="button" className={selectedAudio === resource.id ? styles.audioSelected : styles.audioTrack} onClick={() => { setSelectedIds([]); setSelectedAudio(resource.id); changeProject({ ...project, selectedAudioId: resource.id }); }}><Icon name="audio"/><span>{resource.name}</span>{selectedAudio === resource.id && <Icon name="check"/>}</button>
+            <button type="button" className={styles.audioTrack} aria-label={resource.name} title="Add this as a separate audio track" onClick={() => {setSelectedIds([]);addAudioTrack(resource);}}><Icon name="audio"/><span>{resource.name}</span><Icon name="plus"/></button>
             <button type="button" title={favoriteMusicIds.includes(resource.id) ? 'Remove favourite' : 'Add favourite'} aria-label={favoriteMusicIds.includes(resource.id) ? 'Remove favourite ' + resource.name : 'Favourite ' + resource.name} aria-pressed={favoriteMusicIds.includes(resource.id)} onClick={() => toggleMusicFavourite(resource.id)}>{favoriteMusicIds.includes(resource.id) ? '★' : '☆'}</button>
           </div>)}
           <div className={styles.starterMusicList}>{STARTER_MUSIC_CATALOG.filter((track) => track.name.toLowerCase().includes(panelSearch.toLowerCase()) || track.category.toLowerCase().includes(panelSearch.toLowerCase())).map((track) => <div key={track.id}><span><strong>{track.name}</strong><small>{track.creator} · {track.category}</small><small>{track.licenseLabel}{track.contentIdRegistered ? ' · Content ID registered' : ''}</small></span><div><button type="button" aria-label={favoriteMusicIds.includes(track.id) ? 'Remove favourite ' + track.name : 'Favourite ' + track.name} aria-pressed={favoriteMusicIds.includes(track.id)} onClick={() => toggleMusicFavourite(track.id)}>{favoriteMusicIds.includes(track.id) ? '★' : '☆'}</button><a href={track.sourcePage} target="_blank" rel="noreferrer">Source</a></div></div>)}</div>
@@ -1476,6 +1849,14 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
           </div>)}
         </div>}
         {tool === 'resize' && <div className={styles.resizePanel}>
+          <label className={styles.panelField}>Video output format
+            <select aria-label="Video output format" value={videoFormatPreference} onChange={(event) => setVideoFormatPreference(event.target.value as VideoFormatPreference)}>
+              <option value="auto">Automatic · best supported</option>
+              <option value="mp4" disabled={!supportedVideoFormats.mp4}>MP4{supportedVideoFormats.mp4 ? '' : ' · unavailable in this browser'}</option>
+              <option value="webm" disabled={!supportedVideoFormats.webm}>WebM{supportedVideoFormats.webm ? '' : ' · unavailable in this browser'}</option>
+            </select>
+            <small>Codec support depends on this browser. Choose before rendering video.</small>
+          </label>
           {SIZE_PRESETS.map((preset) => <div className={styles.resizePreset} key={preset.id}>
             <button type="button" className={styles.resizePresetMain} onClick={() => applyPreset(preset)}><span>{preset.platform}</span><strong>{preset.label}</strong><small>{preset.width} × {preset.height}</small></button>
             <button type="button" className={styles.resizeVariantButton} aria-label={'Create variant ' + preset.width + ' by ' + preset.height} onClick={() => createSizeVariant(preset)}><Icon name="copy"/> Variant</button>
@@ -1546,70 +1927,106 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
             <button type="button" aria-label={timelinePlaying?'Pause timeline preview':'Play timeline preview'} disabled={exporting||totalSceneDuration<=0} onClick={toggleTimelinePlayback}><Icon name={timelinePlaying?'minus':'play'}/></button>
             <input aria-label="Timeline playhead" type="range" min="0" max={Math.max(1,totalSceneDuration)} step="0.1" value={Math.min(timelineTime,totalSceneDuration)} onChange={event=>seekTimeline(Number(event.target.value))}/>
             <strong>{formatTime(timelineTime)} / {formatTime(totalSceneDuration)}</strong>
-            {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
+            {timelinePreviewVisible&&<button type="button" aria-label="Exit timeline preview" onClick={()=>{setTimelinePlaying(false);pauseAudioPlayers();setTimelinePreviewVisible(false);}}><Icon name="close"/></button>}
           </div>
-          <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);audioPlayerRef.current?.pause();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
-          <div className={styles.videoClipLane}>
-            <span className={styles.videoClipLaneLabel}><Icon name="video"/> Video clips</span>
-            <div ref={timelineClipTrackRef} className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
-              {project.pages.flatMap((scene,sceneIndex)=>scene.elements.filter(element=>element.type==='video').map(clip=>{
+          <div className={styles.timelinePages}>{project.pages.map((item,index)=><button type="button" key={item.id} title={item.name+' · '+item.durationSeconds+' seconds'} className={item.id===page.id?styles.timelinePageActive:styles.timelinePage} style={{width:Math.max(88,Math.min(220,item.durationSeconds*18))}} onClick={()=>{setTimelinePlaying(false);pauseAudioPlayers();setTimelinePreviewVisible(false);mutate(current=>({...current,selectedPageId:item.id}),false);setSelectedIds([]);}}><span>{index+1}</span><small>{item.name}</small><em>{item.durationSeconds}s · {item.elements.length} items</em></button>)}<button type="button" title="Add page" aria-label="Add page" onClick={addPage}><Icon name="plus"/></button></div>
+          <div className={styles.mediaTracks} aria-label="Image and video tracks">
+            {timelineMediaClips.length===0
+              ? <div className={styles.mediaTracksEmpty}><Icon name="image"/> Add image or video clips from Uploads</div>
+              : timelineMediaClips.map(({scene,sceneIndex,clip},trackIndex)=>{
                 const offset=project.pages.slice(0,sceneIndex).reduce((sum,item)=>sum+item.durationSeconds,0);
                 const effectiveStart=timelineClipPreview?.clipId===clip.id?timelineClipPreview.startSeconds:(clip.startSeconds??0);
                 const effectiveDuration=timelineClipPreview?.clipId===clip.id?timelineClipPreview.durationSeconds:(clip.durationSeconds??scene.durationSeconds);
                 const clipStart=offset+effectiveStart;
                 const clipDuration=Math.max(0,Math.min(effectiveDuration,scene.durationSeconds-effectiveStart));
-                return <div key={clip.id} role="group" aria-label={'Video timeline clip '+clip.name} className={styles.videoClipItem}
-                  style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
-                  <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
-                    title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
-                    aria-label={'Select timeline video clip '+clip.name}
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}><Icon name="video"/><span>{clip.name}</span></button>
-                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
-                    aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
-                  <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
-                    aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
-                    onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
-                    onClick={()=>selectTimelineVideoClip(scene,clip)}/>
+                const imageTrackNumber=timelineMediaClips.slice(0,trackIndex).filter(entry=>entry.clip.type==='image').length+1;
+                const videoTrackNumber=timelineMediaClips.slice(0,trackIndex).filter(entry=>entry.clip.type==='video').length+1;
+                const isImage=clip.type==='image';
+                const trackLabel=(isImage?'Image track ':'Video track ')+(isImage?imageTrackNumber:videoTrackNumber);
+                return <div key={clip.id} className={styles.mediaTrackRow} role="group" aria-label={trackLabel+': '+clip.name}>
+                  <span className={styles.mediaTrackLabel} title={trackLabel+': '+clip.name}><Icon name={isImage?'image':'video'}/><span>{isImage?'I'+imageTrackNumber:'V'+videoTrackNumber}</span></span>
+                  <div data-video-clip-track="true" className={styles.videoClipTrack} onPointerMove={moveTimelineClipDrag} onPointerUp={endTimelineClipDrag} onPointerCancel={endTimelineClipDrag}>
+                    <div role="group" aria-label={'Timeline clip '+clip.name} className={styles.videoClipItem}
+                      style={{left:clipStart/Math.max(1,totalSceneDuration)*100+'%',width:Math.max(2,clipDuration/Math.max(1,totalSceneDuration)*100)+'%'}}>
+                      <button type="button" className={selectedIds.includes(clip.id)?styles.videoClipActive:styles.videoClip}
+                        title={clip.name+' · '+formatTime(clipStart)+' – '+formatTime(clipStart+clipDuration)}
+                        aria-label={'Select timeline '+(isImage?'image':'video')+' clip '+clip.name}
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'move')}
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}><Icon name={isImage?'image':'video'}/><span>{clip.name}</span></button>
+                      <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimStart}
+                        aria-label={'Trim start of '+clip.name} title="Drag to trim clip start"
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'start')}
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}/>
+                      <button type="button" className={styles.videoClipTrimHandle+' '+styles.videoClipTrimEnd}
+                        aria-label={'Trim end of '+clip.name} title="Drag to trim clip end"
+                        onPointerDown={event=>beginTimelineClipDrag(event,scene,clip,'end')}
+                        onClick={()=>selectTimelineMediaClip(scene,clip)}/>
+                    </div>
+                  </div>
                 </div>;
-              }))}
-            </div>
+              })}
           </div>
           <div className={styles.timelineTrack}>
-            <span><Icon name="audio"/></span><div className={styles.audioLane}>{selectedAudioResource?selectedAudioResource.name:'No soundtrack selected'}<small>{selectedAudioResource?formatTime(audioPreviewTime)+' / '+formatTime(audioTrackDuration)+(audioPlaying?' · Playing':''):formatTime(totalSceneDuration)+' total'}</small></div>
+            <span><Icon name="audio"/></span><div className={styles.audioLane}><strong>Audio tracks · {audioTracks.length}/8</strong><small>{selectedAudioResource?selectedAudioResource.name+' · '+formatTime(audioPreviewTime)+(audioPlaying?' · Playing':''):audioTracks.length?'Select a track to edit its timing and mix':'Add audio from the Audio panel'}</small></div>
             {renderedPhoto&&<button type="button" title="Preview rendered photo" aria-label="Preview rendered photo" onClick={()=>setPhotoPreviewOpen(true)}><Icon name="image"/></button>}
             {renderedVideo&&<button type="button" title="Preview rendered video" aria-label="Preview rendered video" onClick={()=>setVideoPreviewOpen(true)}><Icon name="video"/></button>}
-            {selectedAudioResource&&<audio ref={audioPlayerRef} src={urls[selectedAudioResource.id]} preload="metadata" onLoadedMetadata={event=>{const duration=Number.isFinite(event.currentTarget.duration)?event.currentTarget.duration:125,safeStart=Math.min(project.audioStartSeconds,Math.max(0,duration-.1)),safeLength=Math.max(.1,Math.min(project.audioDurationSeconds??30,duration-safeStart,totalSceneDuration||.1));if(safeStart!==project.audioStartSeconds||safeLength!==(project.audioDurationSeconds??30))changeProject({...project,audioStartSeconds:safeStart,audioDurationSeconds:safeLength});setAudioTrackDuration(duration);setAudioPreviewTime(safeStart);event.currentTarget.currentTime=safeStart;}} onTimeUpdate={updateAudioPlayback} onPlay={()=>setAudioPlaying(true)} onPause={()=>setAudioPlaying(false)}/>}
           </div>
-          <div className={styles.audioTimelineControls}>{selectedAudioResource?<><span className={styles.audioRangeTime}>{formatTime(project.audioStartSeconds)} – {formatTime(project.audioStartSeconds+audioClipLength)}</span>
-            <div ref={audioRangeTrackRef} className={styles.audioRangeTrack} role="group" aria-label="Audio trim range" onPointerDown={event=>beginAudioRangeDrag(event,'auto')} onPointerMove={moveAudioRange} onPointerUp={endAudioRangeDrag} onPointerCancel={endAudioRangeDrag}>
-              <span className={styles.audioRangeTrackBase}/><span className={styles.audioRangeSelection} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%',width:audioClipLength/audioTrackDuration*100+'%'}} onPointerDown={event=>beginAudioRangeDrag(event,'move')}/>
-              <button type="button" className={styles.audioRangeHandle} style={{left:project.audioStartSeconds/audioTrackDuration*100+'%'}} aria-label="Audio trim start" onPointerDown={event=>beginAudioRangeDrag(event,'start')}/>
-              <button type="button" className={styles.audioRangeHandle} style={{left:(project.audioStartSeconds+audioClipLength)/audioTrackDuration*100+'%'}} aria-label="Audio trim end" onPointerDown={event=>beginAudioRangeDrag(event,'end')}/>
-            </div><span className={styles.audioRangeDuration}>{audioClipLength.toFixed(1)}s</span></>:<span className={styles.audioRangeEmpty}>Add an audio track to trim it here.</span>}</div>
+          <div className={styles.audioTimelineControls} aria-label="Audio timeline tracks">
+            {audioTracks.length===0
+              ? <span className={styles.audioRangeEmpty}>Add one or more audio tracks from the Audio panel.</span>
+              : audioTracks.map((track,index)=>{
+                const resource=resources.find(item=>item.id===track.resourceId&&item.kind==='audio');
+                const active=track.id===selectedAudioTrack?.id;
+                const trackName=resource?.name??'Unavailable audio';
+                return <div key={track.id} className={styles.audioTrackRow} role="group" aria-label={'Audio track '+(index+1)+': '+trackName} data-selected={active}>
+                  <button type="button" className={active?styles.audioSelected:styles.audioTrack} aria-label={'Select audio track '+(index+1)+': '+trackName} onClick={()=>selectAudioTrack(track.id)}><Icon name="audio"/><span>{trackName}</span></button>
+                  <div ref={element=>{if(element)audioRangeTrackRefs.current[track.id]=element;else delete audioRangeTrackRefs.current[track.id];}}
+                    className={styles.audioRangeTrack} role="group" aria-label={'Audio trim range: '+trackName}
+                    onPointerMove={moveAudioRange} onPointerUp={endAudioRangeDrag} onPointerCancel={endAudioRangeDrag}>
+                    <span className={styles.audioRangeTrackBase}/>
+                    <span className={styles.audioRangeSelection} style={{left:track.timelineStartSeconds/Math.max(1,totalSceneDuration)*100+'%',width:track.durationSeconds/Math.max(1,totalSceneDuration)*100+'%'}} onPointerDown={event=>beginAudioRangeDrag(track.id,event,'move')}/>
+                    <button type="button" className={styles.audioRangeHandle} style={{left:track.timelineStartSeconds/Math.max(1,totalSceneDuration)*100+'%'}} aria-label="Audio trim start" title="Trim audio start" onPointerDown={event=>beginAudioRangeDrag(track.id,event,'start')}/>
+                    <button type="button" className={styles.audioRangeHandle} style={{left:(track.timelineStartSeconds+track.durationSeconds)/Math.max(1,totalSceneDuration)*100+'%'}} aria-label="Audio trim end" title="Trim audio end" onPointerDown={event=>beginAudioRangeDrag(track.id,event,'end')}/>
+                  </div>
+                  <span className={styles.audioRangeDuration}>{track.durationSeconds.toFixed(1)}s</span>
+                  {resource&&<audio className={styles.audioTrackMedia} ref={element=>{if(element)audioElementsRef.current[track.id]=element;else delete audioElementsRef.current[track.id];}}
+                    src={urls[resource.id]} preload="metadata"
+                    onLoadedMetadata={event=>handleAudioMetadata(track.id,event.currentTarget)}
+                    onTimeUpdate={event=>updateAudioPlayback(track.id,event.currentTarget)}
+                    onPlay={()=>setAudioPlaying(true)}
+                    onPause={()=>setAudioPlaying(Object.values(audioElementsRef.current).some(player=>!player.paused))}/>}
+                </div>;
+              })}
+          </div>
         </div>
       </main>
-      {tool === 'audio' && selectedAudioResource && <aside className={styles.inspector}>
-        <div className={styles.toolPanelHeading}><strong>Audio properties</strong></div>
+      {tool === 'audio' && selectedAudioTrack && selectedAudioResource && <aside className={styles.inspector}>
+        <div className={styles.toolPanelHeading}><strong>Audio track properties</strong><button type="button" aria-label="Remove audio track" title="Remove audio track" onClick={()=>removeAudioTrack(selectedAudioTrack.id)}><Icon name="trash"/></button></div>
         <div className={styles.audioInspectorTrack}><Icon name="audio"/><span>{selectedAudioResource.name}</span></div>
-        <label>Start position · {formatTime(project.audioStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-.1)} step="0.1" value={Number(project.audioStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),project.audioStartSeconds+audioClipLength-Number(event.target.value))}/></label>
-        <label>End position · {formatTime(project.audioStartSeconds+audioClipLength)}<input aria-label="Audio end position" type="number" min={project.audioStartSeconds+.1} max={Math.min(audioTrackDuration,totalSceneDuration+project.audioStartSeconds)} step="0.1" value={Number((project.audioStartSeconds+audioClipLength).toFixed(1))} onChange={event=>setAudioRange(project.audioStartSeconds,Number(event.target.value)-project.audioStartSeconds)}/></label>
+        <label>Timeline position · {formatTime(selectedAudioTrack.timelineStartSeconds)}<input aria-label="Audio timeline position" type="number" min="0" max={Math.max(0,totalSceneDuration-selectedAudioTrack.durationSeconds)} step="0.1" value={Number(selectedAudioTrack.timelineStartSeconds.toFixed(1))} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{timelineStartSeconds:Math.max(0,Math.min(totalSceneDuration-selectedAudioTrack.durationSeconds,Number(event.target.value)))})}/></label>
+        <label>Start position · {formatTime(selectedAudioTrack.sourceStartSeconds)}<input aria-label="Audio start position" type="number" min="0" max={Math.max(0,audioTrackDuration-.1)} step="0.1" value={Number(selectedAudioTrack.sourceStartSeconds.toFixed(1))} onChange={event=>setAudioRange(Number(event.target.value),selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds-Number(event.target.value))}/></label>
+        <label>End position · {formatTime(selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds)}<input aria-label="Audio end position" type="number" min={selectedAudioTrack.sourceStartSeconds+.1} max={Math.min(audioTrackDuration,selectedAudioTrack.sourceStartSeconds+totalSceneDuration-selectedAudioTrack.timelineStartSeconds)} step="0.1" value={Number((selectedAudioTrack.sourceStartSeconds+selectedAudioTrack.durationSeconds).toFixed(1))} onChange={event=>setAudioRange(selectedAudioTrack.sourceStartSeconds,Number(event.target.value)-selectedAudioTrack.sourceStartSeconds)}/></label>
         <div className={styles.audioRangeSummary}>Duration · {audioClipLength.toFixed(1)} seconds</div>
-        <label>Volume · {project.audioVolume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={project.audioVolume} onChange={event=>changeProject({...project,audioVolume:Number(event.target.value)})}/></label>
-        <label>Fade in · {project.audioFadeInSeconds??0}s<input aria-label="Audio fade in" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeInSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeInSeconds:Number(event.target.value)})}/></label>
-        <label>Fade out · {project.audioFadeOutSeconds??0}s<input aria-label="Audio fade out" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(project.audioFadeOutSeconds??0,audioClipLength)} onChange={event=>changeProject({...project,audioFadeOutSeconds:Number(event.target.value)})}/></label>
+        <label>Volume · {selectedAudioTrack.volume}%<input aria-label="Audio volume" type="range" min="0" max="100" value={selectedAudioTrack.volume} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{volume:Number(event.target.value)})}/></label>
+        <label>Fade in · {selectedAudioTrack.fadeInSeconds}s<input aria-label="Audio fade in" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(selectedAudioTrack.fadeInSeconds,audioClipLength)} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+        <label>Fade out · {selectedAudioTrack.fadeOutSeconds}s<input aria-label="Audio fade out" type="range" min="0" max={Math.min(10,audioClipLength)} step="0.1" value={Math.min(selectedAudioTrack.fadeOutSeconds,audioClipLength)} onChange={event=>updateAudioTrack(selectedAudioTrack.id,{fadeOutSeconds:Number(event.target.value)})}/></label>
       </aside>}
       {selected.length > 0 && <aside className={styles.inspector}>
         <div className={styles.toolPanelHeading}><strong>{selected.length === 1 ? one?.name : selected.length + ' selected'}</strong><button type="button" aria-label="Close properties" onClick={() => setSelectedIds([])}><Icon name="close"/></button></div>
         {one?.locked && <div className={styles.lockNotice}>This layer is locked. Unlock it in Layers to edit.</div>}
         {one?.type === 'text' && <label>Text<textarea disabled={one.locked} value={one.text} onChange={(event) => updateElement(one.id, { text: event.target.value })}/></label>}
         {one?.type === 'image' && <label>Image fit<select disabled={one.locked} aria-label="Image fit" value={one.imageFit ?? 'cover'} onChange={(event) => updateElement(one.id, { imageFit: event.target.value as 'cover' | 'contain' })}><option value="cover">Cover / crop</option><option value="contain">Contain / fit</option></select></label>}
+        {one?.type === 'image' && <><div className={styles.videoClipInspectorTitle}>Image clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
+          <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Image clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event=>updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,page.durationSeconds),Number(event.target.value)))})}/></label>
+          <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Image clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,page.durationSeconds-(one.startSeconds??0))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event=>updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds??0),Number(event.target.value)))})}/></label>
+          {hasTimedImageRange(one)&&<><label>Fade in · {one.fadeInSeconds??0}s<input aria-label="Clip fade in" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeInSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+          <label>Fade out · {one.fadeOutSeconds??0}s<input aria-label="Clip fade out" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeOutSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeOutSeconds:Number(event.target.value)})}/></label></>}</>}
          {one?.type === 'video' && <><div className={styles.videoClipInspectorTitle}>Video clip · {resources.find(resource => resource.id === one.resourceId)?.name ?? one.name}</div>
            <label>Clip start · {formatTime(one.startSeconds ?? 0)}<input aria-label="Video clip start" disabled={one.locked} type="number" min="0" max={Math.max(0,page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds))} step="0.1" value={Number((one.startSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{startSeconds:Math.max(0,Math.min(page.durationSeconds-Math.min(one.durationSeconds??page.durationSeconds,videoElementsRef.current[one.id]?.duration??page.durationSeconds),Number(event.target.value)))})}/></label>
            <label>Clip duration · {formatTime(one.durationSeconds ?? page.durationSeconds)}<input aria-label="Video clip duration" disabled={one.locked} type="number" min="0.1" max={Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0)))} step="0.1" value={Number((one.durationSeconds ?? page.durationSeconds).toFixed(1))} onChange={event => updateElement(one.id,{durationSeconds:Math.max(0.1,Math.min(page.durationSeconds-(one.startSeconds ?? 0),(videoElementsRef.current[one.id]?.duration??page.durationSeconds)-(one.sourceStartSeconds??0),Number(event.target.value)))})}/></label>
-           <label>Source in-point · {formatTime(one.sourceStartSeconds ?? 0)}<input aria-label="Video source in point" disabled={one.locked} type="number" min="0" max={Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds))} step="0.1" value={Number((one.sourceStartSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{sourceStartSeconds:Math.max(0,Math.min(Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds)),Number(event.target.value)))})}/></label></>}
+           <label>Source in-point · {formatTime(one.sourceStartSeconds ?? 0)}<input aria-label="Video source in point" disabled={one.locked} type="number" min="0" max={Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds))} step="0.1" value={Number((one.sourceStartSeconds ?? 0).toFixed(1))} onChange={event => updateElement(one.id,{sourceStartSeconds:Math.max(0,Math.min(Math.max(0,(videoElementsRef.current[one.id]?.duration??86400)-(one.durationSeconds??page.durationSeconds)),Number(event.target.value)))})}/></label>
+           <label>Fade in · {one.fadeInSeconds??0}s<input aria-label="Clip fade in" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeInSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeInSeconds:Number(event.target.value)})}/></label>
+           <label>Fade out · {one.fadeOutSeconds??0}s<input aria-label="Clip fade out" disabled={one.locked} type="range" min="0" max={Math.min(5,one.durationSeconds??page.durationSeconds)} step="0.1" value={Math.min(one.fadeOutSeconds??0,one.durationSeconds??page.durationSeconds)} onChange={event=>updateElement(one.id,{fadeOutSeconds:Number(event.target.value)})}/></label></>}
         <label>X<input disabled={one?.locked} type="number" value={Math.round(one?.x ?? 0)} onChange={(event) => one && updateElement(one.id, { x: Number(event.target.value) })}/></label>
         <label>Y<input disabled={one?.locked} type="number" value={Math.round(one?.y ?? 0)} onChange={(event) => one && updateElement(one.id, { y: Number(event.target.value) })}/></label>
         <label>Width<input disabled={one?.locked} type="number" min="10" value={Math.round(one?.width ?? 0)} onChange={(event) => one && updateElement(one.id, { width: Math.max(10, Number(event.target.value)) })}/></label>
@@ -1651,11 +2068,18 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
         {renderedPhoto && <option value="photo">Photo only</option>}{renderedVideo && <option value="video">Video only</option>}{renderedPhoto && renderedVideo && <option value="both">Photo and video</option>}
       </select></label>
       {(downloadTarget==='photo'||downloadTarget==='both') && renderedPhoto && <label>Photo format<select aria-label="Photo format" value={downloadPhotoFormat} onChange={(event) => setDownloadPhotoFormat(event.target.value as 'png'|'jpg')}><option value="png">PNG</option><option value="jpg">JPEG</option></select></label>}
-      {(downloadTarget==='video'||downloadTarget==='both') && renderedVideo && <label>Video format<select aria-label="Video format" disabled><option>{renderedVideo.name.split('.').pop()?.toUpperCase()} · Original</option></select></label>}
+      {(downloadTarget==='video'||downloadTarget==='both') && renderedVideo && <label>Video format<select aria-label="Video format" disabled><option>{renderedVideo.name.split('.').pop()?.toUpperCase()} · Selected before rendering</option></select></label>}
       <button type="button" className={styles.primaryDownloadButton} disabled={downloadBusy} onClick={() => void downloadOutputs()}><Icon name="download"/> Download selected</button>
       <p>The editor stays open. Your browser manages the final file transfer.</p>
     </div></div>}
     {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> {renderStage==='preparing'?'Preparing':renderStage==='saving'?'Saving to library':'Rendering'} · {renderProgress}%<div className={styles.renderProgress}><div style={{width:renderProgress+'%'}}/></div>{canCancelRender&&<button type="button" onClick={()=>cancelRenderRef.current?.()}>Cancel render</button>}</div></div>}
+    {leaveWithoutSavingOpen && <StudioConfirmDialog
+      title="Leave without saving?"
+      description="Your latest changes could not be saved. Leaving now may discard those edits. You can stay in the editor and retry, or leave without saving."
+      confirmLabel="Leave without saving"
+      onCancel={() => setLeaveWithoutSavingOpen(false)}
+      onConfirm={() => { setLeaveWithoutSavingOpen(false); onOpenLibrary(); }}
+    />}
   </div>;
 }
 
