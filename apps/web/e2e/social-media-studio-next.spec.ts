@@ -1690,7 +1690,7 @@ test('WhatsApp consent and scheduled-send cancellation use in-app confirmations'
   await cancelScheduled.click();
   const scheduledDialog = page.getByRole('dialog', { name: 'Cancel scheduled WhatsApp message?' });
   await expect(scheduledDialog).toBeVisible();
-  await scheduledDialog.getByRole('button', { name: 'Cancel' }).click();
+  await scheduledDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(cancelRequests).toHaveLength(0);
 
   await cancelScheduled.click();
