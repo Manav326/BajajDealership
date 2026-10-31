@@ -985,7 +985,7 @@ test('multiple audio tracks retain independent source and timeline settings afte
   await expect(page.locator('.app-shell')).toBeVisible();
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Open Untitled design' }).click();
-  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
 
   const musicBed = page.getByRole('group', { name: 'Audio track 1: persistent-music-bed.wav' });
   const voiceover = page.getByRole('group', { name: 'Audio track 2: persistent-voiceover.wav' });
