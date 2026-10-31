@@ -8,11 +8,19 @@ import {
   removeProject, removeResource, requestSavedFolderPermission, saveProject, saveResource, supportsLocalDirectoryAccess, useBrowserStorage,
   type StudioAudioTrack, type StudioElement, type StudioPage, type StudioProject, type StudioResource, type StudioResourceKind,
 } from './socialStudioLocalStore';
+import StudioConfirmDialog from './StudioConfirmDialog';
 import styles from './SocialMediaStudioNext.module.css';
 
 type Tool = 'templates' | 'elements' | 'text' | 'publishing' | 'uploads' | 'brand' | 'audio' | 'layers' | 'pages' | 'resize';
 type HubPage = 'projects' | 'resources' | 'publish' | 'whatsapp' | 'connections';
 type StoryTarget = 'whatsapp-status' | 'instagram-story' | 'facebook-story' | 'social-reel';
+type StudioConfirmation = {
+  action: 'delete-resource' | 'delete-project' | 'disconnect-meta';
+  targetId?: string;
+  title: string;
+  message: string;
+  confirmLabel: string;
+};
 type SizePreset = { id: string; label: string; platform: string; width: number; height: number; group: string };
 type VideoFormatPreference = 'auto' | 'mp4' | 'webm';
 
@@ -358,6 +366,8 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | StudioResourceKind>('all');
   const [toast, setToast] = useState('');
+  const [confirmation, setConfirmation] = useState<StudioConfirmation | null>(null);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null);
   const [metaConsentOpen, setMetaConsentOpen] = useState(false);
   const [publishRequests, setPublishRequests] = useState<PublishRequest[]>([]);
@@ -498,10 +508,41 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
   async function deleteResource(resource: StudioResource) {
     const references = projects.filter((item) => item.pages.some((savedPage) => savedPage.elements.some((element) => element.resourceId === resource.id)));
     if (references.length) { notify('This resource is used by: ' + references.map((item) => item.name).join(', ')); return; }
-    if (!window.confirm('Remove this resource from the studio library?')) return;
-    await removeResource(resource.id);
-    if (selectedResourceId === resource.id) setSelectedResourceId(null);
-    await refreshLibrary();
+    setConfirmation({
+      action: 'delete-resource',
+      targetId: resource.id,
+      title: 'Remove resource?',
+      message: 'Remove "' + resource.name + '" from the studio library? This does not delete other media files or projects.',
+      confirmLabel: 'Remove resource',
+    });
+  }
+
+  async function confirmPendingAction() {
+    if (!confirmation || confirmationBusy) return;
+    setConfirmationBusy(true);
+    try {
+      if (confirmation.action === 'delete-resource') {
+        const resource = resources.find((item) => item.id === confirmation.targetId);
+        if (!resource) throw new Error('This resource is no longer available. Refresh the library and try again.');
+        await removeResource(resource.id);
+        if (selectedResourceId === resource.id) setSelectedResourceId(null);
+        await refreshLibrary();
+        notify('Resource removed from the studio library.');
+      } else if (confirmation.action === 'delete-project') {
+        const project = projects.find((item) => item.id === confirmation.targetId);
+        if (!project) throw new Error('This project is no longer available. Refresh the library and try again.');
+        await removeProject(project.id);
+        await refreshLibrary();
+        notify('Project deleted.');
+      } else {
+        await performDisconnectMeta();
+      }
+      setConfirmation(null);
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'The requested action could not be completed.');
+    } finally {
+      setConfirmationBusy(false);
+    }
   }
 
   async function getProjectJpeg(project: StudioProject): Promise<Blob> {
@@ -576,8 +617,16 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       window.location.assign(payload.authorizationUrl);
     } catch (cause) { setPublishError(cause instanceof Error ? cause.message : 'Meta connection failed.'); setPublishBusy(false); }
   }
-  async function disconnectMeta() {
-    if (!window.confirm('Disconnect Meta accounts for this dealership?')) return;
+  function disconnectMeta() {
+    setConfirmation({
+      action: 'disconnect-meta',
+      title: 'Disconnect Meta accounts?',
+      message: 'Disconnect the Facebook and Instagram accounts currently connected to this dealership? You can reconnect them later.',
+      confirmLabel: 'Disconnect accounts',
+    });
+  }
+
+  async function performDisconnectMeta() {
     setPublishBusy(true);
     try {
       const response = await apiFetch('/api/v1/admin/social/meta/disconnect', { method: 'POST' });
@@ -585,8 +634,10 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
       if (!response.ok) throw new Error(payload.message ?? 'Meta disconnect failed.');
       notify(payload.message ?? 'Meta accounts disconnected.');
       await loadMetaData();
-    } catch (cause) { setPublishError(cause instanceof Error ? cause.message : 'Meta disconnect failed.'); }
-    finally { setPublishBusy(false); }
+    } catch (cause) {
+      setPublishError(cause instanceof Error ? cause.message : 'Meta disconnect failed.');
+      throw cause;
+    } finally { setPublishBusy(false); }
   }
 
   const filteredResources = useMemo(() => resources.filter((resource) =>
@@ -628,7 +679,11 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           <div className={styles.projectMeta}><strong>{project.name}</strong><span>{project.pages.length} pages · {new Date(project.updatedAt).toLocaleDateString('en-IN')}</span></div>
           <div className={styles.cardActions}><button type="button" title="Edit" aria-label={'Edit ' + project.name} onClick={() => void editProject(project)}><Icon name="text"/></button>
             <button type="button" title="Publish" aria-label={'Publish ' + project.name} onClick={() => { setActiveProject(project); setHubPage('publish'); }}><Icon name="publish"/></button>
-            <button type="button" title="Delete" aria-label={'Delete ' + project.name} onClick={() => { if (window.confirm('Delete this project?')) void removeProject(project.id).then(refreshLibrary); }}><Icon name="trash"/></button></div>
+            <button type="button" title="Delete" aria-label={'Delete ' + project.name} onClick={() => setConfirmation({
+              action: 'delete-project', targetId: project.id, title: 'Delete project?',
+              message: 'Permanently delete "' + project.name + '" and its saved design pages? Media resources in the library will remain available.',
+              confirmLabel: 'Delete project',
+            })}><Icon name="trash"/></button></div>
         </article>)}</div> : <div className={styles.emptyState}><Icon name="template"/><button type="button" onClick={createBlankProject}>Create your first design</button></div>}
       </>}
       {hubPage === 'resources' && <>
@@ -683,6 +738,14 @@ export default function SocialMediaStudioNext({ canManage = false, canPublish = 
           }}/>
       </section>}
     </main>
+    {confirmation && <StudioConfirmDialog
+      title={confirmation.title}
+      description={confirmation.message}
+      confirmLabel={confirmation.confirmLabel}
+      busy={confirmationBusy}
+      onCancel={() => { if (!confirmationBusy) setConfirmation(null); }}
+      onConfirm={confirmPendingAction}
+    />}
     {metaConsentOpen && <div className={styles.consentBackdrop}>
       <section ref={metaConsentDialogRef} className={styles.consentDialog} id="meta-consent-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-consent-title" aria-describedby="meta-consent-description" tabIndex={-1}>
         <div className={styles.consentHeading}>
@@ -750,6 +813,7 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
   const [videoPreviewOpen, setVideoPreviewOpen] = useState(false);
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
   const [brandAssetPickerOpen, setBrandAssetPickerOpen] = useState(false);
+  const [leaveWithoutSavingOpen, setLeaveWithoutSavingOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadTarget, setDownloadTarget] = useState<'photo' | 'video' | 'both'>('photo');
   const [downloadPhotoFormat, setDownloadPhotoFormat] = useState<'png' | 'jpg'>('png');
@@ -907,7 +971,8 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
     } catch (cause) {
       setSaveStatus('error');
       onNotify(cause instanceof Error ? cause.message : 'The latest edits could not be saved.');
-      if (!window.confirm('Your latest edits could not be saved. Leave the editor anyway?')) return;
+      setLeaveWithoutSavingOpen(true);
+      return;
     } finally { endSave(); }
     onOpenLibrary();
   }
@@ -2008,6 +2073,13 @@ function StudioEditor({ project, resources, urls, onProjectChange, onResourceAdd
       <p>The editor stays open. Your browser manages the final file transfer.</p>
     </div></div>}
     {exporting && <div className={styles.exportingOverlay}><div><Icon name="video"/> {renderStage==='preparing'?'Preparing':renderStage==='saving'?'Saving to library':'Rendering'} · {renderProgress}%<div className={styles.renderProgress}><div style={{width:renderProgress+'%'}}/></div>{canCancelRender&&<button type="button" onClick={()=>cancelRenderRef.current?.()}>Cancel render</button>}</div></div>}
+    {leaveWithoutSavingOpen && <StudioConfirmDialog
+      title="Leave without saving?"
+      description="Your latest changes could not be saved. Leaving now may discard those edits. You can stay in the editor and retry, or leave without saving."
+      confirmLabel="Leave without saving"
+      onCancel={() => setLeaveWithoutSavingOpen(false)}
+      onConfirm={() => { setLeaveWithoutSavingOpen(false); onOpenLibrary(); }}
+    />}
   </div>;
 }
 
