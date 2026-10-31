@@ -232,11 +232,13 @@ function Build-LocalDockerInstaller {
     Write-Warning 'The working tree has uncommitted changes. The installer will include the current local files.'
   }
 
+  $previousApiBaseUrl = $env:VITE_API_BASE_URL
   $previousAppVersion = $env:VITE_APP_VERSION
   $exeDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/nsis'
   $msiDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/msi'
 
   try {
+    $env:VITE_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/'
     $env:VITE_APP_VERSION = '0.1.0-local'
 
     Push-Location $webRoot
@@ -256,6 +258,8 @@ function Build-LocalDockerInstaller {
       Pop-Location
     }
   } finally {
+    if ($null -eq $previousApiBaseUrl) { Remove-Item Env:VITE_API_BASE_URL -ErrorAction SilentlyContinue }
+    else { $env:VITE_API_BASE_URL = $previousApiBaseUrl }
     if ($null -eq $previousAppVersion) { Remove-Item Env:VITE_APP_VERSION -ErrorAction SilentlyContinue }
     else { $env:VITE_APP_VERSION = $previousAppVersion }
   }
