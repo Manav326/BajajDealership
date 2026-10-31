@@ -13,6 +13,12 @@ name: Shared customer login
     id: customer-login-dealership-code
 - inputText: ${MAESTRO_DEALERSHIP_CODE}
 - hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: customer-login-customer-code
+    direction: DOWN
+    timeout: 10000
+    centerElement: true
 - assertVisible:
     id: customer-login-customer-code
 - tapOn:

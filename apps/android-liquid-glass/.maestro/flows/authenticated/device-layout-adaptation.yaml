@@ -8,6 +8,7 @@ tags:
 - tapOn: "My bikes"
 - assertVisible: "My motorcycles"
 - setOrientation: LANDSCAPE_LEFT
+- tapOn: "My bikes"
 - assertVisible: "My motorcycles"
 - assertVisible: "Parts"
 - assertVisible: "Updates"
