@@ -417,6 +417,9 @@ jobs:
       - name: Record Android APK build metadata
         run: |
           node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'standard', buildType: 'release', packageName: 'com.quantaedge.luckybajaj', architectures: ['arm64-v8a'], apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
+      - name: Validate Standard APK build metadata
+        run: |
+          node -e "const fs = require('node:fs'); const file = 'apps/android/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'standard' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajaj' || !Array.isArray(metadata.architectures) || metadata.architectures.join(',') !== 'arm64-v8a' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Standard APK build metadata is incomplete or does not match this CI commit.');"
       - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
@@ -512,7 +515,7 @@ jobs:
           node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = { edition: 'liquid-glass', buildType: 'release', packageName: 'com.quantaedge.luckybajajlg', architectures: ['arm64-v8a'], apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL, commitSha: process.env.GITHUB_SHA }; fs.writeFileSync(file, JSON.stringify(metadata, null, 2));"
       - name: Validate Liquid Glass APK build metadata
         run: |
-          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
+          node -e "const fs = require('node:fs'); const file = 'apps/android-liquid-glass/android/app/build/outputs/apk/release/build-metadata.json'; const metadata = JSON.parse(fs.readFileSync(file, 'utf8')); if (metadata.edition !== 'liquid-glass' || metadata.buildType !== 'release' || metadata.packageName !== 'com.quantaedge.luckybajajlg' || !Array.isArray(metadata.architectures) || metadata.architectures.join(',') !== 'arm64-v8a' || !metadata.apiBaseUrl || metadata.commitSha !== process.env.GITHUB_SHA) throw new Error('Liquid Glass APK build metadata is incomplete or does not match this CI commit.');"
       - name: Upload installable Maestro APK
         id: upload-android-apk
         uses: actions/upload-artifact@v4
