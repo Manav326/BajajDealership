@@ -955,6 +955,57 @@ test('projects survive a full browser reload and reopen with their edits intact'
   await expect(page.getByRole('textbox', { name: 'Text', exact: true })).toHaveValue('Persistent campaign headline');
 });
 
+test('multiple audio tracks retain independent source and timeline settings after reload', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Pages' }).click();
+  await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
+  await page.getByRole('button', { name: 'Audio' }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'persistent-music-bed.wav', mimeType: 'audio/wav', buffer: makeSilentWav(8),
+  });
+  await page.getByRole('button', { name: 'persistent-music-bed.wav', exact: true }).click();
+
+  await page.getByLabel('Import audio').setInputFiles({
+    name: 'persistent-voiceover.wav', mimeType: 'audio/wav', buffer: makeSilentWav(8),
+  });
+  await page.getByRole('button', { name: 'persistent-voiceover.wav', exact: true }).click();
+
+  await page.getByRole('spinbutton', { name: 'Audio timeline position' }).fill('2');
+  await page.getByRole('spinbutton', { name: 'Audio start position' }).fill('1');
+  await page.getByRole('spinbutton', { name: 'Audio end position' }).fill('5');
+  await page.getByRole('slider', { name: 'Audio volume' }).fill('45');
+  await page.getByRole('slider', { name: 'Audio fade in' }).fill('0.7');
+  await page.getByRole('slider', { name: 'Audio fade out' }).fill('0.8');
+
+  await page.getByRole('button', { name: 'Back to resources' }).click();
+  await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Open Untitled design' }).click();
+  await page.getByRole('button', { name: 'Audio' }).click();
+
+  const musicBed = page.getByRole('group', { name: 'Audio track 1: persistent-music-bed.wav' });
+  const voiceover = page.getByRole('group', { name: 'Audio track 2: persistent-voiceover.wav' });
+  await expect(musicBed).toBeVisible();
+  await expect(voiceover).toBeVisible();
+
+  await page.getByRole('button', { name: 'Select audio track 1: persistent-music-bed.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('0');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('80');
+
+  await page.getByRole('button', { name: 'Select audio track 2: persistent-voiceover.wav' }).click();
+  await expect(page.getByRole('spinbutton', { name: 'Audio timeline position' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: 'Audio start position' })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: 'Audio end position' })).toHaveValue('5');
+  await expect(page.getByRole('slider', { name: 'Audio volume' })).toHaveValue('45');
+  await expect(page.getByRole('slider', { name: 'Audio fade in' })).toHaveValue('0.7');
+  await expect(page.getByRole('slider', { name: 'Audio fade out' })).toHaveValue('0.8');
+});
+
+
 test('editing a project invalidates previously rendered outputs until the next render', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
