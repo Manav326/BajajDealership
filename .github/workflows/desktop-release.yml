@@ -86,6 +86,7 @@ jobs:
             OutputPath = "release-assets/LuckyBajajDesktopStore.msix"
           }
           & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-msix.ps1 @params
+          if ($LASTEXITCODE -ne 0) { throw "Store MSIX packaging failed with exit code $LASTEXITCODE." }
       - name: Generate SHA-256 checksums
         shell: pwsh
         run: |
