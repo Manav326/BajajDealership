@@ -1,4 +1,4 @@
-name: Android emulator public UI smoke
+name: Android emulator UI smoke and authenticated regression
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - 'compose.yaml'
       - '.github/workflows/android-emulator-smoke.yml'
       - '.github/scripts/run-android-maestro-public.sh'
+      - '.github/scripts/seed-android-maestro-authenticated.sql'
   pull_request:
     branches: [main]
     paths:
@@ -35,6 +36,7 @@ jobs:
     timeout-minutes: 55
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - edition: Standard
@@ -103,7 +105,7 @@ jobs:
           fi
           # A fresh CI database intentionally has no real dealership. Create one synthetic
           # storefront after Flyway has created the schema, then publish only catalogue masters.
-          # No staff, customer, vehicle unit, price override or real dealership record is created.
+          # The synthetic customer and motorcycle are seeded separately for authenticated UI tests.
           docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
           insert into dealership(code, name, status)
           values ('CI-LUCKY-BAJAJ', 'CI Synthetic Lucky Bajaj', 'ACTIVE')
@@ -133,6 +135,16 @@ jobs:
           fi
           curl -fsS http://localhost:8080/api/v1/public/catalogue/bikes -o /tmp/public-catalogue.json
           node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('/tmp/public-catalogue.json','utf8')); const bikes=Array.isArray(data)?data:(data.bikes??data.items??[]); if(bikes.length<20) throw new Error('Expected at least 20 published Bajaj models, received '+bikes.length); console.log('Synthetic dealership public catalogue models:',bikes.length);"
+      - name: Seed and verify synthetic authenticated customer and motorcycle
+        shell: bash
+        run: |
+          # This script runs only against the fresh, disposable PostgreSQL database created above.
+          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
+          curl -fsS -X POST http://localhost:8080/api/v1/customer/auth/login \
+            -H 'Content-Type: application/json' \
+            --data '{"dealershipCode":"CI-LUCKY-BAJAJ","customerCode":"CI-MAESTRO-CUSTOMER","password":"CI-Maestro-Only-Password-123"}' \
+            -o /tmp/maestro-customer-session.json
+          node -e "const s=JSON.parse(require('node:fs').readFileSync('/tmp/maestro-customer-session.json','utf8')); if(!s.accessToken || s.customer?.customerCode!=='CI-MAESTRO-CUSTOMER') throw new Error('Synthetic customer authentication did not return the expected customer session'); console.log('Synthetic customer portal login verified.');"
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -143,7 +155,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run public Maestro flows on Android emulator
+      - name: Run public and authenticated Maestro flows on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
           APP_DIR: ${{ matrix.app_dir }}
@@ -156,14 +168,20 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}"
+          script: |
+            bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}" public
+            MAESTRO_DEALERSHIP_CODE=CI-LUCKY-BAJAJ \
+            MAESTRO_CUSTOMER_CODE=CI-MAESTRO-CUSTOMER \
+            MAESTRO_CUSTOMER_PASSWORD=CI-Maestro-Only-Password-123 \
+            MAESTRO_CUSTOMER_VEHICLE_NAME="CI Maestro Motorcycle" \
+              bash "${{ github.workspace }}/.github/scripts/run-android-maestro-public.sh" "${{ github.workspace }}" "${{ matrix.app_dir }}" "${ANDROID_SERIAL:-emulator-5554}" authenticated-ci
       - name: Upload emulator test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-public-maestro-${{ matrix.edition }}-${{ github.sha }}
+          name: android-maestro-${{ matrix.edition }}-${{ github.sha }}
           path: |
-            ${{ matrix.app_dir }}/maestro-results/ci-public/
+            ${{ matrix.app_dir }}/maestro-results/ci/
             ${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
           retention-days: 14
