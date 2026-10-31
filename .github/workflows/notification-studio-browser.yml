@@ -6,6 +6,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'apps/customer-web/**'
+      - 'scripts/summarize-playwright-function-coverage.mjs'
       - '.github/workflows/notification-studio-browser.yml'
   pull_request:
     branches: [main]
