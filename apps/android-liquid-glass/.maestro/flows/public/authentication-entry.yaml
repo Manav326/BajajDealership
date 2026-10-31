@@ -20,6 +20,11 @@ tags:
 - assertVisible: "Create password (12+ characters)"
 - tapOn:
     id: customer-auth-mode-login
+- scrollUntilVisible:
+    element:
+      id: customer-login-submit
+    direction: DOWN
+    timeout: 10000
 - assertVisible:
     id: customer-login-submit
 - tapOn: "Return to showroom"
