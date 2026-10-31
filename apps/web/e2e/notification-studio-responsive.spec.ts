@@ -562,9 +562,29 @@ test('staff manage Bajaj model gallery with multipart upload and primary-image r
   expect(galleryUploadContentType).toContain('multipart/form-data');
   expect(galleryUploadContentType).not.toContain('application/json');
 
-  page.once('dialog', (dialog) => dialog.accept());
+  const nativeDialogs: string[] = [];
+  page.on('dialog', async (dialog) => {
+    nativeDialogs.push(dialog.type() + ': ' + dialog.message());
+    await dialog.dismiss();
+  });
+
   await page.getByRole('button', { name: 'Remove image' }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Remove catalogue image' });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText('Remove this uploaded image for BAJAJ_PULSAR_NS200?');
+
+  // Cancel must leave the uploaded image intact.
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('PRIMARY', { exact: true })).toBeVisible();
+
+  // Confirm through the application dialog, never a browser-native prompt.
+  await page.getByRole('button', { name: 'Remove image' }).click();
+  const retryConfirmation = page.getByRole('dialog', { name: 'Remove catalogue image' });
+  await expect(retryConfirmation).toBeVisible();
+  await retryConfirmation.getByRole('button', { name: 'Remove image' }).click();
+
   await expect(page.getByText('No uploaded gallery images for this model.')).toBeVisible();
+  expect(nativeDialogs, 'Catalogue image removal must not open browser-native dialogs').toEqual([]);
 });
 
 
