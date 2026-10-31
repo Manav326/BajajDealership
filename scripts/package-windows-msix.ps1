@@ -120,7 +120,11 @@ try {
 "@
   [System.IO.File]::WriteAllText((Join-Path $stage 'AppxManifest.xml'),$manifest,[System.Text.UTF8Encoding]::new($false))
 
-  $sdkRoot = Join-Path "$env:ProgramFiles(x86)" 'Windows Kits\10\bin'
+  $programFilesX86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+  if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+    throw 'The Windows Program Files (x86) directory could not be resolved.'
+  }
+  $sdkRoot = Join-Path $programFilesX86 'Windows Kits\10\bin'
   $makeAppx = Get-ChildItem -LiteralPath $sdkRoot -Filter 'MakeAppx.exe' -File -Recurse |
     Where-Object { $_.Directory.Name -eq 'x64' } |
     Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
