@@ -23,7 +23,7 @@ The full measured testing inventory and release-quality assessment are maintaine
 |---|---|---|
 | Main CI | [Run 41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318) | Passed: backend/PostgreSQL, staff/customer builds, Docker smoke, unsigned Windows installers and GHCR publication/pull smoke |
 | Backend tests | Same CI run | 236 passed; 0 failures, errors or skips across 49 classes |
-| Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41174598318/artifacts/13032471991) | 69.63% line / 44.76% branch overall; Finance improved to 76.53% / 50.60%; Social remains 15.85% / 10.57% |
+| Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41174598318/artifacts/13032471991) | 69.61% line / 44.76% branch overall; Finance improved to 76.53% / 50.60%; Social remains 15.83% / 10.57% |
 | Full Chromium browser suite | [Run 41173480435](https://github.com/Manav326/BajajDealership/actions/runs/41173480435) | 97 passed; 0 failed, skipped or flaky |
 | Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
