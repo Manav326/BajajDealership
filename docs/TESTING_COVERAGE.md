@@ -3,8 +3,8 @@
 **Audit date:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
 **Application / Finance test baseline:** f94d46b56698e17c67f7ef61bc96383420a3cd62  
-**Latest main test-harness baseline:** 52170e2c81f86a597fc6463179eb8646ec0f46b1  
-**Decision:** Not approved for full production rollout. Backend and browser automation are green. The latest Android emulator workflow is rebuilding both editions with paths injected from the GitHub workflow workspace; no Maestro result is claimed until JUnit artifacts are available.
+**Latest main test-harness baseline:** 69e7bdaee9cd132de1bf11926c74956e4a2caa3c  
+**Decision:** Not approved for full production rollout. Backend, browser automation, Windows packaging and the published GHCR image smoke test are green. Android remains unapproved: run #41175240508 built both APKs and booted both emulators, but its runner failed before installation or Maestro execution. The current main runner uses one persistent shell process and validates JUnit output; a fresh passing emulator run is not yet evidenced.
 
 This document is the decision record for test volume, measured source coverage, actual execution evidence, limitations and quality by application. It deliberately does not convert test-file counts into a coverage percentage.
 
@@ -18,8 +18,8 @@ The overall JaCoCo line/branch percentages below use the report-level aggregate 
 | Staff web portal | Included in 97/97 full Chromium cases | **61.23% function execution** on 42 loaded source modules | **Good functional breadth; moderate coverage depth** | Suitable for continued staging; expand real-API browser acceptance |
 | Customer web site | Included in 97/97 full Chromium cases | **64.34% function execution** on 8 loaded source modules | **Good showroom journey coverage; mock-heavy outside API integration tests** | Staging only until real-backend and deployed acceptance |
 | Social Media Studio | 42/42 dedicated cases passed; also included in main web suite | Included in staff-web aggregate; no separate Social source percentage | **Good editor regression breadth; external providers not live-verified** | Keep Meta/WhatsApp disabled pending authorized E2E |
-| Standard Android | 11 runnable flow definitions; latest emulator run #41174258459 is still building its x86_64 test APK | Not measured | **Insufficient execution evidence** | No mobile pass claim until JUnit flow results and physical-device acceptance |
-| Liquid Glass Android | 11 runnable flow definitions; latest emulator run #41174258459 is still building its x86_64 test APK | Not measured | **Insufficient execution evidence** | Same gate as Standard |
+| Standard Android | 11 runnable flows; run #41175240508 built the x86_64 APK and booted the emulator, but failed in the test runner before installation or Maestro | Not measured | **Insufficient execution evidence** | No pass claim until a fresh non-empty JUnit report and physical-device acceptance |
+| Liquid Glass Android | 11 runnable flows; run #41175240508 built the x86_64 APK and booted the emulator, but failed in the test runner before installation or Maestro | Not measured | **Insufficient execution evidence** | Same gate as Standard |
 | Windows desktop | EXE/MSI/MSIX packaging checks passed; 2 Tauri-related browser specs cover API-target selection and window layout; browser native dialogs are tested separately | Not measured for native shell | **Build evidence good; native app acceptance limited** | Require signed/clean-machine and native-shell acceptance |
 
 **Do not add overlapping test suites together.** The dedicated 42-case Social Studio suite overlaps the 97-case full Chromium suite. The 6 cross-browser cases are an additional, narrow run covering two public showroom scenarios on three engines; they are not another full website suite.
@@ -68,7 +68,7 @@ This is a valuable compatibility smoke, not a complete 97-case Firefox/WebKit ru
 
 <badge color="success">236 passed / 236 executed</badge>
 
-[Main CI run #41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318) executed the backend suite against PostgreSQL. The backend job completed successfully (the overall CI run was still finishing other packaging jobs when this snapshot was taken). Maven reported:
+[Main CI run #41174598318](https://github.com/Manav326/BajajDealership/actions/runs/41174598318) executed the backend suite against PostgreSQL. The full main CI run completed successfully: backend/PostgreSQL tests, web build, Docker stack smoke, Windows installer packaging and GHCR publish/pull smoke all passed. Standard and Liquid Glass Android APK jobs were intentionally skipped on this non-Android change. Maven reported:
 
 - Tests run: **236**
 - Failures: **0**
@@ -173,22 +173,44 @@ No trustworthy source-code coverage percentage is currently produced for the Rea
 
 The emulator CI workflow currently selects only the two public flows. The local helper's `All` selection can run all three suites, but authenticated and fixture flows need a synthetic customer, linked vehicle and deterministic notification fixture data. A public smoke pass must not be described as all 11 flows passing.
 
-## 4. Android run: exact failure and correction
+## 4. Android emulator run: failure, diagnosis and current runner fix
 
-[Android emulator run #41174258459](https://github.com/Manav326/BajajDealership/actions/runs/41174258459) built both x86_64 APKs, started the synthetic API/database, and booted each emulator. The run then stopped before Maestro because the emulator action did not expose `GITHUB_WORKSPACE` to its shell, leaving the result directory empty. The workflow now injects `${{ github.workspace }}` at workflow-expansion time. The fresh two-edition run [#41175240508](https://github.com/Manav326/BajajDealership/actions/runs/41175240508) is compiling the APKs with that correction; no Maestro result is claimed yet.
+[Android emulator run #41175240508](https://github.com/Manav326/BajajDealership/actions/runs/41175240508) completed both matrix jobs with failure. Both editions successfully completed dependency installation, Expo version checks, TypeScript checks, native project generation, x86_64 APK build, JavaScript bundle verification, clean PostgreSQL/API startup, migrations, synthetic showroom seeding, Maestro CLI installation and emulator boot.
 
-Therefore:
+Both jobs then failed at **Run public Maestro flows on Android emulator** with:
 
-- APK generation: passed.
-- Native project generation and TypeScript checks: passed.
-- Synthetic API/database preflight: passed.
-- APK installation: not proven on the previous failed attempt; the latest absolute-path run is still in progress.
-- Maestro scenario execution: **0 passed in the failed prior attempt; current attempt pending**.
-- Android app regression result: **unknown**, not pass and not a product assertion failure.
+`mkdir: cannot create directory '': No such file or directory`
 
-The workflow waits for ADB device state, Android boot and package-manager readiness, then uses absolute workspace paths for APK installation and Maestro flow files. Both editions must upload valid JUnit results before any flow is counted as passed.
+The job log showed the workspace/result-directory assignments being invoked as separate shell processes. Shell variables therefore did not survive between lines, so the test runner received an empty result path. The APK was not installed and Maestro was never started. The run artifacts contain the two APK ZIPs but no JUnit result report.
 
-The emulator smoke workflow currently exercises the two public flows. Full authenticated/notification All flows still require a separate, isolated synthetic-account and notification-fixture setup. A physical phone run is also still required before mobile release acceptance.
+This is a **test-harness execution failure**, not a failed app assertion. It proves neither that the Android UI passed nor that the Android app itself failed.
+
+#### Current main correction
+
+The workflow now invokes `.github/scripts/run-android-maestro-public.sh` through one Bash command, keeping workspace, APK, result and flow paths in the same process. The helper now:
+
+- Confirms the public flow directory exists and contains YAML flows.
+- Confirms the expected self-contained APK exists.
+- Waits for ADB transport, Android boot completion and package-manager readiness; retries installation.
+- Runs Maestro and requires a non-empty, parseable JUnit report.
+- Rejects empty test runs and any JUnit failures, errors or skipped cases.
+
+These safeguards are present in main test-harness commit `69e7bdaee9cd132de1bf11926c74956e4a2caa3c`. They are a code correction, **not yet a successful emulator test result**. Until a fresh workflow uploads valid JUnit reports for both editions, Android execution remains unverified.
+
+Evidence summary:
+
+| Check | Run #41175240508 result |
+|---|---|
+| Standard APK build and bundle check | Passed |
+| Liquid Glass APK build and bundle check | Passed |
+| Synthetic API, PostgreSQL migrations and showroom seed | Passed in both jobs |
+| Emulator boot | Passed in both jobs |
+| APK installation | Not reached |
+| Maestro flows executed | **0** |
+| JUnit reports | **None uploaded** |
+| Android app regression conclusion | **Unknown — no pass or product-failure claim** |
+
+The CI workflow selects only the two public flows for each edition. The other authenticated and notification-fixture flows remain outside CI until isolated synthetic account, linked vehicle and deterministic notification fixtures are provided. A physical phone run is also still required before mobile release acceptance.
 
 ## 5. Quality rating — decision data
 
@@ -210,7 +232,7 @@ The emulator smoke workflow currently exercises the two public flows. Full authe
 
 ### P0 — required before production approval
 
-1. Make the ADB readiness/retry workflow green; capture JUnit results for both Standard and Liquid Glass.
+1. Run the current single-process Android workflow on main and retain valid, non-empty JUnit reports for both Standard and Liquid Glass; confirm the expected public flows actually executed with zero failures, errors or skips.
 2. Fix any actual assertions that fail after Maestro begins executing; do not mask failures as infrastructure retries.
 3. Seed an isolated synthetic customer, linked test vehicle and deterministic notification fixture data so authenticated and notification Maestro flows can run as All on both editions.
 4. Run the full All Maestro suite on at least one representative physical Android device for both editions and retain reports/screenshots.
