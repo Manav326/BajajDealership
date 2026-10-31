@@ -4,7 +4,7 @@
 **Repository:** Manav326/BajajDealership  
 **Implementation baseline reviewed:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02`  
 **Backend / web / finance measurement baseline:** `f94d46b56698e17c67f7ef61bc96383420a3cd62`  
-**Android strict-emulator/JUnit validator baseline:** `51c937a204f2cdd31b5e791bd0272e66aa3e707d`  
+**Android CI execution baseline:** `caff228c47358a8cc40178e0ce1f0eb5ad85bc02`  
 **Decision:** active implementation; not approved for full production rollout.
 
 This document is the canonical product-status snapshot. The root README is the short project entry point. Domain details stay in the linked specialist documents. GitHub issues track implementation and acceptance work; an open issue does not automatically mean its entire feature is absent from the current code.
@@ -29,12 +29,12 @@ The full measured testing inventory and release-quality assessment are maintaine
 | Browser function execution | Same browser run | Staff 61.23%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
 | Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
 | Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
-| Android emulator public smoke | [Strict validator run 41178367640](https://github.com/Manav326/BajajDealership/actions/runs/41178367640) | Passed: Standard and Liquid Glass each ran 2/2 public Maestro flows; each JUnit report shows 2 tests, 0 failures, 0 errors and 0 skips. This is public smoke only, not the complete 11-flow suite |
+| Android emulator public + authenticated regression | [Run 41192835741](https://github.com/Manav326/BajajDealership/actions/runs/41192835741) | Passed on source commit `caff228`: Standard and Liquid Glass each ran 2 public + 4 authenticated flows (6/11); all six JUnit cases passed with 0 failures, errors or skips |
 | Physical Android acceptance | Not yet evidenced | Standard and Liquid Glass still require a complete All Maestro run and real-device acceptance |
 
-The Android source/test-flow inventory is 11 runnable Maestro flows per edition. CI has executed the 2 public smoke flows per edition (2/2 passed in strict validator run #41178367640); the remaining five authenticated and four notification-fixture flows per edition are not yet covered by CI. Commit `caff228` improved selectors and keyboard/scroll handling in the authenticated service-appointment flow, but that flow has not yet been run. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and records its emulator smoke result.
+The Android source/test-flow inventory is 11 runnable Maestro flows per edition. Run #41192835741 on source commit `caff228` passed 6/11 on both Standard and Liquid Glass: 2 public flows plus 4 authenticated regressions (customer-area navigation, orientation/layout adaptation, notification inbox/unread filter, and service appointment request/cancellation). The five definitions still outside CI are the parts-cart persistence flow and four notification-fixture flows. The workflow seeds a synthetic customer and linked motorcycle in its disposable PostgreSQL database; the synthetic credentials are CI-only. Physical-device acceptance remains outstanding. The normal main CI Android build is path-filtered; the dedicated emulator workflow runs on relevant mobile/backend/fixture changes and can also be manually dispatched.
 
-The measurement and workflow evidence above spans multiple explicit commit baselines. It is not a claim that a complete CI suite ran on the later `caff228` source head; the current test ledger records those boundaries.
+The backend/web coverage metrics and build evidence above are tied to the earlier explicitly named baselines; Android execution evidence is tied to `caff228`. Do not combine these into an unsupported claim that every suite ran on a single exact commit.
 
 ## Product capability status
 
