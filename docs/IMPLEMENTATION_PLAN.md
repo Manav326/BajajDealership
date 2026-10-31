@@ -102,7 +102,7 @@ This document records current domain invariants and the remaining implementation
 - Android jobs were skipped on that exact CI run because no Android-relevant path changed. Do not report them as passed on this commit.
 - The last observed successful dedicated Social Media Studio browser run is [41157066812](https://github.com/Manav326/BajajDealership/actions/runs/41157066812) on an earlier main commit; the path-filtered workflow was not rerun on the inspected baseline.
 - Repository inventory at the inspected baseline: 49 Java backend test classes, 9 Playwright spec files, 11 runnable Maestro flow files per Android edition plus one shared login subflow per edition and the top-level auth smoke flow. File counts are not code-coverage measures.
-- Most browser journeys use mocked/intercepted API fixtures. They verify client behavior but do not prove complete real-database browser acceptance. The full Maestro suite runs locally against an emulator/physical device, not automatically in GitHub Actions.
+- Most browser journeys use mocked/intercepted API fixtures. They verify client behavior but do not prove complete real-database browser acceptance. GitHub Actions runs the two public Android Maestro smoke flows per edition; the full authenticated/notification All suite remains local until deterministic synthetic account, vehicle and notification fixtures are prepared.
 
 ## Prioritized remaining work
 
