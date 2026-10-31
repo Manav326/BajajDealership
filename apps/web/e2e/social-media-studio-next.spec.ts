@@ -960,7 +960,7 @@ test('multiple audio tracks retain independent source and timeline settings afte
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Pages' }).click();
   await page.getByRole('spinbutton', { name: 'Selected scene duration' }).fill('6');
-  await page.getByRole('button', { name: 'Audio' }).click();
+  await page.getByRole('button', { name: 'Audio', exact: true }).click();
 
   await page.getByLabel('Import audio').setInputFiles({
     name: 'persistent-music-bed.wav', mimeType: 'audio/wav', buffer: makeSilentWav(8),
