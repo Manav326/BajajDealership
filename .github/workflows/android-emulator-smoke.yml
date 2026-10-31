@@ -156,13 +156,14 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             set -euo pipefail
-            result_dir="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/maestro-results/ci-public"
-            apk="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
-            flow_dir="$GITHUB_WORKSPACE/${{ matrix.app_dir }}/.maestro/flows/public"
+            workspace="${{ github.workspace }}"
+            result_dir="$workspace/${{ matrix.app_dir }}/maestro-results/ci-public"
+            apk="$workspace/${{ matrix.app_dir }}/android/app/build/outputs/apk/release/app-release.apk"
+            flow_dir="$workspace/${{ matrix.app_dir }}/.maestro/flows/public"
             mkdir -p "$result_dir"
             if [ ! -s "$apk" ]; then
               echo "Expected the built test APK at: $apk"
-              find "$GITHUB_WORKSPACE/${{ matrix.app_dir }}" -path '*/app/build/outputs/apk/*/*.apk' -type f -print
+              find "$workspace/${{ matrix.app_dir }}" -path '*/app/build/outputs/apk/*/*.apk' -type f -print
               exit 1
             fi
 
