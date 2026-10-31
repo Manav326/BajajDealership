@@ -266,7 +266,7 @@ These credentials and defaults are for development only. Do not expose this Comp
 
 ## Local UI testing (Playwright + Maestro)
 
-Run local web and native Android UI tests using the repository helper; see [docs/LOCAL_UI_TESTING.md](docs/LOCAL_UI_TESTING.md) for prerequisites, coverage and troubleshooting.
+Run local web and native Android UI tests using the repository helper; see [docs/LOCAL_UI_TESTING.md](docs/LOCAL_UI_TESTING.md) for prerequisites and troubleshooting. The measured test inventory, coverage percentages, per-application quality assessment and release decision are in [docs/TESTING_COVERAGE.md](docs/TESTING_COVERAGE.md).
 
 ```powershell
 .\scripts\test-ui.ps1                 # Playwright UI Mode for web tests

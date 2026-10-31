@@ -2,7 +2,7 @@
 
 **Status reconciled:** 31 October 2026  
 **Repository:** Manav326/BajajDealership  
-**Code baseline inspected:** main at 6941940b625a7e7ca818687df80deb3421247c15  
+**Code baseline inspected:** main at a5457abaa0e517fac2b53558a3d53e3fa02fda24 (testing-infrastructure changes; see current main for later commits)  
 **Decision:** active implementation; not approved for full production rollout.
 
 This document is the canonical product-status snapshot. The root README is the short project entry point. Domain details stay in the linked specialist documents. GitHub issues track implementation and acceptance work; an open issue does not automatically mean its entire feature is absent from the current code.
@@ -16,20 +16,21 @@ This document is the canonical product-status snapshot. The root README is the s
 
 ## Current engineering evidence
 
-The latest inspected code baseline was commit 6941940. The following GitHub Actions results were attached to that baseline:
+The full measured testing inventory and release-quality assessment are maintained in [TESTING_COVERAGE.md](TESTING_COVERAGE.md). The latest audited test-infrastructure baseline is:
 
-| Check | Result | Evidence and qualification |
+| Check | Latest evidence | Result / qualification |
 |---|---|---|
-| Backend tests and PostgreSQL migrations | Passed | [CI run 41164397252](https://github.com/Manav326/BajajDealership/actions/runs/41164397252) |
-| Staff and customer web production builds | Passed | Same CI run |
-| Docker image build and full-stack smoke test | Passed | Same CI run |
-| Windows EXE/MSI installer build | Passed | Same CI run; output is unsigned |
-| GHCR publication and pull smoke test | Passed | Same CI run |
-| Notification Studio browser regressions | Passed | [Run 41164397291](https://github.com/Manav326/BajajDealership/actions/runs/41164397291) on the inspected baseline |
-| Android APK jobs | Skipped | Android source paths were unchanged; this is not an Android failure and is not a current-head Android build result |
-| Dedicated Social Media Studio browser regression | Last observed pass on an earlier main commit | [Run 41157066812](https://github.com/Manav326/BajajDealership/actions/runs/41157066812); the path-filtered workflow was not rerun on 6941940 |
+| Main CI | [Run 41172140918](https://github.com/Manav326/BajajDealership/actions/runs/41172140918) | Passed: backend/PostgreSQL, staff/customer builds, Docker smoke, Windows installers and GHCR publish/pull |
+| Backend tests | Same CI run | 233 passed; 0 failures, errors or skips |
+| Backend JaCoCo | Same CI run; [coverage artifact](https://github.com/Manav326/BajajDealership/actions/runs/41172140918/artifacts/13031915147) | 66.69% line / 42.82% branch; package-level gaps are called out in the testing report |
+| Full Chromium browser suite | [Run 41172140858](https://github.com/Manav326/BajajDealership/actions/runs/41172140858) | 97 passed; 0 failed, skipped or flaky |
+| Browser function execution | Same browser run | Staff 61.15%; customer site 64.34%; loaded modules only, not line/branch or whole-repository coverage |
+| Social Media Studio browser regression | [Run 41172140838](https://github.com/Manav326/BajajDealership/actions/runs/41172140838) | 42 passed; this overlaps the full web suite |
+| Cross-browser showroom smoke | [Run 41171414198](https://github.com/Manav326/BajajDealership/actions/runs/41171414198) | 6 passed across Chromium, Firefox and WebKit; narrow public-showroom smoke only |
+| Android emulator public smoke | [Run 41172140850](https://github.com/Manav326/BajajDealership/actions/runs/41172140850) | Did not reach Maestro scenarios: emulator ADB transport remained offline during installation. An ADB readiness/retry correction is being added; no mobile pass is claimed from this run |
+| Physical Android acceptance | Not yet evidenced | Standard and Liquid Glass still require a complete All Maestro run and real-device acceptance |
 
-The repository tree contains 49 backend Java test classes, 9 Playwright browser specifications and 11 runnable Maestro flow files in each Android edition (plus a shared customer-login subflow in each edition and the top-level customer-auth smoke flow). These are test-file counts, not line-coverage percentages. The normal GitHub CI builds Android test APKs when Android-related paths change; it does not run the complete physical-device Maestro suite.
+The Android source/test-flow inventory is 11 runnable Maestro flows per edition; this is not an execution or pass count. The normal main CI Android build is path-filtered. The separate emulator workflow builds x86_64 test APKs and is responsible for its explicitly reported device smoke.
 
 ## Product capability status
 

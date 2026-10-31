@@ -43,14 +43,17 @@ The app is built in release mode so the test does not depend on a persistent Met
 
 ## Test safety and current coverage
 
-- The Playwright scenarios use synthetic UI fixtures and intercepted API responses where defined in the tests. They do not require the local PostgreSQL/database stack and must not be treated as proof that live backend business flows work.
-- - The top-level smoke flow .maestro/flows/customer-auth-smoke.yaml preserves the app's existing local session. When signed out, it checks sign-in and account-activation entry; when signed in, it checks the customer home shell and primary navigation. It does not submit credentials, activate an account, send notifications, clear local app data or write customer data.
-- - Each Android edition contains 11 runnable Maestro flow files: 2 public flows, 5 authenticated customer flows and 4 fixture-driven notification flows, plus one shared customer-login subflow. Standard and Liquid Glass flow trees are checked for parity. The notification fixture flows cover pagination, read/unread/dismiss, rich content with CTA/image and suppression of unsafe routes.
-- These flow files are local device UI automation, not proof that all flows have passed on the current commit. The scripts build/install and run the selected suite on a connected emulator/physical device; normal GitHub CI does not run the full physical-device Maestro suite.
-- The Playwright suite contains 9 spec files. Several customer journeys intercept/mock API responses; they verify client behavior but do not prove the complete real PostgreSQL business journey.
-- The current main baseline's Android CI jobs were skipped because no Android source paths changed. The APK download scripts search earlier successful main runs that actually contain the requested Android artifact.
+- The Playwright suite contains 97 executed browser cases across 9 spec files in the latest full Chromium run. It uses synthetic fixtures and intercepts APIs in many customer and staff scenarios; it proves browser behavior, not every live-backend business transaction.
+- A dedicated cross-browser smoke suite covers the public showroom in Chromium, Firefox and WebKit (two scenarios per browser). It is intentionally a narrow compatibility/accessibility smoke, not a full three-browser run of all 97 cases or a WCAG audit.
+- The Social Media Studio regression has its own 42-case workflow. Those cases overlap the full 97-case suite and must not be added to it as additional unique scenarios.
+- Each Android edition has 11 runnable Maestro flows: 2 public, 5 authenticated customer and 4 notification-fixture flows, plus a shared login subflow. The Standard and Liquid Glass trees are checked for parity.
+- The dedicated Android emulator workflow builds a self-contained x86_64 test APK, starts an isolated PostgreSQL-backed API and seeds a synthetic published showroom. Its first execution reached the emulator but failed before APK installation because ADB still reported the emulator as offline. The workflow is being updated to wait for the ADB transport, Android boot completion and package manager readiness, then retry installation. Do not count a Maestro flow as passed until its JUnit result exists.
+- The full authenticated/fixture Maestro suite is available locally through the Android test helper's All selection. It requires a dedicated synthetic customer account and notification fixtures; never substitute a real customer account or credentials.
+- Backend/API tests run against PostgreSQL and currently include 233 passing tests. JaCoCo records line and branch coverage; web V8 instrumentation records function execution only for staff/customer source modules loaded during the browser scenarios. These metrics are not interchangeable.
 
-A passing smoke test proves only the covered UI checks. Use a synthetic test account on a production-like API for real backend acceptance and record the device, API version, flow suite and result.
+See [TESTING_COVERAGE.md](TESTING_COVERAGE.md) for the current measured percentages, workflow evidence, per-module weaknesses and release decision. The report distinguishes passed execution from scenario definitions and pending device acceptance.
+
+A passing test proves only its stated assertions. Use synthetic test accounts on a production-like API for business acceptance, and record device, API version, app build and flow-suite result.
 
 ## Web test ports
 
