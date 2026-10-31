@@ -84,7 +84,7 @@ jobs:
           fi
       - name: Start clean PostgreSQL-backed local API
         run: docker compose -f compose.yaml up --build -d api
-      - name: Wait for local API and verify the public catalogue
+      - name: Wait for migrations and seed a synthetic public showroom dealership
         shell: bash
         run: |
           ready=false
@@ -99,8 +99,38 @@ jobs:
             docker compose -f compose.yaml logs --tail=150 api postgres
             exit 1
           fi
+          # A fresh CI database intentionally has no real dealership. Create one synthetic
+          # storefront after Flyway has created the schema, then publish only catalogue masters.
+          # No staff, customer, vehicle unit, price override or real dealership record is created.
+          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
+          insert into dealership(code, name, status)
+          values ('CI-LUCKY-BAJAJ', 'CI Synthetic Lucky Bajaj', 'ACTIVE')
+          on conflict (code) do update set status = 'ACTIVE', name = excluded.name;
+
+          insert into bajaj_catalogue_dealership_model(dealership_id, model_code, is_published)
+          select d.id, c.model_code, true
+          from dealership d
+          cross join bajaj_catalogue_model c
+          where d.code = 'CI-LUCKY-BAJAJ' and c.active and c.manufacturer = 'BAJAJ'
+          on conflict (dealership_id, model_code) do update set is_published = true;
+          SQL
+          # Bind this ephemeral API only to the synthetic catalogue dealership. The service
+          # otherwise refuses to guess a tenant when more than one is active.
+          APP_PUBLIC_DEALERSHIP_CODE=CI-LUCKY-BAJAJ docker compose -f compose.yaml up -d --force-recreate api
+          ready=false
+          for attempt in $(seq 1 180); do
+            if curl -fsS http://localhost:8080/actuator/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker compose -f compose.yaml logs --tail=150 api postgres
+            exit 1
+          fi
           curl -fsS http://localhost:8080/api/v1/public/catalogue/bikes -o /tmp/public-catalogue.json
-          node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('/tmp/public-catalogue.json','utf8')); const bikes=Array.isArray(data)?data:(data.bikes??data.items??[]); if(bikes.length<10) throw new Error('Expected at least 10 published Bajaj models, received '+bikes.length); console.log('Public catalogue models:',bikes.length);"
+          node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync('/tmp/public-catalogue.json','utf8')); const bikes=Array.isArray(data)?data:(data.bikes??data.items??[]); if(bikes.length<20) throw new Error('Expected at least 20 published Bajaj models, received '+bikes.length); console.log('Synthetic dealership public catalogue models:',bikes.length);"
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash

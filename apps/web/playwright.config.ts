@@ -6,6 +6,8 @@ const webDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: './e2e',
+  // Cross-browser customer showroom smoke is run only by playwright.compat.config.ts.
+  testIgnore: ['**/browser-compatibility.spec.ts'],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
