@@ -1138,7 +1138,7 @@ test('multiple uploaded video clips have independent, editable timeline tracks',
   if (!firstTrackBox || !secondTrackBox) throw new Error('Both independent video tracks should be measurable.');
   expect(secondTrackBox.y).toBeGreaterThan(firstTrackBox.y);
 
-  await page.getByRole('button', { name: 'Layers' }).click();
+  // Adding a video clip already opens the Layers panel.
   const overlayLayer = page.getByRole('button', { name: 'scene-overlay.webm', exact: true });
   const overlayLayerRow = overlayLayer.locator('..');
   await overlayLayer.click();
