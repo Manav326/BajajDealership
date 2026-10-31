@@ -1,4 +1,6 @@
 appId: com.quantaedge.luckybajajlg
+name: Shared customer login
+---
 # Shared sign-in routine for a dedicated, non-production Maestro customer.
 - launchApp:
     clearState: true
