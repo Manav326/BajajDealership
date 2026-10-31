@@ -1,3 +1,4 @@
+import { appConfirm } from '../dialogs/dialogService';
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { apiFetch } from './apiClient';
 import SocialWhatsAppWorkspace from './SocialWhatsAppWorkspace';
@@ -918,7 +919,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
 
   async function deleteMusicTrack(track: ArtworkMusicAsset) {
     if (track.isStarter) return;
-    if (!window.confirm('Remove this uploaded music track from this browser? Existing exported videos are not affected.')) return;
+    if (!(await appConfirm('Remove this uploaded music track from this browser? Existing exported videos are not affected.', { title: 'Remove uploaded music', confirmLabel: 'Remove track', danger: true }))) return;
     setError('');
     setNotice('');
     try {
@@ -1065,7 +1066,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
         setError('Cannot remove "' + asset.name + '" because it is used by ' + references.join(', ') + '. Remove its image layer from the current canvas and every listed draft, save those drafts, then try again.');
         return;
       }
-      if (!window.confirm('Remove "' + asset.name + '" from this browser’s artwork asset library?')) return;
+      if (!(await appConfirm('Remove "' + asset.name + '" from this browser’s artwork asset library?', { title: 'Remove artwork asset', confirmLabel: 'Remove asset', danger: true }))) return;
       await removeArtworkAsset(asset.id);
       if (selectedAssetId === asset.id) {
         setSelectedAssetId(null);
@@ -1108,7 +1109,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     const prompt=scheduledAt
       ? 'Request approval to publish to '+destination.displayName+' at '+new Date(scheduledAt).toLocaleString()+'? An Owner or Manager must approve it before dispatch.'
       : 'Submit this artwork to '+destination.displayName+' for approval? An Owner or Manager must approve it before a public post is made.';
-    if(!window.confirm(prompt))return;
+    if (!(await appConfirm(prompt, { title: 'Submit artwork for approval', confirmLabel: 'Submit request' }))) return;
     setPublishingBusy(true);setMetaError('');setError('');setNotice('');
     try{
       let assetId=pendingPublishAssetId;
@@ -1171,7 +1172,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
     const prompt=decision==='approve'
       ? (request.scheduledAt?'Approve this campaign for scheduled publishing?':'Approve and publish this campaign now? This creates a public post.')
       : 'Reject this campaign request? No post will be published.';
-    if(!window.confirm(prompt))return;
+    if (!(await appConfirm(prompt, { title: decision === 'approve' ? 'Approve campaign request' : 'Reject campaign request', confirmLabel: decision === 'approve' ? 'Approve' : 'Reject' }))) return;
     setPublishingBusy(true);setMetaError('');setNotice('');
     try{
       const response=await apiFetch('/api/v1/admin/social/meta/publish-requests/'+request.publicId+'/'+decision,{
@@ -1191,7 +1192,7 @@ export default function SocialMediaArtworkStudio({ onClose, canManage = false, c
   async function disconnectMeta() {
     const activeDestinations = metaStatus?.destinations.filter((destination) => destination.status === 'ACTIVE').length ?? 0;
     if (!canManage || activeDestinations === 0) return;
-    if (!window.confirm('Disconnect all linked Facebook/Instagram accounts from this app? Future publishing will stop. Meta revocation will be attempted; if Meta does not confirm it, remove the app in Meta Business settings too.')) return;
+    if (!(await appConfirm('Disconnect all linked Facebook/Instagram accounts from this app? Future publishing will stop. Meta revocation will be attempted; if Meta does not confirm it, remove the app in Meta Business settings too.', { title: 'Disconnect social accounts', confirmLabel: 'Disconnect accounts', danger: true }))) return;
 
     setMetaDisconnecting(true);
     setMetaError('');

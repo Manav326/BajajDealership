@@ -1,3 +1,4 @@
+import { appConfirm } from './dialogService';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import BajajShowroom, { type ShowroomAction, type ShowroomBike } from './BajajShowroom';
 import GoogleSignInButton, { type CustomerGoogleSession } from './auth/GoogleSignInButton';
@@ -959,7 +960,7 @@ export default function App() {
     finally { setAddressSaving(false); }
   }
   async function deleteCustomerAddress(address: CustomerAddress) {
-    if (!window.confirm(`Remove the ${address.label.toLowerCase()} address from your address book?`)) return;
+    if (!(await appConfirm(`Remove the ${address.label.toLowerCase()} address from your address book?`, { title: 'Remove saved address', confirmLabel: 'Remove address', danger: true }))) return;
     setAddressSaving(true); setError(''); setSuccess('');
     try {
       const result = await api<CustomerAddress[]>(`/api/v1/customer/addresses/${address.publicId}`, token, { method: 'DELETE' });
@@ -990,7 +991,7 @@ export default function App() {
     finally { setPhotoBusy(false); }
   }
   async function removeCustomerPhoto() {
-    if (!window.confirm('Remove your profile photo and use your initials instead?')) return;
+    if (!(await appConfirm('Remove your profile photo and use your initials instead?', { title: 'Remove profile photo', confirmLabel: 'Remove photo', danger: true }))) return;
     setPhotoBusy(true); setError(''); setSuccess('');
     try {
       await api<{ success: boolean }>('/api/v1/customer/profile/photo', token, { method: 'DELETE' });

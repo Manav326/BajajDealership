@@ -1,3 +1,4 @@
+import { appPrompt } from '../dialogs/dialogService';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiFetch } from '../apiClient';
 import { printFinanceDocument } from '../finance/printFinanceDocument';
@@ -355,7 +356,7 @@ export default function SalesWorkspace({ token, staff }: { token: string; staff:
 
   async function cancelSaleInvoice() {
     if (!saleInvoice) return;
-    const reason = window.prompt('Why is this sales invoice being cancelled?')?.trim();
+    const reason = (await appPrompt('Why is this sales invoice being cancelled?', { title: 'Cancel sales invoice', inputLabel: 'Cancellation reason', placeholder: 'Enter the reason for cancellation', multiline: true, confirmLabel: 'Continue' }))?.trim();
     if (!reason) {
       setSaleError('A cancellation reason is required.');
       return;

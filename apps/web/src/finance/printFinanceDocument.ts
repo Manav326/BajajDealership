@@ -1,3 +1,4 @@
+import { appAlert } from '../dialogs/dialogService';
 export type PrintField = { label: string; value: string };
 export type PrintLine = { description: string; detail?: string; amount?: string };
 type PrintDocument = { title: string; documentNumber: string; subtitle?: string; fields: PrintField[]; lines?: PrintLine[]; note: string };
@@ -7,7 +8,7 @@ function escapeHtml(value: string): string {
 /** Opens an isolated operational document; the browser print dialog can save it as PDF. */
 export function printFinanceDocument(document: PrintDocument): void {
   const popup=window.open('','_blank','width=900,height=720');
-  if(!popup){window.alert('Allow pop-ups for this site to print or save this document as a PDF.');return;}
+  if(!popup){void appAlert('Allow pop-ups for this site to print or save this document as a PDF.', 'Printing unavailable');return;}
   popup.opener=null;
   const fields=document.fields.map(f=>'<div class="field"><span>'+escapeHtml(f.label)+'</span><strong>'+escapeHtml(f.value)+'</strong></div>').join('');
   const lines=(document.lines??[]).map(line=>'<tr><td><strong>'+escapeHtml(line.description)+'</strong>'+(line.detail?'<small>'+escapeHtml(line.detail)+'</small>':'')+'</td><td class="amount">'+escapeHtml(line.amount??'—')+'</td></tr>').join('');
