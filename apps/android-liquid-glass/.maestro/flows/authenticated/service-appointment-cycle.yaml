@@ -8,16 +8,39 @@ tags:
 - tapOn: "More"
 - tapOn: "Appointments"
 - assertVisible: "Service visits"
-- tapOn: ${MAESTRO_CUSTOMER_VEHICLE_NAME}
-- tapOn: "What does your bike need?"
+- tapOn: "${MAESTRO_CUSTOMER_VEHICLE_NAME} · Standard"
+- tapOn:
+    id: customer-appointment-concern
 - inputText: "Maestro automated service appointment test. Please disregard."
-- tapOn: "Request appointment"
-- extendedWaitUntil:
-    visible: "Cancel appointment"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: customer-appointment-submit
+    direction: DOWN
+    timeout: 10000
+    centerElement: true
+- tapOn:
+    id: customer-appointment-submit
+- scrollUntilVisible:
+    element:
+      id: customer-appointment-cancel-reason
+    direction: DOWN
     timeout: 20000
-- tapOn: "Cancellation reason"
+    centerElement: true
+- assertVisible:
+    id: customer-appointment-cancel-reason
+- tapOn:
+    id: customer-appointment-cancel-reason
 - inputText: "Maestro test cleanup"
-- tapOn: "Cancel appointment"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: customer-appointment-cancel-submit
+    direction: DOWN
+    timeout: 10000
+    centerElement: true
+- tapOn:
+    id: customer-appointment-cancel-submit
 - extendedWaitUntil:
     visible: "Cancelled"
     timeout: 20000
