@@ -1,5 +1,8 @@
 # Public preview deployment — Lucky Bajaj Agency
 
+**Documentation reconciled:** 31 October 2026  
+**Related status:** [PRODUCT_STATUS.md](PRODUCT_STATUS.md)
+
 ## Current public URLs
 
 The dealership owner has confirmed the following Render preview deployments:
@@ -8,7 +11,7 @@ The dealership owner has confirmed the following Render preview deployments:
 - **Customer website:** https://lucky-bajaj-customer-web.onrender.com/
 - **API:** https://lucky-bajaj-api.onrender.com
 
-The URLs below are the deployed preview targets, not a declaration that the preview is production-ready. Keep real customer, vehicle, employee and financial data out of the free preview until the hosting/data-retention limitations are addressed.
+The URLs below are the project's documented Render preview targets, not a declaration that the services are currently healthy, that they run the latest main commit, or that the environment is production-ready. A repository/source audit does not replace a live smoke test. Keep real customer, vehicle, employee and financial data out of the free preview until the hosting/data-retention limitations are addressed.
 
 This repository includes the Render Blueprint at `render.yaml`. It describes three public HTTPS services and one PostgreSQL database:
 
@@ -134,3 +137,12 @@ These queries are read-only. Save their output with the environment name and cap
 - Proceed only after the recorded history and deployed schema agree with the chosen transition plan. If the history is unexpected or contains failed/duplicate entries, keep deployment blocked until reconciled.
 
 Do not run write statements copied from a generic checklist to change `flyway_schema_history`. The transition, if needed, depends on what has actually been applied to that database.
+
+
+## Current code and rollout boundary
+
+The current main source includes the public showroom, customer portal, sales/workshop/parts workflows, operational finance, server-side licensing and the notification/social capabilities described in PRODUCT_STATUS.md. This does not imply that live Render credentials, migration state, provider accounts, durable storage or end-to-end business acceptance have been verified.
+
+The documented Render Blueprint remains a free preview configuration. Production rollout must use persistent PostgreSQL with backups, an always-available API runtime, durable private media storage, managed secrets, restricted database access, monitoring/alerts and a completed restore rehearsal. Scheduled in-app notifications depend on the API process being available; a sleeping free service cannot provide a delivery SLA.
+
+When recording a live preview/production verification, capture the UTC timestamp, each service URL, API version/commit if exposed, smoke-script output, database migration state and any missing external configuration. Do not write secrets or customer data into the report.
