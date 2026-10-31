@@ -156,3 +156,9 @@ Android-native background blur is used on top and bottom navigation on Android 1
 ### Google sign-in for this edition
 
 Register an Android OAuth client for package `com.quantaedge.luckybajajlg` and the SHA-1 of the signing certificate used by the installed build. Set it as `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID` (or `APP_AUTH_GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID`) on the API. The API accepts both Android audiences, and this app requests the client ID matching its package. Google sign-in remains unavailable until this client is configured; password-based access is unaffected.
+
+## APK and Play Store build profiles
+
+The GitHub Actions Maestro APK and the local physical-device Maestro build are deliberately restricted to `arm64-v8a`, the ABI used by supported 64-bit ARM test phones. This keeps the installable test artifact smaller and avoids packaging native libraries for emulator/desktop CPU architectures that are not used by the physical-device suite. The metadata sidecar records the ABI, and the downloader/test runner checks the connected phone before installation.
+
+This is a **test-artifact-only** build flag. Do not reuse `-PreactNativeArchitectures=arm64-v8a` for a public Play Store build. For a broader release, use `./gradlew bundleRelease` without the architecture override so React Native's default supported ABI list is retained; configure the upload signing key before distributing the resulting Android App Bundle. The normal Gradle configuration remains universal by default.
