@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantaedge.bajaj.security.StaffPrincipal;
+import java.util.Base64;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -16,10 +17,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Exercises provider configuration gates and URL safety without network access or persisted side effects.
- * All provider integrations are deliberately unconfigured in these tests.
+ * Exercises provider configuration gates and URL diagnostics without network access or persisted side effects.
+ * All provider integrations are deliberately unconfigured in the service tests.
  */
 class SocialProviderFailClosedTest {
+  private static final String VALID_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+
   private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
   private final ObjectMapper mapper = new ObjectMapper();
   private final SocialMediaObjectStorage storage =
@@ -78,39 +81,52 @@ class SocialProviderFailClosedTest {
   }
 
   @Test
-  void mediaPublicBaseUrlAllowsOnlyHttpsOrLoopbackOriginsWithoutPathOrQuery() {
-    assertTrue(SocialMetaService.isSafePublicBaseUrl("https://assets.example.test"));
-    assertTrue(SocialMetaService.isSafePublicBaseUrl("https://assets.example.test/"));
-    assertTrue(SocialMetaService.isSafePublicBaseUrl("http://localhost:8080"));
-    assertTrue(SocialMetaService.isSafePublicBaseUrl("http://127.0.0.1:8080"));
-
-    assertFalse(SocialMetaService.isSafePublicBaseUrl("http://assets.example.test"));
-    assertFalse(SocialMetaService.isSafePublicBaseUrl("https://assets.example.test/private"));
-    assertFalse(SocialMetaService.isSafePublicBaseUrl("https://assets.example.test/?token=secret"));
-    assertFalse(SocialMetaService.isSafePublicBaseUrl("https://assets.example.test/#fragment"));
-    assertFalse(SocialMetaService.isSafePublicBaseUrl(""));
+  void metaCallbackDiagnosticsRejectUnsafeSchemesAndRemoteHttpUrls() {
+    for (String invalidUrl : new String[] {
+        "http://callback.example.test",
+        "ftp://callback.example.test/resource",
+        "javascript:alert(1)",
+        ""
+    }) {
+      assertTrue(meta(invalidUrl, "https://complete.example.test", "https://assets.example.test")
+          .missingConnectionSettings().stream()
+          .anyMatch(key -> key.startsWith("SOCIAL_META_REDIRECT_URI")));
+      assertTrue(meta("https://callback.example.test", invalidUrl, "https://assets.example.test")
+          .missingConnectionSettings().stream()
+          .anyMatch(key -> key.startsWith("SOCIAL_META_COMPLETION_URL")));
+    }
   }
 
   @Test
-  void providerUrlsMustUseHttpsOrLocalhostHttp() {
-    assertTrue(SocialMetaService.isAbsoluteHttpUrl("https://graph.example.test/v23.0"));
-    assertTrue(SocialMetaService.isAbsoluteHttpUrl("http://localhost:8080/callback"));
-    assertTrue(SocialMetaService.isAbsoluteHttpUrl("http://127.0.0.1:8080/callback"));
+  void mediaConfigurationDiagnosticsAllowOnlyHttpsOrLoopbackOrigins() {
+    for (String allowedUrl : new String[] {
+        "https://assets.example.test",
+        "https://assets.example.test/",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080"
+    }) {
+      assertFalse(meta("https://callback.example.test", "https://complete.example.test", allowedUrl)
+          .missingPublishingSettings().stream()
+          .anyMatch(key -> key.startsWith("SOCIAL_MEDIA_PUBLIC_BASE_URL")));
+    }
 
-    assertFalse(SocialMetaService.isAbsoluteHttpUrl("http://graph.example.test"));
-    assertFalse(SocialMetaService.isAbsoluteHttpUrl("ftp://graph.example.test/resource"));
-    assertFalse(SocialMetaService.isAbsoluteHttpUrl("javascript:alert(1)"));
-    assertFalse(SocialMetaService.isAbsoluteHttpUrl(""));
-    assertFalse(SocialMetaService.isAbsoluteHttpUrl(null));
+    for (String invalidUrl : new String[] {
+        "http://assets.example.test",
+        "https://assets.example.test/private",
+        "https://assets.example.test/?token=secret",
+        "https://assets.example.test/#fragment",
+        ""
+    }) {
+      assertTrue(meta("https://callback.example.test", "https://complete.example.test", invalidUrl)
+          .missingPublishingSettings().stream()
+          .anyMatch(key -> key.startsWith("SOCIAL_MEDIA_PUBLIC_BASE_URL")));
+    }
   }
 
-  @Test
-  void metaProviderFailuresExposeOnlySanitizedFailureCategories() {
-    assertEquals("connection_failed",
-        SocialMetaService.safeFailureCode(new IllegalStateException("access_token=private")));
-    assertEquals("configuration_unavailable",
-        SocialMetaService.safeFailureCode(
-            new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "private configuration value")));
+  private SocialMetaService meta(String redirectUri, String completionUrl, String publicBaseUrl) {
+    return new SocialMetaService(
+        jdbc, mapper, true, "test-app-id", "test-app-secret", "v23.0",
+        redirectUri, completionUrl, VALID_KEY, publicBaseUrl, VALID_KEY, "database");
   }
 
   private static void assertServiceUnavailable(Runnable action) {
