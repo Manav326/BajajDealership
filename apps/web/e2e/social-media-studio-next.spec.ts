@@ -438,6 +438,40 @@ test('layer visibility hides and restores the selected canvas object', async ({ 
   await expect(canvasObject).toHaveCount(1);
 });
 
+test('locking a text layer prevents canvas movement and typography edits until unlocked', async ({ page }) => {
+  await openNewStudio(page);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
+  await page.getByRole('button', { name: 'Headline', exact: true }).click();
+
+  const textValue = page.getByRole('textbox', { name: 'Text', exact: true });
+  await expect(textValue).toBeEnabled();
+  await page.getByRole('button', { name: 'Layers' }).click();
+  const headlineLayer = page.getByRole('button', { name: 'Headline', exact: true });
+  const headlineRow = headlineLayer.locator('..');
+  await headlineLayer.click();
+  await headlineRow.getByRole('button', { name: 'Lock layer' }).click();
+
+  const lockedCanvasObject = page.getByRole('button', { name: 'Select Headline, locked', exact: true });
+  await expect(lockedCanvasObject).toBeVisible();
+  await expect(textValue).toBeDisabled();
+  await expect(page.getByRole('spinbutton', { name: 'Font size' })).toBeDisabled();
+
+  const originalTransform = await lockedCanvasObject.getAttribute('transform');
+  const objectBox = await lockedCanvasObject.boundingBox();
+  if (!objectBox) throw new Error('Locked headline is not measurable on the canvas.');
+  await page.mouse.move(objectBox.x + objectBox.width/2, objectBox.y + objectBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(objectBox.x + objectBox.width/2 + 45, objectBox.y + objectBox.height/2 + 24, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => lockedCanvasObject.getAttribute('transform')).toBe(originalTransform);
+  await expect(page.locator('svg[aria-label="Editable design canvas"] rect[stroke="#1685ff"]')).toHaveCount(0);
+
+  await headlineRow.getByRole('button', { name: 'Unlock layer' }).click();
+  await expect(textValue).toBeEnabled();
+  await expect(page.getByRole('spinbutton', { name: 'Font size' })).toBeEnabled();
+});
+
 test('search filters Text, Uploads and Audio library entries', async ({ page }) => {
   await openNewStudio(page);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -1103,6 +1137,27 @@ test('multiple uploaded video clips have independent, editable timeline tracks',
   const secondTrackBox = await secondVideoTrack.boundingBox();
   if (!firstTrackBox || !secondTrackBox) throw new Error('Both independent video tracks should be measurable.');
   expect(secondTrackBox.y).toBeGreaterThan(firstTrackBox.y);
+
+  await page.getByRole('button', { name: 'Layers' }).click();
+  const overlayLayer = page.getByRole('button', { name: 'scene-overlay.webm', exact: true });
+  const overlayLayerRow = overlayLayer.locator('..');
+  await overlayLayer.click();
+  await overlayLayerRow.getByRole('button', { name: 'Lock layer' }).click();
+  const overlayTimelineClip = page.getByRole('button', { name: 'Select timeline video clip scene-overlay.webm', exact: true });
+  await overlayTimelineClip.click();
+  const lockedOverlayStart = page.getByRole('spinbutton', { name: 'Video clip start' });
+  await expect(lockedOverlayStart).toBeDisabled();
+  const originalOverlayStart = Number(await lockedOverlayStart.inputValue());
+  const lockedOverlayBox = await overlayTimelineClip.boundingBox();
+  if (!lockedOverlayBox) throw new Error('Locked video clip body is not visible.');
+  await page.mouse.move(lockedOverlayBox.x + lockedOverlayBox.width/2, lockedOverlayBox.y + lockedOverlayBox.height/2);
+  await page.mouse.down();
+  await page.mouse.move(lockedOverlayBox.x + lockedOverlayBox.width/2 + 35, lockedOverlayBox.y + lockedOverlayBox.height/2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await lockedOverlayStart.inputValue())).toBe(originalOverlayStart);
+  await overlayLayerRow.getByRole('button', { name: 'Unlock layer' }).click();
+  await expect(lockedOverlayStart).toBeEnabled();
+
   const firstTimelineClip = page.getByRole('button', { name: 'Select timeline video clip scene-video.webm', exact: true });
   await firstTimelineClip.click();
   const clipDuration = page.getByRole('spinbutton', { name: 'Video clip duration' });
