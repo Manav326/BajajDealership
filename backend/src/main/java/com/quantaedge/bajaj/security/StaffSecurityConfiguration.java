@@ -72,7 +72,7 @@ public class StaffSecurityConfiguration {
             .requestMatchers("/", "/api/v1/system/health", "/actuator/health", "/actuator/health/**").permitAll()
             // Vendor-only token is validated by the licensing controller.
             .requestMatchers("/api/v1/system/license/admin/**").permitAll()
-            .requestMatchers(HttpMethod.GET, "/api/v1/public/catalogue/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/v1/public/catalogue/**", "/api/v1/public/downloads/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/meta/callback").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/media/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/social/whatsapp/webhook").permitAll()

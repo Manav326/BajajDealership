@@ -85,3 +85,5 @@ app:
   license:
     # Never commit this secret. Vendor-only licensing endpoints are disabled while blank.
     admin-token: ${APP_LICENSE_ADMIN_TOKEN:}
+  public-downloads:
+    github-repository: ${PUBLIC_DOWNLOADS_GITHUB_REPOSITORY:Manav326/BajajDealership}
