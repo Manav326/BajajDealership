@@ -3171,3 +3171,33 @@ body {
 @keyframes lbStaffDownloadPulse{50%{opacity:.45;box-shadow:0 0 0 5px rgba(115,92,221,.07)}}
 @media(max-width:560px){.lb-staff-download-actions{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.lb-desktop-download-progress-heading>span i,.lb-desktop-download-progress-indeterminate{animation:none}.lb-desktop-download-progress-indeterminate{width:100%;opacity:.55}}
+
+
+/* Keep the sign-in and its release download card usable on shorter screens. */
+.auth-screen:has(.lb-staff-download-card) {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 28px 20px 24px;
+}
+.auth-screen:has(.lb-staff-download-card) .auth-card {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.auth-screen:has(.lb-staff-download-card) .auth-footer {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+}
+@media (max-height: 760px) {
+  .auth-screen:has(.lb-staff-download-card) {
+    justify-content: flex-start;
+  }
+}
