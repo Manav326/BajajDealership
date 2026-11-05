@@ -1,4 +1,3 @@
-import { Download, Monitor, Check, RotateCcw, X } from 'lucide-react';
 import {
   formatDownloadBytes,
   getPublicDownloadPath,
@@ -54,7 +53,7 @@ function WindowsDownloadAction({
           <span>{formatDownloadBytes(download.bytesReceived)} downloaded</span>
           <span>{download.totalBytes ? `of ${formatDownloadBytes(download.totalBytes)}` : 'Total size unavailable'}</span>
         </div>
-        <button className="lb-desktop-download-cancel" type="button" onClick={cancel}><X size={13} /> Cancel download</button>
+        <button className="lb-desktop-download-cancel" type="button" onClick={cancel}><span aria-hidden="true">×</span> Cancel download</button>
       </div>
     );
   }
@@ -62,8 +61,8 @@ function WindowsDownloadAction({
   if (download.status === 'complete') {
     return (
       <div className="lb-desktop-download-result lb-desktop-download-result-success" role="status">
-        <div><Check size={14} /><span>Download complete</span><strong>{formatDownloadBytes(download.bytesReceived)}</strong></div>
-        <button type="button" onClick={begin}><Download size={13} /> Download again</button>
+        <div><span aria-hidden="true">✓</span><span>Download complete</span><strong>{formatDownloadBytes(download.bytesReceived)}</strong></div>
+        <button type="button" onClick={begin}><span aria-hidden="true">↓</span> Download again</button>
       </div>
     );
   }
@@ -72,14 +71,14 @@ function WindowsDownloadAction({
     return (
       <div className={download.status === 'error' ? 'lb-desktop-download-result lb-desktop-download-result-error' : 'lb-desktop-download-result'}>
         <p role="status">{download.status === 'cancelled' ? 'Download cancelled.' : download.errorMessage ?? 'The download could not be completed.'}</p>
-        <button type="button" onClick={begin}><RotateCcw size={13} /> {download.status === 'cancelled' ? 'Try again' : 'Retry download'}</button>
+        <button type="button" onClick={begin}><span aria-hidden="true">↻</span> {download.status === 'cancelled' ? 'Try again' : 'Retry download'}</button>
       </div>
     );
   }
 
   return (
     <button className="lb-desktop-download-button" type="button" onClick={begin}>
-      <Download size={15} /> {label}
+      <span aria-hidden="true">↓</span> {label}
     </button>
   );
 }
@@ -92,7 +91,7 @@ export default function StaffDesktopDownloadCard() {
   return (
     <section className="lb-staff-download-card" aria-labelledby="lb-staff-download-title">
       <div className="lb-staff-download-card-heading">
-        <div className="lb-staff-download-icon"><Monitor size={21} /></div>
+        <div className="lb-staff-download-icon"><span aria-hidden="true">▣</span></div>
         <div className="lb-staff-download-card-copy">
           <div className="lb-staff-download-kicker-row">
             <span>STAFF DESKTOP · WINDOWS 10/11</span>
