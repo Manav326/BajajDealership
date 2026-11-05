@@ -60,7 +60,7 @@ jobs:
               let parsed;
               try { parsed = new URL(value); }
               catch { throw new Error(`${name} must be set to the Lucky Bajaj production HTTPS origin.`); }
-              const allowedPaths = allowRootSlash ? ["", "/"] : [""];
+              const allowedPaths = ["", "/"];
               if (
                 parsed.protocol !== "https:" ||
                 parsed.hostname !== expectedHost ||
