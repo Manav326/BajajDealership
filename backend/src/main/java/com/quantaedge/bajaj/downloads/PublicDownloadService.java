@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +48,7 @@ public class PublicDownloadService {
   private final boolean allowLocalHttp;
   private volatile CachedRelease cachedRelease;
 
+  @Autowired
   public PublicDownloadService(
       ObjectMapper objectMapper,
       @Value("${app.public-downloads.github-repository:Manav326/BajajDealership}") String repository) {
