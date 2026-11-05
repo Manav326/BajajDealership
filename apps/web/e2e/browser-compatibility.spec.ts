@@ -111,3 +111,31 @@ test('customer showroom exposes direct Standard and Liquid Glass APK download ca
   await expect(page.getByText('Not published yet').first()).toBeVisible();
   await expect(page.getByRole('link', { name: /Release notes & SHA-256 checksums/i })).toHaveCount(0);
 });
+
+
+test('staff sign-in presents hosted Windows installers in the same page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 650 });
+  await page.route('**/api/v1/system/bootstrap/status', async (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ available: false, message: '', missingConfigurationKeys: [] }),
+  }));
+  await page.route('**/api/v1/public/downloads/status', async (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: null,
+      androidStandardAvailable: false,
+      androidLiquidGlassAvailable: false,
+      windowsExeAvailable: false,
+      windowsMsiAvailable: false,
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:3101/');
+  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+  const downloadCard = page.getByRole('heading', { name: 'Lucky Bajaj for Windows' });
+  await expect(downloadCard).toBeVisible();
+  await expect(page.getByText('Not published yet').first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Download Windows desktop app' })).toHaveCount(0);
+});
