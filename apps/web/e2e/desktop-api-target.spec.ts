@@ -21,7 +21,7 @@ test('Tauri desktop can switch between hosted and Local Docker APIs without rebu
   const connection = page.getByLabel('Server connection');
   await expect(connection).toBeVisible();
   await expect(connection).toHaveValue('hosted');
-  await expect.poll(() => bootstrapRequests.some((url) => url.startsWith('https://lucky-bajaj-api.onrender.com/'))).toBe(true);
+  await expect.poll(() => bootstrapRequests.some((url) => url.startsWith('https://api-luckybajaj.quantaedge.in/'))).toBe(true);
 
   await connection.selectOption('local-docker');
   await expect(connection).toHaveValue('local-docker');
@@ -33,5 +33,5 @@ test('Tauri desktop can switch between hosted and Local Docker APIs without rebu
   await expect.poll(() => bootstrapRequests.filter((url) => url.startsWith('http://127.0.0.1:8080/')).length).toBeGreaterThanOrEqual(2);
 
   await page.getByLabel('Server connection').selectOption('hosted');
-  await expect.poll(() => bootstrapRequests.filter((url) => url.startsWith('https://lucky-bajaj-api.onrender.com/')).length).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => bootstrapRequests.filter((url) => url.startsWith('https://api-luckybajaj.quantaedge.in/')).length).toBeGreaterThanOrEqual(2);
 });

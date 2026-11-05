@@ -102,6 +102,7 @@ jobs:
           node-version: "24"
       - name: Validate read-only preview smoke script syntax
         run: node --check scripts/smoke-test-local.mjs
+          node --check scripts/configure-android-release-signing.mjs
 
       - name: Install staff portal dependencies
         working-directory: apps/web
@@ -247,7 +248,7 @@ jobs:
     timeout-minutes: 30
     env:
       VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
-      VITE_APP_VERSION: "0.1.0"
+      VITE_APP_VERSION: "0.2.0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
