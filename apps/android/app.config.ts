@@ -1,8 +1,8 @@
 import type { ExpoConfig } from 'expo/config';
 import { withAndroidManifest } from 'expo/config-plugins';
 
-const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/').trim();
-const customerWebUrl = (process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || 'https://lucky-bajaj-customer-web.onrender.com').trim().replace(/\/+$/, '');
+const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/').trim();
+const customerWebUrl = (process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || 'https://luckybajaj.quantaedge.in').trim().replace(/\/+$/, '');
 
 const baseConfig: ExpoConfig = {
   name: 'Lucky Bajaj',

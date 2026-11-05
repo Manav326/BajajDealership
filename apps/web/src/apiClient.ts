@@ -8,7 +8,7 @@ export function isTauriDesktopRuntime(): boolean {
 export type DesktopApiTarget = 'hosted' | 'local-docker';
 
 const DESKTOP_API_TARGET_KEY = 'qe_desktop_api_target';
-const DEFAULT_DESKTOP_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/';
+const DEFAULT_DESKTOP_API_BASE_URL = 'https://api-luckybajaj.quantaedge.in/';
 const LOCAL_DOCKER_API_BASE_URL = 'http://127.0.0.1:8080/';
 
 export function getDesktopApiTarget(): DesktopApiTarget {

@@ -246,7 +246,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
       VITE_APP_VERSION: "0.1.0"
     steps:
       - name: Checkout
@@ -369,7 +369,7 @@ jobs:
     # Build a self-contained release variant so Maestro does not need a Metro server.
     # This is a device-test APK, not a Play Store release.
     env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
@@ -465,7 +465,7 @@ jobs:
     # Build a self-contained release variant so Maestro does not need a Metro server.
     # This is a device-test APK, not a Play Store release.
     env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/' }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:

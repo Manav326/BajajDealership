@@ -238,7 +238,7 @@ function Build-LocalDockerInstaller {
   $msiDirectory = Join-Path $webRoot 'src-tauri/target/release/bundle/msi'
 
   try {
-    $env:VITE_API_BASE_URL = 'https://lucky-bajaj-api.onrender.com/'
+    $env:VITE_API_BASE_URL = 'https://api-luckybajaj.quantaedge.in/'
     $env:VITE_APP_VERSION = '0.1.0-local'
 
     Push-Location $webRoot
