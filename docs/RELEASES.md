@@ -51,24 +51,22 @@ After creating the keystore, register the signing certificate SHA-1 fingerprint 
 
 Configure the corresponding Android OAuth client IDs in the Lucky Bajaj API environment. A valid web OAuth client alone does not establish Android sign-in for these packages.
 
-## Create and publish a release
+## Automatic versioning and publishing
 
-1. Merge/commit the intended release source to `main`; ensure the latest CI, Android emulator regression and browser regression runs succeed on that exact commit.
-2. Confirm the Android signing secrets and production Actions variables are configured.
-3. From a clean checkout, create and push the version tag. For the first planned release:
+The **Publish Lucky Bajaj after green main CI** workflow mirrors the SmartPrint release flow:
 
-   ```powershell
-   git fetch origin
-   git checkout main
-   git pull --ff-only origin main
-   git tag -a v0.2.0 -m "Lucky Bajaj v0.2.0"
-   git push origin v0.2.0
-   ```
+1. A push to `main` must complete the main **CI** workflow successfully.
+2. The automation checks that the successful commit is still the current `main` tip. Older CI runs are ignored.
+3. It validates the two canonical Cloudflare production origins and checks all four Android signing secrets before creating a tag.
+4. With no stable tags, it bootstraps from the app version in `apps/android/app.config.ts` (`0.2.0` today), creating `v0.2.0`. Later successful main commits receive the next patch version.
+5. The automation creates the tag at the exact tested commit, then explicitly dispatches **Release Lucky Bajaj** against that tag.
+6. The release builder produces both signed Android APKs and the Windows EXE/MSI, verifies the package metadata and SHA-256 checksums, uploads a draft, checks the uploaded asset names/sizes/digests, and only then publishes the stable release.
 
-4. Follow the **Release Lucky Bajaj** workflow in GitHub Actions. It must finish all three package jobs and publish only after uploaded asset names, sizes and SHA-256 digests are verified.
-5. Verify the release page and download/check `SHA256SUMS.txt` before installing.
+The signing preflight is intentionally before tag creation. When the Android secrets are missing, the workflow fails without allocating a version tag. Configure the dedicated keystore/secrets, then rerun the successful CI workflow for the same current `main` commit to retry the automatic release.
 
-For a retry, use workflow dispatch with the existing unpublished draft's tag. The workflow refuses to mutate a published release. Never reuse a published version tag.
+For a recovery or manual retry, open **Actions → Release Lucky Bajaj → Run workflow** and provide an existing stable tag whose release is still an unpublished draft. The workflow refuses to overwrite a published release. Never reuse a published version tag for different source.
+
+After publication, verify the release page and SHA-256 checksums before installing. Customer and staff download cards discover only a complete published stable release; draft assets and partial releases are never offered.
 
 ## Version-code mapping
 
