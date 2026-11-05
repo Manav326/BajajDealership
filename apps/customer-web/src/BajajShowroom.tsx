@@ -541,6 +541,7 @@ export default function BajajShowroom({
           <a href="#collection" onClick={() => setMobileMenuOpen(false)}>Motorcycles</a>
           <a href="#experience" onClick={() => setMobileMenuOpen(false)}>The experience</a>
           <a href="#offers" onClick={() => setMobileMenuOpen(false)}>Offers</a>
+          <a href="#android-downloads" onClick={() => setMobileMenuOpen(false)}>Get the app</a>
           <button type="button" className="showroom-login" onClick={() => onSignIn()}>My account <span>↗</span></button>
         </nav>
       </header>
