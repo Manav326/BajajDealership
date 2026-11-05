@@ -3128,3 +3128,46 @@ body {
   line-height: 1.6;
 }
 .customer-profile-dialog label { color: #35465f; font-size: 12px; font-weight: 650; }
+
+/* Staff sign-in release download card — same direct, measurable flow as SmartPrint. */
+.auth-card .lb-staff-download-card{display:grid;gap:13px;margin-top:22px;padding:17px;border:1px solid #e4e8f0;border-radius:15px;background:linear-gradient(145deg,#fbfcff,#f6f8fc);text-align:left}
+.lb-staff-download-card-heading{display:flex;align-items:flex-start;gap:12px}
+.lb-staff-download-icon{display:grid;width:42px;height:42px;flex:0 0 42px;place-items:center;border:1px solid #e2e6fb;border-radius:12px;background:#eff1ff;color:#6e69df}
+.lb-staff-download-card-copy{min-width:0;flex:1}
+.lb-staff-download-kicker-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lb-staff-download-kicker-row>span:first-child{color:#778398;font-size:8px;font-weight:850;letter-spacing:1px}
+.lb-staff-download-tag{flex:0 0 auto;padding:5px 7px;border:1px solid #e4e8ef;border-radius:20px;background:#f7f8fa;color:#69758a;font-size:8px;font-weight:800}
+.lb-staff-download-tag--available{border-color:#d9eee6;background:#f0f8f4;color:#378568}
+.lb-staff-download-card-copy h3{margin:7px 0 5px;color:#202a3d;font-size:16px;font-weight:850;letter-spacing:-.4px}
+.lb-staff-download-card-copy p{margin:0;color:#66748a;font-size:10px;line-height:1.6}
+.lb-staff-download-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lb-staff-download-action{display:grid;align-content:start;gap:7px;min-width:0}
+.lb-staff-download-action>span{color:#7b879b;font-size:8px;font-weight:850;letter-spacing:.7px}
+.lb-staff-download-button{display:flex;width:100%;min-height:40px;align-items:center;justify-content:center;gap:7px;padding:7px 9px;border:0;border-radius:9px;background:linear-gradient(110deg,#7159dc,#8976eb);color:#fff;font-size:9px;font-weight:800;cursor:pointer;transition:transform .2s,box-shadow .2s}
+.lb-staff-download-button:hover{transform:translateY(-1px);box-shadow:0 7px 17px rgba(112,88,223,.22)}
+.lb-desktop-download-unavailable{display:flex;min-height:40px;align-items:center;justify-content:center;padding:7px;border:1px solid #e2e5ec;border-radius:9px;background:#f1f2f6;color:#8991a1;font-size:9px;font-weight:700;text-align:center}
+.lb-desktop-download-progress{display:grid;gap:7px;padding:10px;border:1px solid #e4e8f3;border-radius:9px;background:#f8f9fd}
+.lb-desktop-download-progress-heading,.lb-desktop-download-progress-details{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.lb-desktop-download-progress-heading>span{display:flex;align-items:center;gap:6px;color:#536078;font-size:9px;font-weight:700}
+.lb-desktop-download-progress-heading>span i{width:6px;height:6px;border-radius:50%;background:#735cdd;box-shadow:0 0 0 3px rgba(115,92,221,.12);animation:lbStaffDownloadPulse 1.5s ease-in-out infinite}
+.lb-desktop-download-progress-heading>strong{color:#6551cb;font-size:11px;font-variant-numeric:tabular-nums}
+.lb-desktop-download-progress-track{height:7px;overflow:hidden;border-radius:20px;background:#e7eaf2}
+.lb-desktop-download-progress-fill{display:block;height:100%;border-radius:20px;background:linear-gradient(90deg,#7057db,#9a86f2);transition:width .16s ease}
+.lb-desktop-download-progress-indeterminate{width:34%;animation:lbStaffDownloadIndeterminate 1.25s ease-in-out infinite}
+.lb-desktop-download-progress-details{color:#7d8798;font-size:8px;font-variant-numeric:tabular-nums}
+.lb-desktop-download-cancel{display:inline-flex;justify-self:end;align-items:center;gap:5px;padding:3px 0;border:0;background:transparent;color:#8b5260;font-size:8px;font-weight:700;cursor:pointer}
+.lb-desktop-download-result{display:grid;gap:7px;padding:9px;border:1px solid #e4e8ef;border-radius:9px;background:#f8f9fc}
+.lb-desktop-download-result>div{display:flex;align-items:center;gap:5px;color:#4b596e;font-size:9px;font-weight:700}
+.lb-desktop-download-result>div strong{margin-left:auto;color:#788396;font-size:8px}
+.lb-desktop-download-result-success{border-color:#d7ede3;background:#f3faf6}.lb-desktop-download-result-success>div{color:#27815f}
+.lb-desktop-download-result button{display:inline-flex;align-items:center;gap:5px;padding:3px 0;border:0;background:transparent;color:#6551cb;font-size:8px;font-weight:800;cursor:pointer}
+.lb-desktop-download-result-error{border-color:#f0dadd;background:#fff8f8}
+.lb-desktop-download-result>p{margin:0;color:#98515b;font-size:8px;line-height:1.5}
+.lb-staff-download-footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:7px 12px;color:#78859a;font-size:8px;line-height:1.5}
+.lb-staff-download-footer a{color:#6551cb;font-weight:800;text-decoration:none}
+.lb-staff-download-footer a:hover{text-decoration:underline}
+.lb-staff-download-security{margin:0;color:#855b31;font-size:8px;line-height:1.55}
+@keyframes lbStaffDownloadIndeterminate{0%{transform:translateX(-110%)}100%{transform:translateX(330%)}}
+@keyframes lbStaffDownloadPulse{50%{opacity:.45;box-shadow:0 0 0 5px rgba(115,92,221,.07)}}
+@media(max-width:560px){.lb-staff-download-actions{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.lb-desktop-download-progress-heading>span i,.lb-desktop-download-progress-indeterminate{animation:none}.lb-desktop-download-progress-indeterminate{width:100%;opacity:.55}}

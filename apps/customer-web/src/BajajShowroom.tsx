@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import CustomerAppDownloads from './AppDownloads';
 
 export type ShowroomAction = 'TEST_RIDE' | 'PURCHASE';
 
@@ -770,6 +771,8 @@ export default function BajajShowroom({
           <button type="button" className="showroom-primary-action" onClick={() => onSignIn()}>Connect with Lucky Bajaj <span>↗</span></button></div>
         <div className="showroom-offer-panel"><span className="offer-light" /><small>LUCKY BAJAJ / CUSTOMER EXPERIENCE</small><strong>THE NEXT<br />RIDE IS YOURS.</strong><span className="offer-panel-rule" /><span>Browse the Bajaj range. Choose with confidence.</span></div>
       </section>
+
+      <CustomerAppDownloads />
 
       <footer className="showroom-footer showroom-footer--composed">
         <a className="showroom-brand" href="#top" aria-label="Return to Lucky Bajaj showroom top">

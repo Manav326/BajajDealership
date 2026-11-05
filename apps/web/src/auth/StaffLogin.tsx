@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { apiRequestUrl, desktopRequestHeaders, getDesktopApiTarget, isTauriDesktopRuntime, setDesktopApiTarget, type DesktopApiTarget } from '../apiClient';
+import StaffDesktopDownloadCard from './StaffDesktopDownloadCard';
 
 type StaffSummary = {
   staffPublicId: string;
@@ -402,6 +403,7 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
           ← Back to sign in
         </button>}
         <div className="auth-footnote"><span className="secure-mark">✓</span> Access is protected by your assigned dealership role.</div>
+        {!desktopRuntime && <StaffDesktopDownloadCard />}
       </section>
       <div className="auth-footer">
         Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.
