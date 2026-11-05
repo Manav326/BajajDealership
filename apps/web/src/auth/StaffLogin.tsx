@@ -407,7 +407,6 @@ export default function StaffLogin({ onLogin }: { onLogin: (result: LoginResult)
       </section>
       <div className="auth-footer">
         Powered by QuantaEdge <span>·</span> Smarter Decisions. Greater Growth.
-        <a className="desktop-download-link" href="/download.html">Download Windows desktop app</a>
       </div>
     </main>
   );
