@@ -52,6 +52,7 @@ async function stubPublicCatalogue(page) {
       });
     }
     if (pathname.endsWith('/public/catalogue/promotions')) return json({ promotions: [] });
+    if (pathname.endsWith('/public/downloads/status')) return json({ version: null, androidStandardAvailable: false, androidLiquidGlassAvailable: false, windowsExeAvailable: false, windowsMsiAvailable: false });
     if (pathname.endsWith('/public/catalogue/quotes')) {
       return json({ detail: 'No dealer quote is configured.' }, 404);
     }
@@ -91,4 +92,22 @@ test('mobile showroom navigation exposes and closes its menu accessibly', async 
   await expect(navigation.getByRole('link', { name: 'Motorcycles' })).toBeVisible();
   await navigation.getByRole('link', { name: 'Motorcycles' }).click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+
+test('customer showroom exposes direct Standard and Liquid Glass APK download cards', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await stubPublicCatalogue(page);
+  await page.goto('/');
+
+  const navigation = page.getByRole('navigation', { name: 'Showroom navigation' });
+  const downloadsLink = navigation.getByRole('link', { name: 'Get the app' });
+  await expect(downloadsLink).toBeVisible();
+  await downloadsLink.click();
+
+  await expect(page.getByRole('heading', { name: /Take Lucky Bajaj/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Lucky Bajaj', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Lucky Bajaj Liquid Glass' })).toBeVisible();
+  await expect(page.getByText('Not published yet').first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Release notes & SHA-256 checksums/i })).toHaveCount(0);
 });
