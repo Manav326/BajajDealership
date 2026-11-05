@@ -49,7 +49,12 @@ After creating the keystore, register the signing certificate SHA-1 fingerprint 
 - Standard: package `com.quantaedge.luckybajaj`.
 - Liquid Glass: package `com.quantaedge.luckybajajlg`.
 
-Configure the corresponding Android OAuth client IDs in the Lucky Bajaj API environment. A valid web OAuth client alone does not establish Android sign-in for these packages.
+Configure the corresponding IDs in the Lucky Bajaj API environment:
+- `GOOGLE_ANDROID_CLIENT_ID` — Standard Android OAuth client.
+- `GOOGLE_ANDROID_CLIENT_ID_LIQUID_GLASS` — Liquid Glass Android OAuth client.
+- `GOOGLE_WEB_CLIENT_ID` — shared web OAuth client.
+
+The release preflight calls `/api/v1/customer/auth/google/config` for each Android package and requires both its web client and matching Android client to be configured. A valid web OAuth client alone does not establish Android sign-in for these packages.
 
 ## Automatic versioning and publishing
 

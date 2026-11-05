@@ -99,6 +99,40 @@ jobs:
           print(f"API origin: {api}")
           print(f"Customer origin: {customer}")
           PY
+      - name: Require Android Google sign-in configuration for both editions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          api_base = os.environ["BAJAJ_API_BASE_URL"].rstrip("/") + "/"
+          package_ids = {
+              "Standard": "com.quantaedge.luckybajaj",
+              "Liquid Glass": "com.quantaedge.luckybajajlg",
+          }
+          for edition, package_id in package_ids.items():
+              url = api_base + "api/v1/customer/auth/google/config?" + urlencode({"applicationId": package_id})
+              request = Request(url, headers={"Accept": "application/json", "User-Agent": "LuckyBajaj-Release-Preflight"})
+              try:
+                  with urlopen(request, timeout=20) as response:
+                      config = json.loads(response.read())
+              except Exception as error:
+                  raise SystemExit(f"Could not verify hosted Google sign-in configuration for {edition}: {error}") from error
+              if (
+                  config.get("configured") is not True
+                  or not str(config.get("clientId", "")).strip()
+                  or config.get("androidConfigured") is not True
+                  or not str(config.get("androidClientId", "")).strip()
+              ):
+                  raise SystemExit(
+                      f"{edition} Google sign-in is not fully configured. "
+                      f"Set GOOGLE_WEB_CLIENT_ID and the matching Android OAuth client in the Lucky Bajaj API environment."
+                  )
+              print(f"{edition}: hosted web and Android OAuth clients are configured.")
+          PY
       - name: Reject obsolete Render endpoints in application source
         shell: bash
         run: |

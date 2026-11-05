@@ -77,6 +77,40 @@ jobs:
             validateOrigin("BAJAJ_API_BASE_URL", "api-luckybajaj.quantaedge.in", true);
             validateOrigin("BAJAJ_CUSTOMER_WEB_URL", "luckybajaj.quantaedge.in", false);
 
+            // Verify both mobile apps can expose the enabled Google sign-in action before allocating a version.
+            for (const [edition, applicationId] of [
+              ["Standard", "com.quantaedge.luckybajaj"],
+              ["Liquid Glass", "com.quantaedge.luckybajajlg"],
+            ]) {
+              const configUrl = new URL("/api/v1/customer/auth/google/config", process.env.BAJAJ_API_BASE_URL);
+              configUrl.searchParams.set("applicationId", applicationId);
+              let configResponse;
+              try {
+                configResponse = await fetch(configUrl, {
+                  headers: { Accept: "application/json", "User-Agent": "LuckyBajaj-Release-Preflight" },
+                  signal: AbortSignal.timeout(20000),
+                });
+              } catch (error) {
+                core.setFailed(`Could not verify hosted Google sign-in for ${edition}: ${error.message}`);
+                return;
+              }
+              if (!configResponse.ok) {
+                core.setFailed(`Hosted Google sign-in configuration returned HTTP ${configResponse.status} for ${edition}.`);
+                return;
+              }
+              const config = await configResponse.json();
+              if (
+                config.configured !== true ||
+                !(config.clientId ?? "").trim() ||
+                config.androidConfigured !== true ||
+                !(config.androidClientId ?? "").trim()
+              ) {
+                core.setFailed(`${edition} Google sign-in is not fully configured. Set GOOGLE_WEB_CLIENT_ID and its matching Android OAuth client in the Lucky Bajaj API environment before releasing.`);
+                return;
+              }
+              core.notice(`${edition}: hosted web and Android OAuth clients are configured.`);
+            }
+
             // Never create a tag which would immediately fail the signed Android release gate.
             const signingInputs = [
               "BAJAJ_ANDROID_SIGNING_KEYSTORE_BASE64",
