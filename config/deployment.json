@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "deploymentModel": "local-docker-cloudflare-tunnel",
+  "production": {
+    "apiBaseUrl": "https://api-luckybajaj.quantaedge.in/",
+    "customerWebUrl": "https://luckybajaj.quantaedge.in",
+    "staffWebUrl": "https://staff-luckybajaj.quantaedge.in"
+  }
+}

@@ -124,9 +124,7 @@ function routeFromLocation(): CustomerRoute {
 }
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
-const renderApiFallback = window.location.hostname === 'lucky-bajaj-customer-web.onrender.com'
-  ? 'https://lucky-bajaj-api.onrender.com' : '';
-const apiBaseUrl = /^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : renderApiFallback;
+const apiBaseUrl = /^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : '';
 
 function apiRequestUrl(path: string): string {
   // Empty locally so the Vite/Docker proxy continues to handle /api routes.

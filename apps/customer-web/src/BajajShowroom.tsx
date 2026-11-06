@@ -62,11 +62,8 @@ function splitPriceLocation(raw: string): { city: string; state: string } | null
 }
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
-const renderApiFallback = window.location.hostname === 'lucky-bajaj-customer-web.onrender.com'
-  ? 'https://lucky-bajaj-api.onrender.com' : '';
-// Vite variables are baked into a static build. Keep a Render-specific fallback for
-// dashboards that were configured manually instead of being created from render.yaml.
-const apiBaseUrl = /^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : renderApiFallback;
+// Production Docker serves the customer portal and API through one same-origin Nginx proxy.
+const apiBaseUrl = /^https?:\/\//i.test(configuredApiBaseUrl) ? configuredApiBaseUrl : '';
 function endpoint(path: string): string {
   return apiBaseUrl ? new URL(path, `${apiBaseUrl}/`).toString() : path;
 }
@@ -285,8 +282,7 @@ export default function BajajShowroom({
     let timedOut = false;
     setLoading(true);
     setError('');
-    // Render's free API may need time to wake up after inactivity. Bound the wait so
-    // the page can recover to a visible retry state instead of spinning forever.
+    // Bound the request so API outages recover to a visible retry state instead of spinning forever.
     const timeoutId = window.setTimeout(() => {
       timedOut = true;
       controller.abort();

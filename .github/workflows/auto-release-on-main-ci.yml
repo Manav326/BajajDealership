@@ -24,8 +24,6 @@ jobs:
       - name: Allocate the next stable version and dispatch its release builder
         uses: actions/github-script@v7
         env:
-          BAJAJ_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
-          BAJAJ_CUSTOMER_WEB_URL: ${{ vars.BAJAJ_CUSTOMER_WEB_URL || 'https://luckybajaj.quantaedge.in' }}
           BAJAJ_ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.BAJAJ_ANDROID_SIGNING_KEYSTORE_BASE64 }}
           BAJAJ_ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.BAJAJ_ANDROID_SIGNING_KEYSTORE_PASSWORD }}
           BAJAJ_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.BAJAJ_ANDROID_SIGNING_KEY_ALIAS }}
@@ -64,27 +62,37 @@ jobs:
             }
             core.notice(`Confirmed successful main CI run #${successfulMainCi.run_number} for ${headSha}.`);
 
-            const validateOrigin = (name, expectedHost, allowRootSlash) => {
-              const value = (process.env[name] ?? "").trim();
+            const { data: deploymentFile } = await github.rest.repos.getContent({
+              owner, repo, path: "config/deployment.json", ref: headSha,
+            });
+            if (Array.isArray(deploymentFile) || deploymentFile.type !== "file") {
+              throw new Error("config/deployment.json is missing from the requested main commit.");
+            }
+            const deploymentConfig = JSON.parse(
+              Buffer.from(deploymentFile.content, deploymentFile.encoding).toString("utf8")
+            );
+            const production = deploymentConfig.production ?? {};
+            const validateOrigin = (name, value, trailingSlash) => {
+              const raw = String(value ?? "").trim();
               let parsed;
-              try { parsed = new URL(value); }
-              catch { throw new Error(`${name} must be set to the Lucky Bajaj production HTTPS origin.`); }
-              const allowedPaths = ["", "/"];
+              try { parsed = new URL(raw); }
+              catch { throw new Error(`production.${name} in config/deployment.json must be an absolute HTTPS origin.`); }
               if (
-                parsed.protocol !== "https:" ||
-                parsed.hostname !== expectedHost ||
+                parsed.protocol !== "https:" || !parsed.hostname ||
                 (parsed.port && parsed.port !== "443") ||
-                parsed.username ||
-                parsed.password ||
-                !allowedPaths.includes(parsed.pathname) ||
-                parsed.search ||
-                parsed.hash
+                parsed.username || parsed.password ||
+                parsed.pathname !== "/" || parsed.search || parsed.hash ||
+                (trailingSlash && !raw.endsWith("/")) ||
+                (!trailingSlash && raw.endsWith("/"))
               ) {
-                throw new Error(`${name} must be the canonical HTTPS origin for ${expectedHost}.`);
+                throw new Error(`production.${name} in config/deployment.json is not a canonical HTTPS origin.`);
               }
+              return trailingSlash ? `${parsed.origin}/` : parsed.origin;
             };
-            validateOrigin("BAJAJ_API_BASE_URL", "api-luckybajaj.quantaedge.in", true);
-            validateOrigin("BAJAJ_CUSTOMER_WEB_URL", "luckybajaj.quantaedge.in", false);
+            const apiBaseUrl = validateOrigin("apiBaseUrl", production.apiBaseUrl, true);
+            const customerWebUrl = validateOrigin("customerWebUrl", production.customerWebUrl, false);
+            const staffWebUrl = validateOrigin("staffWebUrl", production.staffWebUrl, false);
+            core.notice("Validated API, customer and staff origins from config/deployment.json.");
 
             // Hosted Google OAuth is verified by scripts/publish-luckybajaj-release.ps1
             // on the authorized Windows machine. GitHub-hosted runners can receive Cloudflare 403s.

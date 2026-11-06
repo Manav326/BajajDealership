@@ -26,15 +26,13 @@ All prices, inventory state, orders, ownership and appointment status come from 
 
 ## API configuration
 
-The app and Expo Android manifest use one effective API address. Default API: `https://lucky-bajaj-api.onrender.com/`. Default customer website share target: `https://lucky-bajaj-customer-web.onrender.com/`.
+Both Android editions read their production API and customer website origins from the repository-root `config/deployment.json`. This is the single source of truth for the local Docker deployment exposed through Cloudflare Tunnel. Change production origins there; the Expo configs, release workflows and Windows release publisher consume the same values.
 
-Set `EXPO_PUBLIC_API_BASE_URL` at build time to target a local API and `EXPO_PUBLIC_CUSTOMER_WEB_URL` to change the customer website used by offer sharing:
-- Physical Android phone on the same Wi-Fi: `http://YOUR_COMPUTER_LAN_IP:8080/`
-- Android Studio emulator: `http://10.0.2.2:8080/`
-- Hosted preview: `https://lucky-bajaj-api.onrender.com/`
+For local development, set `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_CUSTOMER_WEB_URL` as explicit environment overrides:
+- Physical Android phone on the same Wi-Fi: `http://YOUR_COMPUTER_LAN_IP:8080/` and `http://YOUR_COMPUTER_LAN_IP:3000`.
+- Android Studio emulator: `http://10.0.2.2:8080/` and the corresponding local customer-web address.
 
-Cleartext HTTP is permitted only if an explicit local-development URL is configured; use HTTPS for shared/public builds.
-
+Cleartext HTTP is permitted only when an explicit local-development API URL is supplied. Production builds use the HTTPS Cloudflare Tunnel origins from `config/deployment.json`.
 ## Google sign-in setup
 
 Configure the shared web OAuth client ID and this edition's Android OAuth client ID on the API deployment when Google sign-in is required:
@@ -43,7 +41,7 @@ Configure the shared web OAuth client ID and this edition's Android OAuth client
 
 The API verifies ID-token audiences against the configured client IDs. The Android app reports when native Google sign-in is not configured rather than silently falling back to password login. Never place an OAuth client secret in the mobile app.
 
-For local Docker, set both values in the ignored root `.env` file; `compose.yaml` forwards them to the API. For Render, configure the corresponding environment variables in the API service. Register the deployed customer website origin in the web client's Authorized JavaScript origins.
+For the local Docker stack exposed through Cloudflare Tunnel, set the Google OAuth client IDs in the ignored root `.env` file; `compose.yaml` forwards them to the API. Register the customer website origin from `config/deployment.json` in the web client's Authorized JavaScript origins.
 
 ## Build and validation
 
@@ -78,17 +76,17 @@ The following remain separate release tasks unless their external setup and acce
 - Firebase Cloud Messaging credentials and verified real-device push delivery.
 - Production signing keys, signed release APK/AAB, store listing and Play Store release.
 - Physical-device acceptance across supported Android versions, accessibility checks and network edge cases.
-- Live Render API verification; a successful CI build alone is not proof that every external service is configured or reachable.
+- Live Cloudflare Tunnel API verification; a successful CI build alone is not proof that the local Docker services and public tunnel are reachable.
 
 
 ## Local physical-device Maestro testing (LAN HTTP)
 
-The normal test target is a **physical Android phone on the same Wi-Fi/LAN as the Windows development PC**. Local testing intentionally uses HTTP, not HTTPS or Render:
+The normal local test target is a **physical Android phone on the same Wi-Fi/LAN as the Windows development PC**. Local testing intentionally uses the LAN API over HTTP rather than the public Cloudflare Tunnel:
 
 - QuantaEdge's documented physical-device LAN API address: `http://192.168.31.47:8080/`.
 - The customer website share target in the local Android build is `http://192.168.31.47:3000`.
 - The phone must be able to reach the PC on TCP port 8080. Start the local Docker stack first, allow inbound TCP 8080 on the Windows Private firewall profile, and disable Wi-Fi client/AP isolation if the router enables it.
-- Cleartext HTTP is enabled only when an explicit local-development API URL is supplied. The dedicated local build runner or a CI build with the repository variable `BAJAJ_API_BASE_URL` can embed this address; normal builds default to the hosted HTTPS API.
+- Cleartext HTTP is enabled only when an explicit local-development API URL is supplied. Normal release builds take the public HTTPS API and customer website from `config/deployment.json`; the separate CI Maestro APK path may use `BAJAJ_API_BASE_URL` as a local-device test override.
 
 ### One-time Windows setup
 

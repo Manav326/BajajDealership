@@ -11,9 +11,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $script:Repository = 'Manav326/BajajDealership'
-$script:ApiBase = 'https://api-luckybajaj.quantaedge.in/'
-$script:CustomerOrigin = 'https://luckybajaj.quantaedge.in'
-$script:StaffOrigin = 'https://staff-luckybajaj.quantaedge.in'
+$script:ApiBase = $null
+$script:CustomerOrigin = $null
+$script:StaffOrigin = $null
 $script:RequiredSecrets = @(
     'BAJAJ_ANDROID_SIGNING_KEYSTORE_BASE64',
     'BAJAJ_ANDROID_SIGNING_KEYSTORE_PASSWORD',
@@ -287,6 +287,30 @@ try {
     Write-Stage 'Repository and tool preflight'
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
     Set-Location $repoRoot
+
+    $deploymentConfigPath = Join-Path $repoRoot 'config\deployment.json'
+    if (-not (Test-Path -LiteralPath $deploymentConfigPath -PathType Leaf)) {
+        throw 'The central config/deployment.json file is missing. Restore it from the current main branch.'
+    }
+    $deploymentConfig = Get-Content -LiteralPath $deploymentConfigPath -Raw | ConvertFrom-Json
+    $production = $deploymentConfig.production
+    $script:ApiBase = [string]$production.apiBaseUrl
+    $script:CustomerOrigin = [string]$production.customerWebUrl
+    $script:StaffOrigin = [string]$production.staffWebUrl
+    $configuredEndpoints = @(
+        [PSCustomObject]@{ Name = 'production.apiBaseUrl'; Value = $script:ApiBase },
+        [PSCustomObject]@{ Name = 'production.customerWebUrl'; Value = $script:CustomerOrigin },
+        [PSCustomObject]@{ Name = 'production.staffWebUrl'; Value = $script:StaffOrigin }
+    )
+    foreach ($endpoint in $configuredEndpoints) {
+        $uri = $null
+        if (-not [Uri]::TryCreate($endpoint.Value, [UriKind]::Absolute, [ref]$uri) -or
+            $uri.Scheme -ne 'https' -or $uri.Port -ne 443 -or
+            $uri.AbsolutePath -ne '/' -or $uri.Query -or $uri.Fragment -or $uri.UserInfo) {
+            throw ($endpoint.Name + ' in config/deployment.json must be a canonical HTTPS origin.')
+        }
+    }
+    Write-Host 'Loaded all production origins from config/deployment.json.' -ForegroundColor Green
 
     foreach ($tool in @('git', 'gh', 'docker')) {
         if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {

@@ -14,7 +14,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 50
     env:
-      VITE_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
       VITE_APP_VERSION: ${{ github.ref_name }}
       MSIX_PACKAGE_IDENTITY_NAME: ${{ vars.MSIX_PACKAGE_IDENTITY_NAME }}
       MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
@@ -22,6 +21,8 @@ jobs:
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
+      - name: Load centralized production endpoints
+        run: node scripts/validate-deployment-config.mjs
       - name: Derive desktop and MSIX versions from release tag
         shell: pwsh
         run: |

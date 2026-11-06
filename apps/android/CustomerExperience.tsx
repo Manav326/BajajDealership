@@ -16,8 +16,11 @@ import { C, S } from './theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const API_BASE_URL = String(Constants.expoConfig?.extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://lucky-bajaj-api.onrender.com/').trim().replace(/\/+$/, '');
-const CUSTOMER_WEB_URL = String(Constants.expoConfig?.extra?.customerWebUrl || process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || 'https://lucky-bajaj-customer-web.onrender.com').trim().replace(/\/+$/, '');
+const API_BASE_URL = String(Constants.expoConfig?.extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const CUSTOMER_WEB_URL = String(Constants.expoConfig?.extra?.customerWebUrl || process.env.EXPO_PUBLIC_CUSTOMER_WEB_URL || '').trim().replace(/\/+$/, '');
+if (!API_BASE_URL || !CUSTOMER_WEB_URL) {
+  throw new Error('Lucky Bajaj endpoint configuration is missing. Build through the shared app config and config/deployment.json.');
+}
 const PARTS_CART_KEY_PREFIX = 'lucky_bajaj_parts_cart_v1:';
 const TOKEN_KEY = 'lucky_bajaj_customer_access_token';
 const PENDING_KEY = 'lucky_bajaj_pending_showroom_intent';

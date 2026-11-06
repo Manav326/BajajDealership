@@ -19,8 +19,6 @@ permissions:
 
 env:
   RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-  BAJAJ_API_BASE_URL: ${{ vars.BAJAJ_API_BASE_URL || 'https://api-luckybajaj.quantaedge.in/' }}
-  BAJAJ_CUSTOMER_WEB_URL: ${{ vars.BAJAJ_CUSTOMER_WEB_URL || 'https://luckybajaj.quantaedge.in' }}
 
 jobs:
   validate-release:
@@ -29,14 +27,18 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       version_code: ${{ steps.version.outputs.version_code }}
-      api_base_url: ${{ steps.origins.outputs.api_base_url }}
-      customer_web_url: ${{ steps.origins.outputs.customer_web_url }}
+      api_base_url: ${{ steps.deployment.outputs.api_base_url }}
+      customer_web_url: ${{ steps.deployment.outputs.customer_web_url }}
+      staff_web_url: ${{ steps.deployment.outputs.staff_web_url }}
       commit_sha: ${{ steps.source.outputs.commit_sha }}
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
+      - name: Load and validate centralized production endpoints
+        id: deployment
+        run: node scripts/validate-deployment-config.mjs
       - name: Record exact tagged source commit
         id: source
         run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -61,54 +63,8 @@ jobs:
               output.write(f"version_code={version_code}\n")
           print(f"Validated Lucky Bajaj version {major}.{minor}.{patch}; Android versionCode {version_code}.")
           PY
-      - name: Require the Lucky Bajaj Cloudflare production origins
-        id: origins
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          from urllib.parse import urlsplit
-
-          def canonical(name, expected_host, allow_trailing_slash):
-              raw = os.environ[name].strip()
-              parsed = urlsplit(raw)
-              try:
-                  port = parsed.port
-              except ValueError as error:
-                  raise SystemExit(f"{name} contains an invalid port.") from error
-              allowed_paths = ("", "/") if allow_trailing_slash else ("",)
-              if (
-                  parsed.scheme != "https"
-                  or parsed.hostname != expected_host
-                  or port not in (None, 443)
-                  or parsed.username
-                  or parsed.password
-                  or parsed.path not in allowed_paths
-                  or parsed.query
-                  or parsed.fragment
-              ):
-                  raise SystemExit(f"{name} must be the canonical HTTPS origin https://{expected_host}/.")
-              normalized = f"https://{expected_host}/" if allow_trailing_slash else f"https://{expected_host}"
-              return normalized
-
-          api = canonical("BAJAJ_API_BASE_URL", "api-luckybajaj.quantaedge.in", True)
-          customer = canonical("BAJAJ_CUSTOMER_WEB_URL", "luckybajaj.quantaedge.in", False)
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"api_base_url={api}\n")
-              output.write(f"customer_web_url={customer}\n")
-          print(f"API origin: {api}")
-          print(f"Customer origin: {customer}")
-          PY
       # Live OAuth readiness is checked by scripts/publish-luckybajaj-release.ps1
       # from the authorized Windows deployment machine. Hosted runners can be blocked by Cloudflare.
-      - name: Reject obsolete Render endpoints in application source
-        shell: bash
-        run: |
-          if git grep -ni "onrender.com" -- apps/; then
-            echo "::error::An application source file still references the retired Render deployment."
-            exit 1
-          fi
-          echo "No Render deployment URLs remain in application source."
 
   windows-desktop:
     name: Build unsigned Windows EXE and MSI
@@ -385,6 +341,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
           API_BASE_URL: ${{ needs.validate-release.outputs.api_base_url }}
           CUSTOMER_WEB_URL: ${{ needs.validate-release.outputs.customer_web_url }}
+          STAFF_WEB_URL: ${{ needs.validate-release.outputs.staff_web_url }}
         run: |
           set -euo pipefail
           cd release-assets
@@ -414,6 +371,7 @@ jobs:
             commitSha: process.env.RELEASE_SOURCE_SHA,
             apiBaseUrl: process.env.API_BASE_URL,
             customerWebUrl: process.env.CUSTOMER_WEB_URL,
+            staffWebUrl: process.env.STAFF_WEB_URL,
             packages: files.map(name => ({
               file: name,
               sizeBytes: fs.statSync(name).size,
@@ -491,7 +449,7 @@ jobs:
             Android APKs are signed with the configured Lucky Bajaj upload key and are intended for controlled sideload distribution. They are not Google Play AAB submissions.
             Windows EXE/MSI packages are intentionally unsigned. Windows may show Unknown Publisher or SmartScreen warnings. Do not disable Windows security protections; use these packages only for a controlled pilot until Authenticode signing is configured.
             SHA256SUMS.txt contains the SHA-256 checksums for all four binary packages. Verify the checksum before installation.
-            All client packages are configured for https://api-luckybajaj.quantaedge.in/.
+            All client packages use the production endpoints stored in config/deployment.json at this tagged source commit.
       - name: Verify release assets and publish stable version
         env:
           GH_TOKEN: ${{ github.token }}
