@@ -21,8 +21,6 @@ jobs:
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
-      - name: Load centralized production endpoints
-        run: node scripts/validate-deployment-config.mjs
       - name: Derive desktop and MSIX versions from release tag
         shell: pwsh
         run: |
@@ -49,6 +47,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Load centralized production endpoints
+        run: node scripts/validate-deployment-config.mjs
       - name: Set up stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
