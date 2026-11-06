@@ -50,6 +50,11 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Docker Compose v2 is required (docker compose).'
 }
 
+& docker network inspect cloudflare-edge *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw "The shared Docker network 'cloudflare-edge' is missing. Start it from QuantaEdge-Production with .\scripts\local-ingress.ps1 up."
+}
+
 # Create a private ignored .env and a random one-time first-owner token.
 $rootEnv = Join-Path $repoRoot '.env'
 $generatedBootstrapToken = $false
