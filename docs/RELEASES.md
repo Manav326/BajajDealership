@@ -56,20 +56,21 @@ Configure the corresponding IDs in the Lucky Bajaj API environment:
 
 Before deploying a stable release, run `scripts/publish-luckybajaj-release.ps1` from the authorized Windows machine. It calls `/api/v1/customer/auth/google/config` for both package IDs and requires both the web and matching Android clients. This check runs from the owner's terminal because Cloudflare can return HTTP 403 to GitHub-hosted runner traffic.
 
-## Automatic versioning and publishing
+## Gated versioning and publishing
 
-The **Publish Lucky Bajaj after green main CI** workflow mirrors the SmartPrint release flow:
+The **Publish Lucky Bajaj after green main CI** workflow is explicitly dispatched by the Windows publisher. It is not an automatic `workflow_run` listener, because the live Google OAuth check must first succeed from the owner's network (GitHub-hosted runners can receive Cloudflare HTTP 403 responses).
 
-1. A push to `main` must complete the main **CI** workflow successfully.
-2. The automation checks that the successful commit is still the current `main` tip. Older CI runs are ignored.
-3. It validates the two canonical Cloudflare production origins and checks all four Android signing secrets before creating a tag.
-4. With no stable tags, it bootstraps from the app version in `apps/android/app.config.ts` (`0.2.0` today), creating `v0.2.0`. Later successful main commits receive the next patch version.
-5. The automation creates the tag at the exact tested commit, then explicitly dispatches **Release Lucky Bajaj** against that tag.
-6. The release builder produces both signed Android APKs and the Windows EXE/MSI, verifies the package metadata and SHA-256 checksums, uploads a draft, checks the uploaded asset names/sizes/digests, and only then publishes the stable release.
+1. The publisher verifies GitHub CLI access, all four Android signing-secret names, and the hosted Standard and Liquid Glass web/Android OAuth configuration from the Windows machine.
+2. It waits for the main **CI** workflow to complete successfully for the exact current `main` commit.
+3. Only after those checks pass, it dispatches the version-allocation workflow with that exact source SHA.
+4. The workflow independently confirms that `main` has not advanced, confirms a successful push-triggered CI run for that SHA, validates the canonical Cloudflare origins and confirms all four Android signing secrets are populated.
+5. With no stable tags, it bootstraps from `apps/android/app.config.ts` (`0.2.0` today) to create `v0.2.0`; later releases increment the patch version. The tag is never moved or overwritten.
+6. It explicitly dispatches **Release Lucky Bajaj** for that tag. That workflow builds the two upload-keystore-signed Android APKs plus Windows EXE/MSI, verifies all nine expected assets and SHA-256 checksums, uploads a draft, then marks it published only after verification.
+7. The publisher verifies the public release and only then deploys the exact `sha-<commit>` GHCR images and checks the public download API.
 
-The signing preflight is intentionally before tag creation. When Android signing secrets are missing, the workflow fails without allocating a version tag. The Windows release script checks that all four secret names exist (without reading their values), then validates the live OAuth configuration before it waits for the automatic release and deploys the exact tested image.
+The public download service reads GitHub's latest stable published release. It deliberately rejects drafts, prereleases and incomplete asset sets. Therefore, a successful Docker image deployment by itself cannot make APKs available: the stable GitHub Release must be published before the web download cards can expose them.
 
-For a recovery or manual retry, open **Actions → Release Lucky Bajaj → Run workflow** and provide an existing stable tag whose release is still an unpublished draft. The workflow refuses to overwrite a published release. Never reuse a published version tag for different source.
+For a recovery or manual retry, open **Actions → Release Lucky Bajaj → Run workflow** and provide an existing stable tag whose release is still an unpublished draft. The workflow refuses to overwrite a published release. The normal one-command publisher runs the OAuth preflight before dispatching version allocation.
 
 After publication, verify the release page and SHA-256 checksums before installing. Customer and staff download cards discover only a complete published stable release; draft assets and partial releases are never offered.
 
