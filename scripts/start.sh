@@ -31,6 +31,10 @@ command -v docker >/dev/null 2>&1 || { echo "Docker CLI was not found." >&2; exi
 command -v curl >/dev/null 2>&1 || { echo "curl is required by the startup health checks." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker Engine is not running. Start Docker Desktop / Docker Engine." >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
+docker network inspect cloudflare-edge >/dev/null 2>&1 || {
+  echo "The shared Docker network 'cloudflare-edge' is missing. Start it from QuantaEdge-Production with scripts/local-ingress.ps1 up." >&2
+  exit 1
+}
 
 # Create a private ignored .env and a random one-time first-owner token.
 ROOT_ENV=".env"
