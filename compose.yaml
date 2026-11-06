@@ -64,6 +64,11 @@ services:
       SOCIAL_WHATSAPP_DEALERSHIP_CODE: ${SOCIAL_WHATSAPP_DEALERSHIP_CODE:-}
     ports:
       - "${API_PORT:-8080}:8080"
+    networks:
+      default: {}
+      cloudflare-edge:
+        aliases:
+          - bajajdealership-api
     volumes:
       - bajaj_dealership_media:/app/var/private-notification-media
     depends_on:
@@ -84,6 +89,11 @@ services:
       dockerfile: apps/customer-web/Dockerfile
     ports:
       - "${CUSTOMER_WEB_PORT:-3000}:80"
+    networks:
+      default: {}
+      cloudflare-edge:
+        aliases:
+          - bajajdealership-customer-web
     depends_on:
       api:
         condition: service_healthy
@@ -101,6 +111,11 @@ services:
       dockerfile: apps/web/Dockerfile
     ports:
       - "${STAFF_WEB_PORT:-3001}:80"
+    networks:
+      default: {}
+      cloudflare-edge:
+        aliases:
+          - bajajdealership-staff-web
     depends_on:
       api:
         condition: service_healthy
@@ -114,3 +129,8 @@ services:
 volumes:
   bajaj_dealership_data:
   bajaj_dealership_media:
+
+networks:
+  cloudflare-edge:
+    external: true
+    name: cloudflare-edge
