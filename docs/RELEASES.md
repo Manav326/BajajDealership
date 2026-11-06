@@ -51,10 +51,10 @@ After creating the keystore, register the signing certificate SHA-1 fingerprint 
 
 Configure the corresponding IDs in the Lucky Bajaj API environment:
 - `GOOGLE_ANDROID_CLIENT_ID` — Standard Android OAuth client.
-- `GOOGLE_ANDROID_CLIENT_ID_LIQUID_GLASS` — Liquid Glass Android OAuth client.
+- `GOOGLE_ANDROID_LIQUID_GLASS_CLIENT_ID` — Liquid Glass Android OAuth client.
 - `GOOGLE_WEB_CLIENT_ID` — shared web OAuth client.
 
-The release preflight calls `/api/v1/customer/auth/google/config` for each Android package and requires both its web client and matching Android client to be configured. A valid web OAuth client alone does not establish Android sign-in for these packages.
+Before deploying a stable release, run `scripts/publish-luckybajaj-release.ps1` from the authorized Windows machine. It calls `/api/v1/customer/auth/google/config` for both package IDs and requires both the web and matching Android clients. This check runs from the owner's terminal because Cloudflare can return HTTP 403 to GitHub-hosted runner traffic.
 
 ## Automatic versioning and publishing
 
@@ -67,11 +67,26 @@ The **Publish Lucky Bajaj after green main CI** workflow mirrors the SmartPrint 
 5. The automation creates the tag at the exact tested commit, then explicitly dispatches **Release Lucky Bajaj** against that tag.
 6. The release builder produces both signed Android APKs and the Windows EXE/MSI, verifies the package metadata and SHA-256 checksums, uploads a draft, checks the uploaded asset names/sizes/digests, and only then publishes the stable release.
 
-The signing preflight is intentionally before tag creation. When the Android secrets are missing, the workflow fails without allocating a version tag. Configure the dedicated keystore/secrets, then rerun the successful CI workflow for the same current `main` commit to retry the automatic release.
+The signing preflight is intentionally before tag creation. When Android signing secrets are missing, the workflow fails without allocating a version tag. The Windows release script checks that all four secret names exist (without reading their values), then validates the live OAuth configuration before it waits for the automatic release and deploys the exact tested image.
 
 For a recovery or manual retry, open **Actions → Release Lucky Bajaj → Run workflow** and provide an existing stable tag whose release is still an unpublished draft. The workflow refuses to overwrite a published release. Never reuse a published version tag for different source.
 
 After publication, verify the release page and SHA-256 checksums before installing. Customer and staff download cards discover only a complete published stable release; draft assets and partial releases are never offered.
+
+## One-command Windows release verification and deployment
+
+From the repository root in PowerShell:
+
+```powershell
+git pull --ff-only origin main
+.\scripts\publish-luckybajaj-release.ps1
+```
+
+The script verifies the current `main` commit, GitHub CLI access, the four repository Actions secret names, and both hosted Android Google OAuth configurations. It waits for CI, automatic version allocation and the stable release; then it verifies all four binaries, three build-metadata files, checksums and manifest.
+
+By default it deploys the exact `sha-<commit>` GHCR images using the existing local `compose.edge.yaml` overlay, then checks the local services, Cloudflare customer/staff sites, public release status and all four byte-range download endpoints. Use `-SkipDeployment` to verify a published release without changing local containers.
+
+The script deliberately does not stage, stash, reset, clean or commit local files. It does not edit `.env` or `compose.edge.yaml`, change secrets, create/move tags, restart PostgreSQL or the Cloudflare tunnel, or delete/recreate Docker volumes. The local untracked `compose.edge.yaml` must remain present for tunnel-aware deployment.
 
 ## Version-code mapping
 
