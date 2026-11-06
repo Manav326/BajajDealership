@@ -158,10 +158,14 @@ Docker Compose runs PostgreSQL, the Spring Boot API, the customer website and th
 
 ### Windows (PowerShell)
 
-Run from the repository root:
+Run from the repository root. For the shared local Cloudflare Tunnel deployment, first start the central ingress from the sibling `QuantaEdge-Production` checkout; it creates/reuses the `cloudflare-edge` network and owns the only connector:
 
 ```powershell
-git pull origin main
+# From D:\Projects\QuantaEdge-Production
+.\scripts\local-ingress.ps1 up
+
+# From D:\Projects\BajajDealership
+git pull --ff-only origin main
 
 # Option 1: build the API and websites from source on this computer (default)
 .\scripts\start.ps1
