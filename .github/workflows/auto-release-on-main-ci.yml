@@ -1,10 +1,12 @@
 name: Publish Lucky Bajaj after green main CI
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main commit whose CI has passed
+        required: true
+        type: string
 
 concurrency:
   group: lucky-bajaj-auto-release-${{ github.repository }}
@@ -16,7 +18,7 @@ permissions:
 
 jobs:
   release-after-ci:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Allocate the next stable version and dispatch its release builder
@@ -31,29 +33,36 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const run = context.payload.workflow_run;
-            const headSha = run.head_sha;
+            const headSha = (context.payload.inputs?.source_sha ?? "").trim();
 
-            if (
-              run.event !== "push" ||
-              run.head_branch !== "main" ||
-              run.repository?.full_name !== `${owner}/${repo}`
-            ) {
-              core.notice("Ignoring a CI run that did not come from a push to this repository's main branch.");
+            if (!/^[0-9a-f]{40}$/i.test(headSha)) {
+              core.setFailed("Provide the exact 40-character source_sha from the current main commit.");
               return;
             }
 
-            if (!/^[0-9a-f]{40}$/i.test(headSha ?? "")) {
-              core.setFailed("The successful CI run did not provide a valid source commit SHA.");
-              return;
-            }
-
-            // Do not allocate a release for an older main commit if main has advanced.
+            // The Windows publisher dispatches this workflow only after its local
+            // OAuth preflight and successful CI check. Reconfirm both GitHub facts here.
             const { data: branch } = await github.rest.repos.getBranch({ owner, repo, branch: "main" });
             if (branch.commit.sha !== headSha) {
-              core.notice(`Skipping ${headSha}: main has advanced to ${branch.commit.sha}; the newer commit will be considered after its CI run.`);
+              core.setFailed(`Refusing release preparation: requested ${headSha}, but main is now ${branch.commit.sha}. Pull main and rerun the publisher.`);
               return;
             }
+
+            const { data: ciRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner, repo, branch: "main", head_sha: headSha, per_page: 100,
+            });
+            const successfulMainCi = (ciRuns.workflow_runs ?? []).find((run) =>
+              run.path === ".github/workflows/ci.yml" &&
+              run.event === "push" &&
+              run.head_branch === "main" &&
+              run.status === "completed" &&
+              run.conclusion === "success"
+            );
+            if (!successfulMainCi) {
+              core.setFailed(`No successful push-triggered main CI run was found for ${headSha}; refusing to allocate a release version.`);
+              return;
+            }
+            core.notice(`Confirmed successful main CI run #${successfulMainCi.run_number} for ${headSha}.`);
 
             const validateOrigin = (name, expectedHost, allowRootSlash) => {
               const value = (process.env[name] ?? "").trim();
@@ -77,39 +86,8 @@ jobs:
             validateOrigin("BAJAJ_API_BASE_URL", "api-luckybajaj.quantaedge.in", true);
             validateOrigin("BAJAJ_CUSTOMER_WEB_URL", "luckybajaj.quantaedge.in", false);
 
-            // Verify both mobile apps can expose the enabled Google sign-in action before allocating a version.
-            for (const [edition, applicationId] of [
-              ["Standard", "com.quantaedge.luckybajaj"],
-              ["Liquid Glass", "com.quantaedge.luckybajajlg"],
-            ]) {
-              const configUrl = new URL("/api/v1/customer/auth/google/config", process.env.BAJAJ_API_BASE_URL);
-              configUrl.searchParams.set("applicationId", applicationId);
-              let configResponse;
-              try {
-                configResponse = await fetch(configUrl, {
-                  headers: { Accept: "application/json", "User-Agent": "LuckyBajaj-Release-Preflight" },
-                  signal: AbortSignal.timeout(20000),
-                });
-              } catch (error) {
-                core.setFailed(`Could not verify hosted Google sign-in for ${edition}: ${error.message}`);
-                return;
-              }
-              if (!configResponse.ok) {
-                core.setFailed(`Hosted Google sign-in configuration returned HTTP ${configResponse.status} for ${edition}.`);
-                return;
-              }
-              const config = await configResponse.json();
-              if (
-                config.configured !== true ||
-                !(config.clientId ?? "").trim() ||
-                config.androidConfigured !== true ||
-                !(config.androidClientId ?? "").trim()
-              ) {
-                core.setFailed(`${edition} Google sign-in is not fully configured. Set GOOGLE_WEB_CLIENT_ID and its matching Android OAuth client in the Lucky Bajaj API environment before releasing.`);
-                return;
-              }
-              core.notice(`${edition}: hosted web and Android OAuth clients are configured.`);
-            }
+            // Hosted Google OAuth is verified by scripts/publish-luckybajaj-release.ps1
+            // on the authorized Windows machine. GitHub-hosted runners can receive Cloudflare 403s.
 
             // Never create a tag which would immediately fail the signed Android release gate.
             const signingInputs = [
