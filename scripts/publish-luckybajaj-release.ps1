@@ -126,9 +126,18 @@ function Wait-ForMainCI {
     throw ('Timed out waiting for main CI after ' + $WaitTimeoutMinutes + ' minutes. No local files or services were changed.')
 }
 
+function Start-ReleasePreparation {
+    Write-Stage 'Dispatch release preparation after local preflight'
+    & gh workflow run .github/workflows/auto-release-on-main-ci.yml --repo $script:Repository --ref main -f ('source_sha=' + $script:HeadSha)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not dispatch release preparation. The OAuth and signing preflight passed, but GitHub Actions did not accept the workflow dispatch.'
+    }
+    Write-Host 'Release preparation dispatched for the exact current main commit.' -ForegroundColor Green
+}
+
 function Wait-ForAutomaticRelease {
     param([datetime]$Deadline)
-    Write-Stage 'Wait for automatic version allocation'
+    Write-Stage 'Wait for gated version allocation'
     while ((Get-Date) -lt $Deadline) {
         $null = Invoke-Git -GitArguments @('fetch', '--quiet', 'origin', '--tags')
         $runs = Get-RunsForCurrentCommit
@@ -334,6 +343,7 @@ try {
 
     $deadline = (Get-Date).AddMinutes($WaitTimeoutMinutes)
     Wait-ForMainCI -Deadline $deadline
+    Start-ReleasePreparation
     $tag = Wait-ForAutomaticRelease -Deadline $deadline
     Wait-ForPublishedRelease -Tag $tag -Deadline $deadline
 
