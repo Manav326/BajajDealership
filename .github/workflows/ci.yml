@@ -177,6 +177,8 @@ jobs:
           BAJAJ_IMAGE_TAG=ci-validation docker compose -f compose.yaml config --quiet
       - name: Build Spring Boot API and both web images
         run: docker compose -f compose.yaml build --pull api customer-web staff-web
+      - name: Create shared ingress network for Compose smoke test
+        run: docker network create --driver bridge --attachable cloudflare-edge
       - name: Start full stack without rebuilding the already-built images
         shell: bash
         run: |
@@ -242,6 +244,9 @@ jobs:
       - name: Clean up ephemeral Docker stack
         if: always()
         run: docker compose -f compose.yaml down --volumes --remove-orphans
+      - name: Remove temporary shared ingress network
+        if: always()
+        run: docker network rm cloudflare-edge || true
 
 
   windows-desktop:
@@ -626,6 +631,8 @@ jobs:
 
       - name: Pull the published GHCR images back from the registry
         run: docker compose -f compose.yaml pull api customer-web staff-web
+      - name: Create shared ingress network for published-image smoke test
+        run: docker network create --driver bridge --attachable cloudflare-edge
       - name: Smoke-test the pulled GHCR images without building
         shell: bash
         run: |
@@ -669,3 +676,6 @@ jobs:
       - name: Clean up pulled-image smoke-test stack
         if: always()
         run: docker compose -f compose.yaml down --volumes --remove-orphans
+      - name: Remove temporary shared ingress network
+        if: always()
+        run: docker network rm cloudflare-edge || true
