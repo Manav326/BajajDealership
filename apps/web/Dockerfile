@@ -1,7 +1,9 @@
 FROM node:24-alpine AS build
 WORKDIR /workspace
+COPY .npmrc ./.npmrc
 COPY apps/web/package.json ./package.json
-RUN npm install --no-audit --no-fund
+COPY apps/web/package-lock.json ./package-lock.json
+RUN npm ci --no-audit --no-fund
 COPY apps/web/ ./
 RUN npm run build
 
