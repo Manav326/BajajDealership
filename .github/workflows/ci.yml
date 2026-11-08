@@ -110,7 +110,7 @@ jobs:
 
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Typecheck and build staff portal
         working-directory: apps/web
         run: npm run build
@@ -136,7 +136,7 @@ jobs:
 
       - name: Install customer portal dependencies
         working-directory: apps/customer-web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Typecheck and build customer portal
         working-directory: apps/customer-web
         run: npm run build
@@ -175,19 +175,20 @@ jobs:
           pwsh -NoLogo -NoProfile -Command '$failed=$false; foreach ($path in @("scripts/start.ps1","scripts/test-ui.ps1","scripts/test-android-maestro.ps1","scripts/test-android-liquid-glass-maestro.ps1","scripts/android-fetch-latest-apk.ps1","scripts/android-lg-fetch-latest-apk.ps1","scripts/check-android-edition-parity.ps1","scripts/package-windows-msix.ps1","scripts/publish-luckybajaj-release.ps1")) { $tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { foreach ($e in $errors) { Write-Host ("{0}: line {1}, column {2}: {3} ({4})" -f $path,$e.Extent.StartLineNumber,$e.Extent.StartColumnNumber,$e.Message,$e.ErrorId) }; $failed=$true } }; if ($failed) { exit 1 }'
       - name: Verify Android edition feature and test parity
         run: pwsh -NoLogo -NoProfile -File scripts/check-android-edition-parity.ps1
-      - name: Validate Docker Compose configuration
+      - name: Validate normal and CI-only Docker Compose configurations
         run: |
+          # Validate the user's unchanged normal deployment model and the CI-only model.
           docker compose -f compose.yaml config --quiet
-          BAJAJ_IMAGE_TAG=ci-validation docker compose -f compose.yaml config --quiet
+          docker compose -f compose.yaml -f .github/compose.ci.yaml config --quiet
+          BAJAJ_IMAGE_TAG=ci-validation docker compose -f compose.yaml -f .github/compose.ci.yaml config --quiet
+          node .github/scripts/validate-ci-compose.mjs
       - name: Build Spring Boot API and both web images
-        run: docker compose -f compose.yaml build --pull api customer-web staff-web
-      - name: Create shared ingress network for Compose smoke test
-        run: docker network create --driver bridge --attachable cloudflare-edge
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml build --pull api customer-web staff-web
       - name: Start full stack without rebuilding the already-built images
         shell: bash
         run: |
-          BAJAJ_IMAGE_TAG=latest docker compose -f compose.yaml up --no-build -d || {
-            docker compose -f compose.yaml logs --tail=100
+          BAJAJ_IMAGE_TAG=latest docker compose -f compose.yaml -f .github/compose.ci.yaml up --no-build -d || {
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
             exit 1
           }
           for attempt in $(seq 1 120); do
@@ -205,7 +206,7 @@ jobs:
               if [ "$activation_status" != "401" ] || grep -q "Invalid CORS request" /tmp/staff-activation-response.txt; then
                 echo "Staff activation proxy smoke test failed (HTTP $activation_status):"
                 cat /tmp/staff-activation-response.txt
-                docker compose -f compose.yaml logs --tail=100
+                docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
                 exit 1
               fi
               echo "Staff activation endpoint passes through the same-origin proxy and returns the expected invalid-invitation response."
@@ -231,26 +232,23 @@ jobs:
                 echo "Anonymous bootstrap $label returns 404 for an invalid setup token, without sign-in."
               }
               check_bootstrap_scope "http://localhost:8080/api/v1/system/bootstrap" "direct API" /tmp/bootstrap-api-response.txt || {
-                docker compose -f compose.yaml logs --tail=100
+                docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
                 exit 1
               }
               check_bootstrap_scope "http://localhost:3001/api/v1/system/bootstrap" "staff-web proxy" /tmp/bootstrap-proxy-response.txt || {
-                docker compose -f compose.yaml logs --tail=100
+                docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
                 exit 1
               }
-              docker compose -f compose.yaml ps
+              docker compose -f compose.yaml -f .github/compose.ci.yaml ps
               exit 0
             fi
             sleep 2
           done
-          docker compose -f compose.yaml logs --tail=150
+          docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150
           exit 1
       - name: Clean up ephemeral Docker stack
         if: always()
-        run: docker compose -f compose.yaml down --volumes --remove-orphans
-      - name: Remove temporary shared ingress network
-        if: always()
-        run: docker network rm cloudflare-edge || true
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
 
 
   windows-desktop:
@@ -315,7 +313,7 @@ jobs:
 
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Build unsigned NSIS and MSI installers
         working-directory: apps/web
         run: npm run tauri:build
@@ -418,7 +416,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install mobile dependencies
         working-directory: apps/android
-        run: npm install --prefer-offline --no-audit --no-fund
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Check Expo native dependency versions
         working-directory: apps/android
         run: npx expo install --check
@@ -514,7 +512,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install mobile dependencies
         working-directory: apps/android-liquid-glass
-        run: npm install --prefer-offline --no-audit --no-fund
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Check Expo native dependency versions
         working-directory: apps/android-liquid-glass
         run: npx expo install --check
@@ -634,14 +632,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=bajaj-staff-web
 
       - name: Pull the published GHCR images back from the registry
-        run: docker compose -f compose.yaml pull api customer-web staff-web
-      - name: Create shared ingress network for published-image smoke test
-        run: docker network create --driver bridge --attachable cloudflare-edge
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml pull api customer-web staff-web
       - name: Smoke-test the pulled GHCR images without building
         shell: bash
         run: |
-          docker compose -f compose.yaml up --no-build -d || {
-            docker compose -f compose.yaml logs --tail=100
+          docker compose -f compose.yaml -f .github/compose.ci.yaml up --no-build -d || {
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
             exit 1
           }
           for attempt in $(seq 1 120); do
@@ -663,23 +659,21 @@ jobs:
                 if [ "$status" != "404" ]; then
                   echo "Published-image anonymous bootstrap $label smoke test failed (HTTP $status):"
                   cat "$output"
-                  docker compose -f compose.yaml logs --tail=100
+                  docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=100
                   exit 1
                 fi
                 echo "Published-image anonymous bootstrap $label correctly rejects the invalid token without sign-in."
               }
               check_bootstrap_scope "http://localhost:8080/api/v1/system/bootstrap" "direct API" /tmp/bootstrap-ghcr-api.txt
               check_bootstrap_scope "http://localhost:3001/api/v1/system/bootstrap" "staff-web proxy" /tmp/bootstrap-ghcr-proxy.txt
-              docker compose -f compose.yaml ps
+              docker compose -f compose.yaml -f .github/compose.ci.yaml ps
               exit 0
             fi
             sleep 2
           done
-          docker compose -f compose.yaml logs --tail=150
+          docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150
           exit 1
       - name: Clean up pulled-image smoke-test stack
         if: always()
-        run: docker compose -f compose.yaml down --volumes --remove-orphans
-      - name: Remove temporary shared ingress network
-        if: always()
-        run: docker network rm cloudflare-edge || true
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
+
