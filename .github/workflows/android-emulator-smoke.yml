@@ -150,6 +150,7 @@ jobs:
         shell: bash
         run: |
           # This script runs only against the fresh, disposable PostgreSQL database created above.
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
           docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
           do $ci$
           declare
