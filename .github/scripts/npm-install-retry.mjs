@@ -2,15 +2,17 @@
 import { spawn } from "node:child_process";
 
 const maxAttempts = Math.max(1, Number.parseInt(process.env.CI_NPM_MAX_ATTEMPTS ?? "3", 10) || 3);
+const requestedArgs = process.argv.slice(2);
+const command = requestedArgs[0] === "ci" ? requestedArgs.shift() : "install";
 const npmArgs = [
-  "install",
+  command,
   "--no-audit",
   "--no-fund",
   "--fetch-retries=5",
   "--fetch-retry-mintimeout=10000",
   "--fetch-retry-maxtimeout=120000",
   "--fetch-timeout=300000",
-  ...process.argv.slice(2),
+  ...requestedArgs,
 ];
 
 const retryableFailure = /\b(E404|EAI_AGAIN|ENOTFOUND|ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EHOSTUNREACH|ERR_SOCKET_TIMEOUT|EINTEGRITY)\b|HTTP[ /]?(429|502|503|504)|\b(429|502|503|504)\s+(Too Many Requests|Bad Gateway|Service Unavailable|Gateway Timeout)\b/i;
