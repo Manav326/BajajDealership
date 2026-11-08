@@ -55,7 +55,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Build unsigned NSIS and MSI installers
         working-directory: apps/web
         run: npm run tauri:build
