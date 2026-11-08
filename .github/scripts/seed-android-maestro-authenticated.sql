@@ -186,4 +186,4 @@ begin
         updated_by_staff_user_id = excluded.updated_by_staff_user_id,
         updated_at = now();
 end;
-$;
+$$;
