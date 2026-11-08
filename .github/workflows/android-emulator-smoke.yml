@@ -8,6 +8,9 @@ on:
       - 'apps/android-liquid-glass/**'
       - 'backend/**'
       - 'compose.yaml'
+      - '.github/compose.ci.yaml'
+      - '.github/scripts/npm-install-retry.mjs'
+      - '.github/scripts/validate-ci-compose.mjs'
       - '.github/workflows/android-emulator-smoke.yml'
       - '.github/scripts/run-android-maestro-public.sh'
       - '.github/scripts/run-android-maestro-ci.sh'
@@ -21,7 +24,11 @@ on:
       - 'apps/android-liquid-glass/**'
       - 'backend/**'
       - 'compose.yaml'
+      - '.github/compose.ci.yaml'
+      - '.github/scripts/npm-install-retry.mjs'
+      - '.github/scripts/validate-ci-compose.mjs'
       - '.github/workflows/android-emulator-smoke.yml'
+      - '.github/scripts/seed-android-maestro-authenticated.sql'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +36,7 @@ permissions:
 
 concurrency:
   group: android-emulator-public-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   public-ui:
@@ -67,7 +74,7 @@ jobs:
       - name: Install app dependencies and typecheck
         working-directory: ${{ matrix.app_dir }}
         run: |
-          npm install --prefer-offline --no-audit --no-fund
+          node ../../.github/scripts/npm-install-retry.mjs
           npx expo install --check
           npm run typecheck
       - name: Generate native Android project
@@ -88,8 +95,10 @@ jobs:
             echo "Expected x86_64 emulator APK, found: $abi_dirs"
             exit 1
           fi
+      - name: Validate the isolated CI Compose topology
+        run: node .github/scripts/validate-ci-compose.mjs
       - name: Start clean PostgreSQL-backed local API
-        run: docker compose -f compose.yaml up --build -d api
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml up --build -d api
       - name: Wait for migrations and seed a synthetic public showroom dealership
         shell: bash
         run: |
@@ -102,13 +111,13 @@ jobs:
             sleep 2
           done
           if [ "$ready" != true ]; then
-            docker compose -f compose.yaml logs --tail=150 api postgres
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150 api postgres
             exit 1
           fi
           # A fresh CI database intentionally has no real dealership. Create one synthetic
           # storefront after Flyway has created the schema, then publish only catalogue masters.
           # The synthetic customer and motorcycle are seeded separately for authenticated UI tests.
-          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
           insert into dealership(code, name, status)
           values ('CI-LUCKY-BAJAJ', 'CI Synthetic Lucky Bajaj', 'ACTIVE')
           on conflict (code) do update set status = 'ACTIVE', name = excluded.name;
@@ -122,7 +131,7 @@ jobs:
           SQL
           # Bind this ephemeral API only to the synthetic catalogue dealership. The service
           # otherwise refuses to guess a tenant when more than one is active.
-          APP_PUBLIC_DEALERSHIP_CODE=CI-LUCKY-BAJAJ docker compose -f compose.yaml up -d --force-recreate api
+          APP_PUBLIC_DEALERSHIP_CODE=CI-LUCKY-BAJAJ docker compose -f compose.yaml -f .github/compose.ci.yaml up -d --force-recreate api
           ready=false
           for attempt in $(seq 1 180); do
             if curl -fsS http://localhost:8080/actuator/health >/dev/null; then
@@ -132,7 +141,7 @@ jobs:
             sleep 2
           done
           if [ "$ready" != true ]; then
-            docker compose -f compose.yaml logs --tail=150 api postgres
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150 api postgres
             exit 1
           fi
           curl -fsS http://localhost:8080/api/v1/public/catalogue/bikes -o /tmp/public-catalogue.json
@@ -141,7 +150,7 @@ jobs:
         shell: bash
         run: |
           # This script runs only against the fresh, disposable PostgreSQL database created above.
-          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
           curl -fsS -X POST http://localhost:8080/api/v1/customer/auth/login \
             -H 'Content-Type: application/json' \
             --data '{"dealershipCode":"CI-LUCKY-BAJAJ","customerCode":"CI-MAESTRO-CUSTOMER","password":"CI-Maestro-Only-Password-123"}' \
@@ -184,4 +193,4 @@ jobs:
           retention-days: 14
       - name: Stop local API stack
         if: always()
-        run: docker compose -f compose.yaml down --volumes --remove-orphans
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
