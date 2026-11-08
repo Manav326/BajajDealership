@@ -11,7 +11,7 @@ on:
 # This lets long Android/Windows jobs and lockfile capture finish before another PR update.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
