@@ -15,7 +15,7 @@ case "$suite" in
     ;;
   authenticated-ci)
     flow_dir="$workspace/$app_dir/.maestro/flows/authenticated"
-    include_tag="regression,responsive,notifications,service"
+    include_tag="regression,responsive,notifications,service,parts"
     ;;
   *)
     echo "Unsupported Maestro CI suite: $suite" >&2
@@ -32,7 +32,7 @@ fi
 mapfile -t flow_files < <(find "$flow_dir" -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) | sort)
 flow_count=0
 for flow_file in "${flow_files[@]}"; do
-  if [[ -z "$include_tag" ]] || grep -Eq "^[[:space:]]*-[[:space:]]*(regression|responsive|notifications|service)[[:space:]]*$" "$flow_file"; then
+  if [[ -z "$include_tag" ]] || grep -Eq "^[[:space:]]*-[[:space:]]*(regression|responsive|notifications|service|parts)[[:space:]]*$" "$flow_file"; then
     ((flow_count += 1))
   fi
 done
@@ -40,8 +40,8 @@ if [[ "$flow_count" -lt 1 ]]; then
   echo "No Maestro flow files selected for suite '$suite' in: $flow_dir" >&2
   exit 1
 fi
-if [[ "$suite" == "authenticated-ci" && "$flow_count" -ne 4 ]]; then
-  echo "Expected four tagged authenticated CI flows, found $flow_count." >&2
+if [[ "$suite" == "authenticated-ci" && "$flow_count" -ne 5 ]]; then
+  echo "Expected five tagged authenticated CI flows (including parts-cart persistence), found $flow_count." >&2
   exit 1
 fi
 if [[ "$suite" == "authenticated-ci" ]]; then

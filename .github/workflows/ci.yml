@@ -40,11 +40,15 @@ jobs:
               - 'apps/android/**'
               - 'scripts/test-android-maestro.ps1'
               - 'scripts/android-fetch-latest-apk.ps1'
+              - '.github/scripts/run-android-maestro-ci.sh'
+              - '.github/scripts/run-android-maestro-public.sh'
               - '.github/workflows/ci.yml'
             liquid_glass:
               - 'apps/android-liquid-glass/**'
               - 'scripts/test-android-liquid-glass-maestro.ps1'
               - 'scripts/android-lg-fetch-latest-apk.ps1'
+              - '.github/scripts/run-android-maestro-ci.sh'
+              - '.github/scripts/run-android-maestro-public.sh'
               - '.github/workflows/ci.yml'
 
   backend:
