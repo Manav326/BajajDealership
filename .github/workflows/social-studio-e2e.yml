@@ -16,6 +16,8 @@ on:
       - 'apps/web/package.json'
       - 'apps/customer-web/package.json'
       - '.github/workflows/social-studio-e2e.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   push:
     branches: [main]
     paths:
@@ -31,6 +33,8 @@ on:
       - 'apps/web/package.json'
       - 'apps/customer-web/package.json'
       - '.github/workflows/social-studio-e2e.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   workflow_dispatch:
 
 permissions:
@@ -52,11 +56,11 @@ jobs:
 
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
 
       - name: Install customer portal dependencies for the configured test server
         working-directory: apps/customer-web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
 
       - name: Install Chromium and system dependencies
         working-directory: apps/web
