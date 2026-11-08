@@ -13,7 +13,8 @@ cleanup() {
     -c "DROP TABLE IF EXISTS public.ci_backup_restore_probe" >/dev/null 2>&1 || true
   rm -f "$backup_file"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<SQL
 CREATE TABLE IF NOT EXISTS public.ci_backup_restore_probe (
