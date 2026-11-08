@@ -246,6 +246,9 @@ jobs:
           done
           docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150
           exit 1
+      - name: Verify PostgreSQL logical backup and restore round-trip
+        run: |
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres sh -s < .github/scripts/verify-postgres-backup-restore.sh
       - name: Clean up ephemeral Docker stack
         if: always()
         run: docker compose -f compose.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
