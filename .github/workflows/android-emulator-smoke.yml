@@ -200,6 +200,22 @@ jobs:
             --data '{"dealershipCode":"CI-LUCKY-BAJAJ","customerCode":"CI-MAESTRO-CUSTOMER","password":"CI-Maestro-Only-Password-123"}' \
             -o /tmp/maestro-customer-session.json
           node -e "const s=JSON.parse(require('node:fs').readFileSync('/tmp/maestro-customer-session.json','utf8')); if(!s.accessToken || s.customer?.customerCode!=='CI-MAESTRO-CUSTOMER') throw new Error('Synthetic customer authentication did not return the expected customer session'); console.log('Synthetic customer portal login verified.');"
+          token="$(node -p "require('/tmp/maestro-customer-session.json').accessToken")"
+          curl -fsS http://localhost:8080/api/v1/customer/parts \
+            -H "Authorization: Bearer ${token}" \
+            -o /tmp/maestro-customer-parts.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const parts = JSON.parse(fs.readFileSync('/tmp/maestro-customer-parts.json', 'utf8'));
+          const item = parts.find(part => part.partName === 'Brake shoe');
+          if (!item || item.available !== true || Number(item.quantityAvailable) !== 3 || Number(item.retailPrice) !== 199 || item.fitmentVerified !== true) {
+            throw new Error('Customer parts API did not expose the expected orderable synthetic brake-shoe item: ' + JSON.stringify(item ?? null));
+          }
+          if (item.sourceDataStatus !== 'NAME_REFERENCE_ONLY') {
+            throw new Error('The CI fixture must not rewrite global OEM/source-verification status.');
+          }
+          console.log('Customer parts API exposes one stocked, fitment-verified synthetic item; global catalogue source status remains unchanged.');
+          NODE
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
