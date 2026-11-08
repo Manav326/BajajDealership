@@ -49,5 +49,10 @@ if (!ci.services.api.depends_on?.postgres) {
 if (!ci.services["customer-web"].depends_on?.api || !ci.services["staff-web"].depends_on?.api) {
   throw new Error("Both web services must retain their API dependency.");
 }
+for (const flag of ["SOCIAL_META_ENABLED", "SOCIAL_WHATSAPP_ENABLED"]) {
+  if (String(ci.services.api.environment?.[flag] ?? "").toLowerCase() !== "false") {
+    throw new Error(`CI must explicitly disable external social delivery (${flag}).`);
+  }
+}
 
 console.log(`CI Compose isolation verified with Docker Compose ${versionText}: all application services use only the project default bridge network.`);
