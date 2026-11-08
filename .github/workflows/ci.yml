@@ -110,7 +110,7 @@ jobs:
 
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: node ../../.github/scripts/npm-install-retry.mjs
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Typecheck and build staff portal
         working-directory: apps/web
         run: npm run build
@@ -136,17 +136,7 @@ jobs:
 
       - name: Install customer portal dependencies
         working-directory: apps/customer-web
-        run: node ../../.github/scripts/npm-install-retry.mjs
-      - name: Capture resolved web dependency lockfiles
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-lockfiles-web-${{ github.sha }}
-          path: |
-            apps/web/package-lock.json
-            apps/customer-web/package-lock.json
-          if-no-files-found: warn
-          retention-days: 1
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Typecheck and build customer portal
         working-directory: apps/customer-web
         run: npm run build
@@ -323,7 +313,7 @@ jobs:
 
       - name: Install staff portal dependencies
         working-directory: apps/web
-        run: node ../../.github/scripts/npm-install-retry.mjs
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Build unsigned NSIS and MSI installers
         working-directory: apps/web
         run: npm run tauri:build
@@ -413,7 +403,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/android/package.json
+          cache-dependency-path: apps/android/package-lock.json
       - name: Set up Java for Android
         uses: actions/setup-java@v4
         with:
@@ -426,15 +416,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install mobile dependencies
         working-directory: apps/android
-        run: node ../../.github/scripts/npm-install-retry.mjs
-      - name: Capture Standard Android dependency lockfile
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-lockfile-android-${{ github.sha }}
-          path: apps/android/package-lock.json
-          if-no-files-found: warn
-          retention-days: 1
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Check Expo native dependency versions
         working-directory: apps/android
         run: npx expo install --check
@@ -517,7 +499,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/android-liquid-glass/package.json
+          cache-dependency-path: apps/android-liquid-glass/package-lock.json
       - name: Set up Java for Android
         uses: actions/setup-java@v4
         with:
@@ -530,15 +512,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install mobile dependencies
         working-directory: apps/android-liquid-glass
-        run: node ../../.github/scripts/npm-install-retry.mjs
-      - name: Capture Liquid Glass Android dependency lockfile
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-lockfile-android-liquid-glass-${{ github.sha }}
-          path: apps/android-liquid-glass/package-lock.json
-          if-no-files-found: warn
-          retention-days: 1
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Check Expo native dependency versions
         working-directory: apps/android-liquid-glass
         run: npx expo install --check
@@ -599,78 +573,6 @@ jobs:
             echo "- Release-variant test build with embedded JavaScript; not a Play Store release."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  commit-npm-lockfiles:
-    name: Commit runner-resolved npm lockfiles to the PR branch
-    needs: [web, android, android-liquid-glass]
-    if: >-
-      ${{ github.event_name == 'pull_request'
-          && github.event.pull_request.head.repo.full_name == github.repository
-          && needs.web.result == 'success'
-          && needs.android.result == 'success'
-          && needs.android-liquid-glass.result == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout the PR head branch
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Download the exact dependency resolutions produced by this run
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-lockfiles-web-${{ github.sha }}
-          path: ${{ runner.temp }}/npm-lockfiles/web
-      - name: Download Standard Android dependency lockfile
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-lockfile-android-${{ github.sha }}
-          path: ${{ runner.temp }}/npm-lockfiles/android
-      - name: Download Liquid Glass Android dependency lockfile
-        uses: actions/download-artifact@v4
-        with:
-          name: npm-lockfile-android-liquid-glass-${{ github.sha }}
-          path: ${{ runner.temp }}/npm-lockfiles/android-liquid-glass
-      - name: Validate and commit the four resolved lockfiles
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp "$RUNNER_TEMP/npm-lockfiles/web/web/package-lock.json" apps/web/package-lock.json
-          cp "$RUNNER_TEMP/npm-lockfiles/web/customer-web/package-lock.json" apps/customer-web/package-lock.json
-          cp "$RUNNER_TEMP/npm-lockfiles/android/package-lock.json" apps/android/package-lock.json
-          cp "$RUNNER_TEMP/npm-lockfiles/android-liquid-glass/package-lock.json" apps/android-liquid-glass/package-lock.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          for (const app of ['apps/web', 'apps/customer-web', 'apps/android', 'apps/android-liquid-glass']) {
-            const manifest = JSON.parse(fs.readFileSync(`${app}/package.json`, 'utf8'));
-            const lock = JSON.parse(fs.readFileSync(`${app}/package-lock.json`, 'utf8'));
-            if (lock.lockfileVersion !== 3) throw new Error(`${app}: expected npm lockfile version 3.`);
-            if (lock.name !== manifest.name || lock.packages?.['']?.name !== manifest.name) {
-              throw new Error(`${app}: package-lock root identity does not match package.json.`);
-            }
-            for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-              const declared = manifest[section] ?? {};
-              const locked = lock.packages?.['']?.[section] ?? {};
-              for (const [name, version] of Object.entries(declared)) {
-                if (locked[name] !== version) {
-                  throw new Error(`${app}: ${section}.${name} differs between package.json and package-lock.json.`);
-                }
-              }
-            }
-            console.log(`${app}: lockfile identity and dependency declarations verified (${Object.keys(lock.packages).length} packages).`);
-          }
-          NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/web/package-lock.json apps/customer-web/package-lock.json apps/android/package-lock.json apps/android-liquid-glass/package-lock.json
-          if git diff --cached --quiet; then
-            echo "The PR branch already contains the exact generated lockfiles."
-            exit 0
-          fi
-          git commit -m "build: pin web and mobile npm dependency trees"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
   publish-images:
     name: Publish API and web images to GHCR
     # Android may be skipped for non-mobile changes; still publish images when all
