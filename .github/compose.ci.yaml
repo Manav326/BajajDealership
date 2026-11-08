@@ -4,6 +4,9 @@ services:
   api:
     networks: !override
       default: {}
+    environment:
+      SOCIAL_META_ENABLED: "false"
+      SOCIAL_WHATSAPP_ENABLED: "false"
   customer-web:
     networks: !override
       default: {}
