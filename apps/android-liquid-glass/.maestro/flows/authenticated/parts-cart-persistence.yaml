@@ -16,9 +16,12 @@ tags:
 - assertVisible: "Motorcycle type"
 - tapOn: "Hide filters"
 - assertNotVisible: "Part category"
-- extendedWaitUntil:
-    visible: "Add to cart"
+- scrollUntilVisible:
+    element:
+      text: "Add to cart"
+    direction: DOWN
     timeout: 20000
+- assertVisible: "Add to cart"
 - tapOn: "Add to cart"
 - tapOn: "More"
 - tapOn: "Shopping cart"
