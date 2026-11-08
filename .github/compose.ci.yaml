@@ -1,0 +1,20 @@
+# CI-only network override. Keep compose.yaml and local startup scripts unchanged.
+# Compose 2.24+ supports !override; GitHub-hosted runners provide a current v2 release.
+services:
+  api:
+    networks: !override
+      default: {}
+    environment:
+      SOCIAL_META_ENABLED: "false"
+      SOCIAL_WHATSAPP_ENABLED: "false"
+  customer-web:
+    networks: !override
+      default: {}
+  staff-web:
+    networks: !override
+      default: {}
+
+# Remove the optional externally-managed network declaration from the merged CI model.
+# Docker Compose will create/use the project default bridge network for all services.
+networks: !override
+  default: {}

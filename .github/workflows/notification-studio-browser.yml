@@ -8,12 +8,16 @@ on:
       - 'apps/customer-web/**'
       - 'scripts/summarize-playwright-function-coverage.mjs'
       - '.github/workflows/notification-studio-browser.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   pull_request:
     branches: [main]
     paths:
       - 'apps/web/**'
       - 'apps/customer-web/**'
       - '.github/workflows/notification-studio-browser.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,7 @@ permissions:
 
 concurrency:
   group: notification-browser-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   chromium:
@@ -38,10 +42,10 @@ jobs:
         with:
           node-version: "24"
       - name: Install web and browser test dependencies
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Install customer showroom dependencies
         working-directory: apps/customer-web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Run responsive and interaction tests

@@ -16,9 +16,16 @@ tags:
 - assertVisible: "Motorcycle type"
 - tapOn: "Hide filters"
 - assertNotVisible: "Part category"
-- extendedWaitUntil:
-    visible: "Add to cart"
+- tapOn: "Search parts"
+- inputText: "Brake shoe"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "Add to cart"
+    direction: DOWN
     timeout: 20000
+- assertVisible: "Brake shoe"
+- assertVisible: "Add to cart"
 - tapOn: "Add to cart"
 - tapOn: "More"
 - tapOn: "Shopping cart"
@@ -32,3 +39,4 @@ tags:
 - tapOn: "More"
 - tapOn: "Shopping cart"
 - assertVisible: "Estimated parts subtotal"
+- assertVisible: "Brake shoe"

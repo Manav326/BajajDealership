@@ -8,6 +8,9 @@ on:
       - 'apps/android-liquid-glass/**'
       - 'backend/**'
       - 'compose.yaml'
+      - '.github/compose.ci.yaml'
+      - '.github/scripts/npm-install-retry.mjs'
+      - '.github/scripts/validate-ci-compose.mjs'
       - '.github/workflows/android-emulator-smoke.yml'
       - '.github/scripts/run-android-maestro-public.sh'
       - '.github/scripts/run-android-maestro-ci.sh'
@@ -21,7 +24,11 @@ on:
       - 'apps/android-liquid-glass/**'
       - 'backend/**'
       - 'compose.yaml'
+      - '.github/compose.ci.yaml'
+      - '.github/scripts/npm-install-retry.mjs'
+      - '.github/scripts/validate-ci-compose.mjs'
       - '.github/workflows/android-emulator-smoke.yml'
+      - '.github/scripts/seed-android-maestro-authenticated.sql'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +36,7 @@ permissions:
 
 concurrency:
   group: android-emulator-public-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   public-ui:
@@ -67,7 +74,7 @@ jobs:
       - name: Install app dependencies and typecheck
         working-directory: ${{ matrix.app_dir }}
         run: |
-          npm install --prefer-offline --no-audit --no-fund
+          node ../../.github/scripts/npm-install-retry.mjs ci
           npx expo install --check
           npm run typecheck
       - name: Generate native Android project
@@ -88,8 +95,10 @@ jobs:
             echo "Expected x86_64 emulator APK, found: $abi_dirs"
             exit 1
           fi
+      - name: Validate the isolated CI Compose topology
+        run: node .github/scripts/validate-ci-compose.mjs
       - name: Start clean PostgreSQL-backed local API
-        run: docker compose -f compose.yaml up --build -d api
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml up --build -d api
       - name: Wait for migrations and seed a synthetic public showroom dealership
         shell: bash
         run: |
@@ -102,13 +111,13 @@ jobs:
             sleep 2
           done
           if [ "$ready" != true ]; then
-            docker compose -f compose.yaml logs --tail=150 api postgres
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150 api postgres
             exit 1
           fi
           # A fresh CI database intentionally has no real dealership. Create one synthetic
           # storefront after Flyway has created the schema, then publish only catalogue masters.
           # The synthetic customer and motorcycle are seeded separately for authenticated UI tests.
-          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
           insert into dealership(code, name, status)
           values ('CI-LUCKY-BAJAJ', 'CI Synthetic Lucky Bajaj', 'ACTIVE')
           on conflict (code) do update set status = 'ACTIVE', name = excluded.name;
@@ -122,7 +131,7 @@ jobs:
           SQL
           # Bind this ephemeral API only to the synthetic catalogue dealership. The service
           # otherwise refuses to guess a tenant when more than one is active.
-          APP_PUBLIC_DEALERSHIP_CODE=CI-LUCKY-BAJAJ docker compose -f compose.yaml up -d --force-recreate api
+          APP_PUBLIC_DEALERSHIP_CODE=CI-LUCKY-BAJAJ docker compose -f compose.yaml -f .github/compose.ci.yaml up -d --force-recreate api
           ready=false
           for attempt in $(seq 1 180); do
             if curl -fsS http://localhost:8080/actuator/health >/dev/null; then
@@ -132,7 +141,7 @@ jobs:
             sleep 2
           done
           if [ "$ready" != true ]; then
-            docker compose -f compose.yaml logs --tail=150 api postgres
+            docker compose -f compose.yaml -f .github/compose.ci.yaml logs --tail=150 api postgres
             exit 1
           fi
           curl -fsS http://localhost:8080/api/v1/public/catalogue/bikes -o /tmp/public-catalogue.json
@@ -141,12 +150,83 @@ jobs:
         shell: bash
         run: |
           # This script runs only against the fresh, disposable PostgreSQL database created above.
-          docker compose -f compose.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
+          do $ci$
+          declare
+            v_dealership_id bigint;
+            v_diagnostics jsonb;
+          begin
+            select id into v_dealership_id
+            from dealership where code = 'CI-LUCKY-BAJAJ' and status = 'ACTIVE';
+
+            select jsonb_build_object(
+              'dealershipId', v_dealership_id,
+              'catalogue', (select to_jsonb(c) from bajaj_spare_part_catalogue c where c.catalogue_code = 'BGP-0001'),
+              'listing', (select to_jsonb(l) from retail_part_catalogue_listing l join bajaj_spare_part_catalogue c on c.id = l.catalogue_product_id where l.dealership_id = v_dealership_id and c.catalogue_code = 'BGP-0001'),
+              'stockMap', (select to_jsonb(m) from retail_part_catalogue_stock_map m join bajaj_spare_part_catalogue c on c.id = m.catalogue_product_id where m.dealership_id = v_dealership_id and c.catalogue_code = 'BGP-0001'),
+              'syntheticPart', (select to_jsonb(p) from spare_part p where p.dealership_id = v_dealership_id and p.sku_code = 'CI-MAESTRO-BRAKE-SHOE'),
+              'balance', (select to_jsonb(b) from spare_part_balance b join spare_part p on p.id = b.part_id and p.dealership_id = b.dealership_id where b.dealership_id = v_dealership_id and p.sku_code = 'CI-MAESTRO-BRAKE-SHOE')
+            ) into v_diagnostics;
+
+            if not exists (
+              select 1
+              from bajaj_spare_part_catalogue catalogue
+              join retail_part_catalogue_listing listing
+                on listing.dealership_id = v_dealership_id
+                and listing.catalogue_product_id = catalogue.id
+              join retail_part_catalogue_stock_map stock_map
+                on stock_map.dealership_id = v_dealership_id
+                and stock_map.catalogue_product_id = catalogue.id
+              join spare_part part
+                on part.dealership_id = v_dealership_id
+                and part.id = stock_map.stock_part_id
+              join spare_part_balance balance
+                on balance.dealership_id = v_dealership_id and balance.part_id = part.id
+              where catalogue.catalogue_code = 'BGP-0001'
+                and catalogue.is_global_catalogue = true
+                and catalogue.source_data_status = 'NAME_REFERENCE_ONLY'
+                and listing.retail_enabled = true
+                and listing.retail_price = 199.00
+                and listing.fitment_verified = true
+                and listing.fitment_model_codes = jsonb_build_array('BAJAJ_PULSAR_NS200')
+                and part.sku_code = 'CI-MAESTRO-BRAKE-SHOE'
+                and balance.quantity_on_hand = 3.000
+                and balance.quantity_reserved = 0.000
+            ) then
+              raise exception 'Synthetic brake-shoe retail listing preflight failed. Diagnostics: %', v_diagnostics;
+            end if;
+
+            if (select count(*) from staff_user
+                where dealership_id = v_dealership_id
+                  and email = 'ci-fixture-seeder@lucky-bajaj.invalid'
+                  and status = 'DISABLED') <> 1 then
+              raise exception 'The CI fixture audit actor must remain disabled.';
+            end if;
+          end;
+          $ci$;
+          SQL
           curl -fsS -X POST http://localhost:8080/api/v1/customer/auth/login \
             -H 'Content-Type: application/json' \
             --data '{"dealershipCode":"CI-LUCKY-BAJAJ","customerCode":"CI-MAESTRO-CUSTOMER","password":"CI-Maestro-Only-Password-123"}' \
             -o /tmp/maestro-customer-session.json
           node -e "const s=JSON.parse(require('node:fs').readFileSync('/tmp/maestro-customer-session.json','utf8')); if(!s.accessToken || s.customer?.customerCode!=='CI-MAESTRO-CUSTOMER') throw new Error('Synthetic customer authentication did not return the expected customer session'); console.log('Synthetic customer portal login verified.');"
+          token="$(node -p "require('/tmp/maestro-customer-session.json').accessToken")"
+          curl -fsS http://localhost:8080/api/v1/customer/parts \
+            -H "Authorization: Bearer ${token}" \
+            -o /tmp/maestro-customer-parts.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const parts = JSON.parse(fs.readFileSync('/tmp/maestro-customer-parts.json', 'utf8'));
+          const item = parts.find(part => part.partName === 'Brake shoe');
+          if (!item || item.available !== true || Number(item.quantityAvailable) !== 3 || Number(item.retailPrice) !== 199 || item.fitmentVerified !== true) {
+            throw new Error('Customer parts API did not expose the expected orderable synthetic brake-shoe item: ' + JSON.stringify(item ?? null));
+          }
+          if (item.sourceDataStatus !== 'NAME_REFERENCE_ONLY') {
+            throw new Error('The CI fixture must not rewrite global OEM/source-verification status.');
+          }
+          console.log('Customer parts API exposes one stocked, fitment-verified synthetic item; global catalogue source status remains unchanged.');
+          NODE
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -184,4 +264,4 @@ jobs:
           retention-days: 14
       - name: Stop local API stack
         if: always()
-        run: docker compose -f compose.yaml down --volumes --remove-orphans
+        run: docker compose -f compose.yaml -f .github/compose.ci.yaml down --volumes --remove-orphans
