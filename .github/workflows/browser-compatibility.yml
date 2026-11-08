@@ -8,6 +8,8 @@ on:
       - 'apps/web/e2e/browser-compatibility.spec.ts'
       - 'apps/web/playwright.compat.config.ts'
       - '.github/workflows/browser-compatibility.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   pull_request:
     branches: [main]
     paths:
@@ -15,6 +17,8 @@ on:
       - 'apps/web/e2e/browser-compatibility.spec.ts'
       - 'apps/web/playwright.compat.config.ts'
       - '.github/workflows/browser-compatibility.yml'
+      - '.npmrc'
+      - '.github/scripts/npm-install-retry.mjs'
   workflow_dispatch:
 
 permissions:
@@ -36,10 +40,10 @@ jobs:
           node-version: "24"
       - name: Install staff portal test dependencies
         working-directory: apps/web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Install customer website dependencies
         working-directory: apps/customer-web
-        run: npm install
+        run: node ../../.github/scripts/npm-install-retry.mjs
       - name: Install Chromium, Firefox and WebKit
         working-directory: apps/web
         run: npx playwright install --with-deps chromium firefox webkit
