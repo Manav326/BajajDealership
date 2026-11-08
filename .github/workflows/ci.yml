@@ -137,6 +137,16 @@ jobs:
       - name: Install customer portal dependencies
         working-directory: apps/customer-web
         run: node ../../.github/scripts/npm-install-retry.mjs
+      - name: Capture resolved web dependency lockfiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-lockfiles-web-${{ github.sha }}
+          path: |
+            apps/web/package-lock.json
+            apps/customer-web/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Typecheck and build customer portal
         working-directory: apps/customer-web
         run: npm run build
@@ -417,6 +427,14 @@ jobs:
       - name: Install mobile dependencies
         working-directory: apps/android
         run: node ../../.github/scripts/npm-install-retry.mjs
+      - name: Capture Standard Android dependency lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-lockfile-android-${{ github.sha }}
+          path: apps/android/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Check Expo native dependency versions
         working-directory: apps/android
         run: npx expo install --check
@@ -513,6 +531,14 @@ jobs:
       - name: Install mobile dependencies
         working-directory: apps/android-liquid-glass
         run: node ../../.github/scripts/npm-install-retry.mjs
+      - name: Capture Liquid Glass Android dependency lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-lockfile-android-liquid-glass-${{ github.sha }}
+          path: apps/android-liquid-glass/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Check Expo native dependency versions
         working-directory: apps/android-liquid-glass
         run: npx expo install --check
