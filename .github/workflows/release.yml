@@ -99,7 +99,7 @@ jobs:
           [System.IO.File]::WriteAllText((Resolve-Path $path), $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
       - name: Install desktop dependencies
         working-directory: apps/web
-        run: npm install --prefer-offline --no-audit --no-fund
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Build Windows desktop packages
         working-directory: apps/web
         run: npm run tauri:build
@@ -208,7 +208,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006"
       - name: Install Android dependencies
         working-directory: ${{ matrix.app_directory }}
-        run: npm install --prefer-offline --no-audit --no-fund
+        run: node ../../.github/scripts/npm-install-retry.mjs ci
       - name: Check Expo native dependency versions
         working-directory: ${{ matrix.app_directory }}
         run: npx expo install --check
