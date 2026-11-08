@@ -74,7 +74,7 @@ jobs:
       - name: Install app dependencies and typecheck
         working-directory: ${{ matrix.app_dir }}
         run: |
-          node ../../.github/scripts/npm-install-retry.mjs
+          node ../../.github/scripts/npm-install-retry.mjs ci
           npx expo install --check
           npm run typecheck
       - name: Generate native Android project
