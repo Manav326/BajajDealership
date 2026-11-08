@@ -150,7 +150,51 @@ jobs:
         shell: bash
         run: |
           # This script runs only against the fresh, disposable PostgreSQL database created above.
-          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 < .github/scripts/seed-android-maestro-authenticated.sql
+          docker compose -f compose.yaml -f .github/compose.ci.yaml exec -T postgres psql -U bajaj_app -d bajaj_dealership -v ON_ERROR_STOP=1 <<'SQL'
+          do $
+          declare
+            v_dealership_id bigint;
+          begin
+            select id into v_dealership_id
+            from dealership where code = 'CI-LUCKY-BAJAJ' and status = 'ACTIVE';
+
+            if not exists (
+              select 1
+              from bajaj_spare_part_catalogue catalogue
+              join retail_part_catalogue_listing listing
+                on listing.dealership_id = v_dealership_id
+                and listing.catalogue_product_id = catalogue.id
+              join retail_part_catalogue_stock_map stock_map
+                on stock_map.dealership_id = v_dealership_id
+                and stock_map.catalogue_product_id = catalogue.id
+              join spare_part part
+                on part.dealership_id = v_dealership_id
+                and part.id = stock_map.stock_part_id
+              join spare_part_balance balance
+                on balance.dealership_id = v_dealership_id and balance.part_id = part.id
+              where catalogue.catalogue_code = 'BGP-0001'
+                and catalogue.is_global_catalogue = true
+                and catalogue.source_data_status = 'NAME_REFERENCE_ONLY'
+                and listing.retail_enabled = true
+                and listing.retail_price = 199.00
+                and listing.fitment_verified = true
+                and listing.fitment_model_codes = jsonb_build_array('BAJAJ_PULSAR_NS200')
+                and part.sku_code = 'CI-MAESTRO-BRAKE-SHOE'
+                and balance.quantity_on_hand = 3.000
+                and balance.quantity_reserved = 0.000
+            ) then
+              raise exception 'Synthetic brake-shoe retail listing is missing stock, price or verified fitment.';
+            end if;
+
+            if (select count(*) from staff_user
+                where dealership_id = v_dealership_id
+                  and email = 'ci-fixture-seeder@lucky-bajaj.invalid'
+                  and status = 'DISABLED') <> 1 then
+              raise exception 'The CI fixture audit actor must remain disabled.';
+            end if;
+          end;
+          $;
+          SQL
           curl -fsS -X POST http://localhost:8080/api/v1/customer/auth/login \
             -H 'Content-Type: application/json' \
             --data '{"dealershipCode":"CI-LUCKY-BAJAJ","customerCode":"CI-MAESTRO-CUSTOMER","password":"CI-Maestro-Only-Password-123"}' \
