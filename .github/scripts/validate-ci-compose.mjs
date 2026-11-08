@@ -25,18 +25,21 @@ if (major < 2 || (major === 2 && minor < 24)) {
 const normal = composeConfig(["compose.yaml"]);
 const ci = composeConfig(["compose.yaml", ".github/compose.ci.yaml"]);
 
-if (normal.networks?.["cloudflare-edge"]?.external !== true) {
-  throw new Error("The normal compose.yaml deployment topology changed unexpectedly; the CI override must not replace it.");
+if (!normal.services?.api?.networks || Object.keys(normal.services.api.networks).length < 1) {
+  throw new Error("The normal compose.yaml service networking must remain configured; the CI overlay must not replace it.");
 }
-if (ci.networks?.["cloudflare-edge"]) {
-  throw new Error("The CI Compose model must not declare the optional external ingress network.");
+const externalCiNetworks = Object.entries(ci.networks ?? {})
+  .filter(([, network]) => network.external === true)
+  .map(([name]) => name);
+if (externalCiNetworks.length > 0) {
+  throw new Error(`The CI Compose model must not depend on externally managed networks: ${externalCiNetworks.join(", ")}.`);
 }
 
 for (const serviceName of ["postgres", "api", "customer-web", "staff-web"]) {
   const service = ci.services?.[serviceName];
   if (!service) throw new Error(`CI Compose model is missing required service '${serviceName}'.`);
   const networks = Object.keys(service.networks ?? {});
-  if (!networks.includes("default") || networks.includes("cloudflare-edge")) {
+  if (networks.length !== 1 || networks[0] !== "default") {
     throw new Error(`CI service '${serviceName}' must use only the project default network; found: ${networks.join(", ") || "(none)"}.`);
   }
 }
