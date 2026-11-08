@@ -18,6 +18,7 @@ tags:
 - assertNotVisible: "Part category"
 - tapOn: "Search parts"
 - inputText: "Brake shoe"
+- hideKeyboard
 - scrollUntilVisible:
     element:
       text: "Add to cart"
