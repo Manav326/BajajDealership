@@ -154,9 +154,19 @@ jobs:
           do $ci$
           declare
             v_dealership_id bigint;
+            v_diagnostics jsonb;
           begin
             select id into v_dealership_id
             from dealership where code = 'CI-LUCKY-BAJAJ' and status = 'ACTIVE';
+
+            select jsonb_build_object(
+              'dealershipId', v_dealership_id,
+              'catalogue', (select to_jsonb(c) from bajaj_spare_part_catalogue c where c.catalogue_code = 'BGP-0001'),
+              'listing', (select to_jsonb(l) from retail_part_catalogue_listing l join bajaj_spare_part_catalogue c on c.id = l.catalogue_product_id where l.dealership_id = v_dealership_id and c.catalogue_code = 'BGP-0001'),
+              'stockMap', (select to_jsonb(m) from retail_part_catalogue_stock_map m join bajaj_spare_part_catalogue c on c.id = m.catalogue_product_id where m.dealership_id = v_dealership_id and c.catalogue_code = 'BGP-0001'),
+              'syntheticPart', (select to_jsonb(p) from spare_part p where p.dealership_id = v_dealership_id and p.sku_code = 'CI-MAESTRO-BRAKE-SHOE'),
+              'balance', (select to_jsonb(b) from spare_part_balance b join spare_part p on p.id = b.part_id and p.dealership_id = b.dealership_id where b.dealership_id = v_dealership_id and p.sku_code = 'CI-MAESTRO-BRAKE-SHOE')
+            ) into v_diagnostics;
 
             if not exists (
               select 1
@@ -183,7 +193,7 @@ jobs:
                 and balance.quantity_on_hand = 3.000
                 and balance.quantity_reserved = 0.000
             ) then
-              raise exception 'Synthetic brake-shoe retail listing is missing stock, price or verified fitment.';
+              raise exception 'Synthetic brake-shoe retail listing preflight failed. Diagnostics: %', v_diagnostics;
             end if;
 
             if (select count(*) from staff_user
